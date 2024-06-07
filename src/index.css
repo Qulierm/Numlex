@@ -1,0 +1,149 @@
+body {
+    margin: 0;
+    font-family: 'San Francisco', sans-serif;
+    background-color: #2b2b2b;
+    color: #f8f8f2;
+    display: flex;
+    height: 100vh;
+}
+
+button{
+    background: none;
+}
+.container {
+    display: flex;
+    width: 100%;
+}
+
+.sidebar {
+    background-color: #323136;
+    width: 250px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+}
+
+.sidebar-header {
+    display: grid;
+    margin-bottom: 5px;
+}
+
+.new-sheet {
+    background-image: url('./icons/new.svg');
+    background-repeat: no-repeat;
+    background-position: 50px center;
+    border: none;
+    color: #b0b0b0;
+    padding: 10px;
+    width: 100%;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.sheets-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.sidebar-item {
+  height: 40px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: #b0b0b0;
+}
+
+
+.sidebar-item span {
+    margin-bottom: 3px; /* Добавляем небольшой отступ между строками */
+}
+
+.sidebar-item.active, .sidebar-item:hover {
+    background-color: #555555;
+    color: #f8f8f2;
+}
+
+.main {
+    flex: 1;
+    position: relative; /* Установка позиции для псевдоэлемента */
+    background-color: #2b2b2b;
+    display: flex;
+    flex-direction: column;
+}
+
+.main-header h1 {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 0 0 20px 0;
+}
+
+.main-content {
+    display: flex;
+    flex: 1;
+    align-items: flex-start;
+    gap: 0; /* Убираем отступы между элементами */
+}
+
+textarea {
+    font-family: "SF Pro Text";
+    font-style: normal;
+    font-weight: 400;
+    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    font-size: 24px; /* Увеличиваем размер шрифта */
+    background-color: #1e1f1e;
+    color: #aaf1fc;
+    border: none;
+    padding: 20px;
+    resize: none;
+    border-radius: 5px;
+    margin: 0;
+    height: 100%;
+    flex-grow: 1;
+    margin-top: 0; /* Убираем отступ сверху */
+}
+
+pre {
+    font-family: "SF Pro Text";
+    font-style: normal;
+    font-weight: 400;
+    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    width: 170px; /* установка ширины в 10% от ширины видимой области окна */
+    background-color: #2b2b2b; /* изменение фона */
+    color: #f8f8f2;
+    padding: 20px;
+    border-radius: 5px;
+    font-size: 24px; /* Увеличиваем размер шрифта */
+    overflow: auto;
+    white-space: pre-wrap;
+    margin: 0;
+    height: 100%;
+    margin-top: 0; /* Убираем отступ сверху */
+}
+
+.output {
+    font-family: "SF Pro Text";
+    font-style: normal;
+    font-weight: 400;
+    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+}
+
+textarea:focus {
+    outline: none;
+}
+
+.delete-sheet-button {
+    visibility: hidden;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+
+.sidebar-item img {
+    width: 16px;
+    height: 16px;
+}

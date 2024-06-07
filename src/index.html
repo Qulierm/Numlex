@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Numlex</title>
+    <link rel="stylesheet" href="index.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=San+Francisco&display=swap">
+  </head>
+  <body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <button class="new-sheet" onclick="addNewSheet()">New Sheet</button>
+            </div>
+            <div class="sheets-list">
+                <div class="sidebar-item active" onclick="switchSheet(0)">
+                    Subtotals
+                </div>
+            </div>
+        </div>
+        <div class="main">
+            <div class="main-header">
+              
+            </div>
+            <div class="main-content">
+                <textarea id="input" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
+                <pre><code id="code" class="output"></code></pre>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>
