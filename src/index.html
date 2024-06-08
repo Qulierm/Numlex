@@ -20,13 +20,12 @@
         </div>
         <div class="main">
             <div class="main-header">
-              
+                </div>
+                    <div class="main-content" id="main-content">
+                        <textarea id="input" class="syncscroll" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
+                        <pre id="code"><code id="code" class="output scroll-sync"></code></pre>
+                    </div>
             </div>
-            <div class="main-content">
-                <textarea id="input" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
-                <pre><code id="code" class="output"></code></pre>
-            </div>
-        </div>
     </div>
     <script src="script.js"></script>
   </body>
