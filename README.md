@@ -38,10 +38,10 @@ To package the application into an executable file, follow these steps:
 
 ## Screenshots
 
-<img src="https://i.ibb.co/7zm4xmS/Numlex-07-06-2024-22-42-40.png">
+![2024-06-09_00-16-09](https://github.com/Qulierm/Numlex/assets/132899713/f69f2f4e-5b96-4fb2-a0ff-7f057927cf81)
 *Main interface with sheet management and real-time evaluation.*
 
-<img src="https://i.ibb.co/9Nyh57k/Numlex-07-06-2024-22-43-50.png" alt="Numlex-07-06-2024-22-43-50" border="0">
+![screenshot](https://github.com/Qulierm/Numlex/assets/132899713/d34577b4-7c63-4c5c-8698-61ded1e9d785)
 *Deleting a sheet by clicking on the delete icon.*
 
 ## Contributing
