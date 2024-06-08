@@ -5,6 +5,7 @@ body {
     color: #f8f8f2;
     display: flex;
     height: 100vh;
+    overflow: hidden;
 }
 
 button{
@@ -13,14 +14,16 @@ button{
 .container {
     display: flex;
     width: 100%;
+    overflow: hidden;
 }
 
 .sidebar {
     background-color: #323136;
-    width: 250px;
+    width: 200px;
     display: flex;
     flex-direction: column;
     padding: 10px;
+    height: 100vh;
 }
 
 .sidebar-header {
@@ -30,13 +33,14 @@ button{
 
 .new-sheet {
     background-image: url('./icons/new.svg');
+    background-size: 17px;
     background-repeat: no-repeat;
-    background-position: 50px center;
+    background-position: 35px center;
     border: none;
     color: #b0b0b0;
     padding: 10px;
     width: 100%;
-    font-size: 20px;
+    font-size: 17px;
     cursor: pointer;
 }
 
@@ -46,7 +50,7 @@ button{
 }
 
 .sidebar-item {
-  height: 40px;
+    height: 40px;
     display: flex;
     flex-direction: column;
     padding: 10px;
@@ -55,6 +59,7 @@ button{
     font-size: 16px;
     margin-bottom: 10px;
     color: #b0b0b0;
+    position: relative;
 }
 
 
@@ -62,12 +67,13 @@ button{
     margin-bottom: 3px; /* Добавляем небольшой отступ между строками */
 }
 
-.sidebar-item.active, .sidebar-item:hover {
+.sidebar-item.active{
     background-color: #555555;
     color: #f8f8f2;
 }
 
 .main {
+    height: 100vh;
     flex: 1;
     position: relative; /* Установка позиции для псевдоэлемента */
     background-color: #2b2b2b;
@@ -86,6 +92,7 @@ button{
     flex: 1;
     align-items: flex-start;
     gap: 0; /* Убираем отступы между элементами */
+    overflow-y: hidden;
 }
 
 textarea {
@@ -97,11 +104,14 @@ textarea {
     background-color: #1e1f1e;
     color: #aaf1fc;
     border: none;
-    padding: 20px;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 20px;
+    padding-bottom: 0px;
     resize: none;
     border-radius: 5px;
     margin: 0;
-    height: 100%;
+    height: 100vh;
     flex-grow: 1;
     margin-top: 0; /* Убираем отступ сверху */
 }
@@ -114,13 +124,16 @@ pre {
     width: 170px; /* установка ширины в 10% от ширины видимой области окна */
     background-color: #2b2b2b; /* изменение фона */
     color: #f8f8f2;
-    padding: 20px;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 20px;
+    padding-bottom: 0px;
     border-radius: 5px;
     font-size: 24px; /* Увеличиваем размер шрифта */
     overflow: auto;
     white-space: pre-wrap;
     margin: 0;
-    height: 100%;
+    height: 100vh;
     margin-top: 0; /* Убираем отступ сверху */
 }
 
@@ -141,6 +154,59 @@ textarea:focus {
     height: 16px;
     cursor: pointer;
 }
+
+
+.sidebar-item img {
+    width: 16px;
+    height: 16px;
+}
+
+#input, #code, .sheets-list {
+    scrollbar-width: none; /* Firefox */
+}
+
+body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .sheets-list::-webkit-scrollbar, pre::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
+}
+
+@keyframes slideIn {
+    0% {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    100% {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.slide-in {
+    animation: slideIn 0.5s ease forwards;
+}
+
+.sidebar-item .sheet-title {
+    flex: 1;
+}
+
+
+.delete-sheet-button {
+    visibility: hidden;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    opacity: 0;
+    transform: scale(0.8);
+    position: absolute;
+    right: 10px; /* Располагаем кнопку справа */
+}
+
+.sidebar-item.active .delete-sheet-button {
+    opacity: 1;
+    transform: scale(1);
+    visibility: visible;
+}
+
 
 
 .sidebar-item img {
