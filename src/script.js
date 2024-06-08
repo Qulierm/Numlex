@@ -7,25 +7,39 @@ function updateCode() {
 	const lines = input.value.split('\n')
 	let output = ''
 
-	lines.forEach(line => {
+	let isFirstEmptyLine = true
+
+	lines.forEach((line, index) => {
+		if (line.trim() === '' || line.startsWith('#')) {
+			if (!isFirstEmptyLine) {
+				output += '\n' // Пропуск строки только если предыдущая строка не была пустой
+			}
+			isFirstEmptyLine = true
+			return
+		}
 		let result
 		if (line.startsWith('# ')) {
 			output += `<span class="hljs-title">${line.substring(2)}</span>\n`
-		} else if (line.startsWith('## ')) {
-			output += `<span class="hljs-subtitle">${line.substring(3)}</span>\n`
+			isFirstEmptyLine = false
+		} else if (line.startsWith('#')) {
+			// Пропускаем строку в выводе, если она начинается с #
+			output += '\n'
+			isFirstEmptyLine = true
 		} else {
 			try {
-				if (line.trim() !== '') {
-					const mathExpression = line.replace(/[^-()\d/*+.]/g, '')
-					result = eval(mathExpression)
+				const mathExpression = line.replace(/[^-()\d/*+.]/g, '')
+				result = eval(mathExpression)
+				if (result !== undefined) {
+					// Проверка на undefined
 					output += `<span class="number">${result}</span>\n`
+					isFirstEmptyLine = false
 				}
 			} catch (e) {
 				output += `<span class="error">Error</span>\n`
+				isFirstEmptyLine = false
 			}
 		}
 	})
-
 	code.innerHTML = output
 	sheets[currentSheetIndex].content = input.value
 }
@@ -46,9 +60,13 @@ function addNewSheet() {
 	sheets.unshift(newSheet)
 	switchSheet(0)
 	renderSheets()
-}
 
+	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
+	newSheetElement.classList.add('slide-in')
+}
 function deleteSheet(index) {
+	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
+	newSheetElement.classList.add('slide-out')
 	sheets.splice(index, 1)
 	if (index === currentSheetIndex) {
 		currentSheetIndex = 0
@@ -63,6 +81,7 @@ function switchSheet(index) {
 	document.getElementById('input').value = sheet.content
 	updateCode()
 	renderSheets()
+	
 }
 
 function renderSheets() {
@@ -74,18 +93,21 @@ function renderSheets() {
 		sheetElement.className =
 			'sidebar-item' + (index === currentSheetIndex ? ' active' : '')
 		sheetElement.innerHTML = `
-            <span>${sheet.title}</span>
-            <span>${sheet.createdAt}</span>
-            <img class="delete-sheet-button" src="delete.svg" alt="Delete" onclick="deleteSheet(${index})">
+            <span class="sheet-title">${sheet.title}</span>
+            <span class="sheet-time">${sheet.createdAt || ''}</span>
+            ${
+							index === currentSheetIndex
+								? `<img class="delete-sheet-button" src="./icons/delete.svg" alt="Delete" onclick="deleteSheet(${index})">`
+								: ''
+						}
         `
 		sheetElement.addEventListener('click', () => switchSheet(index))
 		sheetsList.appendChild(sheetElement)
 	})
 }
-
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function () {
 	renderSheets()
-	updateCode()
+	switchSheet(currentSheetIndex)
 })
 
 document.getElementById('input').addEventListener('keydown', function (event) {
@@ -117,4 +139,20 @@ document.getElementById('input').addEventListener('keypress', function (event) {
 	if ('+-*/'.includes(event.key)) {
 		event.preventDefault()
 	}
+})
+
+document.addEventListener('DOMContentLoaded', function () {
+	const input = document.getElementById('input')
+	const output = document.getElementById('code')
+
+	function syncScroll(event) {
+		if (event.target === input) {
+			output.scrollTop = input.scrollTop
+		} else {
+			input.scrollTop = output.scrollTop
+		}
+	}
+
+	input.addEventListener('scroll', syncScroll)
+	output.addEventListener('scroll', syncScroll)
 })
