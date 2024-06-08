@@ -15,7 +15,7 @@ function createWindow() {
 	const mainWindow = new BrowserWindow({
 		icon: path.join(__dirname, "numlex.ico"),
 		autoHideMenuBar: true,
-		width: 900,
+		width: 840,
 		height: 600,
 		webPreferences: {
 			preload: path.join(__dirname, 'src', 'preload.js'),
