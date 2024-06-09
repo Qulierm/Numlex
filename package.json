@@ -1,19 +1,20 @@
 {
 	"name": "numlex",
 	"productName": "Numlex",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"description": "Notepad based calculator build with Electron",
 	"main": "main.js",
 	"scripts": {
 		"start": "electron .",
 		"dist": "electron-builder"
 	},
-  "build": {
-    "appId": "com.myapp.id",
-    "win": {
-      "target": "nsis"
-    }
-  },
+	"build": {
+		"appId": "com.myapp.id",
+		"win": {
+			"target": "nsis",
+			"icon": "numlex.ico"
+		}
+	},
 	"devDependencies": {
 		"@electron-forge/cli": "^7.4.0",
 		"@electron-forge/maker-deb": "^7.4.0",
@@ -24,8 +25,8 @@
 		"@electron-forge/plugin-fuses": "^7.4.0",
 		"@electron/fuses": "^1.8.0",
 		"electron": "30.1.0",
-		"electron-packager": "^17.1.2",
-    "electron-builder": "^22.11.7"
+		"electron-builder": "^22.14.13",
+		"electron-packager": "^17.1.2"
 	},
 	"keywords": [],
 	"author": {
@@ -34,6 +35,7 @@
 	},
 	"license": "MIT",
 	"dependencies": {
-		"electron-squirrel-startup": "^1.0.1"
+		"electron-squirrel-startup": "^1.0.1",
+		"sortablejs": "^1.15.2"
 	}
 }
