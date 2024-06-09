@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://i.ibb.co/fCsBtDq/numlex.png" alt="Sublime's custom image" width="150px" height="150px"/>
 </p>
-A simple and elegant Electron-based application to create and manage sheets with real-time syntax highlighting and evaluation for mathematical expressions.
+A simple and elegant notepad-based calculator to create and manage sheets with real-time syntax highlighting and evaluation for mathematical expressions.
 
 ## Features
 
