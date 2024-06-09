@@ -13,10 +13,10 @@ app.setUserTasks([
 ])
 function createWindow() {
 	const mainWindow = new BrowserWindow({
-		icon: path.join(__dirname, "numlex.ico"),
 		autoHideMenuBar: true,
 		width: 840,
 		height: 600,
+		icon: path.join(__dirname, 'numlex.ico'),
 		webPreferences: {
 			preload: path.join(__dirname, 'src', 'preload.js'),
 			nodeIntegration: true,
