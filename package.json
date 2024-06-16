@@ -1,7 +1,7 @@
 {
 	"name": "numlex",
 	"productName": "Numlex",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Notepad based calculator build with Electron",
 	"main": "main.js",
 	"scripts": {
@@ -9,7 +9,7 @@
 		"dist": "electron-builder"
 	},
 	"build": {
-		"appId": "com.myapp.id",
+		"appId": "com.numlex.id",
 		"win": {
 			"target": "nsis",
 			"icon": "numlex.ico"
