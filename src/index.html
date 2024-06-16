@@ -17,6 +17,7 @@
                     Subtotals
                 </div>
             </div>
+            <button class="settings-button" onclick="openSettings()"></button>
         </div>
         <div class="main">
             <div class="main-header">
@@ -26,6 +27,30 @@
                         <pre id="code"><code id="code" class="output scroll-sync"></code></pre>
                     </div>
             </div>
+    </div>
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSettings()">&times;</span>
+            <h3>Settings</h3>
+                <label for="example-setting">Rounding numbers:</label>
+                <select id="decimal-places">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                </select>
+                <br>
+                <label for="example-setting">Font color:</label>
+                <select id="colorSelector" onchange="saveSettings()">
+                    <option value="blue">Blue</option>
+                    <option value="purple">Purple</option>
+                    <option value="red">Red</option>
+                    <option value="green">Green</option>
+                </select>
+        </div>
     </div>
     <script src="script.js"></script>
   </body>
