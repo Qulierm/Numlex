@@ -18,7 +18,7 @@ button{
 }
 
 .sidebar {
-    background-color: #323136;
+    background-color: #262627;
     width: 200px;
     display: flex;
     flex-direction: column;
@@ -50,6 +50,9 @@ button{
 }
 
 .sidebar-item {
+    border: 0px solid;
+    background-color: #404040;
+    color: white;
     height: 40px;
     display: flex;
     flex-direction: column;
@@ -68,7 +71,7 @@ button{
 }
 
 .sidebar-item.active{
-    background-color: #555555;
+    background-color: #606060;
     color: #f8f8f2;
 }
 
@@ -101,15 +104,14 @@ textarea {
     font-weight: 400;
     src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
     font-size: 24px; /* Увеличиваем размер шрифта */
-    background-color: #1e1f1e;
-    color: #aaf1fc;
+    background-color: #262627;
+    color: #52A8FF;
     border: none;
     padding-left: 20px;
     padding-right: 20px;
     padding-top: 20px;
     padding-bottom: 0px;
     resize: none;
-    border-radius: 5px;
     margin: 0;
     height: 100vh;
     flex-grow: 1;
@@ -122,13 +124,13 @@ pre {
     font-weight: 400;
     src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
     width: 170px; /* установка ширины в 10% от ширины видимой области окна */
-    background-color: #2b2b2b; /* изменение фона */
+    background-color: #202021;
+    border-left: 2px solid #3d3d3e;
     color: #f8f8f2;
     padding-left: 20px;
     padding-right: 20px;
     padding-top: 20px;
     padding-bottom: 0px;
-    border-radius: 5px;
     font-size: 24px; /* Увеличиваем размер шрифта */
     overflow: auto;
     white-space: pre-wrap;
@@ -207,9 +209,127 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
     visibility: visible;
 }
 
+.modal {
+    /* padding: 10px; */
+    font-family: "SF Pro Text";
+    font-style: normal;
+    font-weight: 400;
+    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    display: none;
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgb(0, 0, 0);
+    background-color: rgba(0, 0, 0, 0.4);
+}
 
+.settings-button{
+    background-image: url('./icons/settings.svg');
+    background-size: 25px;
+    background-repeat: no-repeat;
+    border: none;
+    color: #b0b0b0;
+    padding: 10px;
+    width: 25px;
+    height: 45px;
+    cursor: pointer;
+}
 
-.sidebar-item img {
-    width: 16px;
-    height: 16px;
+.modal-content {
+    background-color: #262627;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #6c6c6c;
+    width: 80%;
+    max-width: 500px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.close:hover,
+.close:focus {
+    color: #404040;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+/* input{
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    box-sizing: border-box;
+    margin: 0px;
+    font: inherit;
+    letter-spacing: inherit;
+    background: none;
+    border: 1px solid;
+    margin-top: var(--spacing-3,.75rem);
+    display: block;
+    width: 100%;
+    border-radius: var(--radius-lg,.5rem);
+    --tw-border-style: none;
+    border-style: none;
+    background-color: #404040;
+    padding-top: var(--spacing-1_5,.375rem);
+    padding-bottom: var(--spacing-1_5,.375rem);
+    padding-left: var(--spacing-3,.75rem);
+    padding-right: var(--spacing-3,.75rem);
+    font-size: var(--font-size-sm,.875rem);
+    line-height: var(--line-height-6,1.5rem);
+    color: var(--color-white,#fff);
+} */
+
+select{
+    box-sizing: border-box;
+    margin: 0;
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    background: none;
+    border: 1px solid;
+    margin-top: var(--spacing-3,.75rem);
+    display: block;
+    width: 100%;
+    appearance: none;
+    border-radius: var(--radius-lg,.5rem);
+    --tw-border-style: none;
+    border-style: none;
+    background-color: #404040;
+    padding-top: var(--spacing-1_5,.375rem);
+    padding-bottom: var(--spacing-1_5,.375rem);
+    padding-left: var(--spacing-3,.75rem);
+    padding-right: var(--spacing-3,.75rem);
+    font-size: var(--font-size-sm,.875rem);
+    line-height: var(--line-height-6,1.5rem);
+    color: var(--color-white,#fff);
+    outline-offset: 2px;
+    outline: 2px solid #0000;
+}
+
+.blue{
+    color:#52A8FF;
+}
+
+.purple{
+    color: #BF7AF0;
+}
+
+.red{
+    color: #F75F8F;
+}
+
+.green{
+    color: #4FBF63;
 }
