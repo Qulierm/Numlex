@@ -1,5 +1,13 @@
 let sheets = [{ title: 'Sheet', content: '' }]
 let currentSheetIndex = 0
+let decimalPlaces = 6 // Значение по умолчанию
+
+document
+	.getElementById('decimal-places')
+	.addEventListener('change', function () {
+		decimalPlaces = this.value
+		updateCode() // Пересчитать результат с новым количеством знаков после запятой
+	})
 
 function updateCode() {
 	const input = document.getElementById('input')
@@ -30,7 +38,10 @@ function updateCode() {
 				const mathExpression = line.replace(/[^-()\d/*+.]/g, '')
 				result = eval(mathExpression)
 				if (result !== undefined) {
-					// Проверка на undefined
+					// Проверка на undefined и округление до нужного количества знаков после запятой
+					if (result % 1 !== 0) {
+						result = parseFloat(result.toFixed(decimalPlaces))
+					}
 					output += `<span class="number">${result}</span>\n`
 					isFirstEmptyLine = false
 				}
@@ -43,6 +54,7 @@ function updateCode() {
 	code.innerHTML = output
 	sheets[currentSheetIndex].content = input.value
 }
+
 
 function addNewSheet() {
 	const currentTime = new Date()
@@ -64,15 +76,20 @@ function addNewSheet() {
 	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
 	newSheetElement.classList.add('slide-in')
 }
+
 function deleteSheet(index) {
-	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
-	newSheetElement.classList.add('slide-out')
-	sheets.splice(index, 1)
-	if (index === currentSheetIndex) {
-		currentSheetIndex = 0
-	}
-	renderSheets()
-	switchSheet(currentSheetIndex)
+	const sheetElement = document.querySelectorAll('.sheets-list .sidebar-item')[
+		index
+	]
+	sheetElement.classList.add('slide-out')
+	setTimeout(() => {
+		sheets.splice(index, 1)
+		if (index === currentSheetIndex) {
+			currentSheetIndex = 0
+		}
+		renderSheets()
+		switchSheet(currentSheetIndex)
+	}, 500) // Длительность анимации в миллисекундах
 }
 
 function switchSheet(index) {
@@ -81,7 +98,6 @@ function switchSheet(index) {
 	document.getElementById('input').value = sheet.content
 	updateCode()
 	renderSheets()
-	
 }
 
 function renderSheets() {
@@ -105,6 +121,7 @@ function renderSheets() {
 		sheetsList.appendChild(sheetElement)
 	})
 }
+
 document.addEventListener('DOMContentLoaded', function () {
 	renderSheets()
 	switchSheet(currentSheetIndex)
@@ -156,3 +173,20 @@ document.addEventListener('DOMContentLoaded', function () {
 	input.addEventListener('scroll', syncScroll)
 	output.addEventListener('scroll', syncScroll)
 })
+
+function openSettings() {
+	document.getElementById('settings-modal').style.display = 'block'
+}
+
+function closeSettings() {
+	document.getElementById('settings-modal').style.display = 'none'
+}
+
+function saveSettings() {
+	const colorSelector = document.getElementById('colorSelector')
+	const selectedColor = colorSelector.value
+
+	const textarea = document.getElementById('input')
+	textarea.className = '' // Очистим все текущие классы
+	textarea.classList.add(selectedColor) // Добавим выбранный класс
+}
