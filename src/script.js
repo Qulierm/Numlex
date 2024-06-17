@@ -185,8 +185,15 @@ function closeSettings() {
 function saveSettings() {
 	const colorSelector = document.getElementById('colorSelector')
 	const selectedColor = colorSelector.value
+	const fontSelector = document.getElementById('fontSelector')
+	const selectedFont = fontSelector.value
 
 	const textarea = document.getElementById('input')
+	const pre = document.getElementById('code')
 	textarea.className = '' // Очистим все текущие классы
+	pre.className = '' // Очистим все текущие классы
 	textarea.classList.add(selectedColor) // Добавим выбранный класс
+	pre.classList.add(selectedFont)
+	textarea.classList.add(selectedFont)
+
 }
