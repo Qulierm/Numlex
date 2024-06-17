@@ -1,6 +1,7 @@
 body {
     margin: 0;
-    font-family: 'San Francisco', sans-serif;
+    font-family: 'Geist';
+    font-weight: 400;
     background-color: #2b2b2b;
     color: #f8f8f2;
     display: flex;
@@ -35,7 +36,7 @@ button{
     background-image: url('./icons/new.svg');
     background-size: 17px;
     background-repeat: no-repeat;
-    background-position: 35px center;
+    background-position: 32px center;
     border: none;
     color: #b0b0b0;
     padding: 10px;
@@ -99,10 +100,9 @@ button{
 }
 
 textarea {
-    font-family: "SF Pro Text";
+    font-family: "Geist";
     font-style: normal;
-    font-weight: 400;
-    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    font-weight: 430;
     font-size: 24px; /* Увеличиваем размер шрифта */
     background-color: #262627;
     color: #52A8FF;
@@ -119,10 +119,10 @@ textarea {
 }
 
 pre {
-    font-family: "SF Pro Text";
-    font-style: normal;
-    font-weight: 400;
-    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    font-family: "Geist";
+    font-style:normal;
+    font-weight: 430;
+    /* src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf"); */
     width: 170px; /* установка ширины в 10% от ширины видимой области окна */
     background-color: #202021;
     border-left: 2px solid #3d3d3e;
@@ -211,7 +211,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 
 .modal {
     /* padding: 10px; */
-    font-family: "SF Pro Text";
+    font-family: "Geist";
     font-style: normal;
     font-weight: 400;
     src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
@@ -332,4 +332,27 @@ select{
 
 .green{
     color: #4FBF63;
+}
+
+.ttt{
+    font-size: 22px;
+}
+.tt{
+    font-size: 23px;
+}
+
+.tf{
+    font-size: 24px;
+}
+
+.tff{
+    font-size: 25px;
+}
+
+.ts{
+    font-size: 26px;
+}
+
+.tss{
+    font-size: 27px;
 }
