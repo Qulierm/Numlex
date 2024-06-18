@@ -101,7 +101,7 @@ button{
 
 textarea {
     font-family: "Geist";
-    font-style: normal;
+    font-style: medium;
     font-weight: 430;
     font-size: 24px; /* Увеличиваем размер шрифта */
     background-color: #262627;
@@ -120,9 +120,8 @@ textarea {
 
 pre {
     font-family: "Geist";
-    font-style:normal;
+    font-style: medium;
     font-weight: 430;
-    /* src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf"); */
     width: 170px; /* установка ширины в 10% от ширины видимой области окна */
     background-color: #202021;
     border-left: 2px solid #3d3d3e;
