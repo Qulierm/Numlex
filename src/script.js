@@ -1,6 +1,12 @@
 let sheets = [{ title: 'Sheet', content: '' }]
 let currentSheetIndex = 0
 let decimalPlaces = 6 // Значение по умолчанию
+fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/USD') 
+	.then(response => response.json())
+	.then(data => {
+		// Обработка ответа от API
+		const exchangeRateUSD = data.conversion_rates.RUB
+	})
 
 document
 	.getElementById('decimal-places')
@@ -9,11 +15,23 @@ document
 		updateCode() // Пересчитать результат с новым количеством знаков после запятой
 	})
 
-function updateCode() {
+async function updateCode() {
 	const input = document.getElementById('input')
 	const code = document.getElementById('code')
 	const lines = input.value.split('\n')
 	let output = ''
+	
+	const responseUSD = await fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/USD')
+	const dataUSD = await responseUSD.json()
+	const exchangeRateUSD = dataUSD.conversion_rates.RUB
+
+	const responseEUR = await fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/EUR')
+	const dataEUR = await responseEUR.json()
+	const exchangeRateEUR = dataEUR.conversion_rates.RUB
+
+	const responseEURUSD = await fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/USD')
+	const dataEURUSD = await responseEURUSD.json()
+	const exchangeRateEURUSD = dataEURUSD.conversion_rates.EUR
 
 	let isFirstEmptyLine = true
 
@@ -25,7 +43,9 @@ function updateCode() {
 			isFirstEmptyLine = true
 			return
 		}
+
 		let result
+
 		if (line.startsWith('# ')) {
 			output += `<span class="hljs-title">${line.substring(2)}</span>\n`
 			isFirstEmptyLine = false
@@ -33,14 +53,94 @@ function updateCode() {
 			// Пропускаем строку в выводе, если она начинается с #
 			output += '\n'
 			isFirstEmptyLine = true
+		} else if (line.includes('km to meter')) {
+			const kilometers = parseFloat(line.split(' ')[0])
+			if (!isNaN(kilometers)) {
+				result = kilometers * 1000 // Преобразование км в метры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} meters</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('meter to km')) {
+			const meters = parseFloat(line.split(' ')[0])
+			if (!isNaN(meters)) {
+				result = meters / 1000 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} km</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('liter to ml')) {
+			const liters = parseFloat(line.split(' ')[0])
+			if (!isNaN(liters)) {
+				result = liters * 1000 // Преобразование литров в миллилитры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} ml</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('ml to liter')) {
+			const ml = parseFloat(line.split(' ')[0])
+			if (!isNaN(ml)) {
+				result = ml / 1000 // Преобразование миллилитров в литры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} L</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('usd to rub')) {
+			const usd = parseFloat(line.split(' ')[0])
+			if (!isNaN(usd)) {
+				result = usd * exchangeRateUSD // Преобразование долларов в рубли
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} rub</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('eur to rub')) {
+			const eur = parseFloat(line.split(' ')[0])
+			if (!isNaN(eur)) {
+				result = eur * exchangeRateEUR // преобразование евро в рубли
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} rub</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('rub to eur')) {
+			const rub = parseFloat(line.split(' ')[0])
+			if (!isNaN(rub)) {
+				result = rub / exchangeRateEUR // преобразование рубли в евро
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} eur</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('usd to eur')) {
+			const usd = parseFloat(line.split(' ')[0])
+			if (!isNaN(usd)) {
+				result = usd * exchangeRateEURUSD // преобразование долары в евро
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} eur</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('eur to usd')) {
+			const eur = parseFloat(line.split(' ')[0])
+			if (!isNaN(eur)) {
+				result = eur / exchangeRateEURUSD // преобразование долары в евро
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} usd</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('rub to usd')) {
+			const rub = parseFloat(line.split(' ')[0])
+			if (!isNaN(rub)) {
+				result = rub / exchangeRateUSD // Преобразование рублей в доллары
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} usd</span>\n`
+				isFirstEmptyLine = false
+			}
 		} else {
 			try {
 				const mathExpression = line.replace(/[^-()\d/*+.]/g, '')
 				result = eval(mathExpression)
 				if (result !== undefined) {
-					// Проверка на undefined и округление до нужного количества знаков после запятой
+					// Проверка на undefined и округление до 4 знаков после запятой, если необходимо
 					if (result % 1 !== 0) {
-						result = parseFloat(result.toFixed(decimalPlaces))
+						result = parseFloat(result.toFixed(4))
 					}
 					output += `<span class="number">${result}</span>\n`
 					isFirstEmptyLine = false
@@ -51,9 +151,11 @@ function updateCode() {
 			}
 		}
 	})
+
 	code.innerHTML = output
 	sheets[currentSheetIndex].content = input.value
 }
+
 
 
 function addNewSheet() {
