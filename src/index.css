@@ -1,7 +1,13 @@
+@font-face {
+    font-family: 'Geist-Medium';
+    src: url('./Geist-Medium.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+}
+
 body {
     margin: 0;
-    font-family: 'Geist';
-    font-weight: 400;
+    font-family: 'Geist-Medium', sans-serif;
     background-color: #2b2b2b;
     color: #f8f8f2;
     display: flex;
@@ -100,9 +106,7 @@ button{
 }
 
 textarea {
-    font-family: "Geist";
-    font-style: medium;
-    font-weight: 430;
+    font-family: 'Geist-Medium';
     font-size: 24px; /* Увеличиваем размер шрифта */
     background-color: #262627;
     color: #52A8FF;
@@ -119,8 +123,7 @@ textarea {
 }
 
 pre {
-    font-family: "Geist";
-    font-style: medium;
+    font-family: 'Geist-Medium', sans-serif;
     font-weight: 430;
     width: 170px; /* установка ширины в 10% от ширины видимой области окна */
     background-color: #202021;
@@ -139,10 +142,7 @@ pre {
 }
 
 .output {
-    font-family: "SF Pro Text";
-    font-style: normal;
-    font-weight: 400;
-    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    font-family: 'Geist-Medium', sans-serif;
 }
 
 textarea:focus {
@@ -210,10 +210,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 
 .modal {
     /* padding: 10px; */
-    font-family: "Geist";
-    font-style: normal;
-    font-weight: 400;
-    src: url("https://raw.githubusercontent.com/blaisck/sfwin/master/SFPro/TrueType/SFProText-Light.ttf");
+    font-family: 'Geist-Medium', sans-serif;
     display: none;
     position: fixed;
     z-index: 1;
@@ -354,4 +351,16 @@ select{
 
 .tss{
     font-size: 27px;
+}
+
+.te{
+    font-size: 28px;
+}
+
+.tn{
+    font-size: 29px;
+}
+
+.tth{
+    font-size: 30px;
 }
