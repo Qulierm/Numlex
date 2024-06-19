@@ -17,19 +17,19 @@ async function updateCode() {
 	let output = ''
 
 	const responseUSD = await fetch(
-		'https://v6.exchangerate-api.com/v6/API/latest/USD'
+		'https://v6.exchangerate-api.com/v6/{API-KEY}/latest/USD'
 	)
 	const dataUSD = await responseUSD.json()
 	const exchangeRateUSD = dataUSD.conversion_rates.RUB
 
 	const responseEUR = await fetch(
-		'https://v6.exchangerate-api.com/v6/API/latest/EUR'
+		'https://v6.exchangerate-api.com/v6/{API-KEY}/latest/EUR'
 	)
 	const dataEUR = await responseEUR.json()
 	const exchangeRateEUR = dataEUR.conversion_rates.RUB
 
 	const responseEURUSD = await fetch(
-		'https://v6.exchangerate-api.com/v6/API/latest/USD'
+		'https://v6.exchangerate-api.com/v6/{API-KEY}/latest/USD'
 	)
 	const dataEURUSD = await responseEURUSD.json()
 	const exchangeRateEURUSD = dataEURUSD.conversion_rates.EUR
