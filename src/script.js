@@ -1,11 +1,13 @@
 let sheets = [{ title: 'Sheet', content: '' }]
 let currentSheetIndex = 0
-let decimalPlaces = 6 // Значение по умолчанию
+let decimalPlaces = 6 // Default value
+let variables = {} // Store variables
+
 document
 	.getElementById('decimal-places')
 	.addEventListener('change', function () {
 		decimalPlaces = this.value
-		updateCode() // Пересчитать результат с новым количеством знаков после запятой
+		updateCode() // Recalculate result with the new decimal places
 	})
 
 async function updateCode() {
@@ -13,7 +15,7 @@ async function updateCode() {
 	const code = document.getElementById('code')
 	const lines = input.value.split('\n')
 	let output = ''
-	
+
 	const responseUSD = await fetch(
 		'https://v6.exchangerate-api.com/v6/2964ff10103b7310de97ba4c/latest/USD'
 	)
@@ -37,7 +39,7 @@ async function updateCode() {
 	lines.forEach((line, index) => {
 		if (line.trim() === '' || line.startsWith('#')) {
 			if (!isFirstEmptyLine) {
-				output += '\n' // Пропуск строки только если предыдущая строка не была пустой
+				output += '\n' // Skip line only if previous line was not empty
 			}
 			isFirstEmptyLine = true
 			return
@@ -49,7 +51,6 @@ async function updateCode() {
 			output += `<span class="hljs-title">${line.substring(2)}</span>\n`
 			isFirstEmptyLine = false
 		} else if (line.startsWith('#')) {
-			// Пропускаем строку в выводе, если она начинается с #
 			output += '\n'
 			isFirstEmptyLine = true
 		} else if (line.includes('km to meter')) {
@@ -140,12 +141,45 @@ async function updateCode() {
 				output += `<span class="number">${result} usd</span>\n`
 				isFirstEmptyLine = false
 			}
-		} else {
+		} else if (line.includes('=')) {
+			const [variable, expression] = line.split('=').map(part => part.trim())
+			let parsedValue
 			try {
-				const mathExpression = line.replace(/[^-()\d/*+.]/g, '')
-				result = eval(mathExpression)
+				const evaluatedExpression = expression
+					.replace(/[^-()\d/*+.]/g, match => {
+						if (variables.hasOwnProperty(match)) {
+							return variables[match]
+						}
+						return match
+					})
+					.replace(/\^/g, '**')
+					.replace(/(\d+)%/g, '(($1) / 100)')
+				parsedValue = eval(evaluatedExpression)
+				if (!isNaN(parsedValue)) {
+					variables[variable] = parsedValue
+					output += `<span class="variable">${variable} = ${parsedValue}</span>\n`
+					isFirstEmptyLine = false
+				}
+			} catch (e) {
+				output += `<span class="error">Error</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else {
+			let evaluatedLine = line
+			Object.keys(variables).forEach(variable => {
+				const variableValue = variables[variable]
+				const regex = new RegExp(`\\b${variable}\\b`, 'g')
+				evaluatedLine = evaluatedLine.replace(regex, variableValue)
+			})
+
+			evaluatedLine = evaluatedLine.replace(/[a-zA-Z]+/g, '') // Remove non-variable words
+
+			try {
+				evaluatedLine = evaluatedLine
+					.replace(/\^/g, '**')
+					.replace(/(\d+)%/g, '(($1) / 100)')
+				result = eval(evaluatedLine)
 				if (result !== undefined) {
-					// Проверка на undefined и округление до 4 знаков после запятой, если необходимо
 					if (result % 1 !== 0) {
 						result = parseFloat(result.toFixed(decimalPlaces))
 					}
@@ -162,8 +196,6 @@ async function updateCode() {
 	code.innerHTML = output
 	sheets[currentSheetIndex].content = input.value
 }
-
-
 
 function addNewSheet() {
 	const currentTime = new Date()
@@ -198,7 +230,7 @@ function deleteSheet(index) {
 		}
 		renderSheets()
 		switchSheet(currentSheetIndex)
-	}, 500) // Длительность анимации в миллисекундах
+	}, 500) // Duration of animation in milliseconds
 }
 
 function switchSheet(index) {
@@ -241,28 +273,23 @@ document.getElementById('input').addEventListener('keydown', function (event) {
 	const cursorPosition = textarea.selectionStart
 	const inputValue = textarea.value
 
-	// Проверяем, нажата ли клавиша с математическим знаком
-	if ('+-*/'.includes(event.key)) {
-		event.preventDefault() // Предотвращаем стандартное поведение браузера
+	if ('+-*/^'.includes(event.key)) {
+		event.preventDefault() // Prevent default browser behavior
 
-		// Проверяем, что перед курсором нет пробелов
 		if (inputValue.charAt(cursorPosition - 1) !== ' ') {
-			// Добавляем пробелы перед и после математического знака
 			textarea.value =
 				inputValue.slice(0, cursorPosition) +
 				' ' +
 				event.key +
 				' ' +
 				inputValue.slice(cursorPosition)
-			// Устанавливаем позицию курсора после добавленных пробелов
 			textarea.setSelectionRange(cursorPosition + 3, cursorPosition + 3)
 		}
 	}
 })
 
 document.getElementById('input').addEventListener('keypress', function (event) {
-	// Предотвращаем стандартное поведение браузера при вводе символов
-	if ('+-*/'.includes(event.key)) {
+	if ('+-*/^'.includes(event.key)) {
 		event.preventDefault()
 	}
 })
@@ -299,10 +326,9 @@ function saveSettings() {
 
 	const textarea = document.getElementById('input')
 	const pre = document.getElementById('code')
-	textarea.className = '' // Очистим все текущие классы
-	pre.className = '' // Очистим все текущие классы
-	textarea.classList.add(selectedColor) // Добавим выбранный класс
+	textarea.className = '' // Clear all current classes
+	pre.className = '' // Clear all current classes
+	textarea.classList.add(selectedColor) // Add selected class
 	pre.classList.add(selectedFont)
 	textarea.classList.add(selectedFont)
-
 }
