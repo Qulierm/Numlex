@@ -1,13 +1,6 @@
 let sheets = [{ title: 'Sheet', content: '' }]
 let currentSheetIndex = 0
 let decimalPlaces = 6 // Значение по умолчанию
-fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/USD') 
-	.then(response => response.json())
-	.then(data => {
-		// Обработка ответа от API
-		const exchangeRateUSD = data.conversion_rates.RUB
-	})
-
 document
 	.getElementById('decimal-places')
 	.addEventListener('change', function () {
@@ -21,15 +14,21 @@ async function updateCode() {
 	const lines = input.value.split('\n')
 	let output = ''
 	
-	const responseUSD = await fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/USD')
+	const responseUSD = await fetch(
+		'https://v6.exchangerate-api.com/v6/2964ff10103b7310de97ba4c/latest/USD'
+	)
 	const dataUSD = await responseUSD.json()
 	const exchangeRateUSD = dataUSD.conversion_rates.RUB
 
-	const responseEUR = await fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/EUR')
+	const responseEUR = await fetch(
+		'https://v6.exchangerate-api.com/v6/2964ff10103b7310de97ba4c/latest/EUR'
+	)
 	const dataEUR = await responseEUR.json()
 	const exchangeRateEUR = dataEUR.conversion_rates.RUB
 
-	const responseEURUSD = await fetch('https://v6.exchangerate-api.com/v6/423d3f392eb1edd51a6f844a/latest/USD')
+	const responseEURUSD = await fetch(
+		'https://v6.exchangerate-api.com/v6/2964ff10103b7310de97ba4c/latest/USD'
+	)
 	const dataEURUSD = await responseEURUSD.json()
 	const exchangeRateEURUSD = dataEURUSD.conversion_rates.EUR
 
@@ -69,6 +68,14 @@ async function updateCode() {
 				output += `<span class="number">${result} km</span>\n`
 				isFirstEmptyLine = false
 			}
+		} else if (line.includes('ml to teaspoon')) {
+			const ml = parseFloat(line.split(' ')[0])
+			if (!isNaN(ml)) {
+				result = meters / 5 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} tуфыз</span>\n`
+				isFirstEmptyLine = false
+			}
 		} else if (line.includes('liter to ml')) {
 			const liters = parseFloat(line.split(' ')[0])
 			if (!isNaN(liters)) {
@@ -90,7 +97,7 @@ async function updateCode() {
 			if (!isNaN(usd)) {
 				result = usd * exchangeRateUSD // Преобразование долларов в рубли
 				result = parseFloat(result.toFixed(4))
-				output += `<span class="number">${result} rub</span>\n`
+				output += `<span class="number">${result} RUB</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('eur to rub')) {
@@ -98,7 +105,7 @@ async function updateCode() {
 			if (!isNaN(eur)) {
 				result = eur * exchangeRateEUR // преобразование евро в рубли
 				result = parseFloat(result.toFixed(4))
-				output += `<span class="number">${result} rub</span>\n`
+				output += `<span class="number">${result} RUB</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('rub to eur')) {
@@ -106,7 +113,7 @@ async function updateCode() {
 			if (!isNaN(rub)) {
 				result = rub / exchangeRateEUR // преобразование рубли в евро
 				result = parseFloat(result.toFixed(4))
-				output += `<span class="number">${result} eur</span>\n`
+				output += `<span class="number">${result} EUR</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('usd to eur')) {
@@ -114,7 +121,7 @@ async function updateCode() {
 			if (!isNaN(usd)) {
 				result = usd * exchangeRateEURUSD // преобразование долары в евро
 				result = parseFloat(result.toFixed(4))
-				output += `<span class="number">${result} eur</span>\n`
+				output += `<span class="number">${result} EUR</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('eur to usd')) {
@@ -122,7 +129,7 @@ async function updateCode() {
 			if (!isNaN(eur)) {
 				result = eur / exchangeRateEURUSD // преобразование долары в евро
 				result = parseFloat(result.toFixed(4))
-				output += `<span class="number">${result} usd</span>\n`
+				output += `<span class="number">${result} USD</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('rub to usd')) {
@@ -140,7 +147,7 @@ async function updateCode() {
 				if (result !== undefined) {
 					// Проверка на undefined и округление до 4 знаков после запятой, если необходимо
 					if (result % 1 !== 0) {
-						result = parseFloat(result.toFixed(4))
+						result = parseFloat(result.toFixed(decimalPlaces))
 					}
 					output += `<span class="number">${result}</span>\n`
 					isFirstEmptyLine = false
