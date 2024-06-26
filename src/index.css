@@ -106,7 +106,7 @@ button{
 }
 
 textarea {
-    font-family: 'Geist-Medium';
+    font-family: 'Geist-Medium', sans-serif;
     font-size: 24px; /* Увеличиваем размер шрифта */
     background-color: #262627;
     color: #52A8FF;

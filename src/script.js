@@ -16,23 +16,12 @@ async function updateCode() {
 	const lines = input.value.split('\n')
 	let output = ''
 
-	const responseUSD = await fetch(
-		'https://v6.exchangerate-api.com/v6/{API-KEY}/latest/USD'
-	)
-	const dataUSD = await responseUSD.json()
-	const exchangeRateUSD = dataUSD.conversion_rates.RUB
+	const response = await fetch('http://80.90.182.109:3000/rates')
+	const data = await response.json()
 
-	const responseEUR = await fetch(
-		'https://v6.exchangerate-api.com/v6/{API-KEY}/latest/EUR'
-	)
-	const dataEUR = await responseEUR.json()
-	const exchangeRateEUR = dataEUR.conversion_rates.RUB
-
-	const responseEURUSD = await fetch(
-		'https://v6.exchangerate-api.com/v6/{API-KEY}/latest/USD'
-	)
-	const dataEURUSD = await responseEURUSD.json()
-	const exchangeRateEURUSD = dataEURUSD.conversion_rates.EUR
+	const exchangeRateUSD = data.USD
+	const exchangeRateEUR = data.EUR
+	const exchangeRateEURUSD = data.EURUSD
 
 	let isFirstEmptyLine = true
 
