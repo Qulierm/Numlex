@@ -209,7 +209,6 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 }
 
 .modal {
-    /* padding: 10px; */
     font-family: 'Geist-Medium', sans-serif;
     display: none;
     position: fixed;
@@ -219,7 +218,6 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
     width: 100%;
     height: 100%;
     overflow: auto;
-    background-color: rgb(0, 0, 0);
     background-color: rgba(0, 0, 0, 0.4);
 }
 
@@ -237,11 +235,12 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 
 .modal-content {
     background-color: #262627;
-    margin: 15% auto;
+    margin: auto;
+    margin-top: 15vh; /* Регулирует вертикальное расположение */
     padding: 20px;
     border: 1px solid #6c6c6c;
-    width: 80%;
-    max-width: 500px;
+    width: 80%; /* Ширина модального окна, может быть адаптивной */
+    max-width: 500px; /* Максимальная ширина модального окна */
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
     border-radius: 10px;
 }
@@ -328,6 +327,10 @@ select{
 
 .green{
     color: #4FBF63;
+}
+
+.white{
+    color: white;
 }
 
 .ttt{

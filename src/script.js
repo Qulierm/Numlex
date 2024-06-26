@@ -82,6 +82,38 @@ async function updateCode() {
 				output += `<span class="number">${result} L</span>\n`
 				isFirstEmptyLine = false
 			}
+		} else if (line.includes('F to C')) {
+			const F = parseFloat(line.split(' ')[0])
+			if (!isNaN(F)) {
+				result = ((F - 32) * 5) / 9 // Преобразование литров в миллилитры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} C°</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('C to F')) {
+			const C = parseFloat(line.split(' ')[0])
+			if (!isNaN(C)) {
+				result = C * 1.8 + 32 // Преобразование литров в миллилитры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} F°</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('K to C')) {
+			const K = parseFloat(line.split(' ')[0])
+			if (!isNaN(K)) {
+				result = K - 273.15 // Преобразование миллилитров в литры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} C°</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('C to K')) {
+			const C = parseFloat(line.split(' ')[0])
+			if (!isNaN(C)) {
+				result = C + 273.15 // Преобразование миллилитров в литры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} K°</span>\n`
+				isFirstEmptyLine = false
+			}
 		} else if (line.includes('usd to rub')) {
 			const usd = parseFloat(line.split(' ')[0])
 			if (!isNaN(usd)) {
@@ -320,4 +352,67 @@ function saveSettings() {
 	textarea.classList.add(selectedColor) // Add selected class
 	pre.classList.add(selectedFont)
 	textarea.classList.add(selectedFont)
+}
+const translations = {
+	en: {
+		newSheet: 'New sheet',
+		enter: 'Enter an expression to start',
+		settings: 'Settings',
+		round: 'Rounding numbers:',
+		fontcolor: 'Font color:',
+		blue: 'Blue',
+		purple: 'Purple',
+		red: 'Red',
+		green: 'Green',
+		white: 'White',
+		fontsize: 'Font size:',
+	},
+	ru: {
+		newSheet: 'Новый лист',
+		enter: 'Введите выражение чтобы начать',
+		settings: 'Настройки',
+		round: 'Округление чисел:',
+		fontcolor: 'Цвет текста:',
+		blue: 'Синий',
+		purple: 'Фиолетовый',
+		red: 'Красный',
+		green: 'Зеленый',
+		white: 'Белый',
+		fontsize: 'Размер текста:',
+	},
+	de: {
+		newSheet: 'Neues Blatt',
+		enter: 'Geben Sie einen Ausdruck ein, um zu beginnen',
+		settings: 'Einstellungen',
+		round: 'Rundung von Zahlen',
+		fontcolor: 'Schriftfarbe:',
+		blue: 'Blau',
+		purple: 'Violett',
+		red: 'Rot',
+		green: 'Grün',
+		white: 'Weiss',
+		fontsize: 'Schriftgröße',
+	},
+}
+
+function updateLanguageTexts() {
+	const lang = translations[currentLanguage]
+	document.getElementById('new-sheet').textContent = lang.newSheet
+	document.getElementById('input').placeholder = lang.enter
+	document.getElementById('settings-title').textContent = lang.settings
+	document.getElementById('round-label').textContent = lang.round
+	document.getElementById('color-label').textContent = lang.fontcolor
+	document.getElementById('font-label').textContent = lang.fontsize
+	document.getElementById('lang-label').textContent = lang.language
+
+	const colorSelector = document.getElementById('colorSelector')
+	for (let option of colorSelector.options) {
+		option.textContent = lang[option.value]
+	}
+}
+
+function changeLanguage() {
+	const langSelector = document.getElementById('langSelector')
+	currentLanguage = langSelector.value
+	updateLanguageTexts()
 }

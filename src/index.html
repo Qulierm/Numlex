@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
     <meta charset="UTF-8" />
     <title>Numlex</title>
     <link rel="stylesheet" href="index.css" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=San+Francisco&display=swap">
-  </head>
-  <body>
+</head>
+<body>
     <div class="container">
         <div class="sidebar">
             <div class="sidebar-header">
-                <button class="new-sheet" onclick="addNewSheet()">New Sheet</button>
+                <button class="new-sheet" id="new-sheet" onclick="addNewSheet()">New Sheet</button>
             </div>
             <div class="sheets-list">
                 <div class="sidebar-item active" onclick="switchSheet(0)">
@@ -21,50 +21,58 @@
         </div>
         <div class="main">
             <div class="main-header">
-                </div>
-                    <div class="main-content" id="main-content">
-                        <textarea id="input" class="syncscroll" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
-                        <pre id="code"><code id="code" class="output scroll-sync"></code></pre>
-                    </div>
             </div>
+            <div class="main-content" id="main-content">
+                <textarea id="input" class="syncscroll" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
+                <pre id="code"><code id="code" class="output scroll-sync"></code></pre>
+            </div>
+        </div>
     </div>
     <div id="settings-modal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeSettings()">&times;</span>
-            <h3>Settings</h3>
-                <label for="example-setting">Rounding numbers:</label>
-                <select id="decimal-places">
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                    <option value="6">6</option>
-                    <option value="7" selected="selected">7</option>
-                </select>
-                <br>
-                <label for="example-setting">Font color:</label>
-                <select id="colorSelector" onchange="saveSettings()">
-                    <option value="blue" selected="selected">Blue</option>
-                    <option value="purple">Purple</option>
-                    <option value="red">Red</option>
-                    <option value="green">Green</option>
-                </select>
-                <br>
-                <label for="example-setting">Font size:</label>
-                <select id="fontSelector" onchange="saveSettings()">
-                    <option value="ttt">22 px</option>
-                    <option value="tt">23 px</option>
-                    <option value="tf" selected="selected">24 px</option>
-                    <option value="tff">25 px</option>
-                    <option value="ts">26 px</option>
-                    <option value="tss">27 px</option>
-                    <option value="te">28 px</option>
-                    <option value="tn">29 px</option>
-                    <option value="tth">30 px</option>
-                </select>
+            <h3 id="settings-title">Settings</h3>
+            <label for="decimal-places" id="round-label">Rounding numbers:</label>
+            <select id="decimal-places">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7" selected="selected">7</option>
+            </select>
+            <br>
+            <label for="colorSelector" id="color-label">Font color:</label>
+            <select id="colorSelector" onchange="saveSettings()">
+                <option value="blue" selected="selected">Blue</option>
+                <option value="purple">Purple</option>
+                <option value="red">Red</option>
+                <option value="green">Green</option>
+                <option value="white">White</option>
+            </select>
+            <br>
+            <label for="fontSelector" id="font-label">Font size:</label>
+            <select id="fontSelector" onchange="saveSettings()">
+                <option value="ttt">22 px</option>
+                <option value="tt">23 px</option>
+                <option value="tf" selected="selected">24 px</option>
+                <option value="tff">25 px</option>
+                <option value="ts">26 px</option>
+                <option value="tss">27 px</option>
+                <option value="te">28 px</option>
+                <option value="tn">29 px</option>
+                <option value="tth">30 px</option>
+            </select>
+            <br>
+            <label for="langSelector" id="lang-label">Language:</label>
+            <select id="langSelector" onchange="changeLanguage()">
+                <option value="en">English</option>
+                <option value="ru">Русский</option>
+                <option value="de">Deutsch</option>
+            </select>
         </div>
     </div>
     <script src="script.js"></script>
-  </body>
+</body>
 </html>
