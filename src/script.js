@@ -74,12 +74,28 @@ async function updateCode() {
 				output += `<span class="number">${result} kg</span>\n`
 				isFirstEmptyLine = false
 			}
+		} else if (line.includes('mg to kg')) {
+			const mg = parseFloat(line.split(' ')[0])
+			if (!isNaN(mg)) {
+				result = mg / 1000 // Преобразование км в метры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} kg</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('kg to mg')) {
+			const kg = parseFloat(line.split(' ')[0])
+			if (!isNaN(kg)) {
+				result = kg * 1000 // Преобразование км в метры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} mg</span>\n`
+				isFirstEmptyLine = false
+			}
 		} else if (line.includes('ml to teaspoon')) {
 			const ml = parseFloat(line.split(' ')[0])
 			if (!isNaN(ml)) {
 				result = meters / 5 // Преобразование метров в км
 				result = parseFloat(result.toFixed(4))
-				output += `<span class="number">${result} tуфыз</span>\n`
+				output += `<span class="number">${result} teaspoons</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('liter to ml')) {
