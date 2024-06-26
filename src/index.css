@@ -1,0 +1,366 @@
+@font-face {
+    font-family: 'Geist-Medium';
+    src: url('/Geist-Medium.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+}
+
+body {
+    margin: 0;
+    font-family: 'Geist-Medium', sans-serif;
+    background-color: #2b2b2b;
+    color: #f8f8f2;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+button{
+    background: none;
+}
+.container {
+    display: flex;
+    width: 100%;
+    overflow: hidden;
+}
+
+.sidebar {
+    background-color: #262627;
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    height: 100vh;
+}
+
+.sidebar-header {
+    display: grid;
+    margin-bottom: 5px;
+}
+
+.new-sheet {
+    background-image: url('./icons/new.svg');
+    background-size: 17px;
+    background-repeat: no-repeat;
+    background-position: 32px center;
+    border: none;
+    color: #b0b0b0;
+    padding: 10px;
+    width: 100%;
+    font-size: 17px;
+    cursor: pointer;
+}
+
+.sheets-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.sidebar-item {
+    border: 0px solid;
+    background-color: #404040;
+    color: white;
+    height: 40px;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: #b0b0b0;
+    position: relative;
+}
+
+
+.sidebar-item span {
+    margin-bottom: 3px; /* Добавляем небольшой отступ между строками */
+}
+
+.sidebar-item.active{
+    background-color: #606060;
+    color: #f8f8f2;
+}
+
+.main {
+    height: 100vh;
+    flex: 1;
+    position: relative; /* Установка позиции для псевдоэлемента */
+    background-color: #2b2b2b;
+    display: flex;
+    flex-direction: column;
+}
+
+.main-header h1 {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 0 0 20px 0;
+}
+
+.main-content {
+    display: flex;
+    flex: 1;
+    align-items: flex-start;
+    gap: 0; /* Убираем отступы между элементами */
+    overflow-y: hidden;
+}
+
+textarea {
+    font-family: 'Geist-Medium';
+    font-size: 24px; /* Увеличиваем размер шрифта */
+    background-color: #262627;
+    color: #52A8FF;
+    border: none;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 20px;
+    padding-bottom: 0px;
+    resize: none;
+    margin: 0;
+    height: 100vh;
+    flex-grow: 1;
+    margin-top: 0; /* Убираем отступ сверху */
+}
+
+pre {
+    font-family: 'Geist-Medium', sans-serif;
+    font-weight: 430;
+    width: 170px; /* установка ширины в 10% от ширины видимой области окна */
+    background-color: #202021;
+    border-left: 2px solid #3d3d3e;
+    color: #f8f8f2;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 20px;
+    padding-bottom: 0px;
+    font-size: 24px; /* Увеличиваем размер шрифта */
+    overflow: auto;
+    white-space: pre-wrap;
+    margin: 0;
+    height: 100vh;
+    margin-top: 0; /* Убираем отступ сверху */
+}
+
+.output {
+    font-family: 'Geist-Medium', sans-serif;
+}
+
+textarea:focus {
+    outline: none;
+}
+
+.delete-sheet-button {
+    visibility: hidden;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+
+.sidebar-item img {
+    width: 16px;
+    height: 16px;
+}
+
+#input, #code, .sheets-list {
+    scrollbar-width: none; /* Firefox */
+}
+
+body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .sheets-list::-webkit-scrollbar, pre::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
+}
+
+@keyframes slideIn {
+    0% {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    100% {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.slide-in {
+    animation: slideIn 0.5s ease forwards;
+}
+
+.sidebar-item .sheet-title {
+    flex: 1;
+}
+
+
+.delete-sheet-button {
+    visibility: hidden;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    opacity: 0;
+    transform: scale(0.8);
+    position: absolute;
+    right: 10px; /* Располагаем кнопку справа */
+}
+
+.sidebar-item.active .delete-sheet-button {
+    opacity: 1;
+    transform: scale(1);
+    visibility: visible;
+}
+
+.modal {
+    /* padding: 10px; */
+    font-family: 'Geist-Medium', sans-serif;
+    display: none;
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgb(0, 0, 0);
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+.settings-button{
+    background-image: url('./icons/settings.svg');
+    background-size: 25px;
+    background-repeat: no-repeat;
+    border: none;
+    color: #b0b0b0;
+    padding: 10px;
+    width: 25px;
+    height: 45px;
+    cursor: pointer;
+}
+
+.modal-content {
+    background-color: #262627;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #6c6c6c;
+    width: 80%;
+    max-width: 500px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.close:hover,
+.close:focus {
+    color: #404040;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+/* input{
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    box-sizing: border-box;
+    margin: 0px;
+    font: inherit;
+    letter-spacing: inherit;
+    background: none;
+    border: 1px solid;
+    margin-top: var(--spacing-3,.75rem);
+    display: block;
+    width: 100%;
+    border-radius: var(--radius-lg,.5rem);
+    --tw-border-style: none;
+    border-style: none;
+    background-color: #404040;
+    padding-top: var(--spacing-1_5,.375rem);
+    padding-bottom: var(--spacing-1_5,.375rem);
+    padding-left: var(--spacing-3,.75rem);
+    padding-right: var(--spacing-3,.75rem);
+    font-size: var(--font-size-sm,.875rem);
+    line-height: var(--line-height-6,1.5rem);
+    color: var(--color-white,#fff);
+} */
+
+select{
+    box-sizing: border-box;
+    margin: 0;
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    background: none;
+    border: 1px solid;
+    margin-top: var(--spacing-3,.75rem);
+    display: block;
+    width: 100%;
+    appearance: none;
+    border-radius: var(--radius-lg,.5rem);
+    --tw-border-style: none;
+    border-style: none;
+    background-color: #404040;
+    padding-top: var(--spacing-1_5,.375rem);
+    padding-bottom: var(--spacing-1_5,.375rem);
+    padding-left: var(--spacing-3,.75rem);
+    padding-right: var(--spacing-3,.75rem);
+    font-size: var(--font-size-sm,.875rem);
+    line-height: var(--line-height-6,1.5rem);
+    color: var(--color-white,#fff);
+    outline-offset: 2px;
+    outline: 2px solid #0000;
+}
+
+.blue{
+    color:#52A8FF;
+}
+
+.purple{
+    color: #BF7AF0;
+}
+
+.red{
+    color: #F75F8F;
+}
+
+.green{
+    color: #4FBF63;
+}
+
+.ttt{
+    font-size: 22px;
+}
+.tt{
+    font-size: 23px;
+}
+
+.tf{
+    font-size: 24px;
+}
+
+.tff{
+    font-size: 25px;
+}
+
+.ts{
+    font-size: 26px;
+}
+
+.tss{
+    font-size: 27px;
+}
+
+.te{
+    font-size: 28px;
+}
+
+.tn{
+    font-size: 29px;
+}
+
+.tth{
+    font-size: 30px;
+}

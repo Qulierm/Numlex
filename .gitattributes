@@ -1,0 +1,4 @@
+dist/numlex[[:space:]]Setup[[:space:]]0.0.1.exe filter=lfs diff=lfs merge=lfs -text
+dist/win-unpacked/resources/app.asar filter=lfs diff=lfs merge=lfs -text
+dist/MyElectronApp-win32-x64/MyElectronApp.exe filter=lfs diff=lfs merge=lfs -text
+dist/win-unpacked/Numlex.exe filter=lfs diff=lfs merge=lfs -text
