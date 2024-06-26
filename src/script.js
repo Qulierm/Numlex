@@ -58,6 +58,22 @@ async function updateCode() {
 				output += `<span class="number">${result} km</span>\n`
 				isFirstEmptyLine = false
 			}
+		} else if (line.includes('kg to t')) {
+			const kg = parseFloat(line.split(' ')[0])
+			if (!isNaN(kg)) {
+				result = kg / 1000 // Преобразование км в метры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} ton</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('t to kg')) {
+			const t = parseFloat(line.split(' ')[0])
+			if (!isNaN(t)) {
+				result = t * 1000 // Преобразование км в метры
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} kg</span>\n`
+				isFirstEmptyLine = false
+			}
 		} else if (line.includes('ml to teaspoon')) {
 			const ml = parseFloat(line.split(' ')[0])
 			if (!isNaN(ml)) {
@@ -218,77 +234,6 @@ async function updateCode() {
 	sheets[currentSheetIndex].content = input.value
 }
 
-function addNewSheet() {
-	const currentTime = new Date()
-	const hours = currentTime.getHours().toString().padStart(2, '0')
-	const minutes = currentTime.getMinutes().toString().padStart(2, '0')
-	const time = `${hours}:${minutes}`
-
-	const newSheet = {
-		title: `Sheet ${sheets.length + 1}`,
-		content: '',
-		createdAt: time,
-		linesCount: 0,
-	}
-
-	sheets.unshift(newSheet)
-	switchSheet(0)
-	renderSheets()
-
-	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
-	newSheetElement.classList.add('slide-in')
-}
-
-function deleteSheet(index) {
-	const sheetElement = document.querySelectorAll('.sheets-list .sidebar-item')[
-		index
-	]
-	sheetElement.classList.add('slide-out')
-	setTimeout(() => {
-		sheets.splice(index, 1)
-		if (index === currentSheetIndex) {
-			currentSheetIndex = 0
-		}
-		renderSheets()
-		switchSheet(currentSheetIndex)
-	}, 500) // Duration of animation in milliseconds
-}
-
-function switchSheet(index) {
-	currentSheetIndex = index
-	const sheet = sheets[index]
-	document.getElementById('input').value = sheet.content
-	updateCode()
-	renderSheets()
-}
-
-function renderSheets() {
-	const sheetsList = document.querySelector('.sheets-list')
-	sheetsList.innerHTML = ''
-
-	sheets.forEach((sheet, index) => {
-		const sheetElement = document.createElement('div')
-		sheetElement.className =
-			'sidebar-item' + (index === currentSheetIndex ? ' active' : '')
-		sheetElement.innerHTML = `
-            <span class="sheet-title">${sheet.title}</span>
-            <span class="sheet-time">${sheet.createdAt || ''}</span>
-            ${
-							index === currentSheetIndex
-								? `<img class="delete-sheet-button" src="./icons/delete.svg" alt="Delete" onclick="deleteSheet(${index})">`
-								: ''
-						}
-        `
-		sheetElement.addEventListener('click', () => switchSheet(index))
-		sheetsList.appendChild(sheetElement)
-	})
-}
-
-document.addEventListener('DOMContentLoaded', function () {
-	renderSheets()
-	switchSheet(currentSheetIndex)
-})
-
 document.getElementById('input').addEventListener('keydown', function (event) {
 	const textarea = event.target
 	const cursorPosition = textarea.selectionStart
@@ -330,89 +275,3 @@ document.addEventListener('DOMContentLoaded', function () {
 	input.addEventListener('scroll', syncScroll)
 	output.addEventListener('scroll', syncScroll)
 })
-
-function openSettings() {
-	document.getElementById('settings-modal').style.display = 'block'
-}
-
-function closeSettings() {
-	document.getElementById('settings-modal').style.display = 'none'
-}
-
-function saveSettings() {
-	const colorSelector = document.getElementById('colorSelector')
-	const selectedColor = colorSelector.value
-	const fontSelector = document.getElementById('fontSelector')
-	const selectedFont = fontSelector.value
-
-	const textarea = document.getElementById('input')
-	const pre = document.getElementById('code')
-	textarea.className = '' // Clear all current classes
-	pre.className = '' // Clear all current classes
-	textarea.classList.add(selectedColor) // Add selected class
-	pre.classList.add(selectedFont)
-	textarea.classList.add(selectedFont)
-}
-const translations = {
-	en: {
-		newSheet: 'New sheet',
-		enter: 'Enter an expression to start',
-		settings: 'Settings',
-		round: 'Rounding numbers:',
-		fontcolor: 'Font color:',
-		blue: 'Blue',
-		purple: 'Purple',
-		red: 'Red',
-		green: 'Green',
-		white: 'White',
-		fontsize: 'Font size:',
-	},
-	ru: {
-		newSheet: 'Новый лист',
-		enter: 'Введите выражение чтобы начать',
-		settings: 'Настройки',
-		round: 'Округление чисел:',
-		fontcolor: 'Цвет текста:',
-		blue: 'Синий',
-		purple: 'Фиолетовый',
-		red: 'Красный',
-		green: 'Зеленый',
-		white: 'Белый',
-		fontsize: 'Размер текста:',
-	},
-	de: {
-		newSheet: 'Neues Blatt',
-		enter: 'Geben Sie einen Ausdruck ein, um zu beginnen',
-		settings: 'Einstellungen',
-		round: 'Rundung von Zahlen',
-		fontcolor: 'Schriftfarbe:',
-		blue: 'Blau',
-		purple: 'Violett',
-		red: 'Rot',
-		green: 'Grün',
-		white: 'Weiss',
-		fontsize: 'Schriftgröße',
-	},
-}
-
-function updateLanguageTexts() {
-	const lang = translations[currentLanguage]
-	document.getElementById('new-sheet').textContent = lang.newSheet
-	document.getElementById('input').placeholder = lang.enter
-	document.getElementById('settings-title').textContent = lang.settings
-	document.getElementById('round-label').textContent = lang.round
-	document.getElementById('color-label').textContent = lang.fontcolor
-	document.getElementById('font-label').textContent = lang.fontsize
-	document.getElementById('lang-label').textContent = lang.language
-
-	const colorSelector = document.getElementById('colorSelector')
-	for (let option of colorSelector.options) {
-		option.textContent = lang[option.value]
-	}
-}
-
-function changeLanguage() {
-	const langSelector = document.getElementById('langSelector')
-	currentLanguage = langSelector.value
-	updateLanguageTexts()
-}
