@@ -58,6 +58,54 @@ async function updateCode() {
 				output += `<span class="number">${result} km</span>\n`
 				isFirstEmptyLine = false
 			}
+		} else if (line.includes('mile to km')) {
+			const mile = parseFloat(line.split(' ')[0])
+			if (!isNaN(mile)) {
+				result = mile * 1.60934 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} km</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('km to mile')) {
+			const km = parseFloat(line.split(' ')[0])
+			if (!isNaN(km)) {
+				result = km / 1.60934 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} miles</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('cm to m')) {
+			const cm = parseFloat(line.split(' ')[0])
+			if (!isNaN(cm)) {
+				result = cm / 100 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} m</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('m to cm')) {
+			const m = parseFloat(line.split(' ')[0])
+			if (!isNaN(m)) {
+				result = m * 100 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} cm</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('cm to km')) {
+			const cm = parseFloat(line.split(' ')[0])
+			if (!isNaN(cm)) {
+				result = cm / 100000 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} km</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('km to cm')) {
+			const km = parseFloat(line.split(' ')[0])
+			if (!isNaN(km)) {
+				result = km * 100000 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} cm</span>\n`
+				isFirstEmptyLine = false
+			}
 		} else if (line.includes('kg to t')) {
 			const kg = parseFloat(line.split(' ')[0])
 			if (!isNaN(kg)) {
