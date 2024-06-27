@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="https://i.ibb.co/fCsBtDq/numlex.png" alt="Sublime's custom image" width="150px" height="150px"/>
+  <img src="https://github.com/Qulierm/Numlex/assets/132899713/5d48f135-9a20-4b43-93b2-d304bf6c8da3" alt="Sublime's custom image" width="150px" height="150px"/>
 </p>
 
 <h1 align="center">Numlex</h1>
