@@ -217,7 +217,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
     top: 0;
     width: 100%;
     height: 100%;
-    overflow: auto;
+    overflow: hidden;
     background-color: rgba(0, 0, 0, 0.4);
 }
 
@@ -234,6 +234,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 }
 
 .modal-content {
+    overflow: hidden;
     background-color: #262627;
     margin: auto;
     margin-top: 5vh;
