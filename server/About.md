@@ -1,0 +1,1 @@
+API from exchangerate-api.com has only 3000 requests per month. I'm running server.mjs on my server to collect data every 24 hours to currency convertions

@@ -3,9 +3,9 @@ function addNewSheet() {
 	const hours = currentTime.getHours().toString().padStart(2, '0')
 	const minutes = currentTime.getMinutes().toString().padStart(2, '0')
 	const time = `${hours}:${minutes}`
-
+	const sheetLang = document.getElementById('input-field').value
 	const newSheet = {
-		title: `Sheet ${sheets.length + 1}`,
+		title: `${sheetLang} ${sheets.length + 1}`,
 		content: '',
 		createdAt: time,
 		linesCount: 0,

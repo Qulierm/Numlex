@@ -1,5 +1,6 @@
 const translations = {
 	en: {
+		sheet: 'Sheet',
 		newSheet: 'New sheet',
 		enter: 'Enter an expression to start',
 		settings: 'Settings',
@@ -11,8 +12,11 @@ const translations = {
 		green: 'Green',
 		white: 'White',
 		fontsize: 'Font size:',
+		sheetname: 'Sheet title:',
+		language: 'Interface language:',
 	},
 	ru: {
+		sheet: 'Лист',
 		newSheet: 'Новый лист',
 		enter: 'Введите выражение чтобы начать',
 		settings: 'Настройки',
@@ -24,8 +28,11 @@ const translations = {
 		green: 'Зеленый',
 		white: 'Белый',
 		fontsize: 'Размер текста:',
+		sheetname: 'Заголовок листов:',
+		language: 'Язык интерфейса:',
 	},
 	de: {
+		sheet: 'Blatt',
 		newSheet: 'Neues Blatt',
 		enter: 'Geben Sie einen Ausdruck ein, um zu beginnen',
 		settings: 'Einstellungen',
@@ -37,6 +44,40 @@ const translations = {
 		green: 'Grün',
 		white: 'Weiss',
 		fontsize: 'Schriftgröße',
+		sheetname: 'Titel der Blätter:',
+		language: 'Sprache der Schnittstelle:',
+	},
+	fr: {
+		sheet: 'Feuille',
+		newSheet: 'Nouvelle feuille',
+		enter: 'Entrez une expression pour commencer',
+		settings: 'Paramètres',
+		round: 'Arrondir les nombres:',
+		fontcolor: 'Couleur de la police:',
+		blue: 'Bleu',
+		purple: 'Violet',
+		red: 'Rouge',
+		green: 'Vert',
+		white: 'Blanc',
+		fontsize: 'Taille de la police:',
+		sheetname: 'Titre de la feuille:',
+		language: "Langue de l'interface:",
+	},
+	it: {
+		sheet: 'Foglio',
+		newSheet: 'Nuovo foglio',
+		enter: "Inserisci un'espressione per iniziare",
+		settings: 'Impostazioni',
+		round: 'Arrotondamento numeri:',
+		fontcolor: 'Colore del carattere:',
+		blue: 'Blu',
+		purple: 'Viola',
+		red: 'Rosso',
+		green: 'Verde',
+		white: 'Bianco',
+		fontsize: 'Dimensione del carattere:',
+		sheetname: 'Titolo del foglio:',
+		language: "Lingua dell'interfaccia:",
 	},
 }
 
@@ -49,6 +90,7 @@ function updateLanguageTexts() {
 	document.getElementById('color-label').textContent = lang.fontcolor
 	document.getElementById('font-label').textContent = lang.fontsize
 	document.getElementById('lang-label').textContent = lang.language
+	document.getElementById('sheet-label').textContent = lang.sheetname
 
 	const colorSelector = document.getElementById('colorSelector')
 	for (let option of colorSelector.options) {

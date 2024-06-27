@@ -236,7 +236,8 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 .modal-content {
     background-color: #262627;
     margin: auto;
-    margin-top: 15vh; /* Регулирует вертикальное расположение */
+    margin-top: 5vh;
+    margin-bottom: 5vh; /* Регулирует вертикальное расположение */
     padding: 20px;
     border: 1px solid #6c6c6c;
     width: 80%; /* Ширина модального окна, может быть адаптивной */
@@ -259,7 +260,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
     cursor: pointer;
 }
 
-/* input{
+input{
     -webkit-tap-highlight-color: transparent;
     color-scheme: dark;
     -webkit-font-smoothing: antialiased;
@@ -283,7 +284,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
     font-size: var(--font-size-sm,.875rem);
     line-height: var(--line-height-6,1.5rem);
     color: var(--color-white,#fff);
-} */
+}
 
 select{
     box-sizing: border-box;
