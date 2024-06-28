@@ -69,6 +69,7 @@ function updateDeclaredVariables() {
 }
 
 editor.on('change', updateDeclaredVariables)
+
 async function updateCode() {
 	// const input = CodeMirror.fromTextArea(document.getElementById('input'), {})
 	const code = document.getElementById('code')
