@@ -12,7 +12,7 @@ body {
     color: #f8f8f2;
     display: flex;
     height: 100vh;
-    overflow: hidden;
+    overflow: hidden !important;
 }
 
 button{
@@ -26,7 +26,7 @@ button{
 
 .sidebar {
     background-color: #262627;
-    width: 200px;
+    width: 185px;
     display: flex;
     flex-direction: column;
     padding: 10px;
@@ -42,7 +42,7 @@ button{
     background-image: url('./icons/new.svg');
     background-size: 17px;
     background-repeat: no-repeat;
-    background-position: 32px center;
+    background-position: 29px center;
     border: none;
     color: #b0b0b0;
     padding: 10px;
@@ -85,7 +85,7 @@ button{
 .main {
     height: 100vh;
     flex: 1;
-    position: relative; /* Установка позиции для псевдоэлемента */
+    position: relative; 
     background-color: #2b2b2b;
     display: flex;
     flex-direction: column;
@@ -101,13 +101,13 @@ button{
     display: flex;
     flex: 1;
     align-items: flex-start;
-    gap: 0; /* Убираем отступы между элементами */
+    gap: 0; 
     overflow-y: hidden;
 }
 
-textarea {
+/* textarea {
     font-family: 'Geist-Medium', sans-serif;
-    font-size: 24px; /* Увеличиваем размер шрифта */
+    font-size: 24px;
     background-color: #262627;
     color: #52A8FF;
     border: none;
@@ -119,13 +119,13 @@ textarea {
     margin: 0;
     height: 100vh;
     flex-grow: 1;
-    margin-top: 0; /* Убираем отступ сверху */
-}
+    margin-top: 0;
+} */
 
 pre {
     font-family: 'Geist-Medium', sans-serif;
     font-weight: 430;
-    width: 170px; /* установка ширины в 10% от ширины видимой области окна */
+    width: 175px; 
     background-color: #202021;
     border-left: 2px solid #3d3d3e;
     color: #f8f8f2;
@@ -133,12 +133,12 @@ pre {
     padding-right: 20px;
     padding-top: 20px;
     padding-bottom: 0px;
-    font-size: 24px; /* Увеличиваем размер шрифта */
+    font-size: 24px; 
     overflow: auto;
     white-space: pre-wrap;
     margin: 0;
-    height: 100vh;
-    margin-top: 0; /* Убираем отступ сверху */
+    margin-top: 0;
+    height: 100%; 
 }
 
 .output {
@@ -182,7 +182,7 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
 }
 
 .slide-in {
-    animation: slideIn 0.5s ease forwards;
+    animation: slideIn 0.7s ease forwards;
 }
 
 .sidebar-item .sheet-title {
@@ -315,3 +315,51 @@ select{
     outline: 2px solid #0000;
 }
 
+.cm-operator {
+      color: #F75F8F !important;
+    }
+    .cm-number {
+      color: #52A8FF !important;
+    }
+    .cm-string {
+      color: white !important;
+    }
+    .CodeMirror {
+    font-family: 'Geist-Medium', sans-serif !important;
+    font-size: 24px  !important;
+    background-color: #262627 !important;
+    /* color: #52A8FF !important; */
+    color: white !important;
+    border: none !important;
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+    padding-top: 20px !important;
+    padding-bottom: 0px !important;
+    resize: none !important;
+    margin: 0 !important;
+    height: 100% !important;
+    flex-grow: 1 !important;
+    margin-top: 0 !important;
+    }
+
+
+
+.cm-comment {
+    color: grey !important; /* Белый цвет для остальных слов */
+}
+
+    .cm-highlight-to {
+        color: #F75F8F;
+    }
+    .cm-highlight-number {
+        color: #52A8FF;
+    }
+    .cm-highlight-operator {
+        color: white;
+    }
+    .cm-highlight-before-equals {
+    color: #4FBF63;
+    }
+    .cm-highlight-used-variable{
+        color: #4FBF63;
+    }

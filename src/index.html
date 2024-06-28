@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="index.css" />
     <link rel="stylesheet" href="settings.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=San+Francisco&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.63.1/codemirror.min.css">
 </head>
 <body>
     <div class="container">
@@ -24,7 +25,7 @@
             <div class="main-header">
             </div>
             <div class="main-content" id="main-content">
-                <textarea id="input" class="syncscroll" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
+                <textarea name="code" id="input" class="syncscroll" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
                 <pre id="code"><code id="code" class="output scroll-sync"></code></pre>
             </div>
         </div>
@@ -79,6 +80,8 @@
             <input type="text" id="input-field" value="Sheet">
         </div>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.63.1/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.63.1/mode/javascript/javascript.min.js"></script>
     <script src="script.js"></script>
     <script src="translations.js"></script>
     <script src="settings.js"></script>

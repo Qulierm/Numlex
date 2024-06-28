@@ -37,7 +37,7 @@ function deleteSheet(index) {
 function switchSheet(index) {
 	currentSheetIndex = index
 	const sheet = sheets[index]
-	document.getElementById('input').value = sheet.content
+	editor.setValue(sheet.content)
 	updateCode()
 	renderSheets()
 }

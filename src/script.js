@@ -2,18 +2,77 @@ let sheets = [{ title: 'Sheet', content: '' }]
 let currentSheetIndex = 0
 let decimalPlaces = 6 // Default value
 let variables = {} // Store variables
-
 document
 	.getElementById('decimal-places')
 	.addEventListener('change', function () {
 		decimalPlaces = this.value
 		updateCode() // Recalculate result with the new decimal places
 	})
+let declaredVariables = {}
 
+CodeMirror.defineMode('custom', function (config, parserConfig) {
+	return {
+		token: function (stream, state) {
+			// Подсветка слова "to"
+			if (stream.match('to')) {
+				return 'highlight-to'
+			}
+			// Подсветка чисел
+			if (stream.match(/^[0-9]+/)) {
+				return 'highlight-number'
+			}
+			// Подсветка математических знаков
+			if (stream.match(/^[+\-*/]/)) {
+				return 'highlight-operator'
+			}
+			// Подсветка слова перед знаком "="
+			if (stream.match(/^\s*[a-zA-Z_]\w*(?=\s*=)/)) {
+				const variable = stream.current().trim()
+				declaredVariables[variable] = true
+				return 'highlight-before-equals'
+			}
+			// Подсветка использованных переменных
+			const match = stream.match(/^[a-zA-Z_]\w*/)
+			if (match && declaredVariables.hasOwnProperty(match[0])) {
+				return 'highlight-used-variable'
+			}
+			// Перемещение курсора
+			while (
+				stream.next() != null &&
+				!stream.match(
+					/(to|^[0-9]+|^[+\-*/]|^\s*[a-zA-Z_]\w*(?=\s*=)|^[a-zA-Z_]\w*)/,
+					false
+				)
+			) {}
+			return null
+		},
+	}
+})
+
+let editor = CodeMirror.fromTextArea(document.getElementById('input'), {
+	lineNumbers: false,
+	scrollbarStyle: 'null',
+	theme: 'default', // Выберите тему редактора
+	lint: true,
+	mode: 'custom',	
+})	
+function updateDeclaredVariables() {
+	declaredVariables = {} // Очистка переменных перед повторным анализом
+	const lines = editor.getValue().split('\n')
+	lines.forEach(line => {
+		const match = line.match(/^\s*([a-zA-Z_]\w*)\s*=/)
+		if (match) {
+			declaredVariables[match[1]] = true
+		}
+	})
+	editor.refresh() // Обновление редактора для повторной подсветки
+}
+
+editor.on('change', updateDeclaredVariables)
 async function updateCode() {
-	const input = document.getElementById('input')
+	// const input = CodeMirror.fromTextArea(document.getElementById('input'), {})
 	const code = document.getElementById('code')
-	const lines = input.value.split('\n')
+	const lines = editor.getValue().split('\n')
 	let output = ''
 
 	const response = await fetch('http://80.90.182.109:3000/rates')
@@ -24,7 +83,6 @@ async function updateCode() {
 	const exchangeRateEURUSD = data.EURUSD
 
 	let isFirstEmptyLine = true
-
 	lines.forEach((line, index) => {
 		if (line.trim() === '' || line.startsWith('#')) {
 			if (!isFirstEmptyLine) {
@@ -36,10 +94,10 @@ async function updateCode() {
 
 		let result
 
-		if (line.startsWith('# ')) {
+		if (line.startsWith('// ')) {
 			output += `<span class="hljs-title">${line.substring(2)}</span>\n`
 			isFirstEmptyLine = false
-		} else if (line.startsWith('#')) {
+		} else if (line.startsWith('//')) {
 			output += '\n'
 			isFirstEmptyLine = true
 		} else if (line.includes('km to meter')) {
@@ -295,10 +353,15 @@ async function updateCode() {
 	})
 
 	code.innerHTML = output
-	sheets[currentSheetIndex].content = input.value
+	sheets[currentSheetIndex].content = editor.getValue()
 }
+editor.on('change', updateCode)
 
-document.getElementById('input').addEventListener('keydown', function (event) {
+document.addEventListener('DOMContentLoaded', () => {
+	updateCode() // Initial call to update code when the page loads
+})
+
+editor.addEventListener('keydown', function (event) {
 	const textarea = event.target
 	const cursorPosition = textarea.selectionStart
 	const inputValue = textarea.value
@@ -331,11 +394,14 @@ document.addEventListener('DOMContentLoaded', function () {
 	function syncScroll(event) {
 		if (event.target === input) {
 			output.scrollTop = input.scrollTop
+			output.scrollLeft = input.scrollLeft // Добавлено для горизонтальной прокрутки, если необходимо
 		} else {
 			input.scrollTop = output.scrollTop
+			input.scrollLeft = output.scrollLeft // Добавлено для горизонтальной прокрутки, если необходимо
 		}
 	}
 
 	input.addEventListener('scroll', syncScroll)
 	output.addEventListener('scroll', syncScroll)
 })
+
