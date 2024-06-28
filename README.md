@@ -39,11 +39,13 @@ To package the application into an executable file, follow these steps:
 
 ## Screenshots
 
-<img width="644" alt="9KO0VW23do" src="https://github.com/Qulierm/Numlex/assets/132899713/44f2c588-9d65-4d74-a271-ecb3be9ffb6d">
+<img width="648" alt="electron_uBhXE00pUR" src="https://github.com/Qulierm/Numlex/assets/132899713/1832be2a-e673-4963-98a9-91b0c30b85cf">
+
 
 *Main interface with sheet management and real-time evaluation.*
 
-<img width="644" alt="Cwdz2oYHnX" src="https://github.com/Qulierm/Numlex/assets/132899713/512f17bf-de97-49f1-975d-05ad0b2d00fc">
+<img width="648" alt="electron_8MvKloREkH" src="https://github.com/Qulierm/Numlex/assets/132899713/8d556065-a2d2-4407-bedc-58f89d6cf087">
+
 
 *Settings window.*
 
