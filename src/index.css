@@ -133,7 +133,7 @@ pre {
     padding-right: 20px;
     padding-top: 20px;
     padding-bottom: 0px;
-    font-size: 24px; 
+    font-size: 26px; 
     overflow: auto;
     white-space: pre-wrap;
     margin: 0;
@@ -328,7 +328,7 @@ select{
     .CodeMirror {
     z-index: 1 !important;
     font-family: 'Geist-Medium', sans-serif !important;
-    font-size: 24px  !important;
+    font-size: 26px  !important;
     background-color: #262627 !important;
     /* color: #52A8FF !important; */
     color: white !important;
