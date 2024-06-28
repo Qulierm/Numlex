@@ -14,6 +14,9 @@ CodeMirror.defineMode('custom', function (config, parserConfig) {
 	return {
 		token: function (stream, state) {
 			// Подсветка слова "to"
+			if (stream.match(/^#.*/)) {
+				return 'comment'
+			}
 			if (stream.match('to')) {
 				return 'highlight-to'
 			}

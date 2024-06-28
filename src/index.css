@@ -365,3 +365,7 @@ select{
     .cm-highlight-used-variable{
         color: #4FBF63;
     }
+
+    .comment{
+        color: grey;
+    }
