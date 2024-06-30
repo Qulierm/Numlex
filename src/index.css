@@ -1,6 +1,6 @@
 @font-face {
     font-family: 'Geist-Medium';
-    src: url('/Geist-Medium.otf') format('opentype');
+    src: url('./Geist-Medium.otf') format('opentype');
     font-weight: 400;
     font-style: normal;
 }
@@ -124,7 +124,7 @@ button{
 
 pre {
     font-family: 'Geist-Medium', sans-serif;
-    font-weight: 430;
+    font-weight: 400;
     width: 175px; 
     background-color: #202021;
     border-left: 2px solid #3d3d3e;
@@ -133,7 +133,7 @@ pre {
     padding-right: 20px;
     padding-top: 20px;
     padding-bottom: 0px;
-    font-size: 26px; 
+    font-size: 25px; 
     overflow: auto;
     white-space: pre-wrap;
     margin: 0;
@@ -328,7 +328,8 @@ select{
     .CodeMirror {
     z-index: 1 !important;
     font-family: 'Geist-Medium', sans-serif !important;
-    font-size: 26px  !important;
+    font-weight: 400 !important;
+    font-size: 25px  !important;
     background-color: #262627 !important;
     /* color: #52A8FF !important; */
     color: white !important;
@@ -368,4 +369,12 @@ select{
 
     .comment{
         color: grey;
+    }
+
+    .CodeMirror-placeholder {
+  color: #5a5a5a !important; /* Custom color for the placeholder text */
+}
+
+.CodeMirror div.CodeMirror-cursors .CodeMirror-cursor {
+      border-left: 1px solid #ffffff; /* Custom color for the cursor */
     }

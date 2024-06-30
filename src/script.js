@@ -57,7 +57,8 @@ let editor = CodeMirror.fromTextArea(document.getElementById('input'), {
 	scrollbarStyle: 'null',
 	theme: 'default', // Выберите тему редактора
 	lint: true,
-	mode: 'custom',	
+	mode: 'custom',
+	placeholder: 'Enter an expression to start',
 })	
 function updateDeclaredVariables() {
 	declaredVariables = {} // Очистка переменных перед повторным анализом
@@ -206,6 +207,14 @@ async function updateCode() {
 				result = meters / 5 // Преобразование метров в км
 				result = parseFloat(result.toFixed(4))
 				output += `<span class="number">${result} teaspoons</span>\n`
+				isFirstEmptyLine = false
+			}
+		} else if (line.includes('teaspoon to ml')) {
+			const ts = parseFloat(line.split(' ')[0])
+			if (!isNaN(ts)) {
+				result = ts * 5 // Преобразование метров в км
+				result = parseFloat(result.toFixed(4))
+				output += `<span class="number">${result} ml</span>\n`
 				isFirstEmptyLine = false
 			}
 		} else if (line.includes('liter to ml')) {
