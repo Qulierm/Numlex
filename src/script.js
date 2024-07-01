@@ -364,7 +364,6 @@ async function updateCode() {
 			}
 		}
 	})
-
 	code.innerHTML = output
 	sheets[currentSheetIndex].content = editor.getValue()
 }
