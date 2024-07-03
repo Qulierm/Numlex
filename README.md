@@ -4,8 +4,11 @@
 </p>
 
 <h1 align="center">Numlex</h1>
-
+<p align="center">
+<img src="https://github.com/Qulierm/Numlex/assets/132899713/82d4d861-3dbf-4a50-addd-01503269eb0f"/>
+</p>
 A simple and elegant notepad-based calculator to create and manage sheets with real-time syntax highlighting and evaluation for mathematical expressions.
+
 ## Features
 
 - **Sheet Management**: Create, switch between, and delete sheets effortlessly.
@@ -36,18 +39,6 @@ To package the application into an executable file, follow these steps:
 - **Delete a Sheet**: Hover over a sheet in the sidebar and click the delete icon to remove it.
 - **Input Expressions**: Type mathematical expressions in the input area. 
 - **View Results**: Results of the evaluated expressions are shown in real-time below the input area.
-
-## Screenshots
-
-<img width="648" alt="electron_uBhXE00pUR" src="https://github.com/Qulierm/Numlex/assets/132899713/1832be2a-e673-4963-98a9-91b0c30b85cf">
-
-
-*Main interface with sheet management and real-time evaluation.*
-
-<img width="648" alt="electron_8MvKloREkH" src="https://github.com/Qulierm/Numlex/assets/132899713/8d556065-a2d2-4407-bedc-58f89d6cf087">
-
-
-*Settings window.*
 
 ## Contributing
 
