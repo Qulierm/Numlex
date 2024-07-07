@@ -9,6 +9,6 @@
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true
 	},
-	"include": ["src/**/*", "src/settings.ts" ],
+	"include": ["src/**/*", "src/settings.ts", "src/translations.ts" ],
 	"exclude": ["node_modules"]
 }
