@@ -14,11 +14,9 @@ function addNewSheet() {
 	sheets.unshift(newSheet)
 	switchSheet(0)
 	renderSheets()
-
 	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
 	newSheetElement.classList.add('slide-in')
 }
-
 function deleteSheet(index) {
 	const sheetElement = document.querySelectorAll('.sheets-list .sidebar-item')[
 		index

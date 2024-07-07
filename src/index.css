@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @font-face {
     font-family: 'Geist-Medium';
     src: url('./Geist-Medium.otf') format('opentype');
@@ -133,7 +137,7 @@ pre {
     color: #f8f8f2;
     padding-left: 20px;
     padding-right: 20px;
-    padding-top: 20px;
+    padding-top: 25px;
     padding-bottom: 0px;
     font-size: 25px; 
     overflow: auto;
@@ -338,7 +342,7 @@ select{
     border: none !important;
     padding-left: 20px !important;
     padding-right: 20px !important;
-    padding-top: 20px !important;
+    padding-top: 25px !important;
     padding-bottom: 0px !important;
     resize: none !important;
     margin: 0 !important;

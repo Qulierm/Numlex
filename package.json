@@ -5,8 +5,9 @@
 	"description": "Notepad based calculator build with Electron",
 	"main": "main.js",
 	"scripts": {
-		"start": "electron .",
-		"dist": "electron-builder"
+		"build": "tsc",
+		"start": "npm run build && electron .",
+		"dist": "npm run build && electron-builder"
 	},
 	"build": {
 		"appId": "com.numlex.app",
@@ -23,9 +24,17 @@
 		"@electron-forge/plugin-auto-unpack-natives": "^7.4.0",
 		"@electron-forge/plugin-fuses": "^7.4.0",
 		"@electron/fuses": "^1.8.0",
-		"electron": "30.1.0",
+		"@types/electron": "^1.6.10",
+		"@types/node": "^20.14.10",
+		"electron": "^30.1.0",
 		"electron-builder": "^22.14.13",
-		"electron-packager": "^17.1.2"
+		"electron-packager": "^17.1.2",
+		"tailwindcss": "^3.4.4",
+		"ts-loader": "^9.5.1",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.5.3",
+		"webpack": "^5.92.1",
+		"webpack-cli": "^5.1.4"
 	},
 	"keywords": [],
 	"author": {
