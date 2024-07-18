@@ -11,7 +11,8 @@
 	"build": {
 		"appId": "com.numlex.app",
 		"win": {
-			"target": "nsis"
+			"target": "nsis",
+			"icon": "numlex.ico"
 		}
 	},
 	"devDependencies": {
