@@ -1,34 +1,35 @@
-.ttt{
+.CodeMirror.ttt .CodeMirror-scroll {
     font-size: 22px;
 }
-.tt{
+
+.CodeMirror.tt .CodeMirror-scroll {
     font-size: 23px;
 }
 
-.tf{
+.CodeMirror.tf .CodeMirror-scroll {
     font-size: 24px;
 }
 
-.tff{
+.CodeMirror.tff .CodeMirror-scroll {
     font-size: 25px;
 }
 
-.ts{
+.CodeMirror.ts .CodeMirror-scroll {
     font-size: 26px;
 }
 
-.tss{
+.CodeMirror.tss .CodeMirror-scroll {
     font-size: 27px;
 }
 
-.te{
+.CodeMirror.te .CodeMirror-scroll {
     font-size: 28px;
 }
 
-.tn{
+.CodeMirror.tn .CodeMirror-scroll {
     font-size: 29px;
 }
 
-.tth{
+.CodeMirror.tth .CodeMirror-scroll {
     font-size: 30px;
 }

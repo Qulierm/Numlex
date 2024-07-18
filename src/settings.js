@@ -7,14 +7,10 @@ function closeSettings() {
 }
 
 function saveSettings() {
-	const fontSelector = document.getElementById('fontSelector')
-	const selectedFont = fontSelector.value
+    const fontSelector = document.getElementById('fontSelector');
+    const selectedFontSize = fontSelector.value;
 
-	const textarea = document.getElementById('input')
-	const pre = document.getElementById('code')
-	editor.className = '' // Clear all current classes
-	pre.className = '' // Clear all current classes
-	textarea.classList.add(selectedColor) // Add selected class
-	pre.classList.add(selectedFont)
-	editor.classList.add(selectedFont)
-}
+    // Destroy previous editor instance if it exists
+    if (editor) {
+        editor.toTextArea();
+    }}
