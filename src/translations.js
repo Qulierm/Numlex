@@ -1,21 +1,4 @@
-interface Translation {
-	sheet: string
-	newSheet: string
-	enter: string
-	settings: string
-	round: string
-	fontcolor: string
-	blue: string
-	purple: string
-	red: string
-	green: string
-	white: string
-	fontsize: string
-	sheetname: string
-	language: string
-}
-
-const translations: Record<string, Translation> = {
+const translations = {
 	en: {
 		sheet: 'Sheet',
 		newSheet: 'New sheet',
@@ -98,33 +81,25 @@ const translations: Record<string, Translation> = {
 	},
 }
 
-let currentLanguage: keyof typeof translations = 'en'
-
 function updateLanguageTexts() {
 	const lang = translations[currentLanguage]
-	document.getElementById('new-sheet')!.textContent = lang.newSheet
-	;(document.getElementById('input') as HTMLInputElement).placeholder =
-		lang.enter
-	document.getElementById('settings-title')!.textContent = lang.settings
-	document.getElementById('round-label')!.textContent = lang.round
-	document.getElementById('color-label')!.textContent = lang.fontcolor
-	document.getElementById('font-label')!.textContent = lang.fontsize
-	document.getElementById('lang-label')!.textContent = lang.language
-	document.getElementById('sheet-label')!.textContent = lang.sheetname
+	document.getElementById('new-sheet').textContent = lang.newSheet
+	document.getElementById('input').placeholder = lang.enter
+	document.getElementById('settings-title').textContent = lang.settings
+	document.getElementById('round-label').textContent = lang.round
+	document.getElementById('color-label').textContent = lang.fontcolor
+	document.getElementById('font-label').textContent = lang.fontsize
+	document.getElementById('lang-label').textContent = lang.language
+	document.getElementById('sheet-label').textContent = lang.sheetname
 
-	const colorSelector = document.getElementById(
-		'colorSelector'
-	) as HTMLSelectElement
-	for (let i = 0; i < colorSelector.options.length; i++) {
-		const option = colorSelector.options[i]
-		option.textContent = lang[option.value as keyof Translation]
+	const colorSelector = document.getElementById('colorSelector')
+	for (let option of colorSelector.options) {
+		option.textContent = lang[option.value]
 	}
 }
 
 function changeLanguage() {
-	const langSelector = document.getElementById(
-		'langSelector'
-	) as HTMLSelectElement
-	currentLanguage = langSelector.value as keyof typeof translations
+	const langSelector = document.getElementById('langSelector')
+	currentLanguage = langSelector.value
 	updateLanguageTexts()
 }

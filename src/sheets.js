@@ -1,24 +1,10 @@
-// sheets.ts
-declare function updateCode(): void
-interface Sheet {
-	title: string
-	content: string
-	createdAt: string
-	linesCount: number
-}
-
-declare var sheets: Sheet[]
-declare var currentSheetIndex: number
-declare var editor: any
-
-function addNewSheet(): void {
+function addNewSheet() {
 	const currentTime = new Date()
 	const hours = currentTime.getHours().toString().padStart(2, '0')
 	const minutes = currentTime.getMinutes().toString().padStart(2, '0')
 	const time = `${hours}:${minutes}`
-	const sheetLang = (document.getElementById('input-field') as HTMLInputElement)
-		.value
-	const newSheet: Sheet = {
+	const sheetLang = document.getElementById('input-field').value
+	const newSheet = {
 		title: `${sheetLang} ${sheets.length + 1}`,
 		content: '',
 		createdAt: time,
@@ -28,19 +14,16 @@ function addNewSheet(): void {
 	sheets.unshift(newSheet)
 	switchSheet(0)
 	renderSheets()
+
 	const newSheetElement = document.querySelector('.sheets-list .sidebar-item')
-	if (newSheetElement) {
-		newSheetElement.classList.add('slide-in')
-	}
+	newSheetElement.classList.add('slide-in')
 }
 
-function deleteSheet(index: number): void {
+function deleteSheet(index) {
 	const sheetElement = document.querySelectorAll('.sheets-list .sidebar-item')[
 		index
 	]
-	if (sheetElement) {
-		sheetElement.classList.add('slide-out')
-	}
+	sheetElement.classList.add('slide-out')
 	setTimeout(() => {
 		sheets.splice(index, 1)
 		if (index === currentSheetIndex) {
@@ -51,7 +34,7 @@ function deleteSheet(index: number): void {
 	}, 500) // Duration of animation in milliseconds
 }
 
-function switchSheet(index: number): void {
+function switchSheet(index) {
 	currentSheetIndex = index
 	const sheet = sheets[index]
 	editor.setValue(sheet.content)
@@ -59,8 +42,8 @@ function switchSheet(index: number): void {
 	renderSheets()
 }
 
-function renderSheets(): void {
-	const sheetsList = document.querySelector('.sheets-list') as HTMLDivElement
+function renderSheets() {
+	const sheetsList = document.querySelector('.sheets-list')
 	sheetsList.innerHTML = ''
 
 	sheets.forEach((sheet, index) => {
@@ -81,7 +64,7 @@ function renderSheets(): void {
 	})
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function () {
 	renderSheets()
 	switchSheet(currentSheetIndex)
 })
