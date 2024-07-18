@@ -1,3 +1,32 @@
+document
+	.getElementById('file-input')
+	.addEventListener('change', function (event) {
+		const file = event.target.files[0]
+		if (file) {
+			const reader = new FileReader()
+			reader.onload = function (e) {
+				const content = e.target.result
+				console.log('File content:', content)
+				try {
+					const importedData = JSON.parse(content)
+					console.log('Imported data:', importedData)
+					if (importedData.title && importedData.content) {
+						// Пример: предполагаемый формат данных в NLX файле
+						sheets.push(importedData) // Добавляем новый лист в массив sheets
+						switchSheet(sheets.length - 1) // Переключаемся на новый лист
+						renderSheets()
+					} else {
+						alert('Неверный формат файла NLX')
+					}
+				} catch (error) {
+					console.error('Error parsing file:', error)
+					alert('Ошибка при чтении файла')
+				}
+			}
+			reader.readAsText(file)
+		}
+	})
+
 function addNewSheet() {
 	const currentTime = new Date()
 	const hours = currentTime.getHours().toString().padStart(2, '0')
@@ -68,3 +97,17 @@ document.addEventListener('DOMContentLoaded', function () {
 	renderSheets()
 	switchSheet(currentSheetIndex)
 })
+
+function exportCurrentSheet() {
+	const currentSheet = sheets[currentSheetIndex]
+	const dataToExport = JSON.stringify(currentSheet) // Пример: экспортируем как JSON для простоты
+	const blob = new Blob([dataToExport], { type: 'application/json' }) // Создаем Blob из строки JSON
+	const url = URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = `${currentSheet.title}.nlx`
+	document.body.appendChild(a)
+	a.click()
+	document.body.removeChild(a)
+	URL.revokeObjectURL(url)
+}

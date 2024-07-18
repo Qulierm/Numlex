@@ -51,14 +51,15 @@ CodeMirror.defineMode('custom', function (config, parserConfig) {
 		},
 	}
 })
-
+let placehold = 'Enter an expression to start'
 let editor = CodeMirror.fromTextArea(document.getElementById('input'), {
 	lineNumbers: false,
 	scrollbarStyle: 'null',
 	theme: 'default', // Выберите тему редактора
 	lint: true,
 	mode: 'custom',
-	placeholder: 'Enter an expression to start',
+	placeholder: placehold,
+	lineWrapping: true,
 })	
 function updateDeclaredVariables() {
 	declaredVariables = {} // Очистка переменных перед повторным анализом

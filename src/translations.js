@@ -84,18 +84,13 @@ const translations = {
 function updateLanguageTexts() {
 	const lang = translations[currentLanguage]
 	document.getElementById('new-sheet').textContent = lang.newSheet
-	document.getElementById('input').placeholder = lang.enter
+	placehold = lang.enter
+	editor.setOption('placeholder', placehold) // Обновление placeholder в CodeMirror
 	document.getElementById('settings-title').textContent = lang.settings
 	document.getElementById('round-label').textContent = lang.round
-	document.getElementById('color-label').textContent = lang.fontcolor
 	document.getElementById('font-label').textContent = lang.fontsize
 	document.getElementById('lang-label').textContent = lang.language
 	document.getElementById('sheet-label').textContent = lang.sheetname
-
-	const colorSelector = document.getElementById('colorSelector')
-	for (let option of colorSelector.options) {
-		option.textContent = lang[option.value]
-	}
 }
 
 function changeLanguage() {

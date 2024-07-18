@@ -20,7 +20,12 @@
                     Subtotals
                 </div>
             </div>
-            <button class="settings-button" onclick="openSettings()"></button>
+            <div class="cont">
+                <button class="settings-button" onclick="openSettings()"></button>
+                <button  class="export" onclick="exportCurrentSheet()"></button>
+                <input type="file" id="file-input" style="display:none" accept=".nlx" />
+                <button class="import" onclick="document.getElementById('file-input').click()"></button>
+            </div>
         </div>
         <div class="main">
             <div class="main-header">
