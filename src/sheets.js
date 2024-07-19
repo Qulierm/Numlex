@@ -111,3 +111,26 @@ function exportCurrentSheet() {
 	document.body.removeChild(a)
 	URL.revokeObjectURL(url)
 }
+
+document.addEventListener('keydown', function (event) {
+	if (event.ctrlKey && event.key === 'n') {
+		event.preventDefault()
+		addNewSheet()
+	}
+	if (event.ctrlKey && event.key === 'd') {
+		event.preventDefault()
+		deleteSheet(currentSheetIndex)
+	}
+	if (event.ctrlKey && event.key === 'e') {
+		event.preventDefault()
+		exportCurrentSheet()
+	}
+	if (event.ctrlKey && event.key === ',') {
+		event.preventDefault()
+		openSettings()
+	}
+	if (event.ctrlKey && event.key === 'i') {
+		event.preventDefault()
+		document.getElementById('file-input').click()
+	}
+})
