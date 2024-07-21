@@ -14,7 +14,7 @@ app.setUserTasks([
 function createWindow() {
 	const mainWindow = new BrowserWindow({
 		autoHideMenuBar: true,
-		width: 840,
+		width: 860,
 		height: 600,
 		icon: path.join(__dirname, 'numlex.ico'),
 		webPreferences: {

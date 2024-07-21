@@ -265,8 +265,8 @@ body::-webkit-scrollbar, #input::-webkit-scrollbar, #code::-webkit-scrollbar, .s
     overflow: hidden;
     background-color: #262627;
     margin: auto;
-    margin-top: 12vh;
-    margin-bottom: 10vh; /* Регулирует вертикальное расположение */
+    margin-top: 5vh;
+    margin-bottom: 5vh; /* Регулирует вертикальное расположение */
     padding: 20px;
     border: 1px solid #6c6c6c;
     width: 80%; /* Ширина модального окна, может быть адаптивной */
@@ -409,3 +409,30 @@ select{
 .CodeMirror div.CodeMirror-cursors .CodeMirror-cursor {
       border-left: 1px solid #ffffff; /* Custom color for the cursor */
     }
+    .CodeMirror-linenumbers{
+        background-color: #262627 !important;
+        border-right: none !important;
+        align-items: center !important;
+        text-align: center !important;
+        justify-content: center !important;
+        font-size: 10px !important;
+    }
+    .CodeMirror-gutters {
+    border-right: none !important; /* Убирает вертикальную линию */
+    font-size: small !important;
+    align-items: center !important;
+    text-align: center !important;
+    justify-content: center !important;
+}
+.CodeMirror-linenumber {
+    margin-top: 7px !important;
+    width: 20px !important;
+    font-size: 15px !important; /* Устанавливаем размер шрифта */
+    border-radius: 6px !important;
+    width: 20px !important;
+    background-color: #404040 !important;
+    align-items: center !important;
+    text-align: center !important;
+    justify-content: center !important;
+    vertical-align: middle !important;
+}

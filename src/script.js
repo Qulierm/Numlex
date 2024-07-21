@@ -2,6 +2,7 @@ let sheets = [{ title: 'Sheet', content: '' }]
 let currentSheetIndex = 0
 let decimalPlaces = 6 // Default value
 let variables = {} // Store variables
+
 document
 	.getElementById('decimal-places')
 	.addEventListener('change', function () {
@@ -51,16 +52,35 @@ CodeMirror.defineMode('custom', function (config, parserConfig) {
 		},
 	}
 })
+function updateLineNumbers() {
+	editor.setOption('lineNumbers', linenum)
+}
+
+// Добавляем обработчик события change к select
+document.getElementById('mySelect').addEventListener('change', function () {
+	if (this.value === 'true') {
+		linenum = true // Меняем значение переменной на true
+	} else {
+		linenum = false // Или на false
+	}
+	updateLineNumbers() // Обновляем значение lineNumbers в editor
+})
+
+// Инициализация editor с начальным значением linenum
+let linenum = false
 let placehold = 'Enter an expression to start'
 let editor = CodeMirror.fromTextArea(document.getElementById('input'), {
-	lineNumbers: false,
+	lineNumbers: linenum,
 	scrollbarStyle: 'null',
 	theme: 'default', // Выберите тему редактора
 	lint: true,
 	mode: 'custom',
 	placeholder: placehold,
 	lineWrapping: true,
-})	
+})
+
+// Добавляем функцию обновления lineNumbers в editor
+updateLineNumbers()
 function updateDeclaredVariables() {
 	declaredVariables = {} // Очистка переменных перед повторным анализом
 	const lines = editor.getValue().split('\n')

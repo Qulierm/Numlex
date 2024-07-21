@@ -14,6 +14,7 @@ const translations = {
 		fontsize: 'Font size:',
 		sheetname: 'Sheet title:',
 		language: 'Interface language:',
+		linenumber: 'Line numbers:',
 	},
 	ru: {
 		sheet: 'Лист',
@@ -30,6 +31,7 @@ const translations = {
 		fontsize: 'Размер текста:',
 		sheetname: 'Заголовок листов:',
 		language: 'Язык интерфейса:',
+		linenumber: 'Номера строк',
 	},
 	de: {
 		sheet: 'Blatt',
@@ -46,6 +48,7 @@ const translations = {
 		fontsize: 'Schriftgröße',
 		sheetname: 'Titel der Blätter:',
 		language: 'Sprache der Schnittstelle:',
+		linenumber: 'Line numbers:',
 	},
 	fr: {
 		sheet: 'Feuille',
@@ -62,6 +65,7 @@ const translations = {
 		fontsize: 'Taille de la police:',
 		sheetname: 'Titre de la feuille:',
 		language: "Langue de l'interface:",
+		linenumber: 'Line numbers:',
 	},
 	it: {
 		sheet: 'Foglio',
@@ -78,6 +82,7 @@ const translations = {
 		fontsize: 'Dimensione del carattere:',
 		sheetname: 'Titolo del foglio:',
 		language: "Lingua dell'interfaccia:",
+		linenumber: 'Line numbers:',
 	},
 }
 
@@ -91,6 +96,7 @@ function updateLanguageTexts() {
 	document.getElementById('font-label').textContent = lang.fontsize
 	document.getElementById('lang-label').textContent = lang.language
 	document.getElementById('sheet-label').textContent = lang.sheetname
+	document.getElementById('line-label').textContent = lang.linenumber
 }
 
 function changeLanguage() {
