@@ -48,7 +48,7 @@ const translations = {
 		fontsize: 'Schriftgröße',
 		sheetname: 'Titel der Blätter:',
 		language: 'Sprache der Schnittstelle:',
-		linenumber: 'Line numbers:',
+		linenumber: 'Zeilennummern:',
 	},
 	fr: {
 		sheet: 'Feuille',
@@ -65,7 +65,7 @@ const translations = {
 		fontsize: 'Taille de la police:',
 		sheetname: 'Titre de la feuille:',
 		language: "Langue de l'interface:",
-		linenumber: 'Line numbers:',
+		linenumber: 'Numéros de ligne:',
 	},
 	it: {
 		sheet: 'Foglio',
@@ -82,7 +82,24 @@ const translations = {
 		fontsize: 'Dimensione del carattere:',
 		sheetname: 'Titolo del foglio:',
 		language: "Lingua dell'interfaccia:",
-		linenumber: 'Line numbers:',
+		linenumber: 'Numeri di riga:',
+	},
+	ch: {
+		sheet: '工作表',
+		newSheet: '新工作表',
+		enter: '输入表达式开始',
+		settings: '设置',
+		round: '四舍五入的数字：',
+		fontcolor: '字体颜色：',
+		blue: '蓝色',
+		purple: '紫色',
+		red: '红色',
+		green: '绿色',
+		white: '白色',
+		fontsize: '字体大小：',
+		sheetname: '工作表标题：',
+		language: '界面语言：',
+		linenumber: '行号：',
 	},
 }
 
