@@ -1,7 +1,7 @@
 {
 	"name": "numlex",
 	"productName": "Numlex",
-	"version": "3.0.0",
+	"version": "3.1.0",
 	"description": "Notepad based calculator build with Electron",
 	"main": "main.js",
 	"scripts": {

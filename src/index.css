@@ -26,7 +26,7 @@ button{
 
 .sidebar {
     background-color: #262627;
-    width: 185px;
+    width: 175px;
     display: flex;
     flex-direction: column;
     padding: 10px;
@@ -42,7 +42,7 @@ button{
     background-image: url('./icons/new.svg');
     background-size: 17px;
     background-repeat: no-repeat;
-    background-position: 27px center;
+    background-position: 23px center;
     border: none;
     color: #b0b0b0;
     padding: 10px;
@@ -344,15 +344,15 @@ select{
 }
 
 .cm-operator {
-      color: #F75F8F !important;
-    }
-    .cm-number {
-      color: #52A8FF !important;
-    }
-    .cm-string {
-      color: white !important;
-    }
-    .CodeMirror {
+    color: #F75F8F !important;
+}
+.cm-number {
+    color: #52A8FF !important;
+}
+.cm-string {
+    color: white !important;
+}
+.CodeMirror {
     z-index: 1 !important;
     font-family: 'Geist-Medium', sans-serif !important;
     font-weight: 400 !important;
@@ -371,65 +371,63 @@ select{
     flex-grow: 1 !important;
     margin-top: 0 !important;
     width: 350px;
-    }
-
-
+}
 
 .cm-comment {
     color: grey !important; /* Белый цвет для остальных слов */
 }
 
-    .cm-highlight-to {
-        color: #F75F8F;
-    }
-    .cm-highlight-number {
-        color: #52A8FF;
-    }
-    .cm-highlight-operator {
-        color: white;
-    }
-    .cm-highlight-before-equals {
+.cm-highlight-to {
+    color: #F75F8F;
+}
+.cm-highlight-number {
+    color: #52A8FF;
+}
+.cm-highlight-operator {
+    color: white;
+}
+.cm-highlight-before-equals {
     color: #4FBF63;
-    }
-    .cm-highlight-used-variable{
-        color: #4FBF63;
-    }
+}
+.cm-highlight-used-variable{
+    color: #4FBF63;
+}
 
-    .comment{
-        color: grey;
-    }
+.comment{
+    color: grey;
+}
 
-    .CodeMirror-placeholder {
-        color: #5a5a5a !important; /* Custom color for the placeholder text */
-        white-space: pre-wrap !important;
-        display: block !important;
-        width: 100% !important;
-    }
+.CodeMirror-placeholder {
+    color: #5a5a5a !important; /* Custom color for the placeholder text */
+    white-space: pre-wrap !important;
+    display: block !important;
+    width: 100% !important;
+}
 
 .CodeMirror div.CodeMirror-cursors .CodeMirror-cursor {
       border-left: 1px solid #ffffff; /* Custom color for the cursor */
     }
-    .CodeMirror-linenumbers{
-        background-color: #262627 !important;
-        border-right: none !important;
-        align-items: center !important;
-        text-align: center !important;
-        justify-content: center !important;
-        font-size: 10px !important;
-    }
-    .CodeMirror-gutters {
-    border-right: none !important; /* Убирает вертикальную линию */
+.CodeMirror-linenumbers{
+    background-color: #262627 !important;
+    border-right: none !important;
+    align-items: center !important;
+    text-align: center !important;
+    justify-content: center !important;
+    font-size: 10px !important;
+}
+.CodeMirror-gutters {
+    border-right: none !important;
     font-size: small !important;
     align-items: center !important;
     text-align: center !important;
     justify-content: center !important;
 }
 .CodeMirror-linenumber {
-    margin-top: 7px !important;
-    width: 20px !important;
-    font-size: 15px !important; /* Устанавливаем размер шрифта */
+    margin-top: 8px !important;
+    width: 15px !important;
+    font-size: 12px !important;
     border-radius: 6px !important;
-    width: 20px !important;
+    width: 17px !important;
     background-color: #404040 !important;
     align-items: center !important;
     text-align: center !important;
