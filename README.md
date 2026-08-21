@@ -1,4 +1,3 @@
-
 <p align="center">
   <img src="https://github.com/Qulierm/Numlex/assets/132899713/5d48f135-9a20-4b43-93b2-d304bf6c8da3" alt="Sublime's custom image" width="150px" height="150px"/>
 </p>
@@ -9,35 +8,44 @@
 </p>
 A simple and elegant notepad-based calculator to create and manage sheets with real-time syntax highlighting and evaluation for mathematical expressions.
 
-## Features
+## Architecture
 
-- **Sheet Management**: Create, switch between, and delete sheets effortlessly.
-- **Units and currency convertation**: Covert using special syntax.
-- **Math Expression Evaluation**: Evaluate mathematical expressions and display the result instantly.
-- **Customizable Interface**: Clean and modern UI with dark mode.
+Numlex is a Tauri v2 desktop app. The UI is a plain static frontend in `src/` (HTML/CSS/JS with locally vendored CodeMirror 5) that Tauri loads as the local frontend (`frontendDist: ../src` in `src-tauri/tauri.conf.json`). There is no Node integration — the frontend is ordinary browser code (localStorage, Blob, FileReader, relative asset paths). The Rust side in `src-tauri/` is a minimal shell: window 860x600, app identifier `com.numlex.app`, no custom commands.
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) (for the Tauri CLI)
+- [Rust](https://rustup.rs/) (`cargo` in PATH)
+- Platform requirements for Tauri:
+  - macOS: Xcode Command Line Tools (`xcode-select --install`)
+  - Windows: Microsoft Visual Studio C++ Build Tools and WebView2
+  - Linux: `webkit2gtk`, `gtk`, `libayatana-appindicator` (see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/))
+
+## Development
+
+```sh
+npm install
+npm start        # or: npm run dev — runs `tauri dev`
+```
 
 ## Building the Application
 
-To package the application into an executable file, follow these steps:
+```sh
+npm run build    # or: npm run dist — runs `tauri build`
+```
 
-1. **Install the necessary build tools**:
-    ```sh
-    npm install electron-builder --save-dev
-    ```
+The packaged application will be found in `src-tauri/target/release/bundle/`.
 
-2. **Build for Windows**:
-    ```sh
-    npm run dist
-    ```
+## Optional: Exchange Rate Service
 
-   The packaged application will be found in the `dist` directory.
+`server/server.rs` is an optional standalone Actix-web service that caches daily USD/EUR rates (from [exchangerate-api.com](https://exchangerate-api.com), 3000 requests/month limit — see `server/About.md`) and exposes `GET /rates` on `127.0.0.1:3000`. The frontend polls it hourly and silently skips currency conversions when it is unreachable. It is **not** part of the Tauri build: it has no `Cargo.toml` manifest, and the API key placeholder `{API}` in the URLs must be replaced before it can be run.
 
 ## Usage
 
 - **Create a New Sheet**: Click on the "New Sheet" button to create a new sheet.
 - **Switch Sheets**: Click on a sheet in the sidebar to switch to it.
 - **Delete a Sheet**: Hover over a sheet in the sidebar and click the delete icon to remove it.
-- **Input Expressions**: Type mathematical expressions in the input area. 
+- **Input Expressions**: Type mathematical expressions in the input area.
 - **View Results**: Results of the evaluated expressions are shown in real-time below the input area.
 
 ## Contributing
