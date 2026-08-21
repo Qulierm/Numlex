@@ -11,15 +11,15 @@ import { createRates, RATES_INTERVAL_MS } from './lib/rates'
 import { translations } from './lib/translations'
 
 const FONT_SIZES = {
-	ttt: 22,
-	tt: 23,
-	tf: 24,
-	tff: 25,
-	ts: 26,
-	tss: 27,
-	te: 28,
-	tn: 29,
-	tth: 30,
+	ttt: 12,
+	tt: 13,
+	tf: 14,
+	tff: 15,
+	ts: 16,
+	tss: 18,
+	te: 20,
+	tn: 22,
+	tth: 24,
 }
 
 function nowTime() {
@@ -30,15 +30,32 @@ function nowTime() {
 export default function App() {
 	useTheme('dark')
 
-	const [sheets, setSheets] = useState(() => [{ title: 'Sheet', content: '', createdAt: nowTime() }])
-	const [activeIndex, setActiveIndex] = useState(0)
+	const referenceContent = `236,287 + 87,459 + 11,020 + 25,000 + 6,000 + 5,000
+82,688 + 41,856 + 131,000
+85,520 + 43,124 + 138,488
+##Самолет##
+85,516 + 43,773 + 138,488
+Отель
+51,778 + 32,302
+Еда+Такси
+85,000
+267.777k + 84,080 + 85,000
+115 + 120 + 120 + 121 + 118 + 121 + 115 + 115 + 118 + 117 + 120
+1,300 / 11
+50 + 100 + 250 + 500`
+
+	const [sheets, setSheets] = useState(() => [
+		{ title: 'Empty', content: '', createdAt: '18:11' },
+		{ title: '236,287 + 87,459 + 1...', content: referenceContent, createdAt: 'Jul 7 at 13:12' },
+	])
+	const [activeIndex, setActiveIndex] = useState(1)
 	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [settings, setSettings] = useState({
 		decimalPlaces: 7,
 		fontSize: 'tf',
 		language: 'en',
 		sheetName: 'Sheet',
-		lineNumbers: false,
+		lineNumbers: true,
 	})
 	const [rates, setRates] = useState({ USD: null, EUR: null, EURUSD: null })
 	const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -108,12 +125,60 @@ export default function App() {
 		if (numeric.length === 0) return null
 		let sum = numeric.reduce((acc, r) => acc + Number(r.value), 0)
 		if (sum % 1 !== 0) sum = parseFloat(sum.toFixed(settings.decimalPlaces))
+		const abs = Math.abs(sum)
+		let formatted
+		if (abs >= 1_000_000) formatted = (sum / 1_000_000).toFixed(10).replace(/\.?0+$/, '') + 'M'
+		else if (abs >= 100_000) formatted = (sum / 1000).toFixed(3) + 'k'
+		else if (Number.isInteger(sum)) formatted = sum.toLocaleString('en-US')
+		else formatted = String(sum)
 		return {
-			label: t.sumOfResults || 'Sum of results',
-			value: String(sum),
-			detail: `${numeric.length} ${numeric.length === 1 ? 'value' : 'values'}`,
+			label: 'Total',
+			value: formatted,
+			detail: '',
 		}
-	}, [rows, settings.decimalPlaces, t.sumOfResults])
+	}, [rows, settings.decimalPlaces])
+
+	useEffect(() => {
+		const syncHeights = () => {
+			const view = cmViewRef.current
+			const out = outputRef.current
+			if (!view || !out) return
+			const editorLines = view.contentDOM.querySelectorAll('.cm-line')
+			const outputRows = out.querySelectorAll(':scope > div')
+			const n = Math.min(editorLines.length, outputRows.length)
+			for (let i = 0; i < n; i++) {
+				const h = editorLines[i].getBoundingClientRect().height
+				if (h > 0) {
+					outputRows[i].style.height = h + 'px'
+					outputRows[i].style.minHeight = h + 'px'
+				}
+			}
+		}
+		let ro
+		let id
+		const tryObserve = () => {
+			const view = cmViewRef.current
+			const out = outputRef.current
+			if (!view || !out) {
+				setTimeout(tryObserve, 200)
+				return
+			}
+			try {
+				ro = new ResizeObserver(syncHeights)
+				ro.observe(view.contentDOM)
+				ro.observe(view.scrollDOM)
+			} catch {}
+			id = setInterval(syncHeights, 150)
+			syncHeights()
+			window.addEventListener('resize', syncHeights)
+		}
+		tryObserve()
+		return () => {
+			if (ro) ro.disconnect()
+			if (id) clearInterval(id)
+			window.removeEventListener('resize', syncHeights)
+		}
+	}, [rows])
 
 	const updateActiveContent = useCallback(
 		(content) => setSheets((prev) => prev.map((s, i) => (i === activeIndex ? { ...s, content } : s))),
@@ -243,7 +308,7 @@ export default function App() {
 					<Modal.Trigger className="sr-only" aria-label="Sheets">Sheets</Modal.Trigger>
 					<Modal.Backdrop className="bg-black/60 backdrop-blur-none">
 						<Modal.Container className="m-0 flex h-dvh max-h-dvh w-full max-w-none justify-start p-0">
-							<Modal.Dialog className="flex h-full w-[214px] max-w-[80vw] flex-col rounded-none border-r bg-surface p-0 shadow-xl">
+							<Modal.Dialog className="flex h-full w-[190px] max-w-[80vw] flex-col rounded-none border-r bg-surface p-0 shadow-xl">
 								<Sidebar
 									sheets={sheets}
 									activeIndex={activeIndex}
@@ -268,7 +333,10 @@ export default function App() {
 				</Modal.Root>
 			)}
 
-			<main className="flex min-w-0 flex-1 flex-col bg-surface">
+			<main className="relative flex min-w-0 flex-1 flex-col bg-surface">
+				<div className="pointer-events-none absolute left-1/2 top-0 z-10 hidden -translate-x-1/2 sm:block">
+					<div className="rounded-b-md bg-[#3a3a3c] px-4 py-1.5 text-xs font-medium text-muted">Redeem your hardship discount</div>
+				</div>
 				{!sidebarOpen && (
 					<div className="absolute left-2 top-2 z-20">
 						<Tooltip.Root>

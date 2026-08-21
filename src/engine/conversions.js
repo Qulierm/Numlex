@@ -46,7 +46,7 @@ function roundResult(value, decimalPlaces) {
 }
 
 export function tryConversion(line, rates, decimalPlaces) {
-	const trimmed = line.trim()
+	const trimmed = line.trim().replace(/,/g, '')
 	// Expect "<number> <from> to <to>" – extract leading number
 	const m = trimmed.match(/^([+-]?\d*\.?\d+)\s+(.+)$/i)
 	if (!m) return null

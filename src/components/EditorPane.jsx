@@ -31,13 +31,7 @@ export function EditorPane({ value, onChange, placeholder, lineNumbers, onCreate
 	const language = useMemo(() => createNumlexLanguage(() => declaredRef.current), [])
 
 	const extensions = useMemo(() => {
-		const exts = [
-			language,
-			numlexHighlighting,
-			numlexTheme,
-			EditorView.lineWrapping,
-			autoSpaceKeymap,
-		]
+		const exts = [language, numlexHighlighting, numlexTheme, EditorView.lineWrapping, autoSpaceKeymap]
 		if (lineNumbers) exts.push(lineNumbersExtension())
 		return exts
 	}, [language, lineNumbers])

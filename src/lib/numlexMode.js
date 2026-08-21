@@ -14,6 +14,7 @@ export function createNumlexLanguage(getDeclared) {
 	return StreamLanguage.define({
 		name: 'numlex',
 		token(stream) {
+			if (stream.match(/^##.*##/)) return 'numlexTitle'
 			if (stream.match(/^#.*$/)) return 'comment'
 			if (stream.match(/^\/\/ .+$/)) return 'numlexTitle'
 			if (stream.match(/^\/\/.*$/)) return 'comment'
@@ -44,13 +45,13 @@ export function createNumlexLanguage(getDeclared) {
 // "to" conversion keyword (kept from the legacy palette).
 export const numlexHighlighting = syntaxHighlighting(
 	HighlightStyle.define([
-		{ tag: t.comment, color: 'var(--muted)', fontStyle: 'normal' },
-		{ tag: t.heading, color: 'var(--foreground)', fontWeight: '600' },
+		{ tag: t.comment, color: 'color-mix(in oklab, var(--muted) 70%, transparent)', fontStyle: 'normal' },
+		{ tag: t.heading, color: 'var(--foreground)', fontWeight: '700' },
 		{ tag: toTag, color: '#e56da2' },
-		{ tag: t.number, color: 'var(--accent)' },
-		{ tag: t.operator, color: 'var(--foreground)' },
-		{ tag: declaredTag, color: 'var(--success)' },
-		{ tag: usedTag, color: 'var(--success)' },
+		{ tag: t.number, color: '#9bd1ff' },
+		{ tag: t.operator, color: '#9bd1ff' },
+		{ tag: declaredTag, color: '#b3d9ff' },
+		{ tag: usedTag, color: '#b3d9ff' },
 	])
 )
 

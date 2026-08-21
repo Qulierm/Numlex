@@ -6,6 +6,15 @@ function roundResult(value, decimalPlaces) {
 	return value
 }
 
+function normalizeExpr(expr) {
+	// Reference UI uses comma thousands separators and k/M suffixes (e.g. 236,287, 267.777k, 1.7M)
+	// Strip commas then expand k/M for evaluation. Keep original line for display.
+	let s = expr.replace(/,/g, '')
+	s = s.replace(/(\d+(?:\.\d+)?)\s*k\b/gi, '($1*1000)')
+	s = s.replace(/(\d+(?:\.\d+)?)\s*m\b/gi, '($1*1000000)')
+	return s
+}
+
 function isValidIdentifier(name) {
 	return /^[A-Za-z_]\w*$/.test(name)
 }
@@ -27,7 +36,8 @@ function evalAssignment(line, variables, decimalPlaces) {
 	const idx = line.indexOf('=')
 	if (idx === -1) return null
 	const left = line.slice(0, idx).trim()
-	const right = line.slice(idx + 1).trim()
+	const rightRaw = line.slice(idx + 1).trim()
+	const right = normalizeExpr(rightRaw)
 	if (!isValidIdentifier(left)) return { kind: 'error', message: 'Invalid assignment' }
 	if (!right) return { kind: 'error', message: 'Missing expression' }
 	try {
@@ -36,7 +46,6 @@ function evalAssignment(line, variables, decimalPlaces) {
 		variables[left] = value
 		return { kind: 'variable', name: left, value }
 	} catch (e) {
-		// try cleaned fallback for right side?
 		const cleanedVal = tryEvaluateCleaned(right, variables)
 		if (cleanedVal != null) {
 			const value = roundResult(cleanedVal, decimalPlaces)
@@ -48,13 +57,22 @@ function evalAssignment(line, variables, decimalPlaces) {
 }
 
 function evalFreeExpression(line, variables, decimalPlaces) {
-	const trimmed = line.trim()
+	const trimmed = normalizeExpr(line.trim())
 	if (!trimmed) return null
+	if (!/\d/.test(trimmed)) {
+		// Cyrillic headings should be blank
+		if (/[а-яА-ЯёЁ]/.test(trimmed)) return null
+		const single = trimmed.trim()
+		if (/^[A-Za-z_]\w*$/.test(single) && Object.prototype.hasOwnProperty.call(variables, single)) {
+			// single known variable like "y" – allow evaluation
+		} else {
+			return null
+		}
+	}
 	try {
 		const raw = evaluateExpression(trimmed, variables)
 		return { kind: 'number', value: roundResult(raw, decimalPlaces) }
 	} catch {
-		// fallback: strip unknown words then retry
 		const cleanedVal = tryEvaluateCleaned(trimmed, variables)
 		if (cleanedVal != null) {
 			return { kind: 'number', value: roundResult(cleanedVal, decimalPlaces) }

@@ -21,39 +21,35 @@ export function Sidebar({
 }) {
 	return (
 		<aside
-			className="flex h-full w-[214px] shrink-0 flex-col border-r border-border bg-surface"
+			className="flex h-full w-[190px] shrink-0 flex-col border-r border-border bg-surface"
 			aria-label={sheetsLabel}
 		>
-			<div className="p-2 pb-2">
-				<Button
-					fullWidth
-					size="sm"
-					variant="solid"
-					onPress={onAdd}
-					className="h-8 rounded-lg bg-accent text-white hover:bg-accent/90 text-sm"
-				>
-					<Plus className="size-3.5" />
-					{newSheetLabel}
-				</Button>
-			</div>
-
-			<div className="flex items-center gap-2 px-4 py-2">
-				<span className="text-[11px] font-medium uppercase tracking-wider text-muted">{sheetsLabel}</span>
-				<span className="text-[11px] text-muted">{sheets.length}</span>
+			<div className="flex items-center gap-1.5 px-3 pt-3 pb-2">
+				<span className="size-3 rounded-full bg-[#ff5f57]" aria-hidden="true" />
+				<span className="size-3 rounded-full bg-[#ffbd2e]" aria-hidden="true" />
+				<span className="size-3 rounded-full bg-[#28c840]" aria-hidden="true" />
 				<Tooltip.Root>
 					<Tooltip.Trigger className="ml-auto min-[720px]:hidden">
-						<Button
-							isIconOnly
-							variant="ghost"
-							size="sm"
-							aria-label={closeLabel}
-							onPress={onClose}
-						>
+						<Button isIconOnly variant="ghost" size="sm" aria-label={closeLabel} onPress={onClose}>
 							<X className="size-4" />
 						</Button>
 					</Tooltip.Trigger>
 					<Tooltip.Content>{closeLabel}</Tooltip.Content>
 				</Tooltip.Root>
+			</div>
+			<div className="px-2 pb-2">
+				<Button
+					fullWidth
+					size="sm"
+					variant="ghost"
+					onPress={onAdd}
+					className="h-7 justify-start gap-2 rounded-md px-3 font-normal text-muted hover:bg-surface-secondary/60 hover:text-foreground"
+				>
+					<span className="flex size-5 items-center justify-center rounded-full border border-border bg-surface-secondary/50">
+						<Plus className="size-3" />
+					</span>
+					{newSheetLabel}
+				</Button>
 			</div>
 
 			<div className="min-h-0 flex-1 px-2">
@@ -70,7 +66,8 @@ export function Sidebar({
 						}}
 					>
 						{sheets.map((sheet, index) => {
-							const lineCount = sheet.content ? sheet.content.split('\n').length : 1
+							const rawLines = sheet.content ? sheet.content.split('\n') : []
+							const lineCount = rawLines.length === 0 || (rawLines.length === 1 && rawLines[0] === '') ? 0 : rawLines.length
 							const isActive = index === activeIndex
 							return (
 								<ListBox.Item
@@ -99,13 +96,10 @@ export function Sidebar({
 											<Tooltip.Content>{deleteLabel}</Tooltip.Content>
 										</Tooltip.Root>
 									</div>
-									<span className="mt-1 flex items-center gap-1.5 text-xs text-muted">
-										{sheet.createdAt && <span>{sheet.createdAt}</span>}
-										{sheet.createdAt && <span className="opacity-50">•</span>}
-										<span>
-											{lineCount} {lineCount === 1 ? 'line' : 'lines'}
-										</span>
-									</span>
+									<div className="mt-1 flex items-center justify-between gap-1 text-xs text-muted">
+										<span className="whitespace-nowrap">{sheet.createdAt}</span>
+										<span className="whitespace-nowrap">{lineCount === 0 ? 'No lines' : `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`}</span>
+									</div>
 								</ListBox.Item>
 							)
 						})}
