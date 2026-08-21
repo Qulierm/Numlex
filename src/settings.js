@@ -14,3 +14,7 @@ function saveSettings() {
     if (editor) {
         editor.toTextArea();
     }}
+
+document.querySelector('.close').addEventListener('click', closeSettings)
+document.getElementById('fontSelector').addEventListener('change', saveSettings)
+document.getElementById('langSelector').addEventListener('change', changeLanguage)

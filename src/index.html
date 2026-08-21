@@ -13,32 +13,32 @@
     <div class="container">
         <div class="sidebar">
             <div class="sidebar-header">
-                <button class="new-sheet" id="new-sheet" onclick="addNewSheet()">New Sheet</button>
+                <button class="new-sheet" id="new-sheet">New Sheet</button>
             </div>
             <div class="sheets-list">
-                <div class="sidebar-item active" onclick="switchSheet(0)">
+                <div class="sidebar-item active">
                     Subtotals
                 </div>
             </div>
             <div class="cont">
-                <button class="settings-button" onclick="openSettings()"></button>
-                <button  class="export" onclick="exportCurrentSheet()"></button>
+                <button class="settings-button"></button>
+                <button  class="export"></button>
                 <input type="file" id="file-input" style="display:none" accept=".nlx" />
-                <button class="import" onclick="document.getElementById('file-input').click()"></button>
+                <button class="import"></button>
             </div>
         </div>
         <div class="main">
             <div class="main-header">
             </div>
             <div class="main-content" id="main-content">
-                <textarea name="code" id="input" class="syncscroll" oninput="updateCode()" rows="10" placeholder="Enter an expression to start"></textarea>
+                <textarea name="code" id="input" class="syncscroll" rows="10" placeholder="Enter an expression to start"></textarea>
                 <pre id="code"><code id="code" class="output scroll-sync"></code></pre>
             </div>
         </div>
     </div>
     <div id="settings-modal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeSettings()">&times;</span>
+            <span class="close">&times;</span>
             <h3 id="settings-title">Settings</h3>
             <label for="decimal-places" id="round-label">Rounding numbers:</label>
             <select id="decimal-places">
@@ -52,7 +52,7 @@
             </select>
             <br>
             <label for="fontSelector" id="font-label">Font size:</label>
-            <select id="fontSelector" onchange="saveSettings()">
+            <select id="fontSelector">
                 <option value="ttt">22 px</option>
                 <option value="tt">23 px</option>
                 <option value="tf" selected="selected">24 px</option>
@@ -65,7 +65,7 @@
             </select>
             <br>
             <label for="langSelector" id="lang-label">Language:</label>
-            <select id="langSelector" onchange="changeLanguage()">
+            <select id="langSelector">
                 <option value="en">English</option>
                 <option value="ru">Русский</option>
                 <option value="de">Deutsch</option>

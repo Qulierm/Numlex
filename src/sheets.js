@@ -1,3 +1,17 @@
+document.getElementById('new-sheet').addEventListener('click', addNewSheet)
+document.querySelector('.settings-button').addEventListener('click', openSettings)
+document.querySelector('.export').addEventListener('click', exportCurrentSheet)
+document.querySelector('.import').addEventListener('click', function () {
+	document.getElementById('file-input').click()
+})
+
+document.querySelector('.sheets-list').addEventListener('click', function (event) {
+	const item = event.target.closest('.sidebar-item')
+	if (!item) return
+	const index = Array.prototype.indexOf.call(item.parentElement.children, item)
+	if (index !== -1) switchSheet(index)
+})
+
 document
 	.getElementById('file-input')
 	.addEventListener('change', function (event) {
@@ -84,10 +98,17 @@ function renderSheets() {
             <span class="sheet-time">${sheet.createdAt || ''}</span>
             ${
 							index === currentSheetIndex
-								? `<img class="delete-sheet-button" src="./icons/delete.svg" alt="Delete" onclick="deleteSheet(${index})">`
+								? '<img class="delete-sheet-button" src="./icons/delete.svg" alt="Delete">'
 								: ''
 						}
         `
+		if (index === currentSheetIndex) {
+			const deleteButton = sheetElement.querySelector('.delete-sheet-button')
+			deleteButton.addEventListener('click', (event) => {
+				event.stopPropagation()
+				deleteSheet(index)
+			})
+		}
 		sheetElement.addEventListener('click', () => switchSheet(index))
 		sheetsList.appendChild(sheetElement)
 	})
