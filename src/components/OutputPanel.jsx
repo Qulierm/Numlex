@@ -9,22 +9,22 @@ function OutputRow({ row }) {
 		case 'blank':
 			return <div className="h-4" />
 		case 'title':
-			return <div className="mb-1 font-semibold text-zinc-100">{row.text}</div>
+			return <div className="mb-1 font-semibold text-foreground">{row.text}</div>
 		case 'number':
 			return (
-				<div className="text-sky-300">
+				<div className="text-accent">
 					{formatNumber(row.value)}
 					{row.unit ? ` ${row.unit}` : ''}
 				</div>
 			)
 		case 'variable':
 			return (
-				<div className="text-emerald-400">
+				<div className="text-success">
 					{row.name} = {formatNumber(row.value)}
 				</div>
 			)
 		case 'error':
-			return <div className="text-red-400">Error</div>
+			return <div className="text-danger">Error</div>
 		default:
 			return null
 	}
@@ -34,9 +34,9 @@ export function OutputPanel({ rows, innerRef }) {
 	return (
 		<div
 			ref={innerRef}
-			className="numlex-output h-full w-44 shrink-0 overflow-auto border-l border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
+			className="numlex-output h-full w-48 shrink-0 overflow-auto border-l border-border bg-background px-3 py-2 text-sm"
 		>
-			{rows.map((row, index) => (
+			{rows.length === 0 ? null : rows.map((row, index) => (
 				<OutputRow key={index} row={row} />
 			))}
 		</div>

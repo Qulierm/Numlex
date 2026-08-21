@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar'
 import { EditorPane } from './components/EditorPane'
 import { OutputPanel } from './components/OutputPanel'
 import { SettingsModal } from './components/SettingsModal'
+import { useTheme } from '@heroui/react'
 import { evaluateSheet } from './lib/evaluate'
 import { createRates, RATES_INTERVAL_MS } from './lib/rates'
 import { translations } from './lib/translations'
@@ -25,6 +26,9 @@ function nowTime() {
 }
 
 export default function App() {
+	// Numlex is a dark app: keep the HeroUI dark theme (official plain-React pattern).
+	useTheme('dark')
+
 	const [sheets, setSheets] = useState(() => [{ title: 'Sheet', content: '' }])
 	const [activeIndex, setActiveIndex] = useState(0)
 	const [settingsOpen, setSettingsOpen] = useState(false)
@@ -197,13 +201,14 @@ export default function App() {
 
 	return (
 		<div
-			className="flex h-screen overflow-hidden bg-zinc-900 text-zinc-100"
+			className="flex h-screen overflow-hidden bg-background text-foreground"
 			style={{ '--numlex-editor-font-size': `${FONT_SIZES[settings.fontSize] ?? 24}px` }}
 		>
 			<Sidebar
 				sheets={sheets}
 				activeIndex={activeIndex}
 				newSheetLabel={t.newSheet}
+				deleteLabel={t.deleteSheet}
 				onAdd={addSheet}
 				onSwitch={switchSheet}
 				onDelete={deleteSheet}
@@ -213,7 +218,7 @@ export default function App() {
 			/>
 			<main className="flex min-w-0 flex-1 flex-col">
 				<div className="flex min-h-0 flex-1">
-					<div className="min-w-0 flex-1">
+					<div className="min-w-0 flex-1 bg-surface">
 						<EditorPane
 							value={activeSheet.content}
 							onChange={updateActiveContent}

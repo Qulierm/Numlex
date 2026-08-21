@@ -1,26 +1,24 @@
-@import '@heroui/styles';
+@import "tailwindcss";
+@import "@heroui/styles";
 
 :root {
+	/* Editor/result font size is driven by the settings panel (App.jsx). */
 	--numlex-editor-font-size: 24px;
 }
 
+/* App shell: the whole window is the app, no page scroll. */
 body {
-	margin: 0;
 	overflow: hidden;
 }
 
-/* CodeMirror sizing to match the legacy editor feel */
+/* CodeMirror sizing. Mono font is intentional: it is a code editor, not UI. */
 .cm-editor {
 	height: 100%;
 	font-size: var(--numlex-editor-font-size);
 }
 
 .cm-editor .cm-scroller {
-	font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 	line-height: 1.5;
 }
 
-/* Results panel scroll behaviour (editor <-> output sync) */
-.numlex-output {
-	scrollbar-width: thin;
-}

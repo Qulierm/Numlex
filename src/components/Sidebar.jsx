@@ -1,11 +1,12 @@
-import { Button, Tooltip, IconPlus } from '@heroui/react'
+import { Button, ListBox, ScrollShadow, Tooltip } from '@heroui/react'
+import { Plus, Settings, Download, Upload, X } from 'lucide-react'
 
-function ActionButton({ label, onPress, children }) {
+function ActionButton({ label, icon: Icon, onPress }) {
 	return (
 		<Tooltip.Root>
 			<Tooltip.Trigger>
-				<Button isIconOnly variant="flat" aria-label={label} onClick={onPress} className="text-base">
-					{children}
+				<Button isIconOnly variant="flat" aria-label={label} onClick={onPress}>
+					<Icon className="size-4" />
 				</Button>
 			</Tooltip.Trigger>
 			<Tooltip.Content>{label}</Tooltip.Content>
@@ -17,6 +18,7 @@ export function Sidebar({
 	sheets,
 	activeIndex,
 	newSheetLabel,
+	deleteLabel,
 	onAdd,
 	onSwitch,
 	onDelete,
@@ -25,64 +27,72 @@ export function Sidebar({
 	onImport,
 }) {
 	return (
-		<aside className="flex h-full w-48 shrink-0 flex-col border-r border-zinc-700 bg-zinc-950/60 p-2">
+		<aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-surface p-3">
 			<Button
-				isFullWidth
+				fullWidth
 				variant="flat"
 				onClick={onAdd}
-				startContent={<IconPlus className="size-4" />}
-				className="mb-2"
+				className="mb-3"
 			>
+				<Plus className="size-4" />
 				{newSheetLabel}
 			</Button>
 
-			<nav className="numlex-sheets flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-				{sheets.map((sheet, index) => (
-					<div
-						key={`${sheet.title}-${index}`}
-						role="button"
-						tabIndex={0}
-						onClick={() => onSwitch(index)}
-						onKeyDown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') onSwitch(index)
-						}}
-						className={`group relative flex cursor-pointer flex-col rounded-md px-3 py-1.5 text-sm outline-none transition-colors ${
-							index === activeIndex
-								? 'bg-zinc-700/70 text-zinc-50'
-								: 'text-zinc-400 hover:bg-zinc-800/70'
-						}`}
-					>
-						<span className="truncate font-medium">{sheet.title}</span>
-						{sheet.createdAt && (
-							<span className="truncate text-xs text-zinc-500">{sheet.createdAt}</span>
-						)}
-						{index === activeIndex && (
-							<button
-								type="button"
-								aria-label="Delete sheet"
-								onClick={(e) => {
-									e.stopPropagation()
-									onDelete(index)
-								}}
-								className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-1 text-zinc-400 opacity-70 hover:text-red-400"
-							>
-								&times;
-							</button>
-						)}
-					</div>
-				))}
-			</nav>
+			<ScrollShadow className="min-h-0 flex-1">
+				<ListBox
+					className="numlex-sheets max-h-full gap-1 overflow-y-auto"
+					aria-label="Sheets"
+					selectionMode="single"
+					selectionBehavior="replace"
+					selectedKey={String(activeIndex)}
+					onSelectionChange={(sel) => {
+						const key = sel instanceof Set ? [...sel][0] : sel
+						if (key != null) onSwitch(Number(key))
+					}}
+				>
+					{sheets.map((sheet, index) => (
+						<ListBox.Item
+							key={`${sheet.title}-${index}`}
+							id={String(index)}
+							textValue={sheet.title}
+							className={`group ${index === activeIndex ? 'bg-surface-secondary' : ''}`}
+						>
+							<span className="flex items-center gap-1">
+								<span className="min-w-0 flex-1 truncate font-medium">{sheet.title}</span>
+								{index === activeIndex && (
+									<span
+										role="button"
+										tabIndex={0}
+										aria-label={deleteLabel}
+										onPointerDown={(e) => e.stopPropagation()}
+										onClick={(e) => {
+											e.stopPropagation()
+											onDelete(index)
+										}}
+										onKeyDown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.stopPropagation()
+												onDelete(index)
+											}
+										}}
+										className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100 focus:opacity-100"
+									>
+										<X className="size-3.5" />
+									</span>
+								)}
+							</span>
+							{sheet.createdAt && (
+								<span className="block truncate text-xs text-muted">{sheet.createdAt}</span>
+							)}
+						</ListBox.Item>
+					))}
+				</ListBox>
+			</ScrollShadow>
 
-			<div className="mt-2 flex gap-1">
-				<ActionButton label="Settings" onPress={onSettings}>
-					&#9881;
-				</ActionButton>
-				<ActionButton label="Export sheet (.nlx)" onPress={onExport}>
-					&#8681;
-				</ActionButton>
-				<ActionButton label="Import sheet (.nlx)" onPress={onImport}>
-					&#8679;
-				</ActionButton>
+			<div className="mt-3 flex gap-1">
+				<ActionButton label="Settings" icon={Settings} onPress={onSettings} />
+				<ActionButton label="Export sheet (.nlx)" icon={Download} onPress={onExport} />
+				<ActionButton label="Import sheet (.nlx)" icon={Upload} onPress={onImport} />
 			</div>
 		</aside>
 	)

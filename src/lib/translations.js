@@ -4,6 +4,7 @@ export const translations = {
 	en: {
 		sheet: 'Sheet',
 		newSheet: 'New sheet',
+		deleteSheet: 'Delete sheet',
 		enter: 'Enter an expression to start',
 		settings: 'Settings',
 		round: 'Rounding numbers:',
@@ -21,6 +22,7 @@ export const translations = {
 	ru: {
 		sheet: 'Лист',
 		newSheet: 'Новый лист',
+		deleteSheet: 'Удалить лист',
 		enter: 'Введите выражение чтобы начать',
 		settings: 'Настройки',
 		round: 'Округление чисел:',
@@ -38,6 +40,7 @@ export const translations = {
 	de: {
 		sheet: 'Blatt',
 		newSheet: 'Neues Blatt',
+		deleteSheet: 'Blatt löschen',
 		enter: 'Geben Sie einen Ausdruck ein, um zu beginnen',
 		settings: 'Einstellungen',
 		round: 'Rundung von Zahlen',
@@ -55,6 +58,7 @@ export const translations = {
 	fr: {
 		sheet: 'Feuille',
 		newSheet: 'Nouvelle feuille',
+		deleteSheet: 'Supprimer la feuille',
 		enter: "Entrez une expression pour commencer",
 		settings: 'Paramètres',
 		round: 'Arrondir les nombres:',
@@ -72,6 +76,7 @@ export const translations = {
 	it: {
 		sheet: 'Foglio',
 		newSheet: 'Nuovo foglio',
+		deleteSheet: 'Elimina foglio',
 		enter: "Inserisci un'espressione per iniziare",
 		settings: 'Impostazioni',
 		round: 'Arrotondamento numeri:',
@@ -89,6 +94,7 @@ export const translations = {
 	ch: {
 		sheet: '工作表',
 		newSheet: '新工作表',
+		deleteSheet: '删除工作表',
 		enter: '输入表达式开始',
 		settings: '设置',
 		round: '四舍五入的数字：',
