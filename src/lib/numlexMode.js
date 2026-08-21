@@ -59,18 +59,17 @@ export const numlexTheme = EditorView.baseTheme({
 	'&.cm-editor': { backgroundColor: 'transparent' },
 	'&': { color: 'var(--foreground)' },
 	'.cm-content': {
-		/* Comfortable top offset so content does not crowd the header; keep in sync with answer column. */
-		padding: '24px 0 96px',
+		padding: '20px 0 80px',
 		caretColor: 'var(--accent)',
 	},
-	'.cm-line': { padding: '0 32px 0 42px' },
+	'.cm-line': { padding: '0 24px 0 48px' },
 	'.cm-placeholder': { color: 'var(--muted)', fontStyle: 'normal' },
 	'.cm-gutters': {
 		backgroundColor: 'transparent',
 		border: 'none',
 		color: 'color-mix(in oklab, var(--muted) 75%, transparent)',
-		font: '11px/ var(--numlex-line-height) ui-monospace, SFMono-Regular, Menlo, monospace',
-		paddingLeft: '12px',
+		font: '13px/ var(--numlex-line-height) ui-monospace, SFMono-Regular, Menlo, monospace',
+		paddingLeft: '10px',
 	},
 	'.cm-activeLine': { backgroundColor: 'transparent' },
 	'.cm-activeLineGutter': { backgroundColor: 'transparent' },

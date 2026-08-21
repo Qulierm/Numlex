@@ -2,17 +2,6 @@ import { Card } from '@heroui/react'
 
 function formatNumber(value) {
 	if (value == null || Number.isNaN(value)) return ''
-	const abs = Math.abs(value)
-	if (abs >= 1_000_000) {
-		const m = value / 1_000_000
-		// Keep up to 10 decimals like reference 1.7694741818, trim trailing zeros
-		let s = m.toFixed(10).replace(/\.?0+$/, '')
-		return s + 'M'
-	}
-	if (abs >= 100_000) {
-		const k = value / 1000
-		return k.toFixed(3) + 'k'
-	}
 	if (Number.isInteger(value)) return value.toLocaleString('en-US')
 	return String(value)
 }
@@ -28,7 +17,7 @@ function OutputRow({ row }) {
 		case 'number':
 			return (
 				<div className={base}>
-					<span className="text-[15px] font-medium leading-none tabular-nums text-foreground">
+					<span className="text-[17px] font-medium leading-none tabular-nums text-foreground">
 						{formatNumber(row.value)}
 					</span>
 					{row.unit && <span className="text-xs font-normal text-muted">{row.unit}</span>}
@@ -39,7 +28,7 @@ function OutputRow({ row }) {
 				<div className={base}>
 					<span className="text-sm text-foreground">{row.name}</span>
 					<span className="text-sm text-muted">=</span>
-					<span className="text-[15px] font-medium leading-none tabular-nums text-success">
+					<span className="text-[17px] font-medium leading-none tabular-nums text-success">
 						{formatNumber(row.value)}
 					</span>
 				</div>
@@ -47,7 +36,7 @@ function OutputRow({ row }) {
 		case 'error':
 			return (
 				<div className={base}>
-					<span className="text-xs font-medium text-danger" title={row.message || 'Error'}>
+					<span className="text-xs font-normal text-muted" title={row.message || 'Error'}>
 						{row.message === 'Rates unavailable' ? 'Rates unavailable' : 'Error'}
 					</span>
 				</div>
@@ -59,10 +48,10 @@ function OutputRow({ row }) {
 
 export function OutputPanel({ rows, innerRef, summary }) {
 	return (
-		<div className="flex h-40 shrink-0 flex-col overflow-hidden border-t border-border bg-surface sm:h-auto sm:w-[195px] sm:border-l sm:border-t-0">
+		<div className="flex h-40 shrink-0 flex-col overflow-hidden border-t border-border bg-surface sm:h-auto sm:w-[200px] sm:border-l sm:border-t-0">
 			<div
 				ref={innerRef}
-				className="numlex-output flex-1 overflow-auto pt-6"
+				className="numlex-output flex-1 overflow-auto pt-5"
 				aria-label="Results"
 			>
 				{rows.map((row, index) => (
@@ -70,8 +59,8 @@ export function OutputPanel({ rows, innerRef, summary }) {
 				))}
 			</div>
 			{summary && (
-				<div className="border-t border-border/60 bg-surface p-3">
-					<Card className="rounded-lg border border-border/60 bg-surface-secondary/40 px-3 py-2 shadow-none">
+				<div className="border-t border-border/40 bg-surface-secondary/20 p-2.5">
+					<Card className="rounded-lg border border-border/50 bg-surface-secondary/30 px-3 py-2 shadow-none">
 						<div className="flex items-center justify-between gap-2">
 							<span className="text-xs font-normal text-muted">{summary.label}</span>
 							<span className="text-sm font-medium tabular-nums text-foreground">

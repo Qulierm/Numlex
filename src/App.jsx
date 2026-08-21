@@ -11,15 +11,15 @@ import { createRates, RATES_INTERVAL_MS } from './lib/rates'
 import { translations } from './lib/translations'
 
 const FONT_SIZES = {
-	ttt: 12,
-	tt: 13,
-	tf: 14,
-	tff: 15,
-	ts: 16,
-	tss: 18,
-	te: 20,
-	tn: 22,
-	tth: 24,
+	ttt: 16,
+	tt: 17,
+	tf: 18,
+	tff: 19,
+	ts: 20,
+	tss: 22,
+	te: 24,
+	tn: 26,
+	tth: 28,
 }
 
 function nowTime() {
@@ -30,29 +30,19 @@ function nowTime() {
 export default function App() {
 	useTheme('dark')
 
-	const referenceContent = `236,287 + 87,459 + 11,020 + 25,000 + 6,000 + 5,000
-82,688 + 41,856 + 131,000
-85,520 + 43,124 + 138,488
-##Самолет##
-85,516 + 43,773 + 138,488
-Отель
-51,778 + 32,302
-Еда+Такси
-85,000
-267.777k + 84,080 + 85,000
-115 + 120 + 120 + 121 + 118 + 121 + 115 + 115 + 118 + 117 + 120
-1,300 / 11
-50 + 100 + 250 + 500`
-
 	const [sheets, setSheets] = useState(() => [
-		{ title: 'Empty', content: '', createdAt: '18:11' },
-		{ title: '236,287 + 87,459 + 1...', content: referenceContent, createdAt: 'Jul 7 at 13:12' },
+		{
+			title: 'Demo',
+			content: '# Demo\n12 + 30 * 2\n45.5 * 2\n10 km to meter\nprice = 1250\nprice * 1.2',
+			createdAt: nowTime(),
+		},
+		{ title: 'Sheet', content: '', createdAt: nowTime() },
 	])
-	const [activeIndex, setActiveIndex] = useState(1)
+	const [activeIndex, setActiveIndex] = useState(0)
 	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [settings, setSettings] = useState({
 		decimalPlaces: 7,
-		fontSize: 'tf',
+		fontSize: 'tff',
 		language: 'en',
 		sheetName: 'Sheet',
 		lineNumbers: true,
@@ -76,7 +66,7 @@ export default function App() {
 	const cmViewRef = useRef(null)
 	const outputRef = useRef(null)
 
-	const fontSize = FONT_SIZES[settings.fontSize] ?? 24
+	const fontSize = FONT_SIZES[settings.fontSize] ?? 19
 	const lineHeight = Math.round(fontSize * 1.6)
 
 	useEffect(() => {
@@ -125,18 +115,15 @@ export default function App() {
 		if (numeric.length === 0) return null
 		let sum = numeric.reduce((acc, r) => acc + Number(r.value), 0)
 		if (sum % 1 !== 0) sum = parseFloat(sum.toFixed(settings.decimalPlaces))
-		const abs = Math.abs(sum)
 		let formatted
-		if (abs >= 1_000_000) formatted = (sum / 1_000_000).toFixed(10).replace(/\.?0+$/, '') + 'M'
-		else if (abs >= 100_000) formatted = (sum / 1000).toFixed(3) + 'k'
-		else if (Number.isInteger(sum)) formatted = sum.toLocaleString('en-US')
+		if (Number.isInteger(sum)) formatted = sum.toLocaleString('en-US')
 		else formatted = String(sum)
 		return {
-			label: 'Total',
+			label: t.sumOfResults,
 			value: formatted,
 			detail: '',
 		}
-	}, [rows, settings.decimalPlaces])
+	}, [rows, settings.decimalPlaces, t.sumOfResults])
 
 	useEffect(() => {
 		const syncHeights = () => {
@@ -308,7 +295,7 @@ export default function App() {
 					<Modal.Trigger className="sr-only" aria-label="Sheets">Sheets</Modal.Trigger>
 					<Modal.Backdrop className="bg-black/60 backdrop-blur-none">
 						<Modal.Container className="m-0 flex h-dvh max-h-dvh w-full max-w-none justify-start p-0">
-							<Modal.Dialog className="flex h-full w-[190px] max-w-[80vw] flex-col rounded-none border-r bg-surface p-0 shadow-xl">
+							<Modal.Dialog className="flex h-full w-[200px] max-w-[80vw] flex-col rounded-none border-r bg-surface p-0 shadow-xl">
 								<Sidebar
 									sheets={sheets}
 									activeIndex={activeIndex}
@@ -334,9 +321,6 @@ export default function App() {
 			)}
 
 			<main className="relative flex min-w-0 flex-1 flex-col bg-surface">
-				<div className="pointer-events-none absolute left-1/2 top-0 z-10 hidden -translate-x-1/2 sm:block">
-					<div className="rounded-b-md bg-[#3a3a3c] px-4 py-1.5 text-xs font-medium text-muted">Redeem your hardship discount</div>
-				</div>
 				{!sidebarOpen && (
 					<div className="absolute left-2 top-2 z-20">
 						<Tooltip.Root>
@@ -349,8 +333,8 @@ export default function App() {
 						</Tooltip.Root>
 					</div>
 				)}
-				<div className="flex min-h-0 flex-1 flex-col pt-2 sm:flex-row sm:pt-0">
-					<div className={`min-h-40 min-w-0 flex-1 ${!sidebarOpen ? 'pt-8 sm:pt-0' : ''}`}>
+				<div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+					<div className={`min-h-0 min-w-0 flex-1 ${!sidebarOpen ? 'pt-8 sm:pt-0' : ''}`}>
 						<EditorPane
 							value={activeSheet.content}
 							onChange={updateActiveContent}
