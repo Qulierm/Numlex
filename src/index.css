@@ -2,8 +2,10 @@
 @import "@heroui/styles";
 
 :root {
-	/* Editor/result font size is driven by the settings panel (App.jsx). */
+	/* Notebook rhythm: editor and answer column share the same line height.
+	   Both are driven from App.jsx (settings font size). */
 	--numlex-editor-font-size: 24px;
+	--numlex-line-height: 38px;
 }
 
 /* App shell: the whole window is the app, no page scroll. */
@@ -11,7 +13,7 @@ body {
 	overflow: hidden;
 }
 
-/* CodeMirror sizing. Mono font is intentional: it is a code editor, not UI. */
+/* CodeMirror sizing. Mono font is intentional: it is a calculation editor. */
 .cm-editor {
 	height: 100%;
 	font-size: var(--numlex-editor-font-size);
@@ -19,6 +21,12 @@ body {
 
 .cm-editor .cm-scroller {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-	line-height: 1.5;
+	line-height: var(--numlex-line-height);
 }
 
+/* Every source line occupies exactly one notebook row so the answer column
+   stays aligned even for empty / comment / uncalculated lines. */
+.cm-editor .cm-line {
+	min-height: var(--numlex-line-height);
+	line-height: var(--numlex-line-height);
+}

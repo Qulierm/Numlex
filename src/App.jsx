@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { EditorPane } from './components/EditorPane'
 import { OutputPanel } from './components/OutputPanel'
@@ -40,6 +41,10 @@ export default function App() {
 		lineNumbers: false,
 	})
 	const [rates, setRates] = useState({ USD: null, EUR: null, EURUSD: null })
+	// Sidebar: persistent inline panel on wide screens, overlay drawer on narrow ones.
+	const [sidebarOpen, setSidebarOpen] = useState(() =>
+		typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+	)
 	// Variables persist across evaluations (legacy semantics).
 	const variablesRef = useRef({})
 	const ratesRef = useRef(createRates())
@@ -47,16 +52,23 @@ export default function App() {
 	const cmViewRef = useRef(null)
 	const outputRef = useRef(null)
 
-	// Editor <-> output scroll sync (legacy behaviour).
+	const fontSize = FONT_SIZES[settings.fontSize] ?? 24
+	const lineHeight = Math.round(fontSize * 1.6)
+
+	// Editor <-> answer column scroll sync (legacy behaviour). In the stacked
+	// (narrow) layout the two panes scroll independently vertically.
 	useEffect(() => {
 		const view = cmViewRef.current
 		const out = outputRef.current
 		if (!view || !out) return
+		const sideBySide = () => window.matchMedia('(min-width: 640px)').matches
 		const onEditorScroll = () => {
+			if (!sideBySide()) return
 			out.scrollTop = view.scrollDOM.scrollTop
 			out.scrollLeft = view.scrollDOM.scrollLeft
 		}
 		const onOutputScroll = () => {
+			if (!sideBySide()) return
 			view.scrollDOM.scrollTop = out.scrollTop
 			view.scrollDOM.scrollLeft = out.scrollLeft
 		}
@@ -83,7 +95,6 @@ export default function App() {
 
 	const activeSheet = sheets[activeIndex] || sheets[0]
 
-
 	const rows = useMemo(
 		() =>
 			evaluateSheet(activeSheet.content, {
@@ -93,7 +104,6 @@ export default function App() {
 			}),
 		[activeSheet.content, rates, settings.decimalPlaces]
 	)
-
 
 	const updateActiveContent = useCallback(
 		(content) => {
@@ -201,37 +211,67 @@ export default function App() {
 
 	return (
 		<div
-			className="flex h-screen overflow-hidden bg-background text-foreground"
-			style={{ '--numlex-editor-font-size': `${FONT_SIZES[settings.fontSize] ?? 24}px` }}
+			className="flex h-screen flex-col overflow-hidden bg-background text-foreground"
+			style={{
+				'--numlex-editor-font-size': `${fontSize}px`,
+				'--numlex-line-height': `${lineHeight}px`,
+			}}
 		>
-			<Sidebar
-				sheets={sheets}
-				activeIndex={activeIndex}
+			<TopBar
+				sheetTitle={activeSheet.title}
+				sheetMeta={activeSheet.createdAt}
+				sidebarOpen={sidebarOpen}
+				toggleLabel={sidebarOpen ? t.hideSheets : t.showSheets}
 				newSheetLabel={t.newSheet}
-				deleteLabel={t.deleteSheet}
-				onAdd={addSheet}
-				onSwitch={switchSheet}
-				onDelete={deleteSheet}
-				onSettings={() => setSettingsOpen(true)}
-				onExport={exportCurrentSheet}
+				importLabel={t.importSheet}
+				exportLabel={t.exportSheet}
+				settingsLabel={t.settings}
+				onToggleSidebar={() => setSidebarOpen(open => !open)}
+				onNewSheet={addSheet}
 				onImport={() => fileInputRef.current?.click()}
+				onExport={exportCurrentSheet}
+				onSettings={() => setSettingsOpen(true)}
 			/>
-			<main className="flex min-w-0 flex-1 flex-col">
-				<div className="flex min-h-0 flex-1">
-					<div className="min-w-0 flex-1 bg-surface">
-						<EditorPane
-							value={activeSheet.content}
-							onChange={updateActiveContent}
-							placeholder={t.enter}
-							lineNumbers={settings.lineNumbers}
-							onCreateView={(view) => {
-								cmViewRef.current = view
-							}}
+			<div className="relative flex min-h-0 flex-1">
+				{sidebarOpen && (
+					<>
+						<Sidebar
+							sheets={sheets}
+							activeIndex={activeIndex}
+							newSheetLabel={t.newSheet}
+							deleteLabel={t.deleteSheet}
+							closeLabel={t.hideSheets}
+							sheetsLabel={t.sheets}
+							onAdd={addSheet}
+							onSwitch={switchSheet}
+							onDelete={deleteSheet}
+							onClose={() => setSidebarOpen(false)}
 						/>
+						{/* Drawer backdrop on narrow screens only. */}
+						<div
+							className="fixed inset-0 top-12 z-30 bg-black/60 lg:hidden"
+							aria-hidden="true"
+							onClick={() => setSidebarOpen(false)}
+						/>
+					</>
+				)}
+				<main className="flex min-w-0 flex-1 flex-col">
+					<div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+						<div className="min-h-40 min-w-0 flex-1 bg-surface">
+							<EditorPane
+								value={activeSheet.content}
+								onChange={updateActiveContent}
+								placeholder={t.enter}
+								lineNumbers={settings.lineNumbers}
+								onCreateView={(view) => {
+									cmViewRef.current = view
+								}}
+							/>
+						</div>
+						<OutputPanel rows={rows} innerRef={outputRef} />
 					</div>
-					<OutputPanel rows={rows} innerRef={outputRef} />
-				</div>
-			</main>
+				</main>
+			</div>
 			<SettingsModal
 				open={settingsOpen}
 				onOpenChange={setSettingsOpen}

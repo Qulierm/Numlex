@@ -8,6 +8,12 @@ const FONT_SIZE_OPTIONS = ['ttt', 'tt', 'tf', 'tff', 'ts', 'tss', 'te', 'tn', 't
 	label: `${22 + i} px`,
 }))
 
+function SectionLabel({ children }) {
+	return (
+		<span className="text-[11px] font-medium uppercase tracking-wider text-muted">{children}</span>
+	)
+}
+
 function SettingSelect({ label, value, options, onValueChange }) {
 	return (
 		<Select.Root
@@ -38,49 +44,62 @@ export function SettingsModal({ open, onOpenChange, settings, onChange, translat
 
 	return (
 		<Modal.Root isOpen={open} onOpenChange={onOpenChange}>
-			{/* DialogTrigger needs a pressable first child; the sidebar gear button is the visual trigger. */}
+			{/* DialogTrigger needs a pressable first child; the top bar gear button is the visual trigger. */}
 			<Modal.Trigger className="sr-only" aria-label="Open settings">Open settings</Modal.Trigger>
 			<Modal.Backdrop>
-			<Modal.Container className="max-w-sm">
-				<Modal.Dialog>
-					<Modal.Header>
-						<Modal.Heading>{t.settings}</Modal.Heading>
-						<Modal.CloseTrigger />
-					</Modal.Header>
-					<Modal.Body className="flex flex-col gap-4">
-						<SettingSelect
-							label={t.round}
-							value={String(settings.decimalPlaces)}
-							options={ROUNDING_OPTIONS}
-							onValueChange={(v) => set({ decimalPlaces: Number(v) })}
-						/>
-						<SettingSelect
-							label={t.fontsize}
-							value={settings.fontSize}
-							options={FONT_SIZE_OPTIONS}
-							onValueChange={(v) => set({ fontSize: v })}
-						/>
-						<SettingSelect
-							label={t.language}
-							value={settings.language}
-							options={LANGUAGES}
-							onValueChange={(v) => set({ language: v })}
-						/>
-						<TextField fullWidth>
-							<Label>{t.sheetname}</Label>
-							<Input className="bg-surface-tertiary" value={settings.sheetName} onChange={(e) => set({ sheetName: e.target.value })} />
-						</TextField>
-						<Switch.Root isSelected={settings.lineNumbers} onChange={(v) => set({ lineNumbers: v })}>
-							<Switch.Content>
-								<Switch.Control>
-									<Switch.Thumb />
-								</Switch.Control>
-								<Label className="text-sm">{t.linenumber}</Label>
-							</Switch.Content>
-						</Switch.Root>
-					</Modal.Body>
-				</Modal.Dialog>
-			</Modal.Container>
+				<Modal.Container className="max-w-md">
+					<Modal.Dialog>
+						<Modal.Header>
+							<Modal.Heading>{t.settings}</Modal.Heading>
+							<Modal.CloseTrigger />
+						</Modal.Header>
+						<Modal.Body className="flex flex-col gap-5">
+							<section className="flex flex-col gap-3">
+								<SectionLabel>Results</SectionLabel>
+								<SettingSelect
+									label={t.round}
+									value={String(settings.decimalPlaces)}
+									options={ROUNDING_OPTIONS}
+									onValueChange={(v) => set({ decimalPlaces: Number(v) })}
+								/>
+							</section>
+							<section className="flex flex-col gap-3">
+								<SectionLabel>Editor</SectionLabel>
+								<SettingSelect
+									label={t.fontsize}
+									value={settings.fontSize}
+									options={FONT_SIZE_OPTIONS}
+									onValueChange={(v) => set({ fontSize: v })}
+								/>
+								<Switch.Root isSelected={settings.lineNumbers} onChange={(v) => set({ lineNumbers: v })}>
+									<Switch.Content>
+										<Switch.Control>
+											<Switch.Thumb />
+										</Switch.Control>
+										<Label className="text-sm">{t.linenumber}</Label>
+									</Switch.Content>
+								</Switch.Root>
+							</section>
+							<section className="flex flex-col gap-3">
+								<SectionLabel>General</SectionLabel>
+								<SettingSelect
+									label={t.language}
+									value={settings.language}
+									options={LANGUAGES}
+									onValueChange={(v) => set({ language: v })}
+								/>
+								<TextField fullWidth>
+									<Label>{t.sheetname}</Label>
+									<Input
+										className="bg-surface-tertiary"
+										value={settings.sheetName}
+										onChange={(e) => set({ sheetName: e.target.value })}
+									/>
+								</TextField>
+							</section>
+						</Modal.Body>
+					</Modal.Dialog>
+				</Modal.Container>
 			</Modal.Backdrop>
 		</Modal.Root>
 	)

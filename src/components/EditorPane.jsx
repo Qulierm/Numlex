@@ -37,11 +37,6 @@ export function EditorPane({ value, onChange, placeholder, lineNumbers, onCreate
 			numlexTheme,
 			EditorView.lineWrapping,
 			autoSpaceKeymap,
-			EditorView.theme({
-				'&': { color: '#f8f8f2' },
-				'.cm-content': { padding: '10px 4px' },
-				'.cm-line': { padding: '0 10px' },
-			}),
 		]
 		if (lineNumbers) exts.push(lineNumbersExtension())
 		return exts
@@ -51,6 +46,7 @@ export function EditorPane({ value, onChange, placeholder, lineNumbers, onCreate
 		<div className="relative h-full">
 			<CodeMirror
 				value={value}
+				className="h-full"
 				height="100%"
 				theme="none"
 				placeholder={placeholder}

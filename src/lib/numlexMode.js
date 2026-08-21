@@ -38,21 +38,40 @@ export function createNumlexLanguage(getDeclared) {
 	})
 }
 
-// Token styles matching the legacy palette.
+// Token styles on the HeroUI semantic tokens, with a soft pink for the
+// "to" conversion keyword (kept from the legacy palette).
 export const numlexHighlighting = syntaxHighlighting(
 	HighlightStyle.define([
-		{ tag: t.comment, color: 'grey' },
-		{ tag: toTag, color: '#F75F8F' },
-		{ tag: t.number, color: '#52A8FF' },
-		{ tag: t.operator, color: 'white' },
-		{ tag: declaredTag, color: '#4FBF63' },
-		{ tag: usedTag, color: '#4FBF63' },
+		{ tag: t.comment, color: 'var(--muted)' },
+		{ tag: toTag, color: '#e56da2' },
+		{ tag: t.number, color: 'var(--accent)' },
+		{ tag: t.operator, color: 'var(--foreground)' },
+		{ tag: declaredTag, color: 'var(--success)' },
+		{ tag: usedTag, color: 'var(--success)' },
 	])
 )
 
 export const numlexTheme = EditorView.baseTheme({
 	'&.cm-editor': { backgroundColor: 'transparent' },
-	'.cm-gutters': { backgroundColor: 'transparent', border: 'none' },
+	'&': { color: 'var(--foreground)' },
+	'.cm-content': {
+		/* Top padding matches the answer column (pt-4 = 16px) for row alignment. */
+		padding: '16px 0 96px',
+		caretColor: 'var(--accent)',
+	},
+	'.cm-line': { padding: '0 32px 0 40px' },
+	'.cm-placeholder': { color: 'var(--muted)' },
+	'.cm-gutters': {
+		backgroundColor: 'transparent',
+		border: 'none',
+		color: 'var(--muted)',
+		font: '11px/normal ui-monospace, SFMono-Regular, Menlo, monospace',
+		paddingLeft: '12px',
+	},
 	'.cm-activeLine': { backgroundColor: 'transparent' },
-	'.cm-selectionBackground, ::selection': { backgroundColor: '#3d3d3e !important' },
+	'.cm-activeLineGutter': { backgroundColor: 'transparent' },
+	'.cm-selectionBackground, ::selection': {
+		backgroundColor: 'color-mix(in oklab, var(--accent) 22%, transparent) !important',
+	},
+	'&.cm-focused': { outline: 'none' },
 })
