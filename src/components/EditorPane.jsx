@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView, keymap, lineNumbers as lineNumbersExtension } from '@codemirror/view'
 import { createNumlexLanguage, numlexHighlighting, numlexTheme } from '../lib/numlexMode'
-import { declaredVariables } from '../lib/evaluate'
+import { declaredVariables } from '../engine'
 
 // Legacy operator auto-spacing: typing + - * / ^ inserts " op " when the
 // character before the cursor is not a space.

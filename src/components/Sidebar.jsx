@@ -1,5 +1,5 @@
 import { Button, ListBox, ScrollShadow, Tooltip } from '@heroui/react'
-import { Layers, Plus, Trash2, X } from 'lucide-react'
+import { Download, Layers, Plus, Settings, Trash2, Upload, X } from 'lucide-react'
 
 export function Sidebar({
 	sheets,
@@ -8,18 +8,28 @@ export function Sidebar({
 	deleteLabel,
 	closeLabel,
 	sheetsLabel,
+	importLabel,
+	exportLabel,
+	settingsLabel,
 	onAdd,
 	onSwitch,
 	onDelete,
+	onImport,
+	onExport,
+	onSettings,
 	onClose,
 }) {
 	return (
 		<aside
-			className="fixed top-11 bottom-0 left-0 z-40 flex w-72 shrink-0 flex-col border-r border-border bg-surface lg:static lg:top-auto"
+			className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-surface"
 			aria-label={sheetsLabel}
 		>
 			<div className="p-3 pb-2">
-				<Button fullWidth onClick={onAdd} className="rounded-xl bg-accent text-white hover:bg-accent/90">
+				<Button
+					fullWidth
+					onPress={onAdd}
+					className="rounded-xl bg-accent text-white hover:bg-accent/90"
+				>
 					<Plus className="size-4" />
 					{newSheetLabel}
 				</Button>
@@ -28,16 +38,21 @@ export function Sidebar({
 			<div className="flex items-center gap-2 px-4 py-2">
 				<span className="text-[11px] font-medium uppercase tracking-wider text-muted">{sheetsLabel}</span>
 				<span className="text-[11px] text-muted">{sheets.length}</span>
-				<Button
-					isIconOnly
-					variant="ghost"
-					size="sm"
-					aria-label={closeLabel}
-					onClick={onClose}
-					className="ml-auto lg:hidden"
-				>
-					<X className="size-4" />
-				</Button>
+				<Tooltip.Root>
+					<Tooltip.Trigger className="ml-auto">
+						<Button
+							isIconOnly
+							variant="ghost"
+							size="sm"
+							aria-label={closeLabel}
+							onPress={onClose}
+							className="lg:hidden"
+						>
+							<X className="size-4" />
+						</Button>
+					</Tooltip.Trigger>
+					<Tooltip.Content>{closeLabel}</Tooltip.Content>
+				</Tooltip.Root>
 			</div>
 
 			<div className="min-h-0 flex-1 px-2">
@@ -47,9 +62,9 @@ export function Sidebar({
 						aria-label={sheetsLabel}
 						selectionMode="single"
 						selectionBehavior="replace"
-						selectedKey={String(activeIndex)}
-						onSelectionChange={(sel) => {
-							const key = sel instanceof Set ? [...sel][0] : sel
+						selectedKeys={new Set([String(activeIndex)])}
+						onSelectionChange={(keys) => {
+							const key = keys instanceof Set ? [...keys][0] : null
 							if (key != null) onSwitch(Number(key))
 						}}
 					>
@@ -67,30 +82,21 @@ export function Sidebar({
 										<span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
 											{sheet.title}
 										</span>
-										<span
-											role="button"
-											tabIndex={0}
-											aria-label={deleteLabel}
-											onPointerDown={(e) => e.stopPropagation()}
-											onClick={(e) => {
-												e.stopPropagation()
-												onDelete(index)
-											}}
-											onKeyDown={(e) => {
-												if (e.key === 'Enter' || e.key === ' ') {
-													e.stopPropagation()
-													onDelete(index)
-												}
-											}}
-											className={`rounded p-1 text-muted transition-opacity hover:text-danger ${isActive ? 'opacity-60 group-hover:opacity-100 focus:opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
-										>
-											<Tooltip.Root>
-												<Tooltip.Trigger as="span">
+										<Tooltip.Root>
+											<Tooltip.Trigger>
+												<Button
+													isIconOnly
+													variant="ghost"
+													size="sm"
+													aria-label={deleteLabel}
+													onPress={() => onDelete(index)}
+													className={`size-6 shrink-0 rounded-md p-0 text-muted hover:text-danger ${isActive ? 'opacity-60 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
+												>
 													<Trash2 className="size-3.5" />
-												</Tooltip.Trigger>
-												<Tooltip.Content>{deleteLabel}</Tooltip.Content>
-											</Tooltip.Root>
-										</span>
+												</Button>
+											</Tooltip.Trigger>
+											<Tooltip.Content>{deleteLabel}</Tooltip.Content>
+										</Tooltip.Root>
 									</div>
 									<span className="mt-1 flex items-center gap-1.5 text-xs text-muted">
 										{sheet.createdAt && <span>{sheet.createdAt}</span>}
@@ -106,7 +112,51 @@ export function Sidebar({
 				</ScrollShadow>
 			</div>
 
-			<div className="border-t border-border/60 p-3">
+			<div className="flex flex-col gap-2 border-t border-border/60 p-3">
+				<div className="flex items-center gap-1">
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							<Button
+								isIconOnly
+								variant="ghost"
+								size="sm"
+								aria-label={importLabel}
+								onPress={onImport}
+							>
+								<Upload className="size-4" />
+							</Button>
+						</Tooltip.Trigger>
+						<Tooltip.Content>{importLabel}</Tooltip.Content>
+					</Tooltip.Root>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							<Button
+								isIconOnly
+								variant="ghost"
+								size="sm"
+								aria-label={exportLabel}
+								onPress={onExport}
+							>
+								<Download className="size-4" />
+							</Button>
+						</Tooltip.Trigger>
+						<Tooltip.Content>{exportLabel}</Tooltip.Content>
+					</Tooltip.Root>
+					<Tooltip.Root>
+						<Tooltip.Trigger className="ml-auto">
+							<Button
+								isIconOnly
+								variant="ghost"
+								size="sm"
+								aria-label={settingsLabel}
+								onPress={onSettings}
+							>
+								<Settings className="size-4" />
+							</Button>
+						</Tooltip.Trigger>
+						<Tooltip.Content>{settingsLabel}</Tooltip.Content>
+					</Tooltip.Root>
+				</div>
 				<div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-surface-secondary/40 px-3 py-2.5">
 					<span className="flex size-7 items-center justify-center rounded-md bg-surface-tertiary text-muted">
 						<Layers className="size-3.5" />

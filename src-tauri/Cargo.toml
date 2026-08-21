@@ -12,6 +12,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls-webpki-roots"], default-features = false }
+tokio = { version = "1", features = ["rt", "time"] }
 
 [profile.release]
 codegen-units = 1

@@ -4,6 +4,10 @@ import react from '@vitejs/plugin-react'
 // Tauri expects a fixed dev server port and no auto-open.
 export default defineConfig({
 	plugins: [react()],
+	test: {
+		environment: 'node',
+		include: ['src/**/*.test.js'],
+	},
 	clearScreen: false,
 	server: {
 		port: 1420,

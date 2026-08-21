@@ -10,18 +10,17 @@ A simple and elegant notepad-based calculator to create and manage sheets with r
 
 ## Architecture
 
-Numlex is a Tauri v2 desktop app. The frontend is a **React 19 + Vite** application (in `src/`) styled with **HeroUI** (Tailwind CSS v4) and dark theme. The expression editor is CodeMirror 6 (`@uiw/react-codemirror`) with a custom stream language that highlights comments, units (`to`), numbers, operators and variables.
+Numlex is a Tauri v2 desktop app. The frontend is a **React 19 + Vite** application (in `src/`) styled with **HeroUI** (Tailwind CSS v4) and dark theme. The notebook editor is CodeMirror 6 (`@uiw/react-codemirror`) used only as editor infrastructure — the calculation engine is a pure, `eval`-free domain parser.
 
-- `src/App.jsx` — app state: sheets, active sheet, settings, exchange rates.
-- `src/lib/evaluate.js` — the evaluation engine (pure functions, no UI).
-- `src/lib/rates.js` — polling of the optional exchange-rate service.
+- `src/App.jsx` — app state: sheets, active sheet, settings, rates.
+- `src/engine/` — safe parser/tokenizer/evaluator (no `eval`/`Function`). Grammar: parentheses, decimal numbers, unary `+`/`-`, `+ - * / ^ %`, variables and `name = expression` assignments, headings (`// Title`), notes. Strict errors instead of silent coercion; decimal rounding respects settings.
+- `src/engine/conversions.js` — unit conversions (`km to meter`, `F to C` …) and currency `USD/EUR/RUB` via Tauri rates.
+- `src/lib/rates.js` — thin frontend wrapper that invokes the Tauri `get_rates` command.
 - `src/lib/translations.js` — interface translations (en/ru/de/it/fr/ch).
 - `src/lib/numlexMode.js` — CodeMirror 6 language + token styles.
-- `src/components/` — Sidebar, EditorPane, OutputPanel, SettingsModal (HeroUI components).
+- `src/components/` — Sidebar (HeroUI ListBox), EditorPane, OutputPanel, SettingsModal (HeroUI Modal/Tooltip/ListBox/Select).
 
-The Rust side in `src-tauri/` is a minimal shell: window 860x600, app identifier `com.numlex.app`, no custom commands. The frontend is built by Vite into `dist/` (Tauri `frontendDist`), with a dev server on `http://localhost:1420`.
-
-Note: the expression engine evaluates arithmetic with JavaScript `eval`, which is why the Tauri CSP keeps `script-src 'unsafe-eval'`.
+The Rust side in `src-tauri/src/main.rs` exposes a single Tauri command `get_rates` (cached 1 h, 5 s timeout, no secret in the frontend). The app window is 860×600, identifier `com.numlex.app`. The frontend is built by Vite into `dist/` (Tauri `frontendDist`), with a dev server on `http://localhost:1420`. The CSP is tightened (`script-src 'self'` — no `unsafe-eval`).
 
 ## Prerequisites
 
@@ -49,9 +48,13 @@ npm run dist     # runs `tauri build` (Vite build + Tauri bundle)
 
 The packaged application will be found in `src-tauri/target/release/bundle/`.
 
-## Optional: Exchange Rate Service
+## Currency Rates
 
-`server/server.rs` is an optional standalone Actix-web service that caches daily USD/EUR rates (from [exchangerate-api.com](https://exchangerate-api.com), 3000 requests/month limit — see `server/About.md`) and exposes `GET /rates` on `127.0.0.1:3000`. The frontend polls it hourly and silently skips currency conversions when it is unreachable. It is **not** part of the Tauri build: it has no `Cargo.toml` manifest, and the API key placeholder `{API}` in the URLs must be replaced before it can be run.
+Currency conversions (`usd to rub`, `eur to rub`, etc.) are provided by the Tauri backend command `get_rates`. The command caches results for 1 hour, times out after 5 seconds, and never exposes a secret to the frontend. It reads the API key from the environment at **runtime** (`NUMLEX_EXCHANGE_API_KEY` or `EXCHANGE_API_KEY`) or from `NUMLEX_RATES_URL` (a URL template containing `{API}`). If no key is configured, or the provider is unreachable, the command returns `USD/EUR/EURUSD = null` and the UI shows an explicit **“Rates unavailable”** error for currency lines — never a silent wrong result.
+
+Platform note: the Rust provider uses `reqwest` with `rustls`; outbound HTTPS requires network access. In preview/web mode without Tauri, `invoke('get_rates')` fails gracefully and rates stay unavailable.
+
+Legacy: `server/server.rs` (Actix service with hard-coded `{API}` placeholder and a hard-coded `80.90.182.109:3000` fetch in older frontends) is no longer part of the active product and is not built; it remains in the repository only for reference. See `server/About.md` for the original standalone design.
 
 ## Usage
 

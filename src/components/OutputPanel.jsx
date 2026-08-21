@@ -40,7 +40,9 @@ function OutputRow({ row }) {
 		case 'error':
 			return (
 				<div className={base}>
-					<span className="text-xs font-medium text-danger">Error</span>
+					<span className="text-xs font-medium text-danger" title={row.message || 'Error'}>
+						{row.message === 'Rates unavailable' ? 'Rates unavailable' : 'Error'}
+					</span>
 				</div>
 			)
 		default:
