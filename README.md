@@ -10,11 +10,22 @@ A simple and elegant notepad-based calculator to create and manage sheets with r
 
 ## Architecture
 
-Numlex is a Tauri v2 desktop app. The UI is a plain static frontend in `src/` (HTML/CSS/JS with locally vendored CodeMirror 5) that Tauri loads as the local frontend (`frontendDist: ../src` in `src-tauri/tauri.conf.json`). There is no Node integration — the frontend is ordinary browser code (localStorage, Blob, FileReader, relative asset paths). The Rust side in `src-tauri/` is a minimal shell: window 860x600, app identifier `com.numlex.app`, no custom commands.
+Numlex is a Tauri v2 desktop app. The frontend is a **React 19 + Vite** application (in `src/`) styled with **HeroUI** (Tailwind CSS v4) and dark theme. The expression editor is CodeMirror 6 (`@uiw/react-codemirror`) with a custom stream language that highlights comments, units (`to`), numbers, operators and variables.
+
+- `src/App.jsx` — app state: sheets, active sheet, settings, exchange rates.
+- `src/lib/evaluate.js` — the evaluation engine (pure functions, no UI).
+- `src/lib/rates.js` — polling of the optional exchange-rate service.
+- `src/lib/translations.js` — interface translations (en/ru/de/it/fr/ch).
+- `src/lib/numlexMode.js` — CodeMirror 6 language + token styles.
+- `src/components/` — Sidebar, EditorPane, OutputPanel, SettingsModal (HeroUI components).
+
+The Rust side in `src-tauri/` is a minimal shell: window 860x600, app identifier `com.numlex.app`, no custom commands. The frontend is built by Vite into `dist/` (Tauri `frontendDist`), with a dev server on `http://localhost:1420`.
+
+Note: the expression engine evaluates arithmetic with JavaScript `eval`, which is why the Tauri CSP keeps `script-src 'unsafe-eval'`.
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (for the Tauri CLI)
+- [Node.js](https://nodejs.org/) (Vite dev server + Tauri CLI)
 - [Rust](https://rustup.rs/) (`cargo` in PATH)
 - Platform requirements for Tauri:
   - macOS: Xcode Command Line Tools (`xcode-select --install`)
@@ -25,13 +36,15 @@ Numlex is a Tauri v2 desktop app. The UI is a plain static frontend in `src/` (H
 
 ```sh
 npm install
-npm start        # or: npm run dev — runs `tauri dev`
+npm start        # or: npm run dev — Vite dev server only; `npm start` runs `tauri dev`
 ```
+
+`npm start` launches the Tauri desktop app (it starts the Vite dev server via `beforeDevCommand`).
 
 ## Building the Application
 
 ```sh
-npm run build    # or: npm run dist — runs `tauri build`
+npm run dist     # runs `tauri build` (Vite build + Tauri bundle)
 ```
 
 The packaged application will be found in `src-tauri/target/release/bundle/`.
@@ -42,11 +55,13 @@ The packaged application will be found in `src-tauri/target/release/bundle/`.
 
 ## Usage
 
-- **Create a New Sheet**: Click on the "New Sheet" button to create a new sheet.
-- **Switch Sheets**: Click on a sheet in the sidebar to switch to it.
-- **Delete a Sheet**: Hover over a sheet in the sidebar and click the delete icon to remove it.
-- **Input Expressions**: Type mathematical expressions in the input area.
-- **View Results**: Results of the evaluated expressions are shown in real-time below the input area.
+- **Create a New Sheet**: Click "New sheet" or press `Ctrl/Cmd+N`.
+- **Switch Sheets**: Click a sheet in the sidebar.
+- **Delete a Sheet**: Click the × on the active sheet or press `Ctrl/Cmd+D`.
+- **Import / Export**: `.nlx` files (JSON) — buttons in the sidebar or `Ctrl/Cmd+I` / `Ctrl/Cmd+E`.
+- **Input Expressions**: Type mathematical expressions in the editor.
+- **View Results**: Results of the evaluated expressions are shown in real-time in the output panel.
+- **Settings**: `Ctrl/Cmd+,` — rounding, font size, language, sheet title prefix, line numbers.
 
 ## Contributing
 

@@ -4,7 +4,10 @@
 	"version": "3.1.0",
 	"identifier": "com.numlex.app",
 	"build": {
-		"frontendDist": "../src"
+		"beforeDevCommand": "npm run dev",
+		"devUrl": "http://localhost:1420",
+		"beforeBuildCommand": "npm run build",
+		"frontendDist": "../dist"
 	},
 	"app": {
 		"windows": [
@@ -17,7 +20,7 @@
 			}
 		],
 		"security": {
-			"csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http://80.90.182.109:3000"
+			"csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:1420 http://80.90.182.109:3000"
 		}
 	},
 	"bundle": {

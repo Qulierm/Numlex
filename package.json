@@ -1,21 +1,42 @@
 {
 	"name": "numlex",
 	"version": "3.1.0",
+	"type": "module",
 	"description": "Notepad based calculator built with Tauri",
 	"scripts": {
-		"dev": "tauri dev",
+		"dev": "vite",
 		"start": "tauri dev",
-		"build": "tauri build",
+		"build": "vite build",
 		"dist": "tauri build",
-		"tauri": "tauri"
+		"tauri": "tauri",
+		"tauri:dev": "tauri dev",
+		"tauri:build": "tauri build"
 	},
 	"devDependencies": {
-		"@tauri-apps/cli": "^2"
+		"@heroui/react": "^3.2.4",
+		"@tailwindcss/postcss": "^4.3.3",
+		"@tauri-apps/cli": "^2",
+		"@vitejs/plugin-react": "^6.1.0",
+		"esbuild": "^0.28.2",
+		"framer-motion": "^13.1.1",
+		"postcss": "^8.5.26",
+		"tailwindcss": "^4.3.3",
+		"vite": "^8.2.2"
 	},
 	"keywords": [],
 	"author": {
 		"name": "Qulierm",
 		"email": "nikita.gostevsky@gmail.com"
 	},
-	"license": "MIT"
+	"license": "MIT",
+	"dependencies": {
+		"@codemirror/language": "^6.12.4",
+		"@codemirror/state": "^6.7.1",
+		"@codemirror/view": "^6.43.9",
+		"@lezer/highlight": "^1.2.3",
+		"@uiw/react-codemirror": "^4.25.11",
+		"react": "^19.2.8",
+		"react-aria-components": "^1.20.0",
+		"react-dom": "^19.2.8"
+	}
 }

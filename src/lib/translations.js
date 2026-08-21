@@ -1,4 +1,6 @@
-const translations = {
+// Interface translations, ported from the legacy src/translations.js.
+
+export const translations = {
 	en: {
 		sheet: 'Sheet',
 		newSheet: 'New sheet',
@@ -53,7 +55,7 @@ const translations = {
 	fr: {
 		sheet: 'Feuille',
 		newSheet: 'Nouvelle feuille',
-		enter: 'Entrez une expression pour commencer',
+		enter: "Entrez une expression pour commencer",
 		settings: 'Paramètres',
 		round: 'Arrondir les nombres:',
 		fontcolor: 'Couleur de la police:',
@@ -103,21 +105,11 @@ const translations = {
 	},
 }
 
-function updateLanguageTexts() {
-	const lang = translations[currentLanguage]
-	document.getElementById('new-sheet').textContent = lang.newSheet
-	placehold = lang.enter
-	editor.setOption('placeholder', placehold) // Обновление placeholder в CodeMirror
-	document.getElementById('settings-title').textContent = lang.settings
-	document.getElementById('round-label').textContent = lang.round
-	document.getElementById('font-label').textContent = lang.fontsize
-	document.getElementById('lang-label').textContent = lang.language
-	document.getElementById('sheet-label').textContent = lang.sheetname
-	document.getElementById('line-label').textContent = lang.linenumber
-}
-
-function changeLanguage() {
-	const langSelector = document.getElementById('langSelector')
-	currentLanguage = langSelector.value
-	updateLanguageTexts()
-}
+export const LANGUAGES = [
+	{ id: 'en', value: 'en', label: 'English' },
+	{ id: 'ru', value: 'ru', label: 'Русский' },
+	{ id: 'de', value: 'de', label: 'Deutsch' },
+	{ id: 'it', value: 'it', label: 'Italiano' },
+	{ id: 'fr', value: 'fr', label: 'Français' },
+	{ id: 'ch', value: 'ch', label: '中文' },
+]
