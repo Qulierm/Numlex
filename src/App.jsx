@@ -105,6 +105,18 @@ export default function App() {
 		[activeSheet.content, rates, settings.decimalPlaces]
 	)
 
+	const summary = useMemo(() => {
+		const numeric = rows.filter((r) => r.kind === 'number' && typeof r.value === 'number' && !r.unit)
+		if (numeric.length === 0) return null
+		let sum = numeric.reduce((acc, r) => acc + Number(r.value), 0)
+		if (sum % 1 !== 0) sum = parseFloat(sum.toFixed(settings.decimalPlaces))
+		return {
+			label: t.sumOfResults || 'Sum of results',
+			value: String(sum),
+			detail: `${numeric.length} ${numeric.length === 1 ? 'value' : 'values'}`,
+		}
+	}, [rows, settings.decimalPlaces, t.sumOfResults])
+
 	const updateActiveContent = useCallback(
 		(content) => {
 			setSheets(prev => prev.map((s, i) => (i === activeIndex ? { ...s, content } : s)))
@@ -220,14 +232,11 @@ export default function App() {
 			<TopBar
 				sheetTitle={activeSheet.title}
 				sheetMeta={activeSheet.createdAt}
-				sidebarOpen={sidebarOpen}
 				toggleLabel={sidebarOpen ? t.hideSheets : t.showSheets}
-				newSheetLabel={t.newSheet}
 				importLabel={t.importSheet}
 				exportLabel={t.exportSheet}
 				settingsLabel={t.settings}
 				onToggleSidebar={() => setSidebarOpen(open => !open)}
-				onNewSheet={addSheet}
 				onImport={() => fileInputRef.current?.click()}
 				onExport={exportCurrentSheet}
 				onSettings={() => setSettingsOpen(true)}
@@ -249,7 +258,7 @@ export default function App() {
 						/>
 						{/* Drawer backdrop on narrow screens only. */}
 						<div
-							className="fixed inset-0 top-12 z-30 bg-black/60 lg:hidden"
+							className="fixed inset-0 top-11 z-30 bg-black/60 lg:hidden"
 							aria-hidden="true"
 							onClick={() => setSidebarOpen(false)}
 						/>
@@ -268,7 +277,7 @@ export default function App() {
 								}}
 							/>
 						</div>
-						<OutputPanel rows={rows} innerRef={outputRef} />
+						<OutputPanel rows={rows} innerRef={outputRef} summary={summary} />
 					</div>
 				</main>
 			</div>

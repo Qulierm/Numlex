@@ -15,6 +15,7 @@ export function createNumlexLanguage(getDeclared) {
 		name: 'numlex',
 		token(stream) {
 			if (stream.match(/^#.*$/)) return 'comment'
+			if (stream.match(/^\/\/ .+$/)) return 'numlexTitle'
 			if (stream.match(/^\/\/.*$/)) return 'comment'
 			if (stream.match(/\bto\b/)) return 'numlexTo'
 			if (stream.match(/^\d+(?:\.\d+)?/)) return 'number'
@@ -30,6 +31,7 @@ export function createNumlexLanguage(getDeclared) {
 		blankLine() {},
 		tokenTable: {
 			comment: t.comment,
+			numlexTitle: t.heading,
 			numlexTo: toTag,
 			number: t.number,
 			operator: t.operator,
@@ -42,7 +44,8 @@ export function createNumlexLanguage(getDeclared) {
 // "to" conversion keyword (kept from the legacy palette).
 export const numlexHighlighting = syntaxHighlighting(
 	HighlightStyle.define([
-		{ tag: t.comment, color: 'var(--muted)' },
+		{ tag: t.comment, color: 'var(--muted)', fontStyle: 'normal' },
+		{ tag: t.heading, color: 'var(--foreground)', fontWeight: '600' },
 		{ tag: toTag, color: '#e56da2' },
 		{ tag: t.number, color: 'var(--accent)' },
 		{ tag: t.operator, color: 'var(--foreground)' },
@@ -55,23 +58,23 @@ export const numlexTheme = EditorView.baseTheme({
 	'&.cm-editor': { backgroundColor: 'transparent' },
 	'&': { color: 'var(--foreground)' },
 	'.cm-content': {
-		/* Top padding matches the answer column (pt-4 = 16px) for row alignment. */
-		padding: '16px 0 96px',
+		/* Comfortable top offset so content does not crowd the header; keep in sync with answer column. */
+		padding: '24px 0 96px',
 		caretColor: 'var(--accent)',
 	},
-	'.cm-line': { padding: '0 32px 0 40px' },
-	'.cm-placeholder': { color: 'var(--muted)' },
+	'.cm-line': { padding: '0 32px 0 42px' },
+	'.cm-placeholder': { color: 'var(--muted)', fontStyle: 'normal' },
 	'.cm-gutters': {
 		backgroundColor: 'transparent',
 		border: 'none',
-		color: 'var(--muted)',
-		font: '11px/normal ui-monospace, SFMono-Regular, Menlo, monospace',
+		color: 'color-mix(in oklab, var(--muted) 75%, transparent)',
+		font: '11px/ var(--numlex-line-height) ui-monospace, SFMono-Regular, Menlo, monospace',
 		paddingLeft: '12px',
 	},
 	'.cm-activeLine': { backgroundColor: 'transparent' },
 	'.cm-activeLineGutter': { backgroundColor: 'transparent' },
 	'.cm-selectionBackground, ::selection': {
-		backgroundColor: 'color-mix(in oklab, var(--accent) 22%, transparent) !important',
+		backgroundColor: 'color-mix(in oklab, var(--accent) 18%, transparent) !important',
 	},
 	'&.cm-focused': { outline: 'none' },
 })
