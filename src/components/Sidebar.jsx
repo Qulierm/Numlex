@@ -21,16 +21,18 @@ export function Sidebar({
 }) {
 	return (
 		<aside
-			className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-surface"
+			className="flex h-full w-[214px] shrink-0 flex-col border-r border-border bg-surface"
 			aria-label={sheetsLabel}
 		>
-			<div className="p-3 pb-2">
+			<div className="p-2 pb-2">
 				<Button
 					fullWidth
+					size="sm"
+					variant="solid"
 					onPress={onAdd}
-					className="rounded-xl bg-accent text-white hover:bg-accent/90"
+					className="h-8 rounded-lg bg-accent text-white hover:bg-accent/90 text-sm"
 				>
-					<Plus className="size-4" />
+					<Plus className="size-3.5" />
 					{newSheetLabel}
 				</Button>
 			</div>
@@ -39,14 +41,13 @@ export function Sidebar({
 				<span className="text-[11px] font-medium uppercase tracking-wider text-muted">{sheetsLabel}</span>
 				<span className="text-[11px] text-muted">{sheets.length}</span>
 				<Tooltip.Root>
-					<Tooltip.Trigger className="ml-auto">
+					<Tooltip.Trigger className="ml-auto min-[720px]:hidden">
 						<Button
 							isIconOnly
 							variant="ghost"
 							size="sm"
 							aria-label={closeLabel}
 							onPress={onClose}
-							className="lg:hidden"
 						>
 							<X className="size-4" />
 						</Button>
@@ -76,7 +77,7 @@ export function Sidebar({
 									key={`${sheet.title}-${index}`}
 									id={String(index)}
 									textValue={sheet.title}
-									className={`group mb-1 rounded-xl border px-3 py-2.5 text-left ${isActive ? 'border-border bg-surface-secondary shadow-sm' : 'border-transparent bg-transparent hover:bg-surface-secondary/70'}`}
+									className={`group mb-1 rounded-lg border px-2.5 py-2 text-left ${isActive ? 'border-border bg-surface-secondary shadow-sm' : 'border-transparent bg-transparent hover:bg-surface-secondary/70'}`}
 								>
 									<div className="flex items-start justify-between gap-2">
 										<span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
@@ -112,7 +113,7 @@ export function Sidebar({
 				</ScrollShadow>
 			</div>
 
-			<div className="flex flex-col gap-2 border-t border-border/60 p-3">
+			<div className="flex flex-col gap-1.5 border-t border-border/60 p-2">
 				<div className="flex items-center gap-1">
 					<Tooltip.Root>
 						<Tooltip.Trigger>
@@ -157,7 +158,7 @@ export function Sidebar({
 						<Tooltip.Content>{settingsLabel}</Tooltip.Content>
 					</Tooltip.Root>
 				</div>
-				<div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-surface-secondary/40 px-3 py-2.5">
+				<div className="flex items-center gap-2 rounded-lg border border-border/40 bg-surface-secondary/40 px-2.5 py-2">
 					<span className="flex size-7 items-center justify-center rounded-md bg-surface-tertiary text-muted">
 						<Layers className="size-3.5" />
 					</span>

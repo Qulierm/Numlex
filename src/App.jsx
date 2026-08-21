@@ -42,13 +42,13 @@ export default function App() {
 	})
 	const [rates, setRates] = useState({ USD: null, EUR: null, EURUSD: null })
 	const [sidebarOpen, setSidebarOpen] = useState(() =>
-		typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+		typeof window !== 'undefined' ? window.matchMedia('(min-width: 720px)').matches : true
 	)
 	const [isMobile, setIsMobile] = useState(() =>
-		typeof window !== 'undefined' ? window.matchMedia('(max-width: 1023px)').matches : false
+		typeof window !== 'undefined' ? window.matchMedia('(max-width: 719px)').matches : false
 	)
 	useEffect(() => {
-		const mq = window.matchMedia('(max-width: 1023px)')
+		const mq = window.matchMedia('(max-width: 719px)')
 		const handler = (e) => setIsMobile(e.matches)
 		mq.addEventListener('change', handler)
 		return () => mq.removeEventListener('change', handler)
@@ -243,7 +243,7 @@ export default function App() {
 					<Modal.Trigger className="sr-only" aria-label="Sheets">Sheets</Modal.Trigger>
 					<Modal.Backdrop className="bg-black/60 backdrop-blur-none">
 						<Modal.Container className="m-0 flex h-dvh max-h-dvh w-full max-w-none justify-start p-0">
-							<Modal.Dialog className="flex h-full w-full flex-col rounded-none border-r bg-surface p-0 shadow-xl">
+							<Modal.Dialog className="flex h-full w-[214px] max-w-[80vw] flex-col rounded-none border-r bg-surface p-0 shadow-xl">
 								<Sidebar
 									sheets={sheets}
 									activeIndex={activeIndex}

@@ -52,7 +52,7 @@ function OutputRow({ row }) {
 
 export function OutputPanel({ rows, innerRef, summary }) {
 	return (
-		<div className="flex h-40 shrink-0 flex-col overflow-hidden border-t border-border bg-surface sm:h-auto sm:w-[280px] sm:border-l sm:border-t-0">
+		<div className="flex h-40 shrink-0 flex-col overflow-hidden border-t border-border bg-surface sm:h-auto sm:w-[220px] sm:border-l sm:border-t-0">
 			<div
 				ref={innerRef}
 				className="numlex-output flex-1 overflow-auto pt-6"

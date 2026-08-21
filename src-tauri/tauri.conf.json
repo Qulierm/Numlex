@@ -16,7 +16,9 @@
 				"title": "Numlex",
 				"width": 860,
 				"height": 600,
-				"resizable": true
+				"resizable": true,
+				"minWidth": 760,
+				"minHeight": 480
 			}
 		],
 		"security": {
