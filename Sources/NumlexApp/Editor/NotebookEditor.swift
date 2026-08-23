@@ -213,6 +213,14 @@ final class NotebookEditorCoordinator: NSObject {
         MainActor.assumeIsolated { scrollView.contentView.bounds.height }
     }
 
+    /// Forward a raw wheel event (phases, momentum, precise deltas) into
+    /// the editor's scroll view so the editor stays the single native
+    /// scroll source. Used by the answer column's wheel bridge instead of
+    /// manually accumulating CGFloat deltas.
+    func forwardScrollWheel(_ event: NSEvent) {
+        MainActor.assumeIsolated { scrollView.scrollWheel(with: event) }
+    }
+
     var scrollDocumentHeight: CGFloat {
         scrollView.contentView.documentView?.frame.height ?? 0
     }

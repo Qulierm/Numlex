@@ -39,7 +39,10 @@ struct ContentView: View {
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
                         onScroll: { offset in
-                            topOffset = max(0, offset)
+                            // Raw native offset: negative values are the
+                            // elastic overscroll at the top and must show
+                            // through on the answer column while they last.
+                            topOffset = offset
                         },
                         onLayout: { m in metrics = m },
                         onTextChange: { model.updateContent($0) },
@@ -64,11 +67,12 @@ struct ContentView: View {
                     rows: rows,
                     metrics: metrics,
                     topOffset: topOffset,
-                    onWheelScroll: { delta in
-                        // Answer column wheel: move the shared offset and
-                        // follow with the editor (AppKit scroll bridge).
-                        topOffset = max(0, topOffset + delta)
-                        editorBridge?.setScrollOffset(topOffset)
+                    onWheelScroll: { event in
+                        // Answer column wheel: forward the raw NSEvent to
+                        // the editor's scroll view; the editor stays the
+                        // single native momentum/elasticity source and its
+                        // BoundsDidChange drives topOffset back.
+                        editorBridge?.forwardScrollWheel(event)
                     },
                     scrollerCoordinator: editorBridge,
                     onScrollerDrag: { offset in
@@ -101,15 +105,52 @@ struct ContentView: View {
         .fileExporter(isPresented: $showExport, document: NLXDocument(model: model), contentType: .nlx, defaultFilename: "\(model.selectedSheet?.title ?? "Sheet").nlx") { result in
             if case .failure(let err) = result { print("export failed \(err)") }
         }
+        .background(WindowConfigurator())
         .onAppear {
             Task { @MainActor in await model.loadRates() }
             if let window = NSApp.keyWindow {
-                window.setContentSize(NSSize(width: 1050, height: 680))
-                window.minSize = NSSize(width: 820, height: 560)
+                window.setContentSize(NSSize(width: 890, height: 680))
                 window.center()
             }
         }
     }
+}
+
+/// Grabs the hosting NSView's window once it exists and applies window
+/// chrome the SwiftUI scene APIs cannot express: no titlebar separator
+/// strip and the minimum content size. The representable's view is in the
+/// hierarchy, so `view.window` is the real window (unlike NSApp.keyWindow,
+/// which can be nil while the scene is still coming up).
+private struct WindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        Task { @MainActor in
+            guard let window = view.window else { return }
+            window.minSize = NSSize(width: 820, height: 560)
+            applyNoSeparatorChrome(to: window)
+            // SwiftUI re-asserts the default chrome during later layout and
+            // activation passes; hold the override.
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { _ in
+                Task { @MainActor in applyNoSeparatorChrome(to: window) }
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+@MainActor
+private func applyNoSeparatorChrome(to window: NSWindow) {
+    // The horizontal strip at the top of the detail area is the window
+    // titlebar separator. In a NavigationSplitView window (whose sidebar
+    // toggle installs an NSToolbar) the separator style is re-asserted to
+    // .line after any assignment, so the titlebar itself is made
+    // transparent: the separator strip disappears with it.
+    window.titlebarAppearsTransparent = true
+    window.titlebarSeparatorStyle = .none
 }
 
 struct NLXDocument: FileDocument {

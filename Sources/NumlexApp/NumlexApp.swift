@@ -13,7 +13,10 @@ struct NumlexApp: App {
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentSize)
-        .defaultSize(width: 1050, height: 680)
+        .defaultSize(width: 890, height: 680)
+        // The window opens at the designed size instead of resurrecting a
+        // stale frame from the previous session's state restoration.
+        .restorationBehavior(.disabled)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Sheet") {

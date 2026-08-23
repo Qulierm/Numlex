@@ -8,7 +8,10 @@ struct AnswerColumnView: View {
     /// document. The editor is the primary surface; this column renders its
     /// rows at `offset(y: -topOffset)` so both stay pixel-exact 1:1.
     var topOffset: CGFloat
-    var onWheelScroll: (CGFloat) -> Void
+    /// Raw wheel events over the answer surface are forwarded verbatim to
+    /// the editor's scroll view (phases, momentum, precise deltas intact),
+    /// so the editor remains the single native scroll source.
+    var onWheelScroll: (NSEvent) -> Void
     /// Editor coordinator for the trailing edge scroller bridge.
     var scrollerCoordinator: NotebookEditorCoordinator?
     /// Knob drag / scroller wheel → shared offset.
@@ -61,13 +64,11 @@ struct AnswerColumnView: View {
             // the whole block. No independent scroll view, so the column
             // cannot drift from the editor.
             GeometryReader { geo in
-                // Block bottom from measured metrics (falls back to the
-                // uniform rhythm for rows without metrics).
-                let lastBottom = metrics.lines.last.map { $0.top + $0.height }
-                    ?? CGFloat(rows.count) * lineHeight
-                let contentHeight = Design.editorTopInset + lastBottom + 80
-                let maxOffset = max(0, contentHeight - geo.size.height)
-                let clamped = min(max(topOffset, 0), maxOffset)
+                // Render at the raw shared offset: during trackpad momentum
+                // and elastic bounce the editor's clip offset legitimately
+                // goes negative (or past the end), and the answer must
+                // follow it pixel-exact. Only programmatic targets (knob
+                // drag) are clamped, in the coordinator path.
                 VStack(spacing: 0) {
                     Color.clear.frame(height: Design.editorTopInset)
                     ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
@@ -77,7 +78,7 @@ struct AnswerColumnView: View {
                     }
                     Color.clear.frame(height: 80)
                 }
-                .offset(y: -clamped)
+                .offset(y: -topOffset)
                 // Clamp to the visible content region first, so the overlays
                 // below size to the region (not the intrinsic content height)
                 // and never bleed over the summary bar.
@@ -175,10 +176,13 @@ struct AnswerColumnView: View {
     }
 }
 
-/// Thin AppKit bridge that forwards scroll-wheel deltas (points) to SwiftUI
-/// so the answer column can drive the shared editor offset directly.
+/// Thin AppKit bridge: every wheel event over the answer surface (begin,
+/// continue, momentum, precise or line deltas) is forwarded verbatim to the
+/// editor's scroll view through the coordinator. No manual delta
+/// accumulation here, so momentum and elastic bounce match the editor's own
+/// native behavior exactly.
 private struct ScrollWheelCatcher: NSViewRepresentable {
-    var onScroll: (CGFloat) -> Void
+    var onScroll: (NSEvent) -> Void
 
     func makeNSView(context: Context) -> WheelView {
         let v = WheelView()
@@ -191,19 +195,14 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
     }
 
     final class WheelView: NSView {
-        var onScroll: (CGFloat) -> Void = { _ in }
+        var onScroll: (NSEvent) -> Void = { _ in }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             self
         }
 
         override func scrollWheel(with event: NSEvent) {
-            // Mirror the flipped document view's conversion: a "content
-            // down" gesture arrives as a negative raw delta and must
-            // increase the top-down offset, exactly like the editor's own
-            // wheel handling. Line-delta wheels are scaled to points.
-            let raw = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 16
-            onScroll(-raw)
+            onScroll(event)
         }
     }
 }

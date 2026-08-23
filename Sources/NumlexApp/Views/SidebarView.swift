@@ -7,35 +7,38 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // One compact native Liquid Glass "new sheet" control, centered
-            // horizontally in the sidebar (not full width).
+            // Compact text-style "new sheet" control: no capsule background,
+            // ≤28pt total height, aligned with the row inset below it.
             Button {
                 model.newSheet()
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "plus.circle")
-                        .font(.system(size: Design.sidebarIconSize, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                     Text(L10n.t("newSheet", language: model.settings.language))
                         .font(Design.label)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.glass)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
             .help(L10n.t("newSheet", language: model.settings.language))
 
             // Sheet list. Selection is a single system gray pill
             // (unemphasized selected-content color): calm, system-aware,
             // identical in active and inactive state, no accent tint and no
-            // double selection layer.
+            // double selection layer. The list sits inside the sidebar with
+            // a consistent 8pt horizontal inset at every width.
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
                         sheetRow(idx: idx, sheet: sheet)
                     }
                 }
+                .padding(.horizontal, 8)
                 .padding(.vertical, 2)
             }
 
