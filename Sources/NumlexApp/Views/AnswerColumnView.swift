@@ -115,7 +115,7 @@ struct AnswerColumnView: View {
                     Spacer()
                     Text(s.value)
                         .font(Design.body(fontSize))
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 12)
@@ -145,32 +145,42 @@ struct AnswerColumnView: View {
                 HStack(spacing: 5) {
                     Text(formatted(v))
                         .font(Design.body(fontSize))
-                        // Plain results are cyan; converted values are
-                        // purple, matching the conversion words in the editor.
-                        .foregroundStyle(unit == nil ? .cyan : .purple)
+                        // Every answer/result glyph is fixed white
+                        // regular, per the design request.
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                     if let u = unit {
                         Text(u)
                             .font(Design.labelSmall)
-                            .foregroundStyle(.purple)
+                            .foregroundStyle(.white)
                     }
                 }
             case .variable(let name, let v):
                 HStack(spacing: 5) {
                     Text(name)
                         .font(Design.body(fontSize))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.white)
                     Text("=")
                         .font(Design.body(fontSize))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(.white)
                     Text(formatted(v))
                         .font(Design.body(fontSize))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.white)
                 }
             case .error(let msg):
-                Text(msg == "Rates unavailable" ? "Rates unavailable" : "Error")
-                    .font(Design.labelSmall)
-                    .foregroundStyle(.secondary)
+                if msg == "Rates unavailable" {
+                    // The explicit no-rate state is preserved and
+                    // rendered fixed white.
+                    Text("Rates unavailable")
+                        .font(Design.labelSmall)
+                        .foregroundStyle(.white)
+                } else {
+                    // Generic calculation errors render nothing at all
+                    // (no "Error" label), leaving the row quiet white-on-
+                    // background while the expression above carries its
+                    // lexical spans.
+                    Color.clear
+                }
             }
         }
         .lineLimit(1)

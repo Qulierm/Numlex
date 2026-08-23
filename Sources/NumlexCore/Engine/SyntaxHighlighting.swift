@@ -11,7 +11,7 @@ public enum SyntaxRole: Equatable, Sendable {
     case number
     /// A variable identifier in an evaluable number/variable expression.
     case variable
-    /// A unit identifier or the `to` phrase of a conversion.
+    /// A unit word of a conversion (the `to` keyword carries no role).
     case conversion
 }
 
@@ -33,9 +33,9 @@ public enum SyntaxClassifier {
     /// Classifies every logical line of `source` (top to bottom with the
     /// same variable flow the evaluator uses) into role spans.
     ///
-    /// Lines the evaluator treats as title, blank, skip (prose) or error
-    /// carry no spans: their whole-line styling owns the presentation,
-    /// and prose must never be painted as variables.
+    /// Lines the evaluator treats as title, blank or skip (prose) carry
+    /// no spans: prose must never be painted as variables. Error lines
+    /// are classified lexically (numbers and known variables only).
     public static func spans(for source: String,
                              rates: Rates,
                              decimalPlaces: Int) -> [[SyntaxSpan]] {
@@ -62,8 +62,13 @@ public enum SyntaxClassifier {
                 spans = expressionSpans(line, variables: vars)
             case .variable(let name, _):
                 spans = assignmentSpans(line, name: name, variables: vars)
-            case .blank, .skip, .title, .error:
+            case .blank, .skip, .title:
                 spans = []
+            case .error:
+                // Evaluation failures are still lexically classifiable:
+                // numeric literals and known variables keep their
+                // colors, everything else (including `to`) stays base.
+                spans = errorSpans(line, variables: vars)
             }
             result.append(spans)
         }
@@ -83,8 +88,37 @@ public enum SyntaxClassifier {
             spans.append(SyntaxSpan(role: .number, range: m))
             unitStart = m.location + m.length
         }
-        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where m.location >= unitStart {
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns)
+        where m.location >= unitStart
+            && ns.substring(with: m).lowercased() != "to" {
             spans.append(SyntaxSpan(role: .conversion, range: m))
+        }
+        return spans
+    }
+
+    /// Lines that failed to evaluate (division by zero, partial
+    /// expressions, unavailable-rate currency, ...): numeric literals
+    /// are numbers, identifiers are variables only when the current
+    /// variable state knows them. A line that still matches the
+    /// conversion grammar (number, unit, `to`, unit) — typically an
+    /// unavailable-rate currency — keeps the conversion treatment with
+    /// the unit words and a base `to`. Purely lexical — no parser
+    /// result is involved, so no unsafe range assumptions are made.
+    private static func errorSpans(_ line: String,
+                                   variables: [String: Double]) -> [SyntaxSpan] {
+        let ns = line as NSString
+        let fullLine = NSRange(location: 0, length: ns.length)
+        if let m = firstMatch(
+            #"^\s*(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)\s+[A-Za-z_]\w*\s+to\s+[A-Za-z_]\w*\s*$"#,
+            in: ns), m == fullLine {
+            return conversionSpans(line)
+        }
+        var spans: [SyntaxSpan] = []
+        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where variables[ns.substring(with: m)] != nil {
+            spans.append(SyntaxSpan(role: .variable, range: m))
         }
         return spans
     }

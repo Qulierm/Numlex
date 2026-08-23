@@ -20,6 +20,19 @@ enum Design {
     /// The gutter number of the line the caret is on: one step brighter.
     static var gutterColorActive: NSColor { .secondaryLabelColor }
 
+    // MARK: Exact notebook syntax palette (fixed sRGB values)
+
+    /// Numeric literals: sRGB(59, 221, 236).
+    static let numberColor = NSColor(srgbRed: 59.0 / 255.0, green: 221.0 / 255.0, blue: 236.0 / 255.0, alpha: 1)
+    /// Variable identifiers: sRGB(74, 217, 104).
+    static let variableColor = NSColor(srgbRed: 74.0 / 255.0, green: 217.0 / 255.0, blue: 104.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: sRGB(234, 141, 255).
+    static let conversionColor = NSColor(srgbRed: 234.0 / 255.0, green: 141.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
+    /// Comment titles: sRGB(92, 184, 255).
+    static let titleColor = NSColor(srgbRed: 92.0 / 255.0, green: 184.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
+    /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
+    static let baseText = NSColor.white
+
     // MARK: Editor geometry
 
     /// Top inset of the notebook text (matches the answer column's

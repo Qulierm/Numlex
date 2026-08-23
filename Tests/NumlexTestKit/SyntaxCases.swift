@@ -36,8 +36,7 @@ public let syntaxCases: [EngineCase] = [
                         [NSRange(location: 0, length: 2)], "leading value stays number")
         try expectEqual(spans[0].filter { $0.role == .conversion }.map { $0.range },
                         [NSRange(location: 3, length: 2),
-                         NSRange(location: 6, length: 2),
-                         NSRange(location: 9, length: 5)], "km / to / meter")
+                         NSRange(location: 9, length: 5)], "km / meter; `to` stays base")
     },
 
     EngineCase("syntax-conversion-temperature") {
@@ -46,8 +45,7 @@ public let syntaxCases: [EngineCase] = [
                         [NSRange(location: 0, length: 3)])
         try expectEqual(spans[0].filter { $0.role == .conversion }.map { $0.range },
                         [NSRange(location: 4, length: 1),
-                         NSRange(location: 6, length: 2),
-                         NSRange(location: 9, length: 1)])
+                         NSRange(location: 9, length: 1)], "C / F; `to` stays base")
     },
 
     EngineCase("syntax-conversion-currency") {
@@ -57,8 +55,7 @@ public let syntaxCases: [EngineCase] = [
                         [NSRange(location: 0, length: 2)])
         try expectEqual(spans[0].filter { $0.role == .conversion }.map { $0.range },
                         [NSRange(location: 3, length: 3),
-                         NSRange(location: 7, length: 2),
-                         NSRange(location: 10, length: 3)])
+                         NSRange(location: 10, length: 3)], "USD / RUB; `to` stays base")
     },
 
     EngineCase("syntax-prose-stays-base") {
@@ -78,8 +75,40 @@ public let syntaxCases: [EngineCase] = [
 
     EngineCase("syntax-invalid-expression") {
         let spans = SyntaxClassifier.spans(for: "12 + \nx = ", rates: Rates(), decimalPlaces: 7)
-        try expectEqual(spans[0].count, 0, "error lines carry no spans")
-        try expectEqual(spans[1].count, 0)
+        try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
+                        [NSRange(location: 0, length: 2)], "incomplete expression keeps its literal")
+        try expectEqual(spans[0].count, 1, "only the literal is spanned")
+        try expectEqual(spans[1].count, 0, "`x = ` has no literal and x is unknown")
+    },
+
+    EngineCase("syntax-error-division-by-zero") {
+        let spans = SyntaxClassifier.spans(for: "12 / 0", rates: Rates(), decimalPlaces: 7)
+        try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
+                        [NSRange(location: 0, length: 2),
+                         NSRange(location: 5, length: 1)], "both literals stay numbers")
+        try expectEqual(spans[0].count, 2)
+    },
+
+    EngineCase("syntax-error-unavailable-currency") {
+        // No rates at all: the line is an evaluation error, yet the
+        // conversion grammar still paints value + unit words, and `to`
+        // stays base.
+        let spans = SyntaxClassifier.spans(for: "10 USD to RUB", rates: Rates(), decimalPlaces: 7)
+        try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
+                        [NSRange(location: 0, length: 2)], "leading value stays number")
+        try expectEqual(spans[0].filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 3, length: 3),
+                         NSRange(location: 10, length: 3)], "unit words; `to` stays base")
+        try expectEqual(spans[0].count, 3)
+    },
+
+    EngineCase("syntax-error-known-variable") {
+        let spans = SyntaxClassifier.spans(for: "x = 5\nx + (5", rates: Rates(), decimalPlaces: 7)
+        try expectEqual(spans[1].filter { $0.role == .variable }.map { $0.range },
+                        [NSRange(location: 0, length: 1)], "partial expression keeps known variable")
+        try expectEqual(spans[1].filter { $0.role == .number }.map { $0.range },
+                        [NSRange(location: 5, length: 1)], "partial expression keeps its literal")
+        try expectEqual(spans[1].count, 2)
     },
 
     EngineCase("syntax-decimals-unary-thousands") {

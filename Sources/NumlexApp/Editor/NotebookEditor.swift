@@ -269,13 +269,13 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     /// Attributes every new character/paragraph starts with: system font,
-    /// the adaptive base label color, and the indented fixed-line-height
+    /// the fixed white base color and the indented fixed-line-height
     /// paragraph style. A first char or a newline can never land left of
     /// the gutter; highlight() recolors semantic spans on the same tick.
     private var typingAttrs: [NSAttributedString.Key: Any] {
         [
             .font: NSFont.systemFont(ofSize: fontSize),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: Design.baseText,
             .paragraphStyle: paragraphStyle()
         ]
     }
@@ -321,7 +321,7 @@ final class NotebookEditorCoordinator: NSObject {
         let font = NSFont.systemFont(ofSize: fontSize)
         let base: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: Design.baseText,
             .paragraphStyle: paragraphStyle()
         ]
 
@@ -337,14 +337,14 @@ final class NotebookEditorCoordinator: NSObject {
             let range = NSRange(location: lineStart, length: len)
             switch rows[i] {
             case .error:
-                storage.addAttribute(.foregroundColor,
-                                     value: NSColor.systemRed.withAlphaComponent(0.85),
-                                     range: range)
+                // No whole-line red: errors are painted from their
+                // lexical spans only, everything else stays white base.
+                applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
             case .title:
                 storage.addAttribute(.font,
                                      value: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
                                      range: range)
-                storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
+                storage.addAttribute(.foregroundColor, value: Design.titleColor, range: range)
             case .number, .variable:
                 applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
             case .blank, .skip:
@@ -357,16 +357,17 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     /// Paints the classified token spans of one line at its document
-    /// offset: numbers cyan, variables green, conversion words purple.
-    /// Operators and unknown words keep the base label color.
+    /// offset using the exact Design palette: numbers (59,221,236),
+    /// variables (74,217,104), unit words (234,141,255). Operators,
+    /// `to` and unknown words keep the fixed white base.
     private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int, in storage: NSTextStorage) {
         for span in lineSpans {
             let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
             let color: NSColor
             switch span.role {
-            case .number: color = .systemCyan
-            case .variable: color = .systemGreen
-            case .conversion: color = .systemPurple
+            case .number: color = Design.numberColor
+            case .variable: color = Design.variableColor
+            case .conversion: color = Design.conversionColor
             }
             storage.addAttribute(.foregroundColor, value: color, range: r)
         }
@@ -468,11 +469,14 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
     }
 
     /// Selection changed (arrow keys, mouse click/drag, selection by
-    /// keyboard, paste). Update the gutter's active line and repaint: the
-    /// current line must change visually without any text edit.
-    private nonisolated func textViewDidChangeSelection(_ textView: NSTextView) {
+    /// keyboard, paste). The AppKit requirement passes a Notification,
+    /// not the text view — a mistyped parameter would silently stop the
+    /// delegate from ever firing. Update the gutter's active line and
+    /// repaint: the current line must change visually without any edit.
+    nonisolated func textViewDidChangeSelection(_ notification: Notification) {
+        let sender = notification.object as? NSTextView
         Task { @MainActor in
-            guard self.textView === textView else { return }
+            guard let sender, self.textView === sender else { return }
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.textView.needsDisplay = true
         }
