@@ -8,19 +8,20 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Compact text-style "new sheet" control, centered across the
-            // full sidebar width: 15pt medium icon + text, plain style, no
-            // capsule/glass. The visible label is top-aligned inside a 28pt
-            // hit band with zero top padding, so it sits as high as possible
-            // (clear of the traffic lights, which occupy only the left edge)
-            // and the sheet list rises right up against the band.
+            // full sidebar width: 15pt regular icon + text, plain style, no
+            // capsule/glass, adaptive secondary gray. The visible label is
+            // top-aligned inside a 28pt hit band with zero top padding, so it
+            // sits as high as possible (clear of the traffic lights, which
+            // occupy only the left edge) and the sheet list rises right up
+            // against the band.
             Button {
                 model.newSheet()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.circle")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 15))
                     Text(L10n.t("newSheet", language: model.settings.language))
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 15))
                 }
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
                 .contentShape(Rectangle())
@@ -73,15 +74,14 @@ struct SidebarView: View {
     @ViewBuilder
     private func sheetRow(idx: Int, sheet: Sheet) -> some View {
         let language = model.settings.language
-        let meta: String = {
-            let count: String
+        // Localized line count only ("No lines", "1 line", "N lines");
+        // the created-time label is rendered separately in the same row.
+        let count: String = {
             if sheet.lineCount == 0 {
-                count = L10n.t("noLines", language: language)
-            } else {
-                let unit = L10n.t(sheet.lineCount == 1 ? "line" : "lines", language: language)
-                count = "\(sheet.lineCount) \(unit)"
+                return L10n.t("noLines", language: language)
             }
-            return "\(sheet.createdLabel) \u{00B7} \(count)"
+            let unit = L10n.t(sheet.lineCount == 1 ? "line" : "lines", language: language)
+            return "\(sheet.lineCount) \(unit)"
         }()
         let isSelected = idx == model.selectedIndex
         Button {
@@ -90,11 +90,22 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 3) {
                 titleView(sheet: sheet)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(meta)
-                    .font(Design.labelSmall)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Metadata row: created time on the leading edge (primary
+                // weight of the row), line count pinned to the trailing edge
+                // so its right edge aligns across every row.
+                HStack(spacing: 8) {
+                    Text(sheet.createdLabel)
+                        .font(Design.labelSmall)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    Text(count)
+                        .font(Design.labelSmall)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 6)
@@ -131,7 +142,8 @@ struct SidebarView: View {
             }
         } else {
             Text(sheet.displayTitle(language: model.settings.language))
-                .font(Design.label.weight(.medium))
+                .font(Design.label)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .onTapGesture(count: 2) { renamingID = sheet.id }
@@ -166,7 +178,8 @@ private struct RenameField: View {
 
     var body: some View {
         TextField("", text: $value)
-            .font(Design.label.weight(.medium))
+            .font(Design.label)
+            .foregroundStyle(.primary)
             .textFieldStyle(.plain)
             .focused($focused)
             .onSubmit { onCommit(value) }
