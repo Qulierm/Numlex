@@ -1,33 +1,44 @@
 import SwiftUI
+import AppKit
 
 /// Shared design tokens so typography stays coherent across sidebar,
 /// notebook editor and answer column. The editor base size is driven
 /// by the user's font-size setting; everything else scales from it.
+/// The app uses the native proportional SF system font everywhere.
 enum Design {
     // MARK: Notebook (editor + answer column share the same rhythm)
 
-    /// Monospaced font for editable notebook text and numeric results.
-    static func mono(_ size: Double) -> Font {
-        .system(size: size, weight: .regular, design: .monospaced)
+    /// Proportional system font for editable notebook text and numeric results.
+    static func body(_ size: Double) -> Font {
+        .system(size: size, weight: .regular)
     }
 
-    static func monoMedium(_ size: Double) -> Font {
-        .system(size: size, weight: .medium, design: .monospaced)
+    static func bodyMedium(_ size: Double) -> Font {
+        .system(size: size, weight: .medium)
     }
 
-    /// Line-number gutter: small, quiet, secondary.
-    static let gutterFont: Font = .system(size: 11, weight: .regular, design: .monospaced)
-    static let gutterColor: Color = .secondary
+    /// Line-number gutter: quiet, proportional secondary label.
+    static func gutterFont() -> NSFont { NSFont.systemFont(ofSize: 12) }
+    static var gutterColor: NSColor { .secondaryLabelColor }
 
-    // MARK: Labels (native semantic scales)
+    // MARK: Editor geometry
 
-    static let label: Font = .callout        // 13 pt
-    static let labelSmall: Font = .caption   // 11 pt
+    /// Top inset of the notebook text (matches the answer column's
+    /// content origin, keeping both columns aligned without compensation).
+    static let editorTopInset: CGFloat = 12
+    /// Width of the quiet line-number gutter inside the text view.
+    static let gutterWidth: CGFloat = 36
+    /// Distance from the gutter to the first text column.
+    static let textLeading: CGFloat = 16
+
+    // MARK: Labels (native proportional scales)
+
+    static let label: Font = .system(size: 13)       // sidebar titles / controls
+    static let labelSmall: Font = .system(size: 11)  // metadata
 
     // MARK: Sidebar geometry
 
-    static let newSheetRowHeight: CGFloat = 32
-    static let sidebarIconSize: CGFloat = 13
+    static let sidebarIconSize: CGFloat = 14
     static let sidebarButtonSize = CGSize(width: 34, height: 28)
     static let sidebarButtonCorner: CGFloat = 7
 }

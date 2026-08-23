@@ -3,67 +3,41 @@ import NumlexCore
 
 struct SidebarView: View {
     @Bindable var model: AppModel
+    @State private var renamingID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
-            // One restrained "new sheet" control: icon + label, native height.
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: Design.sidebarIconSize, weight: .medium))
-                Text(L10n.t("newSheet", language: model.settings.language))
-                    .font(Design.label)
-                Spacer()
+            // One compact native Liquid Glass "new sheet" control, centered
+            // horizontally in the sidebar (not full width).
+            Button {
+                model.newSheet()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: Design.sidebarIconSize, weight: .medium))
+                    Text(L10n.t("newSheet", language: model.settings.language))
+                        .font(Design.label)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
             }
-            .contentShape(Rectangle())
-            .frame(height: Design.newSheetRowHeight)
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .onTapGesture { model.newSheet() }
+            .buttonStyle(.glass)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
             .help(L10n.t("newSheet", language: model.settings.language))
-            .accessibilityElement()
-            .accessibilityLabel(Text(L10n.t("newSheet", language: model.settings.language)))
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { model.newSheet() }
 
-            // Native List selection only — no custom row backgrounds.
-            List(selection: Binding(
-                get: { model.sheets.indices.contains(model.selectedIndex) ? model.sheets[model.selectedIndex].id : nil },
-                set: { newId in
-                    if let id = newId, let idx = model.sheets.firstIndex(where: { $0.id == id }) {
-                        model.select(index: idx)
+            // Sheet list. Selection is a single system gray pill
+            // (unemphasized selected-content color): calm, system-aware,
+            // identical in active and inactive state, no accent tint and no
+            // double selection layer.
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
+                        sheetRow(idx: idx, sheet: sheet)
                     }
                 }
-            )) {
-                ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(sheet.title)
-                            .font(Design.label.weight(.medium))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        HStack(spacing: 4) {
-                            Text(sheet.createdLabel)
-                            Text("·")
-                            Text(sheet.lineCount == 0 ? "No lines" : "\(sheet.lineCount) \(sheet.lineCount == 1 ? "line" : "lines")")
-                        }
-                        .font(Design.labelSmall)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
-                    .padding(.vertical, 4)
-                    .listRowSeparator(.hidden)
-                    .tag(sheet.id)
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            model.deleteSheet(at: idx)
-                        } label: {
-                            Label(L10n.t("deleteSheet", language: model.settings.language), systemImage: "trash")
-                        }
-                    }
-                }
-                .onDelete(perform: deleteSheets)
+                .padding(.vertical, 2)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
 
             // Bottom actions: one coherent cluster, same geometry and icon size.
             HStack(spacing: 8) {
@@ -91,6 +65,74 @@ struct SidebarView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    @ViewBuilder
+    private func sheetRow(idx: Int, sheet: Sheet) -> some View {
+        let language = model.settings.language
+        let meta: String = {
+            let count: String
+            if sheet.lineCount == 0 {
+                count = L10n.t("noLines", language: language)
+            } else {
+                let unit = L10n.t(sheet.lineCount == 1 ? "line" : "lines", language: language)
+                count = "\(sheet.lineCount) \(unit)"
+            }
+            return "\(sheet.createdLabel) \u{00B7} \(count)"
+        }()
+        let isSelected = idx == model.selectedIndex
+        Button {
+            model.select(index: idx)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                titleView(sheet: sheet)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(meta)
+                    .font(Design.labelSmall)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isSelected
+                      ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+                      : Color.clear)
+        )
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .contextMenu {
+            Button {
+                renamingID = sheet.id
+            } label: {
+                Label(L10n.t("rename", language: model.settings.language), systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                model.deleteSheet(at: idx)
+            } label: {
+                Label(L10n.t("deleteSheet", language: model.settings.language), systemImage: "trash")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func titleView(sheet: Sheet) -> some View {
+        if sheet.id == renamingID {
+            RenameField(initial: sheet.title) { value in
+                model.renameSheet(id: sheet.id, to: value)
+                renamingID = nil
+            }
+        } else {
+            Text(sheet.displayTitle(language: model.settings.language))
+                .font(Design.label.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .onTapGesture(count: 2) { renamingID = sheet.id }
+        }
+    }
+
     private func sidebarIconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -102,10 +144,31 @@ struct SidebarView: View {
         .foregroundStyle(.secondary)
     }
 
-    private func deleteSheets(_ offsets: IndexSet) {
-        for idx in offsets.sorted(by: >) {
-            model.deleteSheet(at: idx)
-        }
+}
+
+/// Inline rename field: commits on submit or focus loss.
+private struct RenameField: View {
+    let initial: String
+    let onCommit: (String) -> Void
+    @State private var value: String
+    @FocusState private var focused: Bool
+
+    init(initial: String, onCommit: @escaping (String) -> Void) {
+        self.initial = initial
+        self.onCommit = onCommit
+        _value = State(initialValue: initial)
+    }
+
+    var body: some View {
+        TextField("", text: $value)
+            .font(Design.label.weight(.medium))
+            .textFieldStyle(.plain)
+            .focused($focused)
+            .onSubmit { onCommit(value) }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { onCommit(value) }
+            }
+            .onAppear { focused = true }
     }
 }
 

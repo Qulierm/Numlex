@@ -32,21 +32,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public var fontSize: Double {
         switch fontSizeKey {
-        case "ttt": return 16
-        case "tt": return 17
-        case "tf": return 18
-        case "tff": return 19
-        case "ts": return 20
-        case "tss": return 22
-        case "te": return 24
-        case "tn": return 26
-        case "tth": return 28
-        default: return 18
+        case "ttt": return 17
+        case "tt": return 18
+        case "tf": return 19
+        case "tff": return 20
+        case "ts": return 21
+        case "tss": return 23
+        case "te": return 25
+        case "tn": return 27
+        case "tth": return 29
+        default: return 19
         }
     }
     public var lineHeight: Double { (fontSize * 1.6).rounded() }
 }
 
 public let fontSizeOptions: [(key: String, label: String)] = [
-    ("ttt", "16"), ("tt", "17"), ("tf", "18"), ("tff", "19"), ("ts", "20"), ("tss", "22"), ("te", "24"), ("tn", "26"), ("tth", "28")
+    ("ttt", "17"), ("tt", "18"), ("tf", "19"), ("tff", "20"), ("ts", "21"), ("tss", "23"), ("te", "25"), ("tn", "27"), ("tth", "29")
 ]

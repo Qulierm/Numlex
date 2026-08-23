@@ -17,13 +17,16 @@ final class AppModel {
 
     init() {
         if let payload = Persistence.load() {
-            sheets = payload.sheets
+            // Refresh automatic titles for sheets whose content already has
+            // a first calculation (e.g. stores from before the naming feature).
+            sheets = payload.sheets.map { Sheet.retitled($0, content: $0.content) }
             selectedIndex = min(payload.selectedIndex, max(sheets.count - 1, 0))
             settings = payload.settings
         }
         if sheets.isEmpty {
             sheets = [
-                Sheet(title: "Demo", content: "# Demo\n12 + 30 * 2\n45.5 * 2\n10 km to meter\nprice = 1250\nprice * 1.2", createdAt: Date(), modifiedAt: Date()),
+                Sheet(title: "Demo", content: "# Demo\n12 + 30 * 2\n45.5 * 2\n10 km to meter\nprice = 1250\nprice * 1.2",
+                      createdAt: Date(), modifiedAt: Date(), isTitleCustom: true),
                 Sheet(title: "Sheet", content: "", createdAt: Date(), modifiedAt: Date())
             ]
             selectedIndex = 0
@@ -40,16 +43,33 @@ final class AppModel {
 
     func updateContent(_ content: String) {
         guard sheets.indices.contains(selectedIndex) else { return }
-        sheets[selectedIndex].content = content
-        sheets[selectedIndex].modifiedAt = Date()
+        var sheet = sheets[selectedIndex]
+        sheet.content = content
+        sheet.modifiedAt = Date()
+        // Title follows the first calculation until the user renames it.
+        sheets[selectedIndex] = Sheet.retitled(sheet, content: content)
         persist()
     }
 
     func newSheet() {
-        let title = "\(settings.sheetName) \(sheets.count + 1)"
-        let sheet = Sheet(title: title, content: "", createdAt: Date(), modifiedAt: Date())
+        let seed = "\(settings.sheetName) \(sheets.count + 1)"
+        let sheet = Sheet(title: seed, content: "", createdAt: Date(), modifiedAt: Date())
         sheets.insert(sheet, at: 0)
         selectedIndex = 0
+        persist()
+    }
+
+    func renameSheet(id: UUID, to newTitle: String) {
+        guard let idx = sheets.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            // Empty rename falls back to the automatic title.
+            sheets[idx].isTitleCustom = false
+            sheets[idx].title = Sheet.autoTitle(from: sheets[idx].content, fallback: sheets[idx].titleSeed)
+        } else {
+            sheets[idx].title = trimmed
+            sheets[idx].isTitleCustom = true
+        }
         persist()
     }
 
@@ -74,23 +94,28 @@ final class AppModel {
 
     func exportCurrent() -> SheetExport? {
         guard let s = selectedSheet else { return nil }
-        return SheetExport(title: s.title, content: s.content)
+        return SheetExport(title: s.title, content: s.content, isTitleCustom: s.isTitleCustom)
+    }
+
+    private func makeImportedSheet(_ obj: SheetExport) -> Sheet {
+        // Files exported before the naming feature decode with a nil flag;
+        // then meaningful names stay custom and generic ones stay automatic.
+        let custom = obj.isTitleCustom ?? !Sheet.isGenericTitle(obj.title)
+        return Sheet(title: obj.title, content: obj.content,
+                     createdAt: Date(), modifiedAt: Date(), isTitleCustom: custom)
     }
 
     func importSheet(from url: URL) {
         guard let data = try? Data(contentsOf: url),
               let obj = try? JSONDecoder().decode(SheetExport.self, from: data) else { return }
-        // also support legacy with createdAt?
-        let sheet = Sheet(title: obj.title, content: obj.content, createdAt: Date(), modifiedAt: Date())
-        sheets.append(sheet)
+        sheets.append(makeImportedSheet(obj))
         selectedIndex = sheets.count - 1
         persist()
     }
 
     func importSheet(data: Data) {
         guard let obj = try? JSONDecoder().decode(SheetExport.self, from: data) else { return }
-        let sheet = Sheet(title: obj.title, content: obj.content, createdAt: Date(), modifiedAt: Date())
-        sheets.append(sheet)
+        sheets.append(makeImportedSheet(obj))
         selectedIndex = sheets.count - 1
         persist()
     }

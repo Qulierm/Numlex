@@ -4,8 +4,12 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     var model: AppModel
-    @State private var topLine = 0
-    @State private var lineTops: [CGFloat] = []
+    /// Shared scroll offset (top-down, editor-content points). The editor's
+    /// clip view is the primary surface; the answer column renders at this
+    /// offset and its wheel deltas write it back, so both stay 1:1.
+    @State private var topOffset: CGFloat = 0
+    @State private var metrics = LineMetrics(lines: [])
+    @State private var editorBridge: NotebookEditorCoordinator?
     @State private var showImport = false
     @State private var showExport = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -15,10 +19,11 @@ struct ContentView: View {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
-            // Editor and answer column share one column (and therefore one
-            // top inset), which keeps their rows aligned 1:1.
+            // Editor and answer column share the same detail top, so a row's
+            // editor-content y equals its answer-content y (modulo the fixed
+            // editor top inset) and scroll offsets are directly comparable.
             HStack(spacing: 0) {
-                GeometryReader { geo in
+                GeometryReader { _ in
                     let settings = model.settings
                     let sheet = model.selectedSheet
                     let binding = Binding<String>(
@@ -31,8 +36,14 @@ struct ContentView: View {
                         fontSize: settings.fontSize,
                         lineHeight: settings.lineHeight,
                         lineNumbers: settings.lineNumbers,
-                        onScroll: { line in topLine = line },
-                        onLayout: { tops in lineTops = tops }
+                        rates: model.rates,
+                        decimalPlaces: settings.decimalPlaces,
+                        onScroll: { offset in
+                            topOffset = max(0, offset)
+                        },
+                        onLayout: { m in metrics = m },
+                        onTextChange: { model.updateContent($0) },
+                        onReady: { bridge in editorBridge = bridge }
                     )
                     .id(sheet?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -51,17 +62,32 @@ struct ContentView: View {
                 }()
                 AnswerColumnView(
                     rows: rows,
-                    lineHeight: settings.lineHeight,
+                    metrics: metrics,
+                    topOffset: topOffset,
+                    onWheelScroll: { delta in
+                        // Answer column wheel: move the shared offset and
+                        // follow with the editor (AppKit scroll bridge).
+                        topOffset = max(0, topOffset + delta)
+                        editorBridge?.setScrollOffset(topOffset)
+                    },
+                    scrollerCoordinator: editorBridge,
+                    onScrollerDrag: { offset in
+                        // Edge scroller drag/wheel: same single source of
+                        // truth as the answer wheel.
+                        guard abs(offset - topOffset) > 0.5 else { return }
+                        topOffset = max(0, offset)
+                        editorBridge?.setScrollOffset(topOffset)
+                    },
                     fontSize: settings.fontSize,
+                    lineHeight: settings.lineHeight,
                     decimalPlaces: settings.decimalPlaces,
-                    sumLabel: L10n.t("sumOfResults", language: settings.language),
-                    topLine: topLine,
-                    lineTops: lineTops
+                    totalLabel: L10n.t("total", language: settings.language)
                 )
             }
             .toolbar(removing: .title)
         }
         .frame(minWidth: 820, minHeight: 560)
+        .onChange(of: model.selectedIndex) { _, _ in topOffset = 0 }
         .onReceive(NotificationCenter.default.publisher(for: .newSheet)) { _ in model.newSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .importSheet)) { _ in showImport = true }
         .onReceive(NotificationCenter.default.publisher(for: .exportSheet)) { _ in showExport = true }
@@ -91,7 +117,7 @@ struct NLXDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.nlx, .json] }
     init(model: AppModel) {
         if let s = model.sheets.indices.contains(model.selectedIndex) ? model.sheets[model.selectedIndex] : nil {
-            export = SheetExport(title: s.title, content: s.content)
+            export = SheetExport(title: s.title, content: s.content, isTitleCustom: s.isTitleCustom)
         } else {
             export = SheetExport(title: "Sheet", content: "")
         }

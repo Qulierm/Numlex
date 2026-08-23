@@ -7,8 +7,9 @@ import NumlexTestKit
 //
 //     swift run NumlexTests
 
+let allCases = engineCases + sheetCases
 var failures = 0
-for testCase in engineCases {
+for testCase in allCases {
     do {
         try testCase.body()
         print("✓ \(testCase.name)")
@@ -17,5 +18,5 @@ for testCase in engineCases {
         print("✗ \(testCase.name): \(error)")
     }
 }
-print("\(engineCases.count - failures)/\(engineCases.count) engine cases passed")
+print("\(allCases.count - failures)/\(allCases.count) engine cases passed")
 exit(failures == 0 ? 0 : 1)

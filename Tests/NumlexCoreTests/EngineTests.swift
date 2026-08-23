@@ -9,4 +9,9 @@ struct EngineTests {
     func engineCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: sheetCases)
+    func sheetCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
