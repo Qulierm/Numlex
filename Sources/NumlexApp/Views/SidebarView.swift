@@ -8,10 +8,11 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Compact text-style "new sheet" control, centered across the
-            // full sidebar width: 15pt medium icon + text, plain style,
-            // no capsule/glass, raised toward the titlebar with a ~28pt
-            // hit target. The titlebar area above holds the traffic
-            // lights, so there is no overlap.
+            // full sidebar width: 15pt medium icon + text, plain style, no
+            // capsule/glass. The visible label is top-aligned inside a 28pt
+            // hit band with zero top padding, so it sits as high as possible
+            // (clear of the traffic lights, which occupy only the left edge)
+            // and the sheet list rises right up against the band.
             Button {
                 model.newSheet()
             } label: {
@@ -21,11 +22,11 @@ struct SidebarView: View {
                     Text(L10n.t("newSheet", language: model.settings.language))
                         .font(.system(size: 15, weight: .medium))
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.vertical, 5)
+            .foregroundStyle(.secondary)
             .help(L10n.t("newSheet", language: model.settings.language))
 
             // Sheet list. Selection is a single system gray pill
