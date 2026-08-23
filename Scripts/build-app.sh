@@ -47,10 +47,12 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Try to copy icon if exists
-if [ -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
-  cp "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+# Icon (required — declared as CFBundleIconFile=AppIcon in Info.plist)
+if [ ! -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
+  echo "Missing Sources/NumlexApp/Resources/AppIcon.icns"
+  exit 1
 fi
+cp "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
 # Ad-hoc sign if codesign available
 if command -v codesign >/dev/null 2>&1; then

@@ -17,7 +17,7 @@ public struct CaseFailure: Error, CustomStringConvertible {
 public func expect(_ condition: @autoclosure () -> Bool,
                    _ message: String = "expectation failed",
                    file: String = #fileID, line: Int = #line) throws {
-    guard try condition() else {
+    guard condition() else {
         throw CaseFailure(message: message, location: "\(file):\(line)")
     }
 }

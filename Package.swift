@@ -38,7 +38,7 @@ let package = Package(
             dependencies: ["NumlexCore"],
             path: "Sources/NumlexApp",
             // Consumed by Scripts/build-app.sh when assembling Numlex.app.
-            exclude: ["Resources/Info.plist"]
+            exclude: ["Resources/Info.plist", "Resources/AppIcon.icns"]
         ),
         // Shared, portable test cases (no test-framework dependency).
         .target(
