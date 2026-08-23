@@ -63,6 +63,33 @@ public let sheetCases: [EngineCase] = [
         sheet = Sheet.retitled(sheet, content: "")
         try expectEqual(sheet.title, "Sheet 2", "back to seed when cleared")
     },
+    EngineCase("canonicalized-migrates-legacy-content") {
+        // Regression: the init migration once called retitled(sheet,
+        // content:) without assigning the canonical content, so persisted
+        // legacy `*` survived. The helper must mutate the content itself.
+        let legacy = Sheet(title: "12 * 3", content: "12*3\nx=5\nshopping list\n10 km to m",
+                           isTitleCustom: false)
+        let result = Sheet.canonicalized(legacy)
+        try expect(result.changed, "legacy content reports changed")
+        try expectEqual(result.sheet.content, "12 × 3\nx = 5\nshopping list\n10 km to m",
+                        "math lines canonicalized, prose and conversion kept")
+        try expectEqual(result.sheet.title, "12 × 3", "auto title follows canonical text")
+        // Idempotence: an already-canonical sheet is left untouched, so
+        // the app must not persist a store that needs no migration.
+        let clean = Sheet(title: "7 + 1", content: "7 + 1\nkeep * as is",
+                          isTitleCustom: false)
+        try expectEqual(clean.content, NotebookFormatting.canonicalDocument(clean.content),
+                        "precondition: already canonical")
+        let cleanResult = Sheet.canonicalized(clean)
+        try expect(!cleanResult.changed, "canonical sheet reports unchanged")
+        try expectEqual(cleanResult.sheet, clean, "unchanged sheet is identical")
+        // Custom titles survive migration while the content is still fixed.
+        let custom = Sheet(title: "Самолет", content: "100*2", isTitleCustom: true)
+        let customResult = Sheet.canonicalized(custom)
+        try expect(customResult.changed, "content changed")
+        try expectEqual(customResult.sheet.title, "Самолет", "custom title untouched")
+        try expectEqual(customResult.sheet.content, "100 × 2", "content canonical")
+    },
     EngineCase("generic-title-detection") {
         try expect(Sheet.isGenericTitle("Sheet"), "plain Sheet")
         try expect(Sheet.isGenericTitle("Sheet 2"), "Sheet N")

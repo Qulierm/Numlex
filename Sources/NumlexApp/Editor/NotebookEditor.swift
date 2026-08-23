@@ -73,9 +73,12 @@ final class NotebookEditorCoordinator: NSObject {
     var onTextChange: (String) -> Void
 
     private var placeholder: String
-    /// The document text after the last processed pass; the baseline for
-    /// detecting user insertions (autoformat) versus sheet switches.
-    private var lastText: String = ""
+    /// Set by `textView(_:shouldChangeTextIn:replacementString:)` when
+    /// the pending AppKit edit carries a non-empty replacement (typing or
+    /// paste), i.e. a user insertion; consumed and cleared on the next
+    /// `textDidChange` pass. Programmatic storage rewrites bypass the
+    /// delegate, so they can never arm the flag.
+    private var pendingInsertion = false
     private var fontSize: Double
     private var lineHeight: Double
     private var lineNumbers: Bool
@@ -200,10 +203,9 @@ final class NotebookEditorCoordinator: NSObject {
             let selection = textView.selectedRanges
             textView.string = text
             textView.selectedRanges = selection
-            // Sheet switches load pre-migrated content: reset the
-            // insertion-detection baseline so loading is never treated as
-            // a user insertion.
-            lastText = text
+            // Sheet switches load pre-migrated content. This bypasses
+            // shouldChangeTextIn, so no insertion flag is armed and the
+            // load is never treated as a user edit.
             highlight()
             refreshLayoutAndMetrics()
             // Sheet switches carry new content back to the top.
@@ -469,7 +471,9 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         MainActor.assumeIsolated {
             guard let sender, self.textView === sender else { return }
             let new = sender.string
-            if self.applyAutoFormat() {
+            let insertion = self.pendingInsertion
+            self.pendingInsertion = false
+            if self.applyAutoFormat(insertion: insertion) {
                 // The programmatic storage rewrite does NOT reliably
                 // re-post textDidChange (AppKit suppresses it within the
                 // same editing pass), so the rest of the pipeline runs
@@ -477,7 +481,6 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
                 // notification does fire it is idempotent: same string,
                 // no second format pass (fixed point), equal model state.
                 let canonical = self.textView.string
-                self.lastText = canonical
                 self.textView.caretLine = Self.caretLineIndex(of: self.textView)
                 self.highlight()
                 self.refreshLayoutAndMetrics()
@@ -485,7 +488,6 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
                 self.onScroll(self.scrollView.contentView.bounds.origin.y)
                 return
             }
-            self.lastText = new
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.highlight()
             self.refreshLayoutAndMetrics()
@@ -494,22 +496,25 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         }
     }
 
-    /// On user insertion (the document grew) the mathematical lines are
-    /// canonicalized IN PLACE: `*` becomes `×`, one space around binary
-    /// operators and `=`, unary signs and `%` attached. Pure deletions
-    /// never reformat, so Backspace can remove spaces and operators
-    /// without the formatter immediately reinserting them. IME
-    /// composition is never touched mid-conversion: the commit keystroke
-    /// flows through this same path with `hasMarkedText()` false. The
-    /// selection is remapped to the same semantic insertion points via
-    /// the formatter's UTF-16 map, and caret/line state is recomputed on
-    /// the re-entrant notification — no reentrancy loop is possible
-    /// because the canonical text is a fixed point of the pass.
-    private func applyAutoFormat() -> Bool {
+    /// On user INSERTION the mathematical lines are canonicalized IN
+    /// PLACE: `*` becomes `×`, one space around binary operators and
+    /// `=`, unary signs and `%` attached. The pass is keyed to a
+    /// non-empty replacement recorded by
+    /// `textView(_:shouldChangeTextIn:replacementString:)` — so a paste
+    /// that replaces an equal or longer selection still formats, while
+    /// pure deletions (Backspace, delete, cut) never reformat and can
+    /// remove spaces and operators without the formatter reinserting
+    /// them. IME composition is never touched mid-conversion: the commit
+    /// keystroke flows through this same path with `hasMarkedText()`
+    /// false. The selection is remapped to the same semantic insertion
+    /// points via the formatter's UTF-16 map, and caret/line state is
+    /// recomputed on the re-entrant notification — no reentrancy loop is
+    /// possible because the canonical text is a fixed point of the pass.
+    private func applyAutoFormat(insertion: Bool) -> Bool {
         guard let storage = textView.textStorage else { return false }
         guard !textView.hasMarkedText() else { return false }
+        guard insertion else { return false }
         let newText = storage.string
-        guard (newText as NSString).length > (lastText as NSString).length else { return false }
         let canonical = NotebookFormatting.canonicalDocument(newText)
         guard canonical != newText else { return false }
         let sel = textView.selectedRange()
@@ -530,6 +535,24 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
     /// not the text view — a mistyped parameter would silently stop the
     /// delegate from ever firing. Update the gutter's active line and
     /// repaint: the current line must change visually without any edit.
+    /// AppKit asks the delegate before every edit it performs itself
+    /// (typing, paste, cut, delete keys) with the replacement string —
+    /// the reliable signal that distinguishes an insertion from a pure
+    /// deletion, independent of how the document's net length changes.
+    /// Direct storage rewrites (our own format pass, sheet switches)
+    /// bypass this hook, so the flag can never trigger reentrancy.
+    /// IME composition segments are ignored; the composition commit is
+    /// handled by the `hasMarkedText()` guards in the pipeline.
+    nonisolated func textView(_ textView: NSTextView,
+                              shouldChangeTextIn charRange: NSRange,
+                              replacementString: String?) -> Bool {
+        MainActor.assumeIsolated {
+            guard self.textView === textView, !textView.hasMarkedText() else { return }
+            self.pendingInsertion = !(replacementString ?? "").isEmpty
+        }
+        return true
+    }
+
     nonisolated func textViewDidChangeSelection(_ notification: Notification) {
         let sender = notification.object as? NSTextView
         Task { @MainActor in

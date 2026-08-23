@@ -16,14 +16,16 @@ final class AppModel {
     var isRatesLoaded = false
 
     init() {
+        var migrated = false
         if let payload = Persistence.load() {
             // Legacy stores: canonicalize the mathematical lines of every
             // sheet once (visible `*` becomes `×` in the stored content),
             // then refresh automatic titles so they reflect the canonical
             // text. Manual titles are untouched by `retitled`.
             sheets = payload.sheets.map { sheet in
-                let content = NotebookFormatting.canonicalDocument(sheet.content)
-                return Sheet.retitled(sheet, content: content)
+                let result = Sheet.canonicalized(sheet)
+                if result.changed { migrated = true }
+                return result.sheet
             }
             selectedIndex = min(payload.selectedIndex, max(sheets.count - 1, 0))
             settings = payload.settings
@@ -36,6 +38,10 @@ final class AppModel {
             ]
             selectedIndex = 0
         }
+        // Persist the migration exactly once, after the whole state is
+        // initialized (calling persist mid-init would touch a half-built
+        // model); unchanged stores are never rewritten.
+        if migrated { persist() }
         // rates loaded on appear
         // Task { await loadRates() } moved to view onAppear
         _ = 0

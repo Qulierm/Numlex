@@ -106,6 +106,19 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         return s
     }
 
+    /// Migrates a legacy sheet into the canonical notebook form:
+    /// mathematical lines are canonicalized (visible `*` becomes `×`,
+    /// operators get spaced) and the automatic title is re-derived from
+    /// the canonical text. Prose, comments and conversions are untouched.
+    /// Returns the migrated sheet and whether anything changed.
+    public static func canonicalized(_ sheet: Sheet) -> (sheet: Sheet, changed: Bool) {
+        let content = NotebookFormatting.canonicalDocument(sheet.content)
+        guard content != sheet.content else { return (sheet, false) }
+        var migrated = sheet
+        migrated.content = content
+        return (retitled(migrated, content: content), true)
+    }
+
     /// Title shown in the sidebar. Automatic sheets without any content
     /// display the localized "Empty" name (covers new sheets, the reset of
     /// the last remaining sheet, cleared content and migrated legacy
