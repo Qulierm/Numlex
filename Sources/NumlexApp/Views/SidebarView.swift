@@ -7,24 +7,25 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Compact text-style "new sheet" control: no capsule background,
-            // ≤28pt total height, aligned with the row inset below it.
+            // Compact text-style "new sheet" control, centered across the
+            // full sidebar width: 15pt medium icon + text, plain style,
+            // no capsule/glass, raised toward the titlebar with a ~28pt
+            // hit target. The titlebar area above holds the traffic
+            // lights, so there is no overlap.
             Button {
                 model.newSheet()
             } label: {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: "plus.circle")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                     Text(L10n.t("newSheet", language: model.settings.language))
-                        .font(Design.label)
+                        .font(.system(size: 15, weight: .medium))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
+            .padding(.vertical, 5)
             .help(L10n.t("newSheet", language: model.settings.language))
 
             // Sheet list. Selection is a single system gray pill

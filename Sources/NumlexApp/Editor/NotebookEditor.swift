@@ -80,6 +80,9 @@ final class NotebookEditorCoordinator: NSObject {
     private var decimalPlaces: Int
     private var observer: NSObjectProtocol?
     private var frameObserver: NSObjectProtocol?
+    /// True used document height (content + insets), independent of the
+    /// frame padding that keeps the whole surface focusable.
+    private(set) var usedDocumentHeight: CGFloat = 0
 
     init(placeholder: String, fontSize: Double, lineHeight: Double, lineNumbers: Bool,
          rates: Rates, decimalPlaces: Int,
@@ -138,6 +141,7 @@ final class NotebookEditorCoordinator: NSObject {
         sv.automaticallyAdjustsContentInsets = false
 
         applyTypography()
+        textView.typingAttributes = typingAttrs
         onReady(self)
 
         // The flipped document view makes the clip bounds' y origin the
@@ -221,8 +225,11 @@ final class NotebookEditorCoordinator: NSObject {
         MainActor.assumeIsolated { scrollView.scrollWheel(with: event) }
     }
 
+    /// True document height for the edge scroller's knob proportion. Never
+    /// the padded frame height: padding exists only to keep the empty area
+    /// focusable and must not create a phantom scroll range.
     var scrollDocumentHeight: CGFloat {
-        scrollView.contentView.documentView?.frame.height ?? 0
+        usedDocumentHeight
     }
 
     /// Sets the editor's scroll position so editor-content y `offset` sits
@@ -232,7 +239,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// uses), because clip views re-tile away raw bounds writes.
     func setScrollOffset(_ offset: CGFloat) {
         let clip = scrollView.contentView
-        let documentHeight = clip.documentView?.frame.height ?? 0
+        // The frame is padded to the viewport height, so the true scroll
+        // range comes from the used document height, not the frame.
+        let documentHeight = usedDocumentHeight
         let maxOffset = max(0, documentHeight - clip.bounds.height)
         let target = min(max(0, offset), maxOffset)
         guard abs(target - clip.bounds.origin.y) > 0.5 else { return }
@@ -252,8 +261,22 @@ final class NotebookEditorCoordinator: NSObject {
         textView.placeholderFontSize = fontSize
         textView.font = font
         textView.textColor = .textColor
+        // New characters and new paragraphs inherit the gutter indent and
+        // the fixed line height from the first keystroke on.
+        textView.typingAttributes = typingAttrs
         textView.needsDisplay = true
         if !textView.string.isEmpty { highlight() }
+    }
+
+    /// Attributes every new character/paragraph starts with: system font,
+    /// default text color, and the indented fixed-line-height paragraph
+    /// style. A first char or a newline can never land left of the gutter.
+    private var typingAttrs: [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.systemFont(ofSize: fontSize),
+            .foregroundColor: NSColor.textColor,
+            .paragraphStyle: paragraphStyle()
+        ]
     }
 
     private var textIndent: CGFloat { Design.gutterWidth + Design.textLeading }
@@ -268,49 +291,71 @@ final class NotebookEditorCoordinator: NSObject {
         return para
     }
 
+    /// Restyles the current text IN PLACE on the shared text storage: base
+    /// attributes first, then per-result colors/fonts. The characters are
+    /// never replaced, so the selection, caret, IME marked text and undo
+    /// records are untouched (the old full-string replacement clobbered
+    /// them on every keystroke).
     private func highlight() {
-        let text = textView.string
+        guard let storage = textView.textStorage else { return }
+        let text = storage.string
         guard !text.isEmpty else {
-            textView.textStorage?.setAttributedString(NSAttributedString(string: text))
+            // Empty: keep the typing/default attributes, do not reset the
+            // storage to an unstyled attributed string.
+            textView.typingAttributes = typingAttrs
+            return
+        }
+        // IME conversion in flight: leave the marked text untouched and
+        // restyle fully when the conversion commits (hasMarkedText flips
+        // back to false on the next edit).
+        guard !textView.hasMarkedText() else {
+            textView.typingAttributes = typingAttrs
             return
         }
         let content = text as NSString
         var vars: [String: Double] = [:]
         let rows = evaluateSheet(text, variables: &vars, rates: rates, decimalPlaces: decimalPlaces)
 
-        let attr = NSMutableAttributedString(string: text)
         let font = NSFont.systemFont(ofSize: fontSize)
-        attr.addAttribute(.font, value: font, range: NSRange(location: 0, length: content.length))
+        let base: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.textColor,
+            .paragraphStyle: paragraphStyle()
+        ]
+
+        storage.beginEditing()
+        storage.setAttributes(base, range: NSRange(location: 0, length: content.length))
 
         var lineStart = 0
-        for (i, line) in text.components(separatedBy: "\n").enumerated() {
+        let parts = text.components(separatedBy: "\n")
+        for (i, line) in parts.enumerated() {
             let len = (line as NSString).length
-            guard i < rows.count else { break }
+            defer { lineStart += len + (i < parts.count - 1 ? 1 : 0) }
+            guard i < rows.count, len > 0 else { continue }
             let range = NSRange(location: lineStart, length: len)
             switch rows[i] {
             case .number:
-                attr.addAttribute(.foregroundColor,
-                                  value: NSColor(calibratedRed: 0.40, green: 0.62, blue: 0.95, alpha: 1),
-                                  range: range)
+                storage.addAttribute(.foregroundColor,
+                                     value: NSColor(calibratedRed: 0.40, green: 0.62, blue: 0.95, alpha: 1),
+                                     range: range)
             case .variable:
-                attr.addAttribute(.foregroundColor, value: NSColor.systemTeal, range: range)
+                storage.addAttribute(.foregroundColor, value: NSColor.systemTeal, range: range)
             case .error:
-                attr.addAttribute(.foregroundColor, value: NSColor.systemRed.withAlphaComponent(0.85), range: range)
+                storage.addAttribute(.foregroundColor,
+                                     value: NSColor.systemRed.withAlphaComponent(0.85),
+                                     range: range)
             case .title:
-                attr.addAttribute(.font, value: NSFont.systemFont(ofSize: fontSize, weight: .semibold), range: range)
-                attr.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
+                storage.addAttribute(.font,
+                                     value: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+                                     range: range)
+                storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
             case .blank, .skip:
                 break
             }
-            lineStart += len
-            if i < text.components(separatedBy: "\n").count - 1 { lineStart += 1 }
         }
-        attr.addAttribute(.paragraphStyle, value: paragraphStyle(),
-                          range: NSRange(location: 0, length: content.length))
-
-        let selection = textView.selectedRanges
-        textView.textStorage?.setAttributedString(attr)
-        textView.setSelectedRanges(selection, affinity: .upstream, stillSelecting: false)
+        storage.endEditing()
+        textView.typingAttributes = typingAttrs
+        textView.needsDisplay = true
     }
 
     // MARK: - Metrics
@@ -325,10 +370,17 @@ final class NotebookEditorCoordinator: NSObject {
         // switch. Keep the frame tight to the used content height.
         let used = lm.usedRect(for: tc)
         let needed = ceil(used.height) + textView.textContainerInset.height * 2
+        usedDocumentHeight = needed
+        // Keep the document at least as tall as the viewport so clicks in
+        // the empty area below a short document still focus the text view.
+        // The true scroll range always comes from usedDocumentHeight, so
+        // this padding never creates phantom scroll room.
+        let viewport = scrollView.contentView.bounds.height
+        let target = max(needed, viewport)
         let frame = textView.frame
-        if abs(frame.height - needed) > 0.5 {
+        if abs(frame.height - target) > 0.5 {
             textView.frame = NSRect(x: frame.origin.x, y: frame.origin.y,
-                                    width: frame.width, height: needed)
+                                    width: frame.width, height: target)
         }
         onLayout(computeMetrics())
         textView.needsDisplay = true
@@ -379,11 +431,19 @@ final class NotebookEditorCoordinator: NSObject {
 }
 
 extension NotebookEditorCoordinator: NSTextViewDelegate {
-    /// The text view is edited directly by the user; re-highlight, re-measure
-    /// and push the new string up to the SwiftUI binding.
-    nonisolated func textViewDidChangeText(_ sender: NSTextView) {
+    /// NSTextViewDelegate's user-edit hook (keyboard input, paste, delete,
+    /// newline all flow through here). The coordinator is @MainActor, so
+    /// the nonisolated requirement runs under assumeIsolated. Re-highlight
+    /// in place, re-measure and push the new string up to the model; the
+    /// resulting SwiftUI update re-enters update() with an equal string
+    /// and stops there, so no reentrancy loop is possible.
+    nonisolated func textDidChange(_ notification: Notification) {
+        // AppKit delivers this on the main thread; extract the text view
+        // (a sending parameter position) and hop to the actor for the
+        // coordinator's work.
+        let sender = notification.object as? NSTextView
         Task { @MainActor in
-            guard self.textView === sender else { return }
+            guard let sender, self.textView === sender else { return }
             let new = sender.string
             self.highlight()
             self.refreshLayoutAndMetrics()

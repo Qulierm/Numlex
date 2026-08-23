@@ -25,7 +25,7 @@ enum Design {
 
     /// Top inset of the notebook text (matches the answer column's
     /// content origin, keeping both columns aligned without compensation).
-    static let editorTopInset: CGFloat = 12
+    static let editorTopInset: CGFloat = 6
     /// Width of the quiet line-number gutter inside the text view.
     static let gutterWidth: CGFloat = 36
     /// Distance from the gutter to the first text column.
