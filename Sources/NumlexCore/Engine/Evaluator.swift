@@ -43,7 +43,7 @@ private func tryEvaluateCleaned(_ line: String, variables: [String: Double]) -> 
     // if only operators/parens/space and no digit -> skip
     if trimmed.range(of: #"\d"#, options: .regularExpression) == nil {
         // check if it contains only allowed chars without digit
-        if trimmed.range(of: #"^[\s+\-*/^%().]*$"#, options: .regularExpression) != nil { return nil }
+        if trimmed.range(of: #"^[\s+\-*/^%().×]*$"#, options: .regularExpression) != nil { return nil }
     }
     do {
         return try evaluateExpression(trimmed, variables: variables)

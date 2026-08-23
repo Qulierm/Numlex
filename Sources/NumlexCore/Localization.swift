@@ -13,7 +13,7 @@ public struct L10n {
             "line": "line",
             "lines": "lines",
             "noLines": "No lines",
-            "newSheet": "New sheet",
+            "newSheet": "New Sheet",
             "deleteSheet": "Delete sheet",
             "sheets": "Sheets",
             "showSheets": "Show sheets",

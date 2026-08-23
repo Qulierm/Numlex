@@ -150,8 +150,10 @@ struct AnswerColumnView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let u = unit {
+                        // Units are full answer content: exactly the
+                        // same size, weight and baseline as the value.
                         Text(u)
-                            .font(Design.labelSmall)
+                            .font(Design.body(fontSize))
                             .foregroundStyle(.white)
                     }
                 }

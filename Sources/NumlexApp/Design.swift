@@ -20,16 +20,22 @@ enum Design {
     /// The gutter number of the line the caret is on: one step brighter.
     static var gutterColorActive: NSColor { .secondaryLabelColor }
 
-    // MARK: Exact notebook syntax palette (fixed sRGB values)
+    // MARK: Notebook syntax palette (fixed matte sRGB values)
+    //
+    // Every chromatic token is a deterministic matte variant of the
+    // original gamut: the same hue direction with roughly 65% of the
+    // original saturation and ~92% lightness — calm, low-vibrancy
+    // colors that keep their roles distinguishable on the dark
+    // notebook background. No opacity layering is used.
 
-    /// Numeric literals: sRGB(59, 221, 236).
-    static let numberColor = NSColor(srgbRed: 59.0 / 255.0, green: 221.0 / 255.0, blue: 236.0 / 255.0, alpha: 1)
-    /// Variable identifiers: sRGB(74, 217, 104).
-    static let variableColor = NSColor(srgbRed: 74.0 / 255.0, green: 217.0 / 255.0, blue: 104.0 / 255.0, alpha: 1)
-    /// Unit words in conversions: sRGB(234, 141, 255).
-    static let conversionColor = NSColor(srgbRed: 234.0 / 255.0, green: 141.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
-    /// Comment titles: sRGB(92, 184, 255).
-    static let titleColor = NSColor(srgbRed: 92.0 / 255.0, green: 184.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
+    /// Numeric literals: sRGB(72, 189, 200) — matte cyan.
+    static let numberColor = NSColor(srgbRed: 72.0 / 255.0, green: 189.0 / 255.0, blue: 200.0 / 255.0, alpha: 1)
+    /// Variable identifiers: sRGB(82, 185, 104) — matte green.
+    static let variableColor = NSColor(srgbRed: 82.0 / 255.0, green: 185.0 / 255.0, blue: 104.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: sRGB(212, 135, 230) — matte purple.
+    static let conversionColor = NSColor(srgbRed: 212.0 / 255.0, green: 135.0 / 255.0, blue: 230.0 / 255.0, alpha: 1)
+    /// Comment titles: sRGB(98, 168, 222) — matte blue.
+    static let titleColor = NSColor(srgbRed: 98.0 / 255.0, green: 168.0 / 255.0, blue: 222.0 / 255.0, alpha: 1)
     /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
     static let baseText = NSColor.white
 

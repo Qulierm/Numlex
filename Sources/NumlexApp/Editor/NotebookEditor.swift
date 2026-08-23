@@ -73,6 +73,9 @@ final class NotebookEditorCoordinator: NSObject {
     var onTextChange: (String) -> Void
 
     private var placeholder: String
+    /// The document text after the last processed pass; the baseline for
+    /// detecting user insertions (autoformat) versus sheet switches.
+    private var lastText: String = ""
     private var fontSize: Double
     private var lineHeight: Double
     private var lineNumbers: Bool
@@ -197,6 +200,10 @@ final class NotebookEditorCoordinator: NSObject {
             let selection = textView.selectedRanges
             textView.string = text
             textView.selectedRanges = selection
+            // Sheet switches load pre-migrated content: reset the
+            // insertion-detection baseline so loading is never treated as
+            // a user insertion.
+            lastText = text
             highlight()
             refreshLayoutAndMetrics()
             // Sheet switches carry new content back to the top.
@@ -453,19 +460,69 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
     /// resulting SwiftUI update re-enters update() with an equal string
     /// and stops there, so no reentrancy loop is possible.
     nonisolated func textDidChange(_ notification: Notification) {
-        // AppKit delivers this on the main thread; extract the text view
-        // (a sending parameter position) and hop to the actor for the
-        // coordinator's work.
+        // AppKit delivers this on the main thread. The pipeline runs
+        // synchronously (not in a queued Task) so that a fast user edit
+        // is always canonicalized before the NEXT keystroke lands; an
+        // async hop let stale format passes race with fresh input and
+        // scramble selections.
         let sender = notification.object as? NSTextView
-        Task { @MainActor in
+        MainActor.assumeIsolated {
             guard let sender, self.textView === sender else { return }
             let new = sender.string
+            if self.applyAutoFormat() {
+                // The programmatic storage rewrite does NOT reliably
+                // re-post textDidChange (AppKit suppresses it within the
+                // same editing pass), so the rest of the pipeline runs
+                // here, on the already-canonical text. If a re-entrant
+                // notification does fire it is idempotent: same string,
+                // no second format pass (fixed point), equal model state.
+                let canonical = self.textView.string
+                self.lastText = canonical
+                self.textView.caretLine = Self.caretLineIndex(of: self.textView)
+                self.highlight()
+                self.refreshLayoutAndMetrics()
+                self.onTextChange(canonical)
+                self.onScroll(self.scrollView.contentView.bounds.origin.y)
+                return
+            }
+            self.lastText = new
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.highlight()
             self.refreshLayoutAndMetrics()
             self.onTextChange(new)
             self.onScroll(self.scrollView.contentView.bounds.origin.y)
         }
+    }
+
+    /// On user insertion (the document grew) the mathematical lines are
+    /// canonicalized IN PLACE: `*` becomes `×`, one space around binary
+    /// operators and `=`, unary signs and `%` attached. Pure deletions
+    /// never reformat, so Backspace can remove spaces and operators
+    /// without the formatter immediately reinserting them. IME
+    /// composition is never touched mid-conversion: the commit keystroke
+    /// flows through this same path with `hasMarkedText()` false. The
+    /// selection is remapped to the same semantic insertion points via
+    /// the formatter's UTF-16 map, and caret/line state is recomputed on
+    /// the re-entrant notification — no reentrancy loop is possible
+    /// because the canonical text is a fixed point of the pass.
+    private func applyAutoFormat() -> Bool {
+        guard let storage = textView.textStorage else { return false }
+        guard !textView.hasMarkedText() else { return false }
+        let newText = storage.string
+        guard (newText as NSString).length > (lastText as NSString).length else { return false }
+        let canonical = NotebookFormatting.canonicalDocument(newText)
+        guard canonical != newText else { return false }
+        let sel = textView.selectedRange()
+        let map = NotebookFormatting.mapDocument(from: newText, to: canonical)
+        let start = map[sel.location]
+        let end = min(map[sel.location + sel.length], (canonical as NSString).length)
+        storage.beginEditing()
+        storage.replaceCharacters(
+            in: NSRange(location: 0, length: (newText as NSString).length),
+            with: canonical)
+        storage.endEditing()
+        textView.setSelectedRange(NSRange(location: start, length: max(0, end - start)))
+        return true
     }
 
     /// Selection changed (arrow keys, mouse click/drag, selection by

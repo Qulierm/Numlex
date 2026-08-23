@@ -19,4 +19,9 @@ struct EngineTests {
     func syntaxCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: formatCases)
+    func formatCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

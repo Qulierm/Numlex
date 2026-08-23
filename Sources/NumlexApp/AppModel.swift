@@ -17,15 +17,20 @@ final class AppModel {
 
     init() {
         if let payload = Persistence.load() {
-            // Refresh automatic titles for sheets whose content already has
-            // a first calculation (e.g. stores from before the naming feature).
-            sheets = payload.sheets.map { Sheet.retitled($0, content: $0.content) }
+            // Legacy stores: canonicalize the mathematical lines of every
+            // sheet once (visible `*` becomes `×` in the stored content),
+            // then refresh automatic titles so they reflect the canonical
+            // text. Manual titles are untouched by `retitled`.
+            sheets = payload.sheets.map { sheet in
+                let content = NotebookFormatting.canonicalDocument(sheet.content)
+                return Sheet.retitled(sheet, content: content)
+            }
             selectedIndex = min(payload.selectedIndex, max(sheets.count - 1, 0))
             settings = payload.settings
         }
         if sheets.isEmpty {
             sheets = [
-                Sheet(title: "Demo", content: "# Demo\n12 + 30 * 2\n45.5 * 2\n10 km to meter\nprice = 1250\nprice * 1.2",
+                Sheet(title: "Demo", content: "# Demo\n12 + 30 × 2\n45.5 × 2\n10 km to meter\nprice = 1250\nprice × 1.2",
                       createdAt: Date(), modifiedAt: Date(), isTitleCustom: true),
                 Sheet(title: "Sheet", content: "", createdAt: Date(), modifiedAt: Date())
             ]
@@ -101,7 +106,10 @@ final class AppModel {
         // Files exported before the naming feature decode with a nil flag;
         // then meaningful names stay custom and generic ones stay automatic.
         let custom = obj.isTitleCustom ?? !Sheet.isGenericTitle(obj.title)
-        return Sheet(title: obj.title, content: obj.content,
+        // Imported math lines are canonicalized too; prose, comments,
+        // titles and conversions come back byte-identical.
+        let content = NotebookFormatting.canonicalDocument(obj.content)
+        return Sheet(title: obj.title, content: content,
                      createdAt: Date(), modifiedAt: Date(), isTitleCustom: custom)
     }
 

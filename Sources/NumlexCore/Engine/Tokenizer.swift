@@ -3,7 +3,7 @@ import Foundation
 public enum Token: Equatable, Sendable {
     case number(Double)
     case identifier(String)
-    case op(String)       // + - * / ^ %
+    case op(String)       // + - * / ^ % (× canonicalizes to *)
     case paren(String)    // ( )
 }
 
@@ -29,6 +29,13 @@ public func tokenize(_ expr: String) throws -> [Token] {
         }
         if ch == "(" || ch == ")" {
             tokens.append(.paren(String(ch)))
+            i = expr.index(after: i)
+            continue
+        }
+        if ch == "×" {
+            // The display multiplication sign: identical semantics to `*`
+            // (precedence included); the token stays canonical `*`.
+            tokens.append(.op("*"))
             i = expr.index(after: i)
             continue
         }
