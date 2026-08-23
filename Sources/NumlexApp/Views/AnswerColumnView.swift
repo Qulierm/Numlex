@@ -114,7 +114,8 @@ struct AnswerColumnView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(s.value)
-                        .font(Design.bodyMedium(fontSize))
+                        .font(Design.body(fontSize))
+                        .foregroundStyle(.cyan)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 12)
@@ -143,23 +144,27 @@ struct AnswerColumnView: View {
             case .number(let v, let unit):
                 HStack(spacing: 5) {
                     Text(formatted(v))
-                        .font(Design.bodyMedium(fontSize))
+                        .font(Design.body(fontSize))
+                        // Plain results are cyan; converted values are
+                        // purple, matching the conversion words in the editor.
+                        .foregroundStyle(unit == nil ? .cyan : .purple)
                         .lineLimit(1)
                     if let u = unit {
                         Text(u)
                             .font(Design.labelSmall)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.purple)
                     }
                 }
             case .variable(let name, let v):
                 HStack(spacing: 5) {
                     Text(name)
                         .font(Design.body(fontSize))
+                        .foregroundStyle(.green)
                     Text("=")
                         .font(Design.body(fontSize))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary)
                     Text(formatted(v))
-                        .font(Design.bodyMedium(fontSize))
+                        .font(Design.body(fontSize))
                         .foregroundStyle(.green)
                 }
             case .error(let msg):

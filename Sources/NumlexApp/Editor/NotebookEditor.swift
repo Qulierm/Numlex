@@ -269,12 +269,13 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     /// Attributes every new character/paragraph starts with: system font,
-    /// default text color, and the indented fixed-line-height paragraph
-    /// style. A first char or a newline can never land left of the gutter.
+    /// the adaptive base label color, and the indented fixed-line-height
+    /// paragraph style. A first char or a newline can never land left of
+    /// the gutter; highlight() recolors semantic spans on the same tick.
     private var typingAttrs: [NSAttributedString.Key: Any] {
         [
             .font: NSFont.systemFont(ofSize: fontSize),
-            .foregroundColor: NSColor.textColor,
+            .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraphStyle()
         ]
     }
@@ -315,11 +316,12 @@ final class NotebookEditorCoordinator: NSObject {
         let content = text as NSString
         var vars: [String: Double] = [:]
         let rows = evaluateSheet(text, variables: &vars, rates: rates, decimalPlaces: decimalPlaces)
+        let spans = SyntaxClassifier.spans(for: text, rates: rates, decimalPlaces: decimalPlaces)
 
         let font = NSFont.systemFont(ofSize: fontSize)
         let base: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.textColor,
+            .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraphStyle()
         ]
 
@@ -334,12 +336,6 @@ final class NotebookEditorCoordinator: NSObject {
             guard i < rows.count, len > 0 else { continue }
             let range = NSRange(location: lineStart, length: len)
             switch rows[i] {
-            case .number:
-                storage.addAttribute(.foregroundColor,
-                                     value: NSColor(calibratedRed: 0.40, green: 0.62, blue: 0.95, alpha: 1),
-                                     range: range)
-            case .variable:
-                storage.addAttribute(.foregroundColor, value: NSColor.systemTeal, range: range)
             case .error:
                 storage.addAttribute(.foregroundColor,
                                      value: NSColor.systemRed.withAlphaComponent(0.85),
@@ -349,6 +345,8 @@ final class NotebookEditorCoordinator: NSObject {
                                      value: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
                                      range: range)
                 storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
+            case .number, .variable:
+                applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
             case .blank, .skip:
                 break
             }
@@ -356,6 +354,22 @@ final class NotebookEditorCoordinator: NSObject {
         storage.endEditing()
         textView.typingAttributes = typingAttrs
         textView.needsDisplay = true
+    }
+
+    /// Paints the classified token spans of one line at its document
+    /// offset: numbers cyan, variables green, conversion words purple.
+    /// Operators and unknown words keep the base label color.
+    private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int, in storage: NSTextStorage) {
+        for span in lineSpans {
+            let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
+            let color: NSColor
+            switch span.role {
+            case .number: color = .systemCyan
+            case .variable: color = .systemGreen
+            case .conversion: color = .systemPurple
+            }
+            storage.addAttribute(.foregroundColor, value: color, range: r)
+        }
     }
 
     // MARK: - Metrics
@@ -445,19 +459,47 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         Task { @MainActor in
             guard let sender, self.textView === sender else { return }
             let new = sender.string
+            self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.highlight()
             self.refreshLayoutAndMetrics()
             self.onTextChange(new)
             self.onScroll(self.scrollView.contentView.bounds.origin.y)
         }
     }
+
+    /// Selection changed (arrow keys, mouse click/drag, selection by
+    /// keyboard, paste). Update the gutter's active line and repaint: the
+    /// current line must change visually without any text edit.
+    private nonisolated func textViewDidChangeSelection(_ textView: NSTextView) {
+        Task { @MainActor in
+            guard self.textView === textView else { return }
+            self.textView.caretLine = Self.caretLineIndex(of: self.textView)
+            self.textView.needsDisplay = true
+        }
+    }
+
+    /// 1-based logical line the caret sits on: the number of newlines
+    /// before the caret's UTF-16 location, plus one. That matches
+    /// TextKit's visual line, including the trailing empty line that
+    /// follows a final newline.
+    private static func caretLineIndex(of tv: NSTextView) -> Int {
+        let caret = tv.selectedRange().location
+        let content = tv.string as NSString
+        guard caret > 0, content.length > 0 else { return 1 }
+        let prefix = content.substring(with: NSRange(location: 0, length: min(caret, content.length)))
+        return prefix.components(separatedBy: "\n").count
+    }
 }
 
-/// Document text view. Draws line numbers and the placeholder.
+/// Document text view. Draws line numbers (the caret's line brighter)
+/// and the placeholder.
 final class NotebookTextView: NSTextView {
     var lineHeight: Double = 30
     var lineNumbers: Bool = true
     var placeholderText: String = ""
+    /// 1-based logical line the caret currently sits on (set by the
+    /// coordinator on every selection change).
+    var caretLine: Int = 1
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -495,34 +537,48 @@ final class NotebookTextView: NSTextView {
         // stretched) fragment, and the number is placed on the same baseline.
         let textFont = self.font ?? NSFont.systemFont(ofSize: 14)
         let numberRightX = Design.gutterWidth + Design.textLeading - 10
+
+        func drawNumber(_ n: Int, fragmentTop: CGFloat, fragmentHeight: CGFloat) {
+            let y = insetY + fragmentTop
+            if y + fragmentHeight < visible.minY - 40 || y > visible.maxY + 40 { return }
+            let fontLineHeight = textFont.ascender - textFont.descender + textFont.leading
+            let baseline = y
+                + max(0, (fragmentHeight - fontLineHeight) / 2)
+                + textFont.ascender
+            let str = "\(n)" as NSString
+            let size = str.size(withAttributes: [.font: numberFont])
+            // The caret's line is one semantic step brighter than the rest.
+            let color: NSColor = (n == caretLine)
+                ? Design.gutterColorActive
+                : Design.gutterColor
+            str.draw(
+                at: NSPoint(x: numberRightX - size.width,
+                             y: baseline - numberFont.ascender),
+                withAttributes: [.font: numberFont, .foregroundColor: color]
+            )
+        }
+
         var lineIndex = 0
         content.enumerateSubstrings(
             in: NSRange(location: 0, length: content.length),
             options: .byLines
         ) { _, lineRange, _, _ in
-            let firstGlyph = lm.glyphIndexForCharacter(at: lineRange.location)
-            guard firstGlyph != NSNotFound else {
-                lineIndex += 1
-                return
-            }
-            let frag = lm.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
-            let y = insetY + frag.minY
-            if y + frag.height < visible.minY - 40 || y > visible.maxY + 40 {
-                lineIndex += 1
-                return
-            }
-            let fontLineHeight = textFont.ascender - textFont.descender + textFont.leading
-            let baseline = insetY + frag.minY
-                + max(0, (frag.height - fontLineHeight) / 2)
-                + textFont.ascender
-            let str = "\(lineIndex + 1)" as NSString
-            let size = str.size(withAttributes: [.font: numberFont])
-            str.draw(
-                at: NSPoint(x: numberRightX - size.width,
-                             y: baseline - numberFont.ascender),
-                withAttributes: [.font: numberFont, .foregroundColor: NSColor.secondaryLabelColor]
-            )
             lineIndex += 1
+            let firstGlyph = lm.glyphIndexForCharacter(at: lineRange.location)
+            guard firstGlyph != NSNotFound else { return }
+            let frag = lm.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
+            drawNumber(lineIndex, fragmentTop: frag.minY, fragmentHeight: frag.height)
+        }
+        // A document ending in a newline has a trailing empty line that
+        // byLines does not enumerate; the caret can sit on it, so draw its
+        // number too (fixed line height keeps the geometry exact).
+        if content.hasSuffix("\n") {
+            let used = lm.usedRect(for: tc)
+            let lh = CGFloat(self.lineHeight)
+            let trailingTop = used.height - lh
+            if trailingTop >= 0 {
+                drawNumber(lineIndex + 1, fragmentTop: trailingTop, fragmentHeight: lh)
+            }
         }
     }
 

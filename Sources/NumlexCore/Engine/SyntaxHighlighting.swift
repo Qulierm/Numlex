@@ -1,0 +1,146 @@
+import Foundation
+
+/// Range-aware syntax roles for notebook lines.
+///
+/// The classifier is strictly read-only: it reuses the existing evaluator
+/// (`evalLine`) to learn how each line is treated, then projects token
+/// spans back onto the original text. It never mutates parser, evaluator
+/// or tokenizer semantics.
+public enum SyntaxRole: Equatable, Sendable {
+    /// A numeric literal (including the leading value of a conversion).
+    case number
+    /// A variable identifier in an evaluable number/variable expression.
+    case variable
+    /// A unit identifier or the `to` phrase of a conversion.
+    case conversion
+}
+
+/// One classified span. `range` is a UTF-16 `NSRange` inside a single
+/// logical line; callers add the line's document offset for whole-text
+/// ranges. Operators, parentheses, `=`, signs and whitespace carry no
+/// span and therefore keep the base (white/primary) color.
+public struct SyntaxSpan: Equatable, Sendable {
+    public let role: SyntaxRole
+    public let range: NSRange
+    public init(role: SyntaxRole, range: NSRange) {
+        self.role = role
+        self.range = range
+    }
+}
+
+public enum SyntaxClassifier {
+
+    /// Classifies every logical line of `source` (top to bottom with the
+    /// same variable flow the evaluator uses) into role spans.
+    ///
+    /// Lines the evaluator treats as title, blank, skip (prose) or error
+    /// carry no spans: their whole-line styling owns the presentation,
+    /// and prose must never be painted as variables.
+    public static func spans(for source: String,
+                             rates: Rates,
+                             decimalPlaces: Int) -> [[SyntaxSpan]] {
+        var result: [[SyntaxSpan]] = []
+        var vars: [String: Double] = [:]
+        for line in source.components(separatedBy: "\n") {
+            // Mirror evaluateSheet's line-kind handling: empty, `#` and
+            // `//` lines never carry token spans.
+            if line.trimmingCharacters(in: .whitespaces).isEmpty
+                || line.hasPrefix("#")
+                || line.hasPrefix("//") {
+                result.append([])
+                continue
+            }
+            let evaluation = evalLine(line, variables: &vars,
+                                      rates: rates, decimalPlaces: decimalPlaces)
+            let spans: [SyntaxSpan]
+            switch evaluation {
+            case nil:
+                spans = []                       // .skip prose
+            case .number(_, .some):
+                spans = conversionSpans(line)
+            case .number(_, .none):
+                spans = expressionSpans(line, variables: vars)
+            case .variable(let name, _):
+                spans = assignmentSpans(line, name: name, variables: vars)
+            case .blank, .skip, .title, .error:
+                spans = []
+            }
+            result.append(spans)
+        }
+        return result
+    }
+
+    // MARK: - Per-line span extraction
+
+    /// Conversion grammar: the leading numeric literal stays a number;
+    /// every identifier after it (unit words and `to`) is a conversion.
+    private static func conversionSpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        var unitStart = 0
+        if let m = firstMatch(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#,
+                              in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+            unitStart = m.location + m.length
+        }
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where m.location >= unitStart {
+            spans.append(SyntaxSpan(role: .conversion, range: m))
+        }
+        return spans
+    }
+
+    /// Free numeric expression: literals are numbers, identifiers are
+    /// variables only when the current variable state knows them (the
+    /// line evaluated to `.number`, so unknown words were never painted
+    /// — prose lines never reach here at all).
+    private static func expressionSpans(_ line: String,
+                                        variables: [String: Double]) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where variables[ns.substring(with: m)] != nil {
+            spans.append(SyntaxSpan(role: .variable, range: m))
+        }
+        return spans
+    }
+
+    /// Assignment `name = expr`: the left-hand identifier is a variable;
+    /// on the right side, literals are numbers and known identifiers are
+    /// variables. The `=` and any unknown words stay base.
+    private static func assignmentSpans(_ line: String,
+                                        name: String,
+                                        variables: [String: Double]) -> [SyntaxSpan] {
+        let ns = line as NSString
+        let eqRange = ns.range(of: "=")
+        guard eqRange.location != NSNotFound else { return [] }
+        var spans: [SyntaxSpan] = []
+        // Left-hand name.
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where m.location < eqRange.location {
+            spans.append(SyntaxSpan(role: .variable, range: m))
+        }
+        // Right-hand expression.
+        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns)
+        where m.location > eqRange.location {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns)
+        where m.location > eqRange.location && variables[ns.substring(with: m)] != nil {
+            spans.append(SyntaxSpan(role: .variable, range: m))
+        }
+        return spans
+    }
+
+    // MARK: - Regex helpers (UTF-16 ranges via NSString)
+
+    private static func matches(_ pattern: String, in ns: NSString) -> [NSRange] {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let full = NSRange(location: 0, length: ns.length)
+        return re.matches(in: ns as String, range: full).map(\.range)
+    }
+
+    private static func firstMatch(_ pattern: String, in ns: NSString) -> NSRange? {
+        matches(pattern, in: ns).first
+    }
+}

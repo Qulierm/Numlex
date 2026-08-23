@@ -13,13 +13,12 @@ enum Design {
         .system(size: size, weight: .regular)
     }
 
-    static func bodyMedium(_ size: Double) -> Font {
-        .system(size: size, weight: .medium)
-    }
-
-    /// Line-number gutter: quiet, proportional secondary label.
-    static func gutterFont() -> NSFont { NSFont.systemFont(ofSize: 12) }
-    static var gutterColor: NSColor { .secondaryLabelColor }
+    /// Line-number gutter: quiet, proportional tertiary label.
+    static func gutterFont() -> NSFont { NSFont.systemFont(ofSize: 11) }
+    /// Inactive gutter numbers: dim in both dark and light.
+    static var gutterColor: NSColor { .tertiaryLabelColor }
+    /// The gutter number of the line the caret is on: one step brighter.
+    static var gutterColorActive: NSColor { .secondaryLabelColor }
 
     // MARK: Editor geometry
 
