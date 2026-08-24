@@ -23,23 +23,29 @@ enum Design {
     // MARK: Notebook syntax palette (deterministic sRGB values)
     //
     // Every chromatic token is an explicit sRGB value: the same hue
-    // direction as the original gamut with coherently RAISED saturation
-    // and brightness — a matte finish, not a washed-out one. Numbers,
-    // variables, conversions and titles each get ~15% more saturation
-    // and ~4% more lightness than the v1 matte values (title and
-    // conversion capped to stay calm), so every role reads clearly on
-    // both the editor's dark background and the raised answer panel.
-    // The fixed white base, operators, `to` and answer values are
-    // untouched. No opacity layering is used.
+    // direction as the original gamut with coherently RAISED lightness
+    // (v2 step) on top of the v1 matte values — a matte finish, not a
+    // washed-out one, and no neon clipping: each role moved ~4-6% in
+    // HSL lightness while keeping its own hue and a moderate
+    // saturation, so numbers, variables, conversions and titles each
+    // read clearly on both the editor's dark background and the raised
+    // answer panel. The fixed white base, operators, `to` and answer
+    // values are untouched. No opacity layering is used.
 
-    /// Numeric literals: sRGB(79, 202, 213) — raised matte cyan (H185 S61 L57).
-    static let numberColor = NSColor(srgbRed: 79.0 / 255.0, green: 202.0 / 255.0, blue: 213.0 / 255.0, alpha: 1)
-    /// Variable identifiers: sRGB(89, 198, 113) — raised matte green (H132 S48 L56).
-    static let variableColor = NSColor(srgbRed: 89.0 / 255.0, green: 198.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
-    /// Unit words in conversions: sRGB(217, 130, 237) — raised matte purple (H288 S75 L72).
-    static let conversionColor = NSColor(srgbRed: 217.0 / 255.0, green: 130.0 / 255.0, blue: 237.0 / 255.0, alpha: 1)
-    /// Comment titles: sRGB(107, 178, 234) — raised matte blue (H206 S75 L66).
-    static let titleColor = NSColor(srgbRed: 107.0 / 255.0, green: 178.0 / 255.0, blue: 234.0 / 255.0, alpha: 1)
+    /// Numeric literals: sRGB(83, 217, 229) — brighter matte cyan (H185 S74 L61).
+    static let numberColor = NSColor(srgbRed: 83.0 / 255.0, green: 217.0 / 255.0, blue: 229.0 / 255.0, alpha: 1)
+    /// Variable identifiers: sRGB(96, 215, 123) — brighter matte green (H134 S69 L66).
+    static let variableColor = NSColor(srgbRed: 96.0 / 255.0, green: 215.0 / 255.0, blue: 123.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: sRGB(226, 145, 245) — brighter matte purple (H289 S71 L73).
+    static let conversionColor = NSColor(srgbRed: 226.0 / 255.0, green: 145.0 / 255.0, blue: 245.0 / 255.0, alpha: 1)
+    /// Comment titles: sRGB(117, 190, 242) — brighter matte blue (H205 S83 L70).
+    static let titleColor = NSColor(srgbRed: 117.0 / 255.0, green: 190.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
+
+    /// Editor caret: sRGB(52, 120, 247) — fixed accent blue matched to
+    /// the Soulver reference. Constant across appearances; the caret's
+    /// geometry, size, row-box centering and blink are owned by
+    /// NotebookTextView, this token only colors the rect.
+    static let caretColor = NSColor(srgbRed: 52.0 / 255.0, green: 120.0 / 255.0, blue: 247.0 / 255.0, alpha: 1)
     /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
     static let baseText = NSColor.white
 

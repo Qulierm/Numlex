@@ -700,7 +700,7 @@ final class NotebookTextView: NSTextView {
               caretBlinkOn,
               let caretRect = currentCaretRect(),
               dirtyRect.intersects(caretRect) else { return }
-        NSColor.textColor.set()
+        Design.caretColor.set()
         NSBezierPath(rect: caretRect).fill()
     }
 
