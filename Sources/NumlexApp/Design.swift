@@ -46,8 +46,13 @@ enum Design {
     static let editorTopInset: CGFloat = 6
     /// Width of the quiet line-number gutter inside the text view.
     static let gutterWidth: CGFloat = 36
-    /// Distance from the gutter to the first text column.
-    static let textLeading: CGFloat = 16
+    /// Distance from the gutter to the first text column. Raising it
+    /// moves the text start right WITHOUT moving the numbers, because
+    /// the numbers are anchored to `gutterNumberRight` instead.
+    static let textLeading: CGFloat = 18
+    /// Right edge of the gutter numbers, decoupled from the text start
+    /// so the number-to-text gap can be tuned independently.
+    static let gutterNumberRight: CGFloat = 42
 
     // MARK: Labels (native proportional scales)
 

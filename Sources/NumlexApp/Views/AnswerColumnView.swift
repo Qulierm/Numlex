@@ -157,18 +157,13 @@ struct AnswerColumnView: View {
                             .foregroundStyle(.white)
                     }
                 }
-            case .variable(let name, let v):
-                HStack(spacing: 5) {
-                    Text(name)
-                        .font(Design.body(fontSize))
-                        .foregroundStyle(.white)
-                    Text("=")
-                        .font(Design.body(fontSize))
-                        .foregroundStyle(.white)
-                    Text(formatted(v))
-                        .font(Design.body(fontSize))
-                        .foregroundStyle(.white)
-                }
+            case .variable(_, let v):
+                // Assignment rows show ONLY the value — the name and
+                // equals sign live in the editor, never in the answers.
+                Text(formatted(v))
+                    .font(Design.body(fontSize))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
             case .error(let msg):
                 if msg == "Rates unavailable" {
                     // The explicit no-rate state is preserved and

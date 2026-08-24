@@ -31,22 +31,27 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
 
     public var fontSize: Double {
+        // Every level is exactly 1 pt above the previous scale so that
+        // persisted keys keep their relative size and both the editor
+        // body and the answer column grow together.
         switch fontSizeKey {
-        case "ttt": return 17
-        case "tt": return 18
-        case "tf": return 19
-        case "tff": return 20
-        case "ts": return 21
-        case "tss": return 23
-        case "te": return 25
-        case "tn": return 27
-        case "tth": return 29
-        default: return 19
+        case "ttt": return 18
+        case "tt": return 19
+        case "tf": return 20
+        case "tff": return 21
+        case "ts": return 22
+        case "tss": return 24
+        case "te": return 26
+        case "tn": return 28
+        case "tth": return 30
+        default: return 20
         }
     }
+    /// Derives the line height from the EFFECTIVE font size so TextKit
+    /// metrics and the answer column stay 1:1 at every settings level.
     public var lineHeight: Double { (fontSize * 1.6).rounded() }
 }
 
 public let fontSizeOptions: [(key: String, label: String)] = [
-    ("ttt", "17"), ("tt", "18"), ("tf", "19"), ("tff", "20"), ("ts", "21"), ("tss", "23"), ("te", "25"), ("tn", "27"), ("tth", "29")
+    ("ttt", "18"), ("tt", "19"), ("tf", "20"), ("tff", "21"), ("ts", "22"), ("tss", "24"), ("te", "26"), ("tn", "28"), ("tth", "30")
 ]

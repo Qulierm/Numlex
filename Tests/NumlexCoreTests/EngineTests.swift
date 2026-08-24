@@ -24,4 +24,9 @@ struct EngineTests {
     func formatCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: settingsCases)
+    func settingsCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

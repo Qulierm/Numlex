@@ -12,7 +12,6 @@ import SwiftUI
 /// so the gutter shares the editor's background and has no divider.
 struct NotebookEditor: NSViewRepresentable {
     var text: Binding<String>
-    var placeholder: String
     var fontSize: Double
     var lineHeight: Double
     var lineNumbers: Bool
@@ -25,12 +24,18 @@ struct NotebookEditor: NSViewRepresentable {
     var onLayout: (LineMetrics) -> Void
     /// User typing — pushes the new string up to the model.
     var onTextChange: (String) -> Void
+    /// One-shot focus request: the sheet ID the owner wants focused (nil
+    /// means none). Consumed exactly once after the editor is attached
+    /// to the window — plain sheet switches never carry one.
+    var focusRequestID: Sheet.ID?
+    /// Called exactly once after the request was consumed (or to clear
+    /// the owner's token when the editor goes away unconsumed).
+    var onFocusConsumed: () -> Void
     /// Lets the owner publish the coordinator (for answer→editor sync).
     var onReady: (NotebookEditorCoordinator) -> Void
 
     func makeCoordinator() -> NotebookEditorCoordinator {
         NotebookEditorCoordinator(
-            placeholder: placeholder,
             fontSize: fontSize,
             lineHeight: lineHeight,
             lineNumbers: lineNumbers,
@@ -39,6 +44,8 @@ struct NotebookEditor: NSViewRepresentable {
             onScroll: onScroll,
             onLayout: onLayout,
             onTextChange: onTextChange,
+            focusRequestID: focusRequestID,
+            onFocusConsumed: onFocusConsumed,
             onReady: onReady
         )
     }
@@ -50,7 +57,6 @@ struct NotebookEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.update(
             text: text.wrappedValue,
-            placeholder: placeholder,
             fontSize: fontSize,
             lineHeight: lineHeight,
             lineNumbers: lineNumbers,
@@ -58,7 +64,9 @@ struct NotebookEditor: NSViewRepresentable {
             decimalPlaces: decimalPlaces,
             onScroll: onScroll,
             onLayout: onLayout,
-            onTextChange: onTextChange
+            onTextChange: onTextChange,
+            focusRequestID: focusRequestID,
+            onFocusConsumed: onFocusConsumed
         )
     }
 }
@@ -72,7 +80,6 @@ final class NotebookEditorCoordinator: NSObject {
     var onLayout: (LineMetrics) -> Void
     var onTextChange: (String) -> Void
 
-    private var placeholder: String
     /// Set by `textView(_:shouldChangeTextIn:replacementString:)` when
     /// the pending AppKit edit carries a non-empty replacement (typing or
     /// paste), i.e. a user insertion; consumed and cleared on the next
@@ -84,31 +91,38 @@ final class NotebookEditorCoordinator: NSObject {
     private var lineNumbers: Bool
     private var rates: Rates
     private var decimalPlaces: Int
+    /// One-shot focus request, armed by init/update and cleared the
+    /// moment it is consumed (or the editor leaves the window).
+    private var pendingFocusID: Sheet.ID?
+    var onFocusConsumed: () -> Void = {}
     private var observer: NSObjectProtocol?
     private var frameObserver: NSObjectProtocol?
     /// True used document height (content + insets), independent of the
     /// frame padding that keeps the whole surface focusable.
     private(set) var usedDocumentHeight: CGFloat = 0
 
-    init(placeholder: String, fontSize: Double, lineHeight: Double, lineNumbers: Bool,
+    init(fontSize: Double, lineHeight: Double, lineNumbers: Bool,
          rates: Rates, decimalPlaces: Int,
          onScroll: @escaping (CGFloat) -> Void,
          onLayout: @escaping (LineMetrics) -> Void,
          onTextChange: @escaping (String) -> Void,
+         focusRequestID: Sheet.ID?,
+         onFocusConsumed: @escaping () -> Void,
          onReady: (NotebookEditorCoordinator) -> Void) {
-        self.placeholder = placeholder
         self.fontSize = fontSize
         self.lineHeight = lineHeight
         self.lineNumbers = lineNumbers
         self.rates = rates
         self.decimalPlaces = decimalPlaces
+        self.pendingFocusID = focusRequestID
+        self.onFocusConsumed = onFocusConsumed
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
 
         let contentSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         let tv = NotebookTextView(frame: NSRect(origin: .zero, size: contentSize))
-        let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        let sv = EditorScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
         self.textView = tv
         self.scrollView = sv
         super.init()
@@ -132,7 +146,6 @@ final class NotebookEditorCoordinator: NSObject {
         // Undo is off: every edit rewrites the full attributed string for
         // highlighting, which would corrupt character-level undo records.
         tv.allowsUndo = false
-        tv.placeholderText = placeholder
 
         // The editor's own scroller is hidden: a single native NSScroller
         // at the window's trailing edge (EdgeScroller) represents the shared
@@ -145,6 +158,15 @@ final class NotebookEditorCoordinator: NSObject {
         sv.drawsBackground = false
         sv.borderType = .noBorder
         sv.automaticallyAdjustsContentInsets = false
+
+        // The focus handshake: the request may already be armed from
+        // init, but focus can only be taken once the view is in a
+        // window — EditorScrollView reports attachment via
+        // viewDidMoveToWindow, and update() re-arms/retries meanwhile.
+        sv.onWindowChanged = { [weak self] in
+            MainActor.assumeIsolated { self?.handleWindowChanged() }
+        }
+        handleWindowChanged()
 
         applyTypography()
         textView.typingAttributes = typingAttrs
@@ -179,25 +201,73 @@ final class NotebookEditorCoordinator: NSObject {
         scrollView
     }
 
-    func update(text: String, placeholder: String, fontSize: Double, lineHeight: Double,
+    /// Consumes the one-shot focus request exactly once, and only while
+    /// this editor is attached to a window: the caret goes to UTF-16
+    /// position 0 and the text view becomes first responder. The request
+    /// is armed per sheet ID and this representable is recreated per
+    /// sheet (`.id(sheet.id)`), so it can only ever land on the right
+    /// editor; ordinary switches, renames, settings and imports never
+    /// arm it.
+    private func tryConsumeFocus() {
+        guard pendingFocusID != nil, let window = scrollView.window else { return }
+        pendingFocusID = nil
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        window.makeFirstResponder(textView)
+        notifyConsumed()
+    }
+
+    /// Window attachment changed: consume a pending request on attach,
+    /// drop it on detach (window close / sheet switch) so it can never
+    /// fire late on a different sheet.
+    private func handleWindowChanged() {
+        if scrollView.window != nil {
+            tryConsumeFocus()
+        } else {
+            if pendingFocusID != nil {
+                pendingFocusID = nil
+                notifyConsumed()
+            }
+        }
+    }
+
+    /// Clears the owner's token on the next main-queue turn: updateNSView
+    /// runs during SwiftUI's commit, and mutating observable state
+    /// synchronously there could re-enter the update cycle. The request
+    /// itself was already cleared locally, so this can only clear the
+    /// token once (a repeat call is a no-op).
+    private func notifyConsumed() {
+        DispatchQueue.main.async { [onFocusConsumed] in
+            onFocusConsumed()
+        }
+    }
+
+    func update(text: String, fontSize: Double, lineHeight: Double,
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
                 onScroll: @escaping (CGFloat) -> Void,
                 onLayout: @escaping (LineMetrics) -> Void,
-                onTextChange: @escaping (String) -> Void) {
+                onTextChange: @escaping (String) -> Void,
+                focusRequestID: Sheet.ID?,
+                onFocusConsumed: @escaping () -> Void) {
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
+        self.onFocusConsumed = onFocusConsumed
         var appearanceChanged = false
-        if placeholder != self.placeholder { self.placeholder = placeholder; appearanceChanged = true }
         if fontSize != self.fontSize { self.fontSize = fontSize; appearanceChanged = true }
         if lineHeight != self.lineHeight { self.lineHeight = lineHeight; appearanceChanged = true }
         if lineNumbers != self.lineNumbers { self.lineNumbers = lineNumbers; appearanceChanged = true }
         if rates != self.rates { self.rates = rates; appearanceChanged = true }
         if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; appearanceChanged = true }
         if appearanceChanged {
-            textView.placeholderText = placeholder
             textView.lineNumbers = lineNumbers
             applyTypography()
+        }
+        // The owner may arm a one-shot focus request after the view was
+        // created; re-arm and retry while we are (or are about to be)
+        // attached to a window.
+        if let id = focusRequestID {
+            pendingFocusID = id
+            if scrollView.window != nil { tryConsumeFocus() }
         }
         if text != textView.string {
             let selection = textView.selectedRanges
@@ -267,7 +337,6 @@ final class NotebookEditorCoordinator: NSObject {
 
     private func applyTypography() {
         let font = NSFont.systemFont(ofSize: fontSize)
-        textView.placeholderFontSize = fontSize
         textView.font = font
         textView.textColor = .textColor
         // New characters and new paragraphs inherit the gutter indent and
@@ -575,38 +644,60 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
     }
 }
 
-/// Document text view. Draws line numbers (the caret's line brighter)
-/// and the placeholder.
+/// The editor's scroll view, reporting every window attachment change so
+/// the coordinator can complete (or cancel) the one-shot focus handshake.
+private final class EditorScrollView: NSScrollView {
+    var onWindowChanged: (() -> Void)?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChanged?()
+    }
+}
+
+/// Document text view. Draws the line numbers (the caret's line brighter).
 final class NotebookTextView: NSTextView {
     var lineHeight: Double = 30
     var lineNumbers: Bool = true
-    var placeholderText: String = ""
     /// 1-based logical line the caret currently sits on (set by the
     /// coordinator on every selection change).
     var caretLine: Int = 1
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if string.isEmpty {
-            drawPlaceholder()
-        }
         if lineNumbers && !string.isEmpty {
             drawLineNumbers()
         }
     }
 
-    var placeholderFontSize: Double = 19
-
-    private func drawPlaceholder() {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: placeholderFontSize),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        (placeholderText as NSString).draw(
-            at: NSPoint(x: Design.gutterWidth + Design.textLeading + 1,
-                         y: textContainerInset.height + 1),
-            withAttributes: attrs
-        )
+    /// The configured line height stretches every line fragment beyond
+    /// the font's natural line box, so the default insertion point (sized
+    /// to the natural metrics and hugging the fragment top) sits visibly
+    /// high. Re-center it within the ACTUAL TextKit fragment: the caret
+    /// keeps the font's natural height (ascender-to-descender plus
+    /// leading) and the passed x, and is centered vertically on the
+    /// fragment's midline. The fragment rect is in container coordinates,
+    /// so the text container inset is added back for view coordinates.
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn: Bool) {
+        guard let lm = layoutManager, lm.numberOfGlyphs > 0 else {
+            color.set()
+            NSBezierPath(rect: rect).fill()
+            return
+        }
+        let caret = selectedRange().location
+        let glyphIndex = lm.glyphIndexForCharacter(at: caret)
+        guard glyphIndex < lm.numberOfGlyphs else {
+            color.set()
+            NSBezierPath(rect: rect).fill()
+            return
+        }
+        let fragmentRect = lm.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let font = self.font ?? NSFont.systemFont(ofSize: 14)
+        let naturalHeight = font.ascender - font.descender + font.leading
+        let height = min(naturalHeight, fragmentRect.height)
+        let yInView = fragmentRect.midY - height / 2 + textContainerInset.height
+        let caretRect = NSRect(x: rect.minX, y: yInView, width: rect.width, height: height)
+        color.set()
+        NSBezierPath(rect: caretRect).fill()
     }
 
     private func drawLineNumbers() {
@@ -620,7 +711,9 @@ final class NotebookTextView: NSTextView {
         // `ascender` below the centered font line box inside the (possibly
         // stretched) fragment, and the number is placed on the same baseline.
         let textFont = self.font ?? NSFont.systemFont(ofSize: 14)
-        let numberRightX = Design.gutterWidth + Design.textLeading - 10
+        // Numbers anchor to a fixed x token; the gap to the text is
+        // Design.textLeading relative to the gutter, independent of it.
+        let numberRightX = Design.gutterNumberRight
 
         func drawNumber(_ n: Int, fragmentTop: CGFloat, fragmentHeight: CGFloat) {
             let y = insetY + fragmentTop

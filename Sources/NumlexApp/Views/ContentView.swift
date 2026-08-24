@@ -32,7 +32,6 @@ struct ContentView: View {
                     )
                     NotebookEditor(
                         text: binding,
-                        placeholder: L10n.t("enter", language: settings.language),
                         fontSize: settings.fontSize,
                         lineHeight: settings.lineHeight,
                         lineNumbers: settings.lineNumbers,
@@ -46,6 +45,8 @@ struct ContentView: View {
                         },
                         onLayout: { m in metrics = m },
                         onTextChange: { model.updateContent($0) },
+                        focusRequestID: model.focusSheetID,
+                        onFocusConsumed: { model.focusSheetID = nil },
                         onReady: { bridge in editorBridge = bridge }
                     )
                     .id(sheet?.id)

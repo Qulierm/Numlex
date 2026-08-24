@@ -62,11 +62,17 @@ final class AppModel {
         persist()
     }
 
+    /// One-shot keyboard-focus request for a freshly created sheet.
+    /// Transient on purpose: it is never part of the persisted payload,
+    /// so relaunches and imports can never steal focus.
+    var focusSheetID: Sheet.ID?
+
     func newSheet() {
         let seed = "\(settings.sheetName) \(sheets.count + 1)"
         let sheet = Sheet(title: seed, content: "", createdAt: Date(), modifiedAt: Date())
         sheets.insert(sheet, at: 0)
         selectedIndex = 0
+        focusSheetID = sheet.id
         persist()
     }
 
