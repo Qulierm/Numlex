@@ -20,24 +20,43 @@ enum Design {
     /// The gutter number of the line the caret is on: one step brighter.
     static var gutterColorActive: NSColor { .secondaryLabelColor }
 
-    // MARK: Notebook syntax palette (fixed matte sRGB values)
+    // MARK: Notebook syntax palette (deterministic sRGB values)
     //
-    // Every chromatic token is a deterministic matte variant of the
-    // original gamut: the same hue direction with roughly 65% of the
-    // original saturation and ~92% lightness — calm, low-vibrancy
-    // colors that keep their roles distinguishable on the dark
-    // notebook background. No opacity layering is used.
+    // Every chromatic token is an explicit sRGB value: the same hue
+    // direction as the original gamut with coherently RAISED saturation
+    // and brightness — a matte finish, not a washed-out one. Numbers,
+    // variables, conversions and titles each get ~15% more saturation
+    // and ~4% more lightness than the v1 matte values (title and
+    // conversion capped to stay calm), so every role reads clearly on
+    // both the editor's dark background and the raised answer panel.
+    // The fixed white base, operators, `to` and answer values are
+    // untouched. No opacity layering is used.
 
-    /// Numeric literals: sRGB(72, 189, 200) — matte cyan.
-    static let numberColor = NSColor(srgbRed: 72.0 / 255.0, green: 189.0 / 255.0, blue: 200.0 / 255.0, alpha: 1)
-    /// Variable identifiers: sRGB(82, 185, 104) — matte green.
-    static let variableColor = NSColor(srgbRed: 82.0 / 255.0, green: 185.0 / 255.0, blue: 104.0 / 255.0, alpha: 1)
-    /// Unit words in conversions: sRGB(212, 135, 230) — matte purple.
-    static let conversionColor = NSColor(srgbRed: 212.0 / 255.0, green: 135.0 / 255.0, blue: 230.0 / 255.0, alpha: 1)
-    /// Comment titles: sRGB(98, 168, 222) — matte blue.
-    static let titleColor = NSColor(srgbRed: 98.0 / 255.0, green: 168.0 / 255.0, blue: 222.0 / 255.0, alpha: 1)
+    /// Numeric literals: sRGB(79, 202, 213) — raised matte cyan (H185 S61 L57).
+    static let numberColor = NSColor(srgbRed: 79.0 / 255.0, green: 202.0 / 255.0, blue: 213.0 / 255.0, alpha: 1)
+    /// Variable identifiers: sRGB(89, 198, 113) — raised matte green (H132 S48 L56).
+    static let variableColor = NSColor(srgbRed: 89.0 / 255.0, green: 198.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: sRGB(217, 130, 237) — raised matte purple (H288 S75 L72).
+    static let conversionColor = NSColor(srgbRed: 217.0 / 255.0, green: 130.0 / 255.0, blue: 237.0 / 255.0, alpha: 1)
+    /// Comment titles: sRGB(107, 178, 234) — raised matte blue (H206 S75 L66).
+    static let titleColor = NSColor(srgbRed: 107.0 / 255.0, green: 178.0 / 255.0, blue: 234.0 / 255.0, alpha: 1)
     /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
     static let baseText = NSColor.white
+
+    // MARK: Panel surfaces
+
+    /// Answer panel background: a darker, calm gray that still separates
+    /// the results from the editor, explicit sRGB per appearance so the
+    /// value is deterministic instead of a dynamic system catalog color.
+    /// Dark: sRGB(38, 38, 40) — quiet elevated gray (L 0.155) just above
+    /// the editor's sRGB(30, 30, 30) (L 0.118): clearly a raised panel,
+    /// never light. Light: sRGB(236, 236, 238) — quiet gray against the
+    /// editor's white. Applied ONLY to the answer column.
+    static let answerPanelBackground = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 38.0 / 255.0, green: 38.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)
+            : NSColor(srgbRed: 236.0 / 255.0, green: 236.0 / 255.0, blue: 238.0 / 255.0, alpha: 1)
+    }
 
     // MARK: Editor geometry
 
@@ -64,4 +83,13 @@ enum Design {
     static let sidebarIconSize: CGFloat = 14
     static let sidebarButtonSize = CGSize(width: 34, height: 28)
     static let sidebarButtonCorner: CGFloat = 7
+
+    /// Effective base height of the sheet-row content, measured from the
+    /// font metrics: title line (SF 13 → 16.02) + inter-line spacing (3)
+    /// + metadata line (SF 11 → 13.56) + vertical padding (4 + 4) = 40.58.
+    static let sidebarRowBaseHeight: CGFloat = 40.6
+    /// Raised tab/hit-target height: EXACTLY 20% above the base (48.72).
+    /// Applied to the whole row so the selection pill and contentShape
+    /// grow with it; the title/metadata block stays centered inside.
+    static let sidebarRowHeight: CGFloat = sidebarRowBaseHeight * 1.2
 }

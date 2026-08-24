@@ -29,4 +29,9 @@ struct EngineTests {
     func settingsCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: caretCases)
+    func caretCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

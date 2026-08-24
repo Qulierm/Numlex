@@ -107,8 +107,13 @@ struct SidebarView: View {
                         .layoutPriority(1)
                 }
             }
-            .padding(.vertical, 4)
+            // v2: stable raised tab height (Design.sidebarRowHeight = base * 1.2).
+            // The fixed frame replaces the old 4pt vertical padding, so the
+            // hit target and the selection pill are exactly 20% taller than
+            // the measured content base; the title/metadata block is centered
+            // vertically inside, keeping its internal leading alignment.
             .padding(.horizontal, 6)
+            .frame(height: Design.sidebarRowHeight, alignment: .center)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

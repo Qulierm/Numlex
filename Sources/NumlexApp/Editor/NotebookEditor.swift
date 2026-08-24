@@ -435,9 +435,9 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     /// Paints the classified token spans of one line at its document
-    /// offset using the exact Design palette: numbers (59,221,236),
-    /// variables (74,217,104), unit words (234,141,255). Operators,
-    /// `to` and unknown words keep the fixed white base.
+    /// offset using the Design palette tokens (raised matte sRGB values;
+    /// see Design.swift for the exact numbers). Operators, `to` and
+    /// unknown words keep the fixed white base.
     private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int, in storage: NSTextStorage) {
         for span in lineSpans {
             let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
@@ -662,42 +662,226 @@ final class NotebookTextView: NSTextView {
     /// coordinator on every selection change).
     var caretLine: Int = 1
 
+    // MARK: Caret blink (self-managed)
+
+    /// v2.1: AppKit's blinker invalidates only the *default* thin
+    /// insertion area, so letting it drive the turns makes its small
+    /// rect alternate with our large custom one. The view now owns the
+    /// blink: a repeating timer toggles `caretBlinkOn` and invalidates
+    /// OUR rect — the very same rect that draw() paints — so erasure
+    /// and drawing can never disagree about size. `drawInsertionPoint`
+    /// is a no-op that suppresses AppKit's own caret entirely. Focus,
+    /// selection and IME are preserved: the caret is drawn only while
+    /// this view is the first responder with an empty (insertion)
+    /// selection, and every selection/text change snaps it back to fully on.
+    private var caretBlinkTimer: Timer?
+    private var caretBlinkOn = true
+    private var selectionObserver: NSObjectProtocol?
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if lineNumbers && !string.isEmpty {
+        // v2: the empty new sheet already has a line, so the gutter draws
+        // for every document — drawLineNumbers handles the empty case
+        // with an explicit synthetic first-line fragment.
+        if lineNumbers {
             drawLineNumbers()
+        }
+        drawCaret(dirtyRect)
+    }
+
+    /// Paint the large custom caret while the blink phase is on. The
+    /// rect comes from the SAME CaretGeometry math the on-turn used to
+    /// draw, so the visible caret is one constant shape in every
+    /// document state (empty, populated, caret-at-end, trailing empty
+    /// line, wrapped lines).
+    private func drawCaret(_ dirtyRect: NSRect) {
+        guard window?.firstResponder === self,
+              selectedRange().length == 0,
+              caretBlinkOn,
+              let caretRect = currentCaretRect(),
+              dirtyRect.intersects(caretRect) else { return }
+        NSColor.textColor.set()
+        NSBezierPath(rect: caretRect).fill()
+    }
+
+    private func startCaretBlink() {
+        caretBlinkOn = true
+        caretBlinkTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.53, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.caretBlinkOn.toggle()
+                // Invalidate exactly the rect drawCaret paints — one
+                // geometry for both erasure (off) and drawing (on).
+                if let rect = self.currentCaretRect() {
+                    self.setNeedsDisplay(rect)
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        caretBlinkTimer = timer
+        setNeedsDisplay(bounds)
+    }
+
+    private func stopCaretBlink() {
+        caretBlinkTimer?.invalidate()
+        caretBlinkTimer = nil
+    }
+
+    /// Any selection or text change snaps the caret back to fully on
+    /// and restarts the rhythm (standard editor behavior).
+    private func resetCaretBlink() {
+        guard window?.firstResponder === self else { return }
+        startCaretBlink()
+        if let rect = currentCaretRect() {
+            setNeedsDisplay(rect)
         }
     }
 
-    /// The configured line height stretches every line fragment beyond
-    /// the font's natural line box, so the default insertion point (sized
-    /// to the natural metrics and hugging the fragment top) sits visibly
-    /// high. Re-center it within the ACTUAL TextKit fragment: the caret
-    /// keeps the font's natural height (ascender-to-descender plus
-    /// leading) and the passed x, and is centered vertically on the
-    /// fragment's midline. The fragment rect is in container coordinates,
-    /// so the text container inset is added back for view coordinates.
-    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn: Bool) {
-        guard let lm = layoutManager, lm.numberOfGlyphs > 0 else {
-            color.set()
-            NSBezierPath(rect: rect).fill()
-            return
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok {
+            if selectionObserver == nil {
+                selectionObserver = NotificationCenter.default.addObserver(
+                    forName: Notification.Name("NSTextDidChangeSelectionNotification"),
+                    object: self,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.resetCaretBlink()
+                    }
+                }
+            }
+            startCaretBlink()
+        }
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok {
+            stopCaretBlink()
+            if let observer = selectionObserver {
+                NotificationCenter.default.removeObserver(observer)
+                selectionObserver = nil
+            }
+            // Erase a drawn caret now that the view has lost focus.
+            setNeedsDisplay(bounds)
+        }
+        return ok
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        resetCaretBlink()
+    }
+
+    /// The fragment (container coordinates) the caret must be centered on
+    /// for the CURRENT selection, covering every document shape:
+    /// - empty document (no glyphs at all): synthetic first-line fragment
+    ///   at the top inset with the fixed line height;
+    /// - populated document, caret on a real character: that character's
+    ///   TextKit line fragment (glyphs and gutter share this exact rect);
+    /// - caret at the very END of a document without a final newline:
+    ///   the last glyph's fragment;
+    /// - document ending in a newline, caret on the trailing empty line:
+    ///   the synthetic trailing fragment (usedRect minus one fixed line
+    ///   height — the same math the gutter uses for that number);
+    /// - wrapped lines fall out for free because each fragment is per
+    ///   visual line.
+    private func caretFragment() -> CGRect? {
+        guard let lm = layoutManager, let tc = textContainer else { return nil }
+        let lh = CGFloat(lineHeight)
+        if lm.numberOfGlyphs == 0 {
+            return CaretGeometry.emptyLineFragment(top: 0, lineHeight: lh)
         }
         let caret = selectedRange().location
-        let glyphIndex = lm.glyphIndexForCharacter(at: caret)
-        guard glyphIndex < lm.numberOfGlyphs else {
-            color.set()
-            NSBezierPath(rect: rect).fill()
-            return
+        let charCount = (string as NSString).length
+        if caret >= charCount {
+            if string.hasSuffix("\n") {
+                let used = lm.usedRect(for: tc)
+                return CaretGeometry.emptyLineFragment(top: used.height - lh, lineHeight: lh)
+            }
+            return lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil)
         }
-        let fragmentRect = lm.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let glyph = lm.glyphIndexForCharacter(at: caret)
+        guard glyph != NSNotFound, glyph < lm.numberOfGlyphs else {
+            return lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil)
+        }
+        return lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+    }
+
+    /// v2 caret: the configured line height stretches every line fragment
+    /// beyond the font's natural line box, so AppKit's default insertion
+    /// point (thin, hugging the fragment top) sits visibly high and too
+    /// light. We draw a 2 pt caret pixel aligned and centered on the SAME
+    /// TextKit fragment the glyphs and gutter use (caretFragment), with
+    /// the x AppKit computed for the selection. The rect is in view
+    /// coordinates because the fragment rect is in container coordinates
+    /// plus the container inset.
+    /// The final caret rect in VIEW coordinates: `CaretGeometry.caretRect`
+    /// centered on `caretFragment()`, with the x taken from the rect
+    /// AppKit itself computed for the current selection (head indent,
+    /// wrapped-line origins and the empty-document position all come from
+    /// AppKit — there is no arbitrary global offset).
+    private func caretViewRect(passedX: CGFloat) -> NSRect? {
+        guard let fragment = caretFragment() else { return nil }
         let font = self.font ?? NSFont.systemFont(ofSize: 14)
         let naturalHeight = font.ascender - font.descender + font.leading
-        let height = min(naturalHeight, fragmentRect.height)
-        let yInView = fragmentRect.midY - height / 2 + textContainerInset.height
-        let caretRect = NSRect(x: rect.minX, y: yInView, width: rect.width, height: height)
-        color.set()
-        NSBezierPath(rect: caretRect).fill()
+        return CaretGeometry.caretRect(
+            x: passedX,
+            fragment: fragment,
+            containerInsetY: textContainerInset.height,
+            naturalGlyphHeight: naturalHeight
+        )
+    }
+
+    /// The insertion-point x in VIEW coordinates, computed from the
+    /// layout manager's own geometry: `boundingRect(forGlyphRange:in:)`
+    /// for the current selection (head indent, wrapped-line origins and
+    /// the caret-at-end position all come from TextKit — no arbitrary
+    /// global offset), and the paragraph's first-line head indent for
+    /// the empty document, where AppKit itself places the insertion
+    /// point.
+    private func caretX() -> CGFloat {
+        guard let lm = layoutManager, let tc = textContainer else {
+            return textContainerOrigin.x
+        }
+        lm.ensureLayout(for: tc)
+        let content = string as NSString
+        if lm.numberOfGlyphs == 0 {
+            let indent = (typingAttributes[.paragraphStyle] as? NSParagraphStyle)?
+                .firstLineHeadIndent ?? 0
+            // TextKit anchors every line fragment at lineFragmentPadding
+            // (default 5 pt) inside the container, so the empty-document
+            // insertion point must include it too — exactly where the
+            // first typed character (and AppKit's own insertion point)
+            // will land.
+            return textContainerOrigin.x + tc.lineFragmentPadding + indent
+        }
+        let sel = selectedRange()
+        let start = min(sel.location, content.length)
+        let end = min(sel.location + sel.length, content.length)
+        let rect = lm.boundingRect(
+            forGlyphRange: NSRange(location: start, length: end - start),
+            in: tc
+        )
+        return textContainerOrigin.x + rect.minX
+    }
+
+    /// The current custom caret rect in VIEW coordinates (nil while the
+    /// layout manager has no selection to anchor on). Used by both the
+    /// blink timer (invalidation) and drawCaret (painting).
+    private func currentCaretRect() -> NSRect? {
+        caretViewRect(passedX: caretX())
+    }
+
+    /// v2.1: intentionally empty — the view owns the blink
+    /// (caretBlinkTimer + drawCaret). Drawing anything here would let
+    /// AppKit's thin default insertion rect alternate with the large
+    /// custom rect.
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn: Bool) {
+        // Suppressed on purpose; see the v2.1 notes above.
     }
 
     private func drawLineNumbers() {
@@ -733,6 +917,18 @@ final class NotebookTextView: NSTextView {
                              y: baseline - numberFont.ascender),
                 withAttributes: [.font: numberFont, .foregroundColor: color]
             )
+        }
+
+        // Empty new sheet: line 1 exists before any typing. It uses the
+        // SAME synthetic first-line fragment the caret centers on (top =
+        // 0 in container coordinates, fixed line height), so the number
+        // aligns exactly with the caret. No text is inserted and nothing
+        // feeds the evaluator — this is pure gutter drawing. caretLine is
+        // 1 on a fresh sheet, so the number renders with the active color.
+        if content.length == 0 {
+            let lh = CGFloat(self.lineHeight)
+            drawNumber(1, fragmentTop: 0, fragmentHeight: lh)
+            return
         }
 
         var lineIndex = 0

@@ -125,10 +125,12 @@ struct AnswerColumnView: View {
             }
         }
         .frame(width: 200)
-        // Subtly distinct, system-aware panel: the native window background
-        // (light gray in light mode, lifted charcoal in dark) versus the
-        // editor's text background. Calm, low contrast, no custom tint.
-        .background(Color(nsColor: .windowBackgroundColor))
+        // v2: the answer panel is a DARKER calm gray than the editor
+        // (Design.answerPanelBackground: explicit per-appearance sRGB —
+        // quiet elevated gray in dark, quiet gray in light), so the
+        // result surface reads as its own matte panel without looking
+        // light. Editor background and every text token stay untouched.
+        .background(Color(nsColor: Design.answerPanelBackground))
         .overlay(Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.3)).frame(width: 1), alignment: .leading)
     }
 
