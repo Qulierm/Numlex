@@ -393,13 +393,11 @@ final class NotebookEditorCoordinator: NSObject {
         }
         let content = text as NSString
         // The classifier is the single per-LINE source of truth: one
-        // spans entry per logical line, aligned 1:1 with the text. The
-        // evaluator's rows are deliberately NOT used here —
-        // evaluateSheet collapses empty/comment rows (a leading blank
-        // line produces no row at all), which would shift the alignment
-        // for every line after it. Line kinds that need special styling
-        // (hash heading, title) are recognized from the same prefixes
-        // the evaluator uses.
+        // spans entry per logical line, aligned 1:1 with the text.
+        // evaluateSheet now returns the same strict one-row-per-line
+        // shape (indexed SheetLine), but styling is driven purely from
+        // the classifier's spans plus the line-kind prefixes the
+        // evaluator uses (hash heading, title).
         let spans = SyntaxClassifier.spans(for: text, rates: rates, decimalPlaces: decimalPlaces)
 
         let font = NSFont.systemFont(ofSize: fontSize)
@@ -505,49 +503,89 @@ final class NotebookEditorCoordinator: NSObject {
             textView.frame = NSRect(x: frame.origin.x, y: frame.origin.y,
                                     width: frame.width, height: target)
         }
-        onLayout(computeMetrics())
+        let metrics = computeMetrics()
+        onLayout(metrics)
         textView.needsDisplay = true
     }
 
+    /// One metric per LOGICAL source line — the same split the evaluator
+    /// uses (`components(separatedBy: "\n")`), so `lines[i].index == i`
+    /// always holds and the answer column can bind by source index.
+    /// Populated lines report the union of all their visual fragments
+    /// (wrapped lines included); blank lines (leading, inner, and the
+    /// trailing line after a final newline) are synthesized as one fixed
+    /// line height right after the previous block — exactly where
+    /// TextKit places the empty fragment, the same rule the gutter uses.
+    /// Every line also carries the answer's target first-text baseline
+    /// (`AnswerBaseline.baseline`) computed from the SAME real NSFont
+    /// metrics and the CaretGeometry rule the caret and gutter draw from.
     private func computeMetrics() -> LineMetrics {
-        guard let lm = textView.layoutManager else {
+        guard let lm = textView.layoutManager, let tc = textView.textContainer else {
             return LineMetrics(lines: [])
         }
-        let content = textView.string as NSString
-        guard content.length > 0 else { return LineMetrics(lines: []) }
+        lm.ensureLayout(for: tc)
+        let parts = textView.string.components(separatedBy: "\n")
+        let font = NSFont.systemFont(ofSize: fontSize)
+        let naturalHeight = font.ascender - font.descender + font.leading
+        let fixedLineHeight = CGFloat(lineHeight)
+
         var lines: [LineMetrics.Line] = []
-        var index = 0
-        var finished = false
-        content.enumerateSubstrings(
-            in: NSRange(location: 0, length: content.length),
-            options: .byLines
-        ) { _, lineRange, _, _ in
-            guard !finished else { return }
-            let firstGlyph = lm.glyphIndexForCharacter(at: lineRange.location)
-            guard firstGlyph != NSNotFound else {
-                finished = true
-                return
+        var previousBottom: CGFloat = 0
+        var offset = 0
+        for (index, part) in parts.enumerated() {
+            let partLength = (part as NSString).length
+            var top: CGFloat
+            var bottom: CGFloat
+            var fragments = 0
+            if partLength > 0 {
+                let firstGlyph = lm.glyphIndexForCharacter(at: offset)
+                let lastGlyph = lm.glyphIndexForCharacter(at: offset + partLength - 1)
+                if firstGlyph != NSNotFound,
+                   lastGlyph != NSNotFound, firstGlyph <= lastGlyph {
+                    // Union of every visual fragment this line's glyphs
+                    // occupy; distinct fragment tops count the wrapped pieces.
+                    top = CGFloat.greatestFiniteMagnitude
+                    bottom = -CGFloat.greatestFiniteMagnitude
+                    var fragmentTops = Set<Double>()
+                    var g = firstGlyph
+                    while g <= lastGlyph {
+                        let frag = lm.lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
+                        top = min(top, frag.minY)
+                        bottom = max(bottom, frag.maxY)
+                        fragmentTops.insert(frag.minY)
+                        g += 1
+                    }
+                    fragments = fragmentTops.count
+                } else {
+                    // Defensive: a non-empty line with no mapped glyphs
+                    // (should not happen after ensureLayout) still occupies
+                    // one fixed line height.
+                    top = previousBottom
+                    bottom = top + fixedLineHeight
+                }
+            } else {
+                // Synthesized empty line: one fixed line height after the
+                // previous block (top = 0 for the first line of an empty
+                // document — the same synthetic fragment the caret and
+                // gutter use for that line).
+                top = previousBottom
+                bottom = top + fixedLineHeight
             }
-            let lastChar = lineRange.location + lineRange.length - 1
-            let lastGlyph = lm.glyphIndexForCharacter(at: lastChar)
-            guard lastGlyph != NSNotFound else {
-                finished = true
-                return
-            }
-            var top = CGFloat.greatestFiniteMagnitude
-            var bottom = -CGFloat.greatestFiniteMagnitude
-            var g = firstGlyph
-            while g <= lastGlyph {
-                let frag = lm.lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
-                top = min(top, frag.minY)
-                bottom = max(bottom, frag.maxY)
-                g += 1
-            }
-            if top <= bottom {
-                lines.append(LineMetrics.Line(index: index, top: top, height: max(bottom - top, 1)))
-            }
-            index += 1
-            if lastChar >= content.length - 1 { finished = true }
+            let height = max(bottom - top, 1)
+            let baseline = AnswerBaseline.baseline(
+                rowTop: top,
+                rowHeight: height,
+                fragmentCount: fragments,
+                ascender: font.ascender,
+                naturalHeight: naturalHeight,
+                capHeight: font.capHeight
+            )
+            lines.append(LineMetrics.Line(
+                index: index, top: top, height: height,
+                fragmentCount: fragments, answerBaseline: baseline
+            ))
+            previousBottom = bottom
+            offset += partLength + 1
         }
         return LineMetrics(lines: lines)
     }

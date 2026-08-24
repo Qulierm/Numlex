@@ -20,7 +20,17 @@ public enum LineResult: Equatable, Sendable {
     case error(message: String)
 }
 
+/// One evaluated logical source line: its explicit 0-based index into
+/// `source.components(separatedBy: "\n")` plus its result. `evaluateSheet`
+/// returns exactly one SheetLine per logical line — leading, consecutive
+/// and trailing blanks and `#` comments are `.blank`, so consumers can
+/// bind rendered output to the exact editor line instead of to a
+/// position after filtering.
 public struct SheetLine: Equatable, Sendable {
+    public var sourceLineIndex: Int
     public var result: LineResult
-    public init(_ result: LineResult) { self.result = result }
+    public init(sourceLineIndex: Int, result: LineResult) {
+        self.sourceLineIndex = sourceLineIndex
+        self.result = result
+    }
 }

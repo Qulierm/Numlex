@@ -103,31 +103,33 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
     return evalFreeExpression(line: line, variables: variables, decimalPlaces: decimalPlaces)
 }
 
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int) -> [LineResult] {
-    var rows: [LineResult] = []
-    var isFirstEmpty = true
+/// Evaluates a whole sheet with the STRICT ONE-RESULT-PER-LOGICAL-LINE
+/// contract: the returned array has exactly one indexed `SheetLine` for
+/// every element of `source.components(separatedBy: "\n")`, including
+/// leading, consecutive and trailing blanks and `#` comments (each
+/// `.blank`), `// ` lines (`.title`) and prose (`.skip`). Variable
+/// accumulation stays strictly sequential — only actual `evalLine` calls
+/// touch `variables`, so non-evaluable lines never affect it, and the
+/// result of every evaluable line is exactly what the per-line evaluator
+/// produced. Consumers must bind output by `sourceLineIndex`, never by
+/// position after any filtering.
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int) -> [SheetLine] {
+    var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
-    for line in lines {
+    for (index, line) in lines.enumerated() {
+        let result: LineResult
         if line.trimmingCharacters(in: .whitespaces).isEmpty || line.hasPrefix("#") {
-            if !isFirstEmpty { rows.append(.blank) }
-            isFirstEmpty = true
-            continue
-        }
-        isFirstEmpty = false
-        if line.hasPrefix("// ") {
-            rows.append(.title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)))
-            continue
-        }
-        if line.hasPrefix("//") {
-            rows.append(.blank)
-            isFirstEmpty = true
-            continue
-        }
-        if let result = evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces) {
-            rows.append(result)
+            result = .blank
+        } else if line.hasPrefix("// ") {
+            result = .title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
+        } else if line.hasPrefix("//") {
+            result = .blank
+        } else if let eval = evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces) {
+            result = eval
         } else {
-            rows.append(.skip)
+            result = .skip
         }
+        rows.append(SheetLine(sourceLineIndex: index, result: result))
     }
     return rows
 }

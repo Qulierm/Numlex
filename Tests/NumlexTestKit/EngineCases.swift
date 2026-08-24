@@ -103,7 +103,7 @@ public let engineCases: [EngineCase] = [
     EngineCase("comma-grouping-stripped") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("1,000 + 1", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 1001, unit: nil), "1,000 + 1")
+        try expectEqual(rows.last?.result, LineResult.number(value: 1001, unit: nil), "1,000 + 1")
     },
 
     // MARK: Errors
@@ -134,54 +134,67 @@ public let engineCases: [EngineCase] = [
     EngineCase("heading-line") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("// Groceries\n12", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.first, LineResult.title("Groceries"), "heading row")
-        try expectEqual(rows.last, LineResult.number(value: 12, unit: nil), "value row")
+        try expectEqual(rows.first?.result, LineResult.title("Groceries"), "heading row")
+        try expectEqual(rows.last?.result, LineResult.number(value: 12, unit: nil), "value row")
     },
-    EngineCase("hash-comment-skipped") {
+    EngineCase("hash-comment-keeps-its-line") {
+        // Strict contract: the # line occupies source line 0 as .blank;
+        // the answer of "5" stays bound to source line 1.
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("# hello\n5", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows, [LineResult.number(value: 5, unit: nil)], "# comment produces no row")
+        try expectEqual(rows.count, 2, "one row per logical line")
+        try expectEqual(rows[0].sourceLineIndex, 0)
+        try expectEqual(rows[0].result, LineResult.blank, "# line is blank, but present")
+        try expectEqual(rows[1].sourceLineIndex, 1)
+        try expectEqual(rows[1].result, LineResult.number(value: 5, unit: nil))
     },
-    EngineCase("leading-blanks-collapsed") {
+    EngineCase("leading-blanks-strict-indexing") {
+        // The old collapsing behavior is gone: leading blanks each keep
+        // their own indexed .blank row, so "5" sits on source line 2.
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("\n\n5", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows, [LineResult.number(value: 5, unit: nil)], "leading blanks")
+        try expectEqual(rows.count, 3, "one row per logical line")
+        try expectEqual(rows.map { $0.result },
+                        [LineResult.blank, .blank, .number(value: 5, unit: nil)])
+        try expectEqual(rows[2].sourceLineIndex, 2, "value keeps its source index")
     },
     EngineCase("inner-blank-row") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("5\n\n6", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows, [.number(value: 5, unit: nil), .blank, .number(value: 6, unit: nil)], "inner blank")
+        try expectEqual(rows.map { $0.result },
+                        [.number(value: 5, unit: nil), .blank, .number(value: 6, unit: nil)], "inner blank")
+        try expectEqual(rows.map { $0.sourceLineIndex }, [0, 1, 2], "indices stay line-aligned")
     },
     EngineCase("k-suffix") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("5 k", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 5000, unit: nil), "5 k")
+        try expectEqual(rows.last?.result, LineResult.number(value: 5000, unit: nil), "5 k")
     },
     EngineCase("m-suffix") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("2 M", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 2_000_000, unit: nil), "2 M")
+        try expectEqual(rows.last?.result, LineResult.number(value: 2_000_000, unit: nil), "2 M")
     },
     EngineCase("assignment-row") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("a = 5", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows, [.variable(name: "a", value: 5)], "a = 5")
+        try expectEqual(rows.map { $0.result }, [.variable(name: "a", value: 5)], "a = 5")
     },
     EngineCase("assignment-usage") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("a = 5\na * 2", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 10, unit: nil), "a * 2")
+        try expectEqual(rows.last?.result, LineResult.number(value: 10, unit: nil), "a * 2")
         try expectEqual(vars["a"], 5, "variable stored")
     },
     EngineCase("words-without-digits-skip") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("hello world", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows, [LineResult.skip], "plain words skip")
+        try expectEqual(rows.map { $0.result }, [LineResult.skip], "plain words skip")
     },
     EngineCase("cyrillic-line-skip") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("Самолет", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows, [LineResult.skip], "cyrillic heading skips")
+        try expectEqual(rows.map { $0.result }, [LineResult.skip], "cyrillic heading skips")
     },
 
     // MARK: Conversions
@@ -189,23 +202,23 @@ public let engineCases: [EngineCase] = [
     EngineCase("linear-conversion-km") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("10 km to meter", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 10_000, unit: "meters"), "10 km to meter")
+        try expectEqual(rows.last?.result, LineResult.number(value: 10_000, unit: "meters"), "10 km to meter")
     },
     EngineCase("temperature-c-to-f") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("100 C to F", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 212, unit: "F°"), "100 C to F")
+        try expectEqual(rows.last?.result, LineResult.number(value: 212, unit: "F°"), "100 C to F")
     },
     EngineCase("currency-rates-unavailable") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("10 USD to RUB", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.error(message: "Rates unavailable"), "no rates")
+        try expectEqual(rows.last?.result, LineResult.error(message: "Rates unavailable"), "no rates")
     },
     EngineCase("currency-with-rates") {
         var vars: [String: Double] = [:]
         let rates = Rates(USD: 90, EUR: 100, EURUSD: 1.1)
         let rows = evaluateSheet("10 USD to RUB", variables: &vars, rates: rates, decimalPlaces: 7)
-        try expectEqual(rows.last, LineResult.number(value: 900, unit: "RUB"), "10 USD to RUB @ 90")
+        try expectEqual(rows.last?.result, LineResult.number(value: 900, unit: "RUB"), "10 USD to RUB @ 90")
     },
 
     // MARK: Formatting

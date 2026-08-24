@@ -235,5 +235,112 @@ public let sheetCases: [EngineCase] = [
         // One line per logical source line, including the trailing empty one.
         let logical = content.components(separatedBy: "\n")
         try expectEqual(rows.count, logical.count, "rows cover every logical line")
+        try expectEqual(rows.map { $0.sourceLineIndex },
+                        Array(0..<logical.count), "indices are identity")
+    },
+
+    // MARK: Strict indexed-evaluation contract
+
+    EngineCase("sheet-contract-user-repro-heading") {
+        // The exact bug: a leading # heading used to be collapsed, so
+        // 5/6/10,000 sat one row up. Now the heading keeps source line 0
+        // and every answer keeps its own line.
+        let content = "# Heading check\nx = 5\nx + 1\n10 km to meter"
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet(content, variables: &vars, rates: Rates(), decimalPlaces: 7)
+        try expectEqual(rows.count, content.components(separatedBy: "\n").count)
+        try expectEqual(rows.map { $0.result },
+                        [.blank,
+                         .variable(name: "x", value: 5),
+                         .number(value: 6, unit: nil),
+                         .number(value: 10_000, unit: "meters")],
+                        "heading is a blank row, answers stay on their lines")
+        try expectEqual(rows[3].sourceLineIndex, 3, "conversion stays on line 3")
+    },
+
+    EngineCase("sheet-contract-multiple-hash-and-blanks") {
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet("#\n#\n#x\n\n\n5", variables: &vars, rates: Rates(), decimalPlaces: 7)
+        try expectEqual(rows.count, 6, "one row per logical line")
+        try expectEqual(rows.map { $0.result },
+                        [.blank, .blank, .blank, .blank, .blank, .number(value: 5, unit: nil)])
+        try expectEqual(rows[5].sourceLineIndex, 5)
+    },
+
+    EngineCase("sheet-contract-title-and-bare-comment") {
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet("// T\n//\nhello\n7 + 1", variables: &vars, rates: Rates(), decimalPlaces: 7)
+        try expectEqual(rows.map { $0.result },
+                        [.title("T"), .blank, .skip, .number(value: 8, unit: nil)],
+                        "// space is title, bare // is blank, prose skips")
+        try expectEqual(rows.map { $0.sourceLineIndex }, [0, 1, 2, 3])
+    },
+
+    EngineCase("sheet-contract-trailing-newline") {
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet("x = 5\n", variables: &vars, rates: Rates(), decimalPlaces: 7)
+        try expectEqual(rows.count, 2, "trailing newline adds a blank line")
+        try expectEqual(rows[0].result, .variable(name: "x", value: 5))
+        try expectEqual(rows[1].result, .blank)
+        try expectEqual(rows[1].sourceLineIndex, 1)
+    },
+
+    EngineCase("sheet-contract-variables-flow-across-hidden") {
+        // Non-evaluable lines (heading, blank, heading) never break the
+        // sequential variable flow.
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet("# H\nx = 5\n\n# G\nx * 2", variables: &vars, rates: Rates(), decimalPlaces: 7)
+        try expectEqual(rows.count, 5)
+        try expectEqual(rows[4].result, .number(value: 10, unit: nil), "x flows across hidden lines")
+        try expectEqual(vars["x"], 5, "only real assignments set variables")
+    },
+
+    // MARK: Source-indexed answer placement
+
+    EngineCase("layout-first-answer-after-heading-uses-index-1") {
+        // Four measured logical lines (30pt rhythm): the heading is line
+        // 0, so the first numeric answer (source line 1) must sit on the
+        // block starting at top 30 — not on line 0's block.
+        let lines = [
+            LineMetrics.Line(index: 0, top: 0, height: 30),
+            LineMetrics.Line(index: 1, top: 30, height: 30),
+            LineMetrics.Line(index: 2, top: 60, height: 30),
+            LineMetrics.Line(index: 3, top: 90, height: 30),
+        ]
+        let row = NotebookLayout.answerRow(index: 1, lines: lines, topInset: 12)
+        try expectEqual(row.top, 42, "answer sits on source line 1's block")
+        try expectEqual(row.height, 30)
+        let row3 = NotebookLayout.answerRow(index: 3, lines: lines, topInset: 12)
+        try expectEqual(row3.top, 102, "later answer keeps its own block")
+    },
+
+    EngineCase("layout-hidden-rows-preserve-later-indexes") {
+        // Two hidden rows (heading + blank) before two visible ones; the
+        // visible rows' answers must keep indexes 2 and 3.
+        let lines = [
+            LineMetrics.Line(index: 0, top: 0, height: 30),
+            LineMetrics.Line(index: 1, top: 30, height: 30),
+            LineMetrics.Line(index: 2, top: 60, height: 30),
+            LineMetrics.Line(index: 3, top: 90, height: 30),
+        ]
+        let row2 = NotebookLayout.answerRow(index: 2, lines: lines, topInset: 12)
+        try expectEqual(row2.top, 72, "index 2 after two hidden rows")
+        let row3 = NotebookLayout.answerRow(index: 3, lines: lines, topInset: 12)
+        try expectEqual(row3.top, 102, "index 3 after two hidden rows")
+    },
+
+    EngineCase("layout-wrapped-line-answer-uses-full-block") {
+        // A wrapped logical line (60pt block) centers its answer across
+        // the whole block; the next line's answer starts below it.
+        let lines = [
+            LineMetrics.Line(index: 0, top: 0, height: 30),
+            LineMetrics.Line(index: 1, top: 30, height: 60),
+            LineMetrics.Line(index: 2, top: 90, height: 30),
+        ]
+        let row1 = NotebookLayout.answerRow(index: 1, lines: lines, topInset: 12)
+        try expectEqual(row1.top, 42, "wrapped block top")
+        try expectEqual(row1.height, 60, "wrapped block height")
+        let row2 = NotebookLayout.answerRow(index: 2, lines: lines, topInset: 12)
+        try expectEqual(row2.top, 102, "next line starts after the full block")
     },
 ]

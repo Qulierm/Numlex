@@ -34,4 +34,9 @@ struct EngineTests {
     func caretCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: baselineCases)
+    func baselineCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

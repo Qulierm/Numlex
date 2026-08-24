@@ -1,8 +1,12 @@
+import AppKit
 import SwiftUI
 import NumlexCore
 
 struct AnswerColumnView: View {
-    var rows: [LineResult]
+    /// One indexed evaluated line per logical source line (strict 1:1
+    /// contract from `evaluateSheet`); every rendered answer binds to its
+    /// explicit `sourceLineIndex`, never to its position after filtering.
+    var rows: [SheetLine]
     var metrics: LineMetrics
     /// Shared scroll state: top-down points scrolled from the top of the
     /// document. The editor is the primary surface; this column renders its
@@ -21,14 +25,42 @@ struct AnswerColumnView: View {
     var decimalPlaces: Int
     var totalLabel: String
 
-    private func rowGeometry(_ index: Int) -> (top: CGFloat, height: CGFloat) {
+    private func rowGeometry(_ line: SheetLine) -> (top: CGFloat, height: CGFloat) {
         // Row frames are expressed in the same coordinates as the editor
         // content: the editor's text starts editorTopInset below the shared
-        // column top, so both columns use the same mapping.
+        // column top, so both columns use the same mapping. The index is
+        // the line's EXPLICIT source index, so hidden rows (headings,
+        // blanks, prose) still hold the later answers on their own lines.
         NotebookLayout.answerRow(
-            index: index,
+            index: line.sourceLineIndex,
             lines: metrics.lines,
             topInset: Design.editorTopInset
+        )
+    }
+
+    /// Y offset from the top of the row frame to the answer's target
+    /// first-text baseline, in row-local coordinates. A measured metric
+    /// line supplies it directly (its container-coordinate answer baseline
+    /// minus the row's container top — the exact TextKit baseline of the
+    /// source line, or the block-centered ink baseline of a wrapped line).
+    /// Defensive rows without a metric (e.g. before the first layout
+    /// pass) fall back to the single-fragment rule with the real font
+    /// metrics — no empirical constant anywhere.
+    private func baselineOffset(for line: SheetLine,
+                                metric: LineMetrics.Line?,
+                                height: CGFloat) -> CGFloat {
+        if let metric {
+            return metric.answerBaseline - metric.top
+        }
+        let font = NSFont.systemFont(ofSize: fontSize)
+        let naturalHeight = font.ascender - font.descender + font.leading
+        return AnswerBaseline.baseline(
+            rowTop: 0,
+            rowHeight: height,
+            fragmentCount: 1,
+            ascender: font.ascender,
+            naturalHeight: naturalHeight,
+            capHeight: font.capHeight
         )
     }
 
@@ -47,8 +79,8 @@ struct AnswerColumnView: View {
     }
 
     private var summary: (value: String, unit: String?)? {
-        let numeric = rows.compactMap { r -> Double? in
-            if case .number(let v, let u) = r, u == nil { return v } else { return nil }
+        let numeric = rows.compactMap { line -> Double? in
+            if case .number(let v, let u) = line.result, u == nil { return v } else { return nil }
         }
         guard !numeric.isEmpty else { return nil }
         var sum = numeric.reduce(0, +)
@@ -69,16 +101,44 @@ struct AnswerColumnView: View {
                 // goes negative (or past the end), and the answer must
                 // follow it pixel-exact. Only programmatic targets (knob
                 // drag) are clamped, in the coordinator path.
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: Design.editorTopInset)
-                    ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
-                        let geo2 = rowGeometry(idx)
-                        rowView(row)
-                            .frame(height: geo2.height)
+                //
+                // Every row is placed ABSOLUTELY at the top/height of its
+                // own source line's measured block (wrapped fragments
+                // included): hidden rows simply render no content, but
+                // their space is held by the metric gap, so an answer can
+                // never drift onto a heading or a blank line. A missing
+                // metric falls back per-row (NotebookLayout.answerRow)
+                // without disturbing the other rows.
+                // Every row is placed ABSOLUTELY at the top/height of its
+                // own source line's measured block (wrapped fragments
+                // included), and INSIDE the row the answer subview is
+                // placed by measured first-text baseline (BaselineAnswerRow)
+                // so it sits exactly on the editor's TextKit baseline for
+                // that source line. Hidden rows simply render no content,
+                // but their space is held by the metric gap, so an answer
+                // can never drift onto a heading or a blank line. A missing
+                // metric falls back per-row (NotebookLayout.answerRow +
+                // AnswerBaseline) without disturbing the other rows.
+                ZStack(alignment: .topLeading) {
+                    let metricByIndex = Dictionary(
+                        uniqueKeysWithValues: metrics.lines.map { ($0.index, $0) }
+                    )
+                    ForEach(rows, id: \.sourceLineIndex) { line in
+                        let geo2 = rowGeometry(line)
+                        BaselineAnswerRow(
+                            width: geo.size.width,
+                            height: geo2.height,
+                            baselineOffset: baselineOffset(
+                                for: line,
+                                metric: metricByIndex[line.sourceLineIndex],
+                                height: geo2.height
+                            )
+                        ) {
+                            rowView(line.result)
+                        }
+                        .offset(y: geo2.top - topOffset)
                     }
-                    Color.clear.frame(height: 80)
                 }
-                .offset(y: -topOffset)
                 // Clamp to the visible content region first, so the overlays
                 // below size to the region (not the intrinsic content height)
                 // and never bleed over the summary bar.
@@ -136,9 +196,11 @@ struct AnswerColumnView: View {
 
     @ViewBuilder
     private func rowView(_ row: LineResult) -> some View {
-        // Left-aligned content inside a row frame whose height equals the
-        // logical expression block; the content is vertically centered by
-        // the frame, so wrapped 2–3 line expressions get a centered answer.
+        // Left-aligned content of one answer. Vertical placement is owned
+        // by the BaselineAnswerRow layout (measured first-text baseline on
+        // the editor's TextKit target baseline); this view only provides
+        // the horizontal padding, the fixed-white regular typography and
+        // the single-line clipping.
         Group {
             switch row {
             case .blank, .skip, .title(_):
@@ -195,6 +257,50 @@ struct AnswerColumnView: View {
 /// editor's scroll view through the coordinator. No manual delta
 /// accumulation here, so momentum and elastic bounce match the editor's own
 /// native behavior exactly.
+/// One answer row: a fixed (width × height) frame whose content is placed
+/// by MEASURED first-text baseline instead of SwiftUI's default vertical
+/// centering. The content's own first-text-baseline guide
+/// (`d[.firstTextBaseline]`, measured during layout) is aligned with a
+/// zero-sized target whose guide sits exactly `baselineOffset` below the
+/// row's top edge — so the text's baseline lands exactly on the TextKit
+/// target baseline of the row's source line. No empirical offset and no
+/// font-identity assumption: whatever baseline the subview actually has
+/// is the one that gets aligned.
+private struct BaselineAnswerRow<Content: View>: View {
+    var width: CGFloat
+    var height: CGFloat
+    var baselineOffset: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ZStack(alignment: Alignment(horizontal: .leading, vertical: .answerBaseline)) {
+            content
+                .alignmentGuide(.answerBaseline) { d in d[.firstTextBaseline] }
+            // Zero-sized target: its guide is exactly `baselineOffset`
+            // below its top edge. Aligning the two guides puts the
+            // content's first-text baseline on the row's target baseline;
+            // the top edge of the combined box then coincides with the
+            // row's top edge, so the outer frame needs no compensation.
+            Color.clear
+                .frame(width: 0, height: 0)
+                .alignmentGuide(.answerBaseline) { _ in baselineOffset }
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+    }
+}
+
+extension VerticalAlignment {
+    private struct AnswerBaseline: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat {
+            context[.firstTextBaseline]
+        }
+    }
+
+    /// Vertical alignment on a view's MEASURED first-text baseline
+    /// (falls back to the platform default for views without text).
+    static let answerBaseline = VerticalAlignment(AnswerBaseline.self)
+}
+
 private struct ScrollWheelCatcher: NSViewRepresentable {
     var onScroll: (NSEvent) -> Void
 

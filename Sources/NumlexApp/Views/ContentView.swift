@@ -58,9 +58,11 @@ struct ContentView: View {
                 Divider()
 
                 let settings = model.settings
-                let rows: [LineResult] = {
+                let rows: [SheetLine] = {
                     var vars: [String: Double] = [:]
-                    // evaluateSheet accumulates variables across lines sequentially.
+                    // evaluateSheet returns exactly one indexed line per
+                    // logical source line (strict 1:1 contract) and
+                    // accumulates variables across lines sequentially.
                     let content = model.selectedSheet?.content ?? ""
                     return evaluateSheet(content, variables: &vars, rates: model.rates, decimalPlaces: settings.decimalPlaces)
                 }()
