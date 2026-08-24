@@ -39,4 +39,9 @@ struct EngineTests {
     func baselineCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: spaceTypingCases)
+    func spaceTypingCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

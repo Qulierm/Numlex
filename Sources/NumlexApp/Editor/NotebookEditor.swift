@@ -80,12 +80,19 @@ final class NotebookEditorCoordinator: NSObject {
     var onLayout: (LineMetrics) -> Void
     var onTextChange: (String) -> Void
 
-    /// Set by `textView(_:shouldChangeTextIn:replacementString:)` when
-    /// the pending AppKit edit carries a non-empty replacement (typing or
-    /// paste), i.e. a user insertion; consumed and cleared on the next
-    /// `textDidChange` pass. Programmatic storage rewrites bypass the
-    /// delegate, so they can never arm the flag.
-    private var pendingInsertion = false
+    /// The intent of the pending user edit (see `EditIntent` in
+    /// NumlexCore), armed by
+    /// `textView(_:shouldChangeTextIn:replacementString:)` before every
+    /// AppKit-performed edit and consumed by the next `textDidChange`
+    /// pass. Only a `.content` intent triggers the canonical-format
+    /// pass: a `.whitespace` intent keeps the literal space/tab/newline
+    /// in the storage with the caret right after it (so `5` + Space +
+    /// `m to cm` types as `5 m to cm`, not `5m`), and `.none` (a pure
+    /// deletion) never reformats. Programmatic storage rewrites bypass
+    /// the delegate and can never arm it; a value left over from a
+    /// cancelled edit is at worst a skipped format pass, never a forced
+    /// one.
+    private var pendingIntent: EditIntent = .none
     private var fontSize: Double
     private var lineHeight: Double
     private var lineNumbers: Bool
@@ -608,9 +615,9 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         MainActor.assumeIsolated {
             guard let sender, self.textView === sender else { return }
             let new = sender.string
-            let insertion = self.pendingInsertion
-            self.pendingInsertion = false
-            if self.applyAutoFormat(insertion: insertion) {
+            let intent = self.pendingIntent
+            self.pendingIntent = .none
+            if self.applyAutoFormat(intent: intent) {
                 // The programmatic storage rewrite does NOT reliably
                 // re-post textDidChange (AppKit suppresses it within the
                 // same editing pass), so the rest of the pipeline runs
@@ -635,22 +642,27 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
 
     /// On user INSERTION the mathematical lines are canonicalized IN
     /// PLACE: `*` becomes `×`, one space around binary operators and
-    /// `=`, unary signs and `%` attached. The pass is keyed to a
-    /// non-empty replacement recorded by
-    /// `textView(_:shouldChangeTextIn:replacementString:)` — so a paste
-    /// that replaces an equal or longer selection still formats, while
-    /// pure deletions (Backspace, delete, cut) never reformat and can
-    /// remove spaces and operators without the formatter reinserting
-    /// them. IME composition is never touched mid-conversion: the commit
+    /// `=`, unary signs and `%` attached. The pass is keyed to the edit
+    /// intent recorded by
+    /// `textView(_:shouldChangeTextIn:replacementString:)`: only a
+    /// `.content` edit formats, so a paste that replaces an equal or
+    /// longer selection still formats, while pure deletions (Backspace,
+    /// delete, cut) never reformat and can remove spaces and operators
+    /// without the formatter reinserting them. A `.whitespace` edit
+    /// (typed Space, Tab or Enter) is deliberately skipped in the same
+    /// pass: the literal whitespace stays in the storage with the caret
+    /// right after it, and the next non-whitespace keystroke resumes
+    /// canonicalization — this is what makes typing `5 m to cm` space by
+    /// space possible. IME composition is never touched mid-conversion: the commit
     /// keystroke flows through this same path with `hasMarkedText()`
     /// false. The selection is remapped to the same semantic insertion
     /// points via the formatter's UTF-16 map, and caret/line state is
     /// recomputed on the re-entrant notification — no reentrancy loop is
     /// possible because the canonical text is a fixed point of the pass.
-    private func applyAutoFormat(insertion: Bool) -> Bool {
+    private func applyAutoFormat(intent: EditIntent) -> Bool {
         guard let storage = textView.textStorage else { return false }
         guard !textView.hasMarkedText() else { return false }
-        guard insertion else { return false }
+        guard intent == .content else { return false }
         let newText = storage.string
         let canonical = NotebookFormatting.canonicalDocument(newText)
         guard canonical != newText else { return false }
@@ -674,18 +686,19 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
     /// repaint: the current line must change visually without any edit.
     /// AppKit asks the delegate before every edit it performs itself
     /// (typing, paste, cut, delete keys) with the replacement string —
-    /// the reliable signal that distinguishes an insertion from a pure
-    /// deletion, independent of how the document's net length changes.
-    /// Direct storage rewrites (our own format pass, sheet switches)
-    /// bypass this hook, so the flag can never trigger reentrancy.
-    /// IME composition segments are ignored; the composition commit is
-    /// handled by the `hasMarkedText()` guards in the pipeline.
+    /// the reliable signal that classifies the edit into an explicit
+    /// `EditIntent` (`.content`, `.whitespace`, `.none`), independent of
+    /// how the document's net length changes. Direct storage rewrites
+    /// (our own format pass, sheet switches) bypass this hook, so the
+    /// intent can never trigger reentrancy. IME composition segments
+    /// are ignored; the composition commit is handled by the
+    /// `hasMarkedText()` guards in the pipeline.
     nonisolated func textView(_ textView: NSTextView,
                               shouldChangeTextIn charRange: NSRange,
                               replacementString: String?) -> Bool {
         MainActor.assumeIsolated {
             guard self.textView === textView, !textView.hasMarkedText() else { return }
-            self.pendingInsertion = !(replacementString ?? "").isEmpty
+            self.pendingIntent = EditIntent(replacement: replacementString)
         }
         return true
     }
