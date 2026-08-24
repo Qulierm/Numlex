@@ -4,6 +4,7 @@ import NumlexCore
 struct SidebarView: View {
     @Bindable var model: AppModel
     @State private var renamingID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,10 +40,31 @@ struct SidebarView: View {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
                         sheetRow(idx: idx, sheet: sheet)
+                            // Removal: a short opacity fade plus a slight
+                            // leading nudge; insertion mirrors it. The
+                            // LazyVStack reflow below moves the remaining
+                            // rows into the gap.
+                            .transition(reduceMotion
+                                        ? .identity
+                                        : .opacity.combined(with: .offset(x: -12)))
                     }
                 }
+                // Row removal/reflow animates ONLY inside this list: the
+                // value changes exactly when the sheet-ID list changes, and
+                // the transaction is scoped here, so the editor and answer
+                // column (which also observe the model) never pick up an
+                // animated transaction on deletion. reduceMotion gets no
+                // decorative animation at all.
+                .animation(reduceMotion ? nil : .snappy(duration: 0.22),
+                           value: model.sheets.map(\.id))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
+            }
+            .scrollIndicators(.hidden)
+            // Any deletion path (context menu or app menu) that removes the
+            // row currently being renamed clears the stale rename state.
+            .onChange(of: model.sheets.map(\.id)) { _, ids in
+                if let rid = renamingID, !ids.contains(rid) { renamingID = nil }
             }
 
             // Bottom actions: one coherent cluster, same geometry and icon size.

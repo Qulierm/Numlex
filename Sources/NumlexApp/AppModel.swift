@@ -90,17 +90,29 @@ final class AppModel {
         persist()
     }
 
+    /// Pure selection math lives in `sheetDeletionPlan` (NumlexCore, unit
+    /// tested): before-selection keeps the same sheet selected,
+    /// selected-deletion picks the next (previous at the end), and the
+    /// sole sheet is replaced in place with a fresh empty one.
     func deleteSheet(at index: Int) {
-        guard sheets.indices.contains(index) else { return }
-        if sheets.count == 1 {
-            sheets[0] = Sheet(title: "\(settings.sheetName) 1", content: "", createdAt: Date(), modifiedAt: Date())
+        guard let plan = sheetDeletionPlan(count: sheets.count,
+                                           deleteIndex: index,
+                                           selectedIndex: selectedIndex) else { return }
+        if plan.replacesSoleSheet {
+            sheets[0] = Sheet(title: "\(settings.sheetName) 1", content: "",
+                              createdAt: Date(), modifiedAt: Date())
             selectedIndex = 0
         } else {
             sheets.remove(at: index)
-            if index < selectedIndex { selectedIndex -= 1 }
-            else if index == selectedIndex { selectedIndex = min(selectedIndex, sheets.count - 1) }
+            selectedIndex = plan.selectedIndexAfter
         }
         persist()
+    }
+
+    /// App-menu “Delete Sheet”: the same deletion (and therefore the same
+    /// animation) as the sidebar context menu, applied to the selection.
+    func deleteSelected() {
+        deleteSheet(at: selectedIndex)
     }
 
     func select(index: Int) {

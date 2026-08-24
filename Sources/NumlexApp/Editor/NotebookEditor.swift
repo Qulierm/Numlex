@@ -104,9 +104,6 @@ final class NotebookEditorCoordinator: NSObject {
     var onFocusConsumed: () -> Void = {}
     private var observer: NSObjectProtocol?
     private var frameObserver: NSObjectProtocol?
-    /// True used document height (content + insets), independent of the
-    /// frame padding that keeps the whole surface focusable.
-    private(set) var usedDocumentHeight: CGFloat = 0
 
     init(fontSize: Double, lineHeight: Double, lineNumbers: Bool,
          rates: Rates, decimalPlaces: Int,
@@ -154,9 +151,9 @@ final class NotebookEditorCoordinator: NSObject {
         // highlighting, which would corrupt character-level undo records.
         tv.allowsUndo = false
 
-        // The editor's own scroller is hidden: a single native NSScroller
-        // at the window's trailing edge (EdgeScroller) represents the shared
-        // document/viewport/offset, so there is exactly one scroll state.
+        // The editor's own scrollers stay hidden: no pane in the app shows
+        // a scroll bar, yet the native NSScrollView keeps full wheel,
+        // momentum and elastic-bounce behavior for the shared document.
         sv.hasVerticalScroller = false
         sv.hasHorizontalScroller = false
         sv.autohidesScrollers = true
@@ -292,52 +289,12 @@ final class NotebookEditorCoordinator: NSObject {
         }
     }
 
-    /// Document height in content points, for the edge scroller's knob
-    /// proportion. The coordinator is recreated per sheet, so this never
-    /// carries stale metrics across sheets.
-    /// Editor viewport height in content points (the clip view's bounds),
-    /// the canonical denominator for scroll ranges. Distinct from any
-    /// SwiftUI-side measurement: the answer column's own viewport is
-    /// shorter because the Total row occupies fixed space.
-    var scrollViewportHeight: CGFloat {
-        MainActor.assumeIsolated { scrollView.contentView.bounds.height }
-    }
-
     /// Forward a raw wheel event (phases, momentum, precise deltas) into
     /// the editor's scroll view so the editor stays the single native
     /// scroll source. Used by the answer column's wheel bridge instead of
     /// manually accumulating CGFloat deltas.
     func forwardScrollWheel(_ event: NSEvent) {
         MainActor.assumeIsolated { scrollView.scrollWheel(with: event) }
-    }
-
-    /// True document height for the edge scroller's knob proportion. Never
-    /// the padded frame height: padding exists only to keep the empty area
-    /// focusable and must not create a phantom scroll range.
-    var scrollDocumentHeight: CGFloat {
-        usedDocumentHeight
-    }
-
-    /// Sets the editor's scroll position so editor-content y `offset` sits
-    /// at the top (answer→editor pixel sync). The clip bounds' origin is
-    /// the flipped document offset; the scroll is applied as a clamped
-    /// relative delta (the same primitive NSTextView's own wheel handling
-    /// uses), because clip views re-tile away raw bounds writes.
-    func setScrollOffset(_ offset: CGFloat) {
-        let clip = scrollView.contentView
-        // The frame is padded to the viewport height, so the true scroll
-        // range comes from the used document height, not the frame.
-        let documentHeight = usedDocumentHeight
-        let maxOffset = max(0, documentHeight - clip.bounds.height)
-        let target = min(max(0, offset), maxOffset)
-        guard abs(target - clip.bounds.origin.y) > 0.5 else { return }
-        // Write the clip bounds directly: NSView.scroll(_:) has
-        // "make the point visible" semantics and is a no-op while the
-        // target point is already inside the visible rectangle.
-        clip.bounds = NSRect(
-            x: clip.bounds.origin.x, y: target,
-            width: clip.bounds.width, height: clip.bounds.height
-        )
     }
 
     // MARK: - Typography + highlighting
@@ -498,11 +455,11 @@ final class NotebookEditorCoordinator: NSObject {
         // switch. Keep the frame tight to the used content height.
         let used = lm.usedRect(for: tc)
         let needed = ceil(used.height) + textView.textContainerInset.height * 2
-        usedDocumentHeight = needed
         // Keep the document at least as tall as the viewport so clicks in
         // the empty area below a short document still focus the text view.
-        // The true scroll range always comes from usedDocumentHeight, so
-        // this padding never creates phantom scroll room.
+        // The padding only kicks in while the document is SHORTER than the
+        // viewport, where the scroll range is already zero — so the native
+        // scroll range stays tight to the used content with no phantom room.
         let viewport = scrollView.contentView.bounds.height
         let target = max(needed, viewport)
         let frame = textView.frame

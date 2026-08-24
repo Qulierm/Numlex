@@ -77,14 +77,6 @@ struct ContentView: View {
                         // BoundsDidChange drives topOffset back.
                         editorBridge?.forwardScrollWheel(event)
                     },
-                    scrollerCoordinator: editorBridge,
-                    onScrollerDrag: { offset in
-                        // Edge scroller drag/wheel: same single source of
-                        // truth as the answer wheel.
-                        guard abs(offset - topOffset) > 0.5 else { return }
-                        topOffset = max(0, offset)
-                        editorBridge?.setScrollOffset(topOffset)
-                    },
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
                     decimalPlaces: settings.decimalPlaces,
@@ -94,10 +86,26 @@ struct ContentView: View {
             .toolbar(removing: .title)
         }
         .frame(minWidth: 820, minHeight: 560)
-        .onChange(of: model.selectedIndex) { _, _ in topOffset = 0 }
+        // Reset the editor-bound state when the selected SHEET ID changes,
+        // not only the numeric index: deleting the selected non-last row
+        // changes the ID under an unchanged index, and stale answer
+        // geometry (or a dead bridge) from the previous sheet would flash
+        // or drift. The new coordinator re-arms itself via onReady.
+        .onChange(of: model.selectedSheet?.id) { _, _ in
+            topOffset = 0
+            metrics = LineMetrics(lines: [])
+            editorBridge = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newSheet)) { _ in model.newSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .importSheet)) { _ in showImport = true }
         .onReceive(NotificationCenter.default.publisher(for: .exportSheet)) { _ in showExport = true }
+        // App-menu "Delete Sheet": consumed here (not in the sidebar), so
+        // it works even when the sidebar column is collapsed. The sidebar
+        // row animation is driven by the sheet-ID list change, so this and
+        // the context-menu deletion animate identically.
+        .onReceive(NotificationCenter.default.publisher(for: .deleteSheet)) { _ in
+            model.deleteSelected()
+        }
         .fileImporter(isPresented: $showImport, allowedContentTypes: [.nlx, .json], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first {
                 let accessing = url.startAccessingSecurityScopedResource()

@@ -14,12 +14,10 @@ struct AnswerColumnView: View {
     var topOffset: CGFloat
     /// Raw wheel events over the answer surface are forwarded verbatim to
     /// the editor's scroll view (phases, momentum, precise deltas intact),
-    /// so the editor remains the single native scroll source.
+    /// so the editor remains the single native scroll source. This pane has
+    /// no visible scroll bar of its own: the wheel catcher is the whole
+    /// content width.
     var onWheelScroll: (NSEvent) -> Void
-    /// Editor coordinator for the trailing edge scroller bridge.
-    var scrollerCoordinator: NotebookEditorCoordinator?
-    /// Knob drag / scroller wheel → shared offset.
-    var onScrollerDrag: (CGFloat) -> Void
     var fontSize: Double
     var lineHeight: Double
     var decimalPlaces: Int
@@ -139,29 +137,16 @@ struct AnswerColumnView: View {
                         .offset(y: geo2.top - topOffset)
                     }
                 }
-                // Clamp to the visible content region first, so the overlays
-                // below size to the region (not the intrinsic content height)
-                // and never bleed over the summary bar.
+                // Clamp to the visible content region first, so the overlay
+                // below sizes to the region (not the intrinsic content
+                // height) and never bleeds over the summary bar.
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 .overlay(alignment: .leading) {
-                    // The wheel catcher covers the content except the 15pt
-                    // strip reserved for the trailing edge scroller.
+                    // The wheel catcher covers the FULL content width —
+                    // no scroller strip, no dead zone at the trailing edge.
                     ScrollWheelCatcher(onScroll: onWheelScroll)
                         .allowsHitTesting(true)
-                        .frame(width: geo.size.width - 15, alignment: .leading)
-                }
-                // The single native scrollbar, pinned to the absolute
-                // trailing edge of the detail area (the answer column is the
-                // rightmost pane). Sits above the summary bar, so it never
-                // overlaps the Total row.
-                .overlay(alignment: .trailing) {
-                    EdgeScroller(
-                        coordinator: scrollerCoordinator,
-                        topOffset: topOffset,
-                        viewport: geo.size.height,
-                        onOffset: onScrollerDrag
-                    )
-                    .frame(width: 15)
+                        .frame(width: geo.size.width, alignment: .leading)
                 }
             }
             .clipped()
@@ -245,9 +230,9 @@ struct AnswerColumnView: View {
             }
         }
         .lineLimit(1)
-        .padding(.leading, 20)
-        // Keep long values clear of the 15pt edge scroller.
-        .padding(.trailing, 14)
+        // Symmetric row insets; no invisible scroller reservation — the
+        // column has no scroll bar of its own.
+        .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
