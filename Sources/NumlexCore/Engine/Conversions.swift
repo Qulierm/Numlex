@@ -1,49 +1,82 @@
 import Foundation
 
-private struct Conversion: Sendable {
-    let factor: Double?
-    let unit: String
-    let custom: (@Sendable (Double) -> Double)?
+/// One measurement unit: which dimension it belongs to, how many base
+/// units of that dimension one of it equals, and the canonical output
+/// label for a result expressed in it. Aliases (symbol, short word,
+/// plural) resolve to the SAME definition, so both sides of a
+/// `<number> <from> to <to>` line are looked up independently.
+private struct UnitDef: Sendable {
+    let dimension: String
+    let baseFactor: Double
+    let label: String
 }
 
-private let linear: [(String, Double, String)] = [
-    ("km to meter", 1000, "meters"),
-    ("meter to km", 1/1000, "km"),
-    ("mile to km", 1.60934, "km"),
-    ("km to mile", 1/1.60934, "miles"),
-    ("cm to m", 1/100, "m"),
-    ("m to cm", 100, "cm"),
-    ("cm to km", 1/100000, "km"),
-    ("km to cm", 100000, "km"),
-    ("kg to t", 1/1000, "ton"),
-    ("t to kg", 1000, "kg"),
-    ("mg to kg", 1/1000, "kg"),
-    ("kg to mg", 1000, "mg"),
-    ("ml to teaspoon", 1/5, "teaspoons"),
-    ("teaspoon to ml", 5, "ml"),
-    ("liter to ml", 1000, "ml"),
-    ("ml to liter", 1/1000, "L"),
-]
-
-private let temps: [String: @Sendable (Double) -> Double] = [
-    "f to c": { ($0 - 32) * 5/9 },
-    "c to f": { $0 * 1.8 + 32 },
-    "k to c": { $0 - 273.15 },
-    "c to k": { $0 + 273.15 },
-]
-private let tempUnits: [String: String] = [
-    "f to c": "C°",
-    "c to f": "F°",
-    "k to c": "C°",
-    "c to k": "K°",
-]
-
-private let conversionMap: [String: Conversion] = {
-    var m: [String: Conversion] = [:]
-    for (k, f, u) in linear { m[k.lowercased()] = Conversion(factor: f, unit: u, custom: nil) }
-    for (k, fn) in temps { m[k] = Conversion(factor: nil, unit: tempUnits[k] ?? "", custom: fn) }
+/// Measurement unit table. Base units: meter, kilogram, liter.
+///
+/// Labels preserve the legacy output conventions where users rely on
+/// them (spelled-out `meter(s)` reports `meters`, `teaspoon(s)` reports
+/// `teaspoons`, `t`/`ton` reports `ton`), while the short aliases report
+/// their canonical symbol (`km to m` reports `m`, not `meters`).
+private let units: [String: UnitDef] = {
+    var m: [String: UnitDef] = [:]
+    func add(_ alias: String, _ dimension: String, _ factor: Double, _ label: String) {
+        m[alias] = UnitDef(dimension: dimension, baseFactor: factor, label: label)
+    }
+    // Length — base: meter
+    add("mm", "length", 0.001, "mm")
+    add("millimeter", "length", 0.001, "mm")
+    add("millimeters", "length", 0.001, "mm")
+    add("cm", "length", 0.01, "cm")
+    add("centimeter", "length", 0.01, "cm")
+    add("centimeters", "length", 0.01, "cm")
+    add("m", "length", 1, "m")
+    add("meter", "length", 1, "meters")
+    add("meters", "length", 1, "meters")
+    add("km", "length", 1000, "km")
+    add("kilometer", "length", 1000, "km")
+    add("kilometers", "length", 1000, "km")
+    add("mi", "length", 1609.34, "mi")
+    add("mile", "length", 1609.34, "miles")
+    add("miles", "length", 1609.34, "miles")
+    // Mass — base: kilogram
+    add("mg", "mass", 1e-6, "mg")
+    add("milligram", "mass", 1e-6, "mg")
+    add("milligrams", "mass", 1e-6, "mg")
+    add("g", "mass", 1e-3, "g")
+    add("gram", "mass", 1e-3, "g")
+    add("grams", "mass", 1e-3, "g")
+    add("kg", "mass", 1, "kg")
+    add("kilogram", "mass", 1, "kg")
+    add("kilograms", "mass", 1, "kg")
+    add("t", "mass", 1000, "ton")
+    add("ton", "mass", 1000, "ton")
+    add("tons", "mass", 1000, "ton")
+    // Volume — base: liter
+    add("ml", "volume", 0.001, "ml")
+    add("milliliter", "volume", 0.001, "ml")
+    add("milliliters", "volume", 0.001, "ml")
+    add("l", "volume", 1, "L")
+    add("liter", "volume", 1, "L")
+    add("liters", "volume", 1, "L")
+    add("tsp", "volume", 0.005, "tsp")
+    add("teaspoon", "volume", 0.005, "teaspoons")
+    add("teaspoons", "volume", 0.005, "teaspoons")
     return m
 }()
+
+/// Temperature pairs are NOT dimension-factor based: each supported
+/// direction has its own transform and output label. Keyed by the
+/// lowercased `<from> to <to>` word pair, exactly like the legacy map.
+private struct TempDef: Sendable {
+    let fn: @Sendable (Double) -> Double
+    let label: String
+}
+private let temps: [String: TempDef] = [
+    "f to c": TempDef(fn: { ($0 - 32) * 5/9 }, label: "C°"),
+    "c to f": TempDef(fn: { $0 * 1.8 + 32 }, label: "F°"),
+    "k to c": TempDef(fn: { $0 - 273.15 }, label: "C°"),
+    "c to k": TempDef(fn: { $0 + 273.15 }, label: "K°"),
+]
 
 func roundResult(_ value: Double, decimalPlaces: Int) -> Double {
     if value.truncatingRemainder(dividingBy: 1) != 0 {
@@ -56,55 +89,77 @@ func roundResult(_ value: Double, decimalPlaces: Int) -> Double {
     return value
 }
 
+/// Evaluates a line of the shape `<signed number> <unit> to <unit>`:
+/// temperatures first (custom transforms), then currency pairs (rates),
+/// then measurement units resolved independently through their
+/// dimension base. A line that MATCHES the shape but cannot be
+/// converted — incompatible dimensions, or a word that is not a known
+/// unit for this pair kind — returns a GENERIC ERROR instead of falling
+/// through to the expression evaluator (which would silently return the
+/// leading number). Anything not matching the shape returns `nil` and
+/// keeps flowing into the assignment/expression evaluation.
 func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResult? {
-    let trimmedCommas = line.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
-    guard let regex = try? NSRegularExpression(pattern: #"^([+-]?\d*\.?\d+)\s+(.+)$"#, options: .caseInsensitive) else { return nil }
+    // One parse for everything: commas are grouping separators in the
+    // leading number and may not split the unit words.
+    let trimmedCommas = line.trimmingCharacters(in: .whitespaces)
+        .replacingOccurrences(of: ",", with: "")
+    guard let regex = try? NSRegularExpression(
+        pattern: #"^([+-]?\d*\.?\d+)\s+(\w+)\s+to\s+(\w+)$"#,
+        options: .caseInsensitive) else { return nil }
     let ns = trimmedCommas as NSString
-    guard let match = regex.firstMatch(in: trimmedCommas, range: NSRange(location: 0, length: ns.length)), match.numberOfRanges == 3 else { return nil }
-    let numStr = ns.substring(with: match.range(at: 1))
-    guard let num = Double(numStr) else { return nil }
-    let restRaw = ns.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces).lowercased()
-    let normalized = restRaw.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    guard let match = regex.firstMatch(in: trimmedCommas,
+                                       range: NSRange(location: 0, length: ns.length)),
+          match.numberOfRanges == 4,
+          let num = Double(ns.substring(with: match.range(at: 1))) else { return nil }
+    let from = ns.substring(with: match.range(at: 2)).lowercased()
+    let to = ns.substring(with: match.range(at: 3)).lowercased()
+    let key = "\(from) to \(to)"
 
-    if let conv = conversionMap[normalized] {
-        let result: Double = conv.custom?(num) ?? (conv.factor.map { num * $0 } ?? num)
-        return .number(value: roundResult(result, decimalPlaces: decimalPlaces), unit: conv.unit)
+    // 1. Temperature: custom transform per supported direction.
+    if let temp = temps[key] {
+        return .number(value: roundResult(temp.fn(num), decimalPlaces: decimalPlaces),
+                       unit: temp.label)
     }
-    // currency
-    if let curRegex = try? NSRegularExpression(pattern: #"^(\w+)\s+to\s+(\w+)$"#, options: .caseInsensitive),
-       let curMatch = curRegex.firstMatch(in: normalized, range: NSRange(location: 0, length: (normalized as NSString).length)),
-       curMatch.numberOfRanges == 3 {
-        let nss = normalized as NSString
-        let from = nss.substring(with: curMatch.range(at: 1)).lowercased()
-        let to = nss.substring(with: curMatch.range(at: 2)).lowercased()
-        let key = "\(from) to \(to)"
-        var value: Double? = nil
-        var unit: String? = nil
-        switch key {
-        case "usd to rub":
-            guard let r = rates.USD else { return .error(message: "Rates unavailable") }
-            value = num * r; unit = "RUB"
-        case "eur to rub":
-            guard let r = rates.EUR else { return .error(message: "Rates unavailable") }
-            value = num * r; unit = "RUB"
-        case "rub to eur":
-            guard let r = rates.EUR else { return .error(message: "Rates unavailable") }
-            value = num / r; unit = "EUR"
-        case "usd to eur":
-            guard let r = rates.EURUSD else { return .error(message: "Rates unavailable") }
-            value = num * r; unit = "EUR"
-        case "eur to usd":
-            guard let r = rates.EURUSD else { return .error(message: "Rates unavailable") }
-            value = num / r; unit = "USD"
-        case "rub to usd":
-            guard let r = rates.USD else { return .error(message: "Rates unavailable") }
-            value = num / r; unit = "usd"
-        default:
-            return nil
-        }
-        if let v = value {
-            return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: unit)
-        }
+    // 2. Currency: the six supported pairs and their rate lookups.
+    //    A recognized pair without loaded rates is a rates error; an
+    //    unrecognized pair falls through to the unit table below, where
+    //    its words are (correctly) unknown units.
+    var value: Double?
+    var unit: String?
+    switch key {
+    case "usd to rub":
+        guard let r = rates.USD else { return .error(message: "Rates unavailable") }
+        value = num * r; unit = "RUB"
+    case "eur to rub":
+        guard let r = rates.EUR else { return .error(message: "Rates unavailable") }
+        value = num * r; unit = "RUB"
+    case "rub to eur":
+        guard let r = rates.EUR else { return .error(message: "Rates unavailable") }
+        value = num / r; unit = "EUR"
+    case "usd to eur":
+        guard let r = rates.EURUSD else { return .error(message: "Rates unavailable") }
+        value = num * r; unit = "EUR"
+    case "eur to usd":
+        guard let r = rates.EURUSD else { return .error(message: "Rates unavailable") }
+        value = num / r; unit = "USD"
+    case "rub to usd":
+        guard let r = rates.USD else { return .error(message: "Rates unavailable") }
+        value = num / r; unit = "usd"
+    default:
+        break
     }
-    return nil
+    if let v = value {
+        return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: unit)
+    }
+    // 3. Measurement units: both aliases must resolve and share a
+    //    dimension; the result goes through the base unit.
+    if let fromUnit = units[from], let toUnit = units[to] {
+        guard fromUnit.dimension == toUnit.dimension else {
+            return .error(message: "Incompatible units")
+        }
+        let result = num * fromUnit.baseFactor / toUnit.baseFactor
+        return .number(value: roundResult(result, decimalPlaces: decimalPlaces),
+                       unit: toUnit.label)
+    }
+    return .error(message: "Unknown units")
 }

@@ -44,4 +44,9 @@ struct EngineTests {
     func spaceTypingCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: conversionCases)
+    func conversionCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
