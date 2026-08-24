@@ -23,12 +23,67 @@ public enum CaretGeometry {
         CGRect(x: 0, y: Swift.max(0, top), width: 0, height: Swift.max(lineHeight, 1))
     }
 
+    /// Shared visual ROW BOX: the fragment's row origin (its container
+    /// y) with the configured FIXED line height. TextKit's natural
+    /// `lineFragmentRect` can be shorter than the fixed paragraph line
+    /// height, so centering on the natural fragment midline sits the
+    /// caret and the gutter number too high. The row box is the exact
+    /// vertical span the glyphs visually occupy: when the next fragment
+    /// is known, its measured advance (exact TextKit extra-line
+    /// geometry) wins; otherwise the configured fixed line height does.
+    /// The SAME box centers both the custom caret and the gutter
+    /// baseline for empty, populated, end-of-text, trailing-newline and
+    /// wrapped visual fragments alike.
+    public static func rowBox(
+        fragment: CGRect,
+        nextFragment: CGRect?,
+        fixedLineHeight: CGFloat
+    ) -> CGRect {
+        let height: CGFloat
+        if let next = nextFragment, next.minY > fragment.minY {
+            height = next.minY - fragment.minY
+        } else {
+            height = Swift.max(fixedLineHeight, fragment.height, 1)
+        }
+        return CGRect(x: fragment.minX, y: fragment.minY, width: 0, height: height)
+    }
+
+    /// Baseline of a FIXED-height row: TextKit keeps the natural line
+    /// box (ascender − descender + leading) flush with the row's bottom
+    /// edge — the extra space above it is `rowHeight - naturalHeight` —
+    /// so `baseline = rowTop + (rowHeight - naturalHeight) + ascender`.
+    /// Verified against the drawn glyph ink: the digits' baseline lands
+    /// exactly here (a plain `rowTop + rowHeight - descender` is off by
+    /// the leading and lands several points below the row).
+    public static func baseline(
+        rowTop: CGFloat,
+        rowHeight: CGFloat,
+        ascender: CGFloat,
+        naturalHeight: CGFloat
+    ) -> CGFloat {
+        rowTop + (rowHeight - naturalHeight) + ascender
+    }
+
+    /// Visual center of a line's numeric ink: half a cap height above
+    /// the baseline. This is the ONE centerline the large custom caret
+    /// and the gutter number share — the fragment midline itself sits
+    /// several points too high because the fixed row's extra space is
+    /// taken from above the natural line box.
+    public static func inkCenter(
+        baseline: CGFloat,
+        capHeight: CGFloat
+    ) -> CGFloat {
+        baseline - capHeight / 2
+    }
+
     /// Final insertion-point rect: `caretWidth` wide, pixel aligned (all
-    /// edges rounded to the point grid), vertically centered on the SAME
-    /// fragment midline the glyphs and gutter numbers use. The natural
-    /// glyph height (ascender − descender + leading) is clamped to the
-    /// fragment so a stretched line never shrinks the caret and the
-    /// caret never outgrows its line.
+    /// edges rounded to the point grid), vertically centered on the rect
+    /// passed in — the editor passes a row box whose midline IS the
+    /// ink centerline (see rowBox, baseline, inkCenter) so the caret
+    /// and the gutter numbers share one center. The natural glyph
+    /// height (ascender − descender + leading) is clamped to the box so
+    /// a stretched line never shrinks the caret and the caret never
+    /// outgrows its line.
     public static func caretRect(
         x: CGFloat,
         fragment: CGRect,

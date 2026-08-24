@@ -789,26 +789,59 @@ final class NotebookTextView: NSTextView {
     ///   height — the same math the gutter uses for that number);
     /// - wrapped lines fall out for free because each fragment is per
     ///   visual line.
-    private func caretFragment() -> CGRect? {
+    private func caretAnchor() -> (fragment: CGRect, glyph: Int)? {
         guard let lm = layoutManager, let tc = textContainer else { return nil }
         let lh = CGFloat(lineHeight)
         if lm.numberOfGlyphs == 0 {
-            return CaretGeometry.emptyLineFragment(top: 0, lineHeight: lh)
+            return (CaretGeometry.emptyLineFragment(top: 0, lineHeight: lh), NSNotFound)
         }
         let caret = selectedRange().location
         let charCount = (string as NSString).length
         if caret >= charCount {
             if string.hasSuffix("\n") {
                 let used = lm.usedRect(for: tc)
-                return CaretGeometry.emptyLineFragment(top: used.height - lh, lineHeight: lh)
+                return (CaretGeometry.emptyLineFragment(top: used.height - lh, lineHeight: lh), NSNotFound)
             }
-            return lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil)
+            return (lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil),
+                    lm.numberOfGlyphs - 1)
         }
         let glyph = lm.glyphIndexForCharacter(at: caret)
         guard glyph != NSNotFound, glyph < lm.numberOfGlyphs else {
-            return lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil)
+            return (lm.lineFragmentRect(forGlyphAt: lm.numberOfGlyphs - 1, effectiveRange: nil),
+                    lm.numberOfGlyphs - 1)
         }
-        return lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        return (lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil), glyph)
+    }
+
+    /// The shared visual ROW BOX the caret centers on: the anchor
+    /// fragment's row origin with the fixed line height (or the exact
+    /// measured advance to the next fragment — see
+    /// CaretGeometry.rowBox). Centering on the natural TextKit fragment
+    /// midline instead sits the caret too high whenever the fixed line
+    /// height exceeds the natural fragment height.
+    private func caretRowBox() -> CGRect? {
+        guard let anchor = caretAnchor(), let lm = layoutManager else { return nil }
+        var next: CGRect?
+        if anchor.glyph != NSNotFound {
+            // The first fragment below the anchor is the next visual row
+            // (wrapped lines included); its advance is the exact extra-
+            // line geometry the row box uses.
+            var found = false
+            lm.enumerateLineFragments(
+                forGlyphRange: NSMakeRange(0, lm.numberOfGlyphs)
+            ) { rect, _, _, _, stop in
+                if !found, rect.minY > anchor.fragment.minY + 0.5 {
+                    next = rect
+                    found = true
+                    stop.pointee = true
+                }
+            }
+        }
+        return CaretGeometry.rowBox(
+            fragment: anchor.fragment,
+            nextFragment: next,
+            fixedLineHeight: CGFloat(lineHeight)
+        )
     }
 
     /// v2 caret: the configured line height stretches every line fragment
@@ -820,17 +853,29 @@ final class NotebookTextView: NSTextView {
     /// coordinates because the fragment rect is in container coordinates
     /// plus the container inset.
     /// The final caret rect in VIEW coordinates: `CaretGeometry.caretRect`
-    /// centered on `caretFragment()`, with the x taken from the rect
-    /// AppKit itself computed for the current selection (head indent,
-    /// wrapped-line origins and the empty-document position all come from
-    /// AppKit — there is no arbitrary global offset).
+    /// centered on the shared row box (`caretRowBox()`), with the x taken
+    /// from TextKit's own selection geometry (head indent, wrapped-line
+    /// origins and the empty-document position — no arbitrary global
+    /// offset).
     private func caretViewRect(passedX: CGFloat) -> NSRect? {
-        guard let fragment = caretFragment() else { return nil }
+        guard let rowBox = caretRowBox() else { return nil }
         let font = self.font ?? NSFont.systemFont(ofSize: 14)
         let naturalHeight = font.ascender - font.descender + font.leading
+        // Center the caret on the row's INK centerline (baseline minus
+        // half a cap height), not on the raw row-box midline: the fixed
+        // row's extra space is taken from above the natural line box, so
+        // the midline lands visibly too high next to the glyphs.
+        let bl = CaretGeometry.baseline(
+            rowTop: rowBox.minY, rowHeight: rowBox.height,
+            ascender: font.ascender, naturalHeight: naturalHeight
+        )
+        let center = CaretGeometry.inkCenter(baseline: bl, capHeight: font.capHeight)
+        let centerBox = CGRect(
+            x: 0, y: center - rowBox.height / 2, width: 0, height: rowBox.height
+        )
         return CaretGeometry.caretRect(
             x: passedX,
-            fragment: fragment,
+            fragment: centerBox,
             containerInsetY: textContainerInset.height,
             naturalGlyphHeight: naturalHeight
         )
@@ -902,10 +947,20 @@ final class NotebookTextView: NSTextView {
         func drawNumber(_ n: Int, fragmentTop: CGFloat, fragmentHeight: CGFloat) {
             let y = insetY + fragmentTop
             if y + fragmentHeight < visible.minY - 40 || y > visible.maxY + 40 { return }
-            let fontLineHeight = textFont.ascender - textFont.descender + textFont.leading
-            let baseline = y
-                + max(0, (fragmentHeight - fontLineHeight) / 2)
-                + textFont.ascender
+            // SAME centerline as the caret: the row's baseline (the font
+            // descender sits on the fixed row's bottom edge) minus half a
+            // cap height of the TEXT font; the number then sits on that
+            // center with its own cap height (one shared rule for caret
+            // and gutter in every document state).
+            let rowBaseline = CaretGeometry.baseline(
+                rowTop: y, rowHeight: fragmentHeight,
+                ascender: textFont.ascender,
+                naturalHeight: textFont.ascender - textFont.descender + textFont.leading
+            )
+            let center = CaretGeometry.inkCenter(
+                baseline: rowBaseline, capHeight: textFont.capHeight
+            )
+            let baseline = center + numberFont.capHeight / 2
             let str = "\(n)" as NSString
             let size = str.size(withAttributes: [.font: numberFont])
             // The caret's line is one semantic step brighter than the rest.
@@ -931,27 +986,41 @@ final class NotebookTextView: NSTextView {
             return
         }
 
-        var lineIndex = 0
+        // Collect the visual fragments first so each number can be
+        // centered in the SAME shared row box the caret uses: row origin
+        // + exact advance to the next fragment (or the fixed line height
+        // on the last line) — never the shorter natural fragment height.
+        var rowTops: [CGFloat] = []
+        var rowFragHeights: [CGFloat] = []
         content.enumerateSubstrings(
             in: NSRange(location: 0, length: content.length),
             options: .byLines
         ) { _, lineRange, _, _ in
-            lineIndex += 1
             let firstGlyph = lm.glyphIndexForCharacter(at: lineRange.location)
             guard firstGlyph != NSNotFound else { return }
             let frag = lm.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
-            drawNumber(lineIndex, fragmentTop: frag.minY, fragmentHeight: frag.height)
+            rowTops.append(frag.minY)
+            rowFragHeights.append(frag.height)
         }
         // A document ending in a newline has a trailing empty line that
         // byLines does not enumerate; the caret can sit on it, so draw its
         // number too (fixed line height keeps the geometry exact).
         if content.hasSuffix("\n") {
             let used = lm.usedRect(for: tc)
-            let lh = CGFloat(self.lineHeight)
-            let trailingTop = used.height - lh
+            let trailingTop = used.height - CGFloat(self.lineHeight)
             if trailingTop >= 0 {
-                drawNumber(lineIndex + 1, fragmentTop: trailingTop, fragmentHeight: lh)
+                rowTops.append(trailingTop)
+                rowFragHeights.append(CGFloat(self.lineHeight))
             }
+        }
+        for i in rowTops.indices {
+            let nextTop: CGFloat? = i + 1 < rowTops.count ? rowTops[i + 1] : nil
+            let box = CaretGeometry.rowBox(
+                fragment: CGRect(x: 0, y: rowTops[i], width: 0, height: rowFragHeights[i]),
+                nextFragment: nextTop.map { CGRect(x: 0, y: $0, width: 0, height: 0) },
+                fixedLineHeight: CGFloat(self.lineHeight)
+            )
+            drawNumber(i + 1, fragmentTop: box.minY, fragmentHeight: box.height)
         }
     }
 

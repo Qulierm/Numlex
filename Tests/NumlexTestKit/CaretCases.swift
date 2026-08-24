@@ -106,4 +106,82 @@ public let caretCases: [EngineCase] = [
         try expectEqual(populated.height, empty.height, "populated and empty lines share the caret height")
         try expectEqual(populated.midY, empty.midY, "both center on the fragment midline")
     },
+
+    EngineCase("caret-row-box-fixed-midline") {
+        // The fixed paragraph line height can exceed the natural TextKit
+        // fragment height: the shared row box must still be the fixed
+        // height at the fragment's row origin, so the caret centers on
+        // the FIXED row midline, not the shorter natural fragment's.
+        let natural = CGRect(x: 54, y: 64, width: 0, height: 23) // natural < 30
+        let box = CaretGeometry.rowBox(
+            fragment: natural, nextFragment: nil, fixedLineHeight: 32
+        )
+        try expectEqual(box.origin, natural.origin, "row box keeps the fragment row origin")
+        try expectEqual(box.height, 32, "row box uses the fixed line height")
+        let r = CaretGeometry.caretRect(
+            x: 54, fragment: box, containerInsetY: 6, naturalGlyphHeight: 23
+        )
+        try expectClose(r.midY, box.midY + 6, 0.51, "caret center sits on the fixed row-box midline")
+        try expectClose(r.midY - 6, box.midY, 0.51, "no offset toward the natural fragment midline")
+    },
+
+    EngineCase("caret-row-box-exact-advance") {
+        // With the next fragment known, the measured advance is the exact
+        // extra-line geometry and wins — including wrapped fragments
+        // where the advance equals the fixed row pitch.
+        let a = CGRect(x: 54, y: 64, width: 0, height: 23)
+        let b = CGRect(x: 54, y: 96, width: 0, height: 23) // advance 32
+        let box = CaretGeometry.rowBox(
+            fragment: a, nextFragment: b, fixedLineHeight: 32
+        )
+        try expectEqual(box.origin.y, 64, "row origin")
+        try expectEqual(box.height, 32, "advance becomes the row height")
+        let r = CaretGeometry.caretRect(
+            x: 54, fragment: box, containerInsetY: 6, naturalGlyphHeight: 23
+        )
+        try expectClose(r.midY, 80 + 6, 0.51, "caret centers on the advance midline")
+        // Degenerate: a next fragment at the same origin falls back to
+        // the fixed height instead of a zero-tall row.
+        let bad = CaretGeometry.rowBox(
+            fragment: a, nextFragment: a, fixedLineHeight: 32
+        )
+        try expectEqual(bad.height, 32, "coincident next fragment falls back to fixed height")
+    },
+
+    EngineCase("caret-baseline-natural-box-bottom") {
+        // Fixed 32 pt row, SF20-equivalent metrics: ascender 19.34,
+        // natural box 23.55 < 32. TextKit keeps the natural line box
+        // flush with the row's bottom edge (extra space above), so
+        // baseline = rowTop + (rowHeight - naturalHeight) + ascender.
+        let bl = CaretGeometry.baseline(
+            rowTop: 64, rowHeight: 32, ascender: 19.34, naturalHeight: 23.55
+        )
+        try expectEqual(bl, 64 + (32 - 23.55) + 19.34, "natural box sits on the row's bottom edge")
+    },
+
+    EngineCase("caret-ink-center-rule") {
+        // The natural fragment height (23.55) is smaller than the fixed
+        // row (32): the shared centerline must be the INK center
+        // (baseline minus half a cap height), NOT the raw row midline —
+        // centering on the midline leaves the caret visibly too high
+        // next to the digits, and the gutter number one point high.
+        let bl = CaretGeometry.baseline(
+            rowTop: 0, rowHeight: 32, ascender: 19.34, naturalHeight: 23.55
+        )
+        let center = CaretGeometry.inkCenter(baseline: bl, capHeight: 14.46)
+        try expectEqual(center, 27.79 - 7.23, "ink center = baseline - cap/2")
+        try expect(center > 16, "ink center sits below the raw row midline")
+        // The caret centered on that line keeps its constant geometry.
+        let box = CGRect(x: 0, y: center - 32 / 2, width: 0, height: 32)
+        let r = CaretGeometry.caretRect(
+            x: 10, fragment: box, containerInsetY: 6, naturalGlyphHeight: 23.55
+        )
+        try expectEqual(r.width, 2, "width stays 2 pt")
+        try expectClose(r.midY, center + 6, 0.51, "caret centers on the ink centerline")
+        // Gutter parity: the number baseline (center + its own cap/2)
+        // puts the number's ink center on the SAME line as the caret.
+        let numBaseline = center + 5.93 / 2
+        let numInkCenter = numBaseline - 5.93 / 2
+        try expectEqual(numInkCenter, center, "gutter ink center shares the caret centerline")
+    },
 ]
