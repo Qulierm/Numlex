@@ -54,4 +54,9 @@ struct EngineTests {
     func deletionCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: overflowCases)
+    func overflowCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

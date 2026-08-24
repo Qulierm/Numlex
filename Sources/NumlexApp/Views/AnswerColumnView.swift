@@ -62,20 +62,6 @@ struct AnswerColumnView: View {
         )
     }
 
-    private func formatted(_ value: Double) -> String {
-        if value.truncatingRemainder(dividingBy: 1) == 0 {
-            let f = NumberFormatter()
-            f.numberStyle = .decimal
-            f.groupingSeparator = ","
-            f.locale = Locale(identifier: "en_US")
-            return f.string(from: NSNumber(value: Int64(value))) ?? "\(Int64(value))"
-        }
-        var s = String(format: "%.\(decimalPlaces)f", value)
-        while s.hasSuffix("0") { s.removeLast() }
-        if s.hasSuffix(".") { s.removeLast() }
-        return s
-    }
-
     private var summary: (value: String, unit: String?)? {
         let numeric = rows.compactMap { line -> Double? in
             if case .number(let v, let u) = line.result, u == nil { return v } else { return nil }
@@ -85,7 +71,9 @@ struct AnswerColumnView: View {
         if sum.truncatingRemainder(dividingBy: 1) != 0 {
             sum = (sum * pow(10, Double(decimalPlaces))).rounded() / pow(10, Double(decimalPlaces))
         }
-        return (formatted(sum), nil)
+        // The shared overflow-safe formatter: an overflowing sum (inf)
+        // can never trap here.
+        return (formatDisplayValue(sum, decimalPlaces: decimalPlaces), nil)
     }
 
     var body: some View {
@@ -192,7 +180,7 @@ struct AnswerColumnView: View {
                 Color.clear
             case .number(let v, let unit):
                 HStack(spacing: 5) {
-                    Text(formatted(v))
+                    Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
                         .font(Design.body(fontSize))
                         // Every answer/result glyph is fixed white
                         // regular, per the design request.
@@ -209,7 +197,7 @@ struct AnswerColumnView: View {
             case .variable(_, let v):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
-                Text(formatted(v))
+                Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
                     .font(Design.body(fontSize))
                     .foregroundStyle(.white)
                     .lineLimit(1)

@@ -79,6 +79,11 @@ private let temps: [String: TempDef] = [
 ]
 
 func roundResult(_ value: Double, decimalPlaces: Int) -> Double {
+    // Defense in depth: the engine boundaries reject non-finite results,
+    // so this is a pure pass-through safety valve. Without it,
+    // String(format:) would emit "inf"/"nan" and Double("inf") would
+    // smuggle a non-finite value back into a .number result.
+    guard value.isFinite else { return value }
     if value.truncatingRemainder(dividingBy: 1) != 0 {
         let factor = pow(10.0, Double(decimalPlaces))
         // use formatted to avoid floating noise
@@ -114,10 +119,17 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResu
     let from = ns.substring(with: match.range(at: 2)).lowercased()
     let to = ns.substring(with: match.range(at: 3)).lowercased()
     let key = "\(from) to \(to)"
+    // A conversion-shaped line whose number has hundreds of digits
+    // parses to ±∞: it is a conversion attempt with an unusable number,
+    // so it gets the generic hidden error instead of a fallthrough.
+    guard num.isFinite else { return .error(message: "Invalid number") }
 
-    // 1. Temperature: custom transform per supported direction.
+    // 1. Temperature: custom transform per supported direction. The
+    //    input and the transformed result must stay finite.
     if let temp = temps[key] {
-        return .number(value: roundResult(temp.fn(num), decimalPlaces: decimalPlaces),
+        let t = temp.fn(num)
+        guard t.isFinite else { return .error(message: "Overflow") }
+        return .number(value: roundResult(t, decimalPlaces: decimalPlaces),
                        unit: temp.label)
     }
     // 2. Currency: the six supported pairs and their rate lookups.
@@ -149,6 +161,9 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResu
         break
     }
     if let v = value {
+        // Non-finite rates (∞/NaN) or overflow must become a generic
+        // hidden error, never a .number.
+        guard v.isFinite else { return .error(message: "Overflow") }
         return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: unit)
     }
     // 3. Measurement units: both aliases must resolve and share a
@@ -158,6 +173,10 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResu
             return .error(message: "Incompatible units")
         }
         let result = num * fromUnit.baseFactor / toUnit.baseFactor
+        // Large FINITE results (e.g. 5e22) are perfectly valid and keep
+        // flowing to the scientific display; only non-finite overflow is
+        // rejected.
+        guard result.isFinite else { return .error(message: "Overflow") }
         return .number(value: roundResult(result, decimalPlaces: decimalPlaces),
                        unit: toUnit.label)
     }

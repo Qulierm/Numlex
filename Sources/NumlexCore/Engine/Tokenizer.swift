@@ -55,7 +55,10 @@ public func tokenize(_ expr: String) throws -> [Token] {
             if dots > 1 || numStr == "." || numStr.isEmpty {
                 throw TokenizeError.invalidNumber(numStr)
             }
-            guard let v = Double(numStr) else { throw TokenizeError.invalidNumber(numStr) }
+            // A literal with hundreds of digits can parse to +∞ (or −∞
+            // via a later sign); non-finite literals are rejected at the
+            // boundary instead of flowing through the evaluator.
+            guard let v = Double(numStr), v.isFinite else { throw TokenizeError.invalidNumber(numStr) }
             tokens.append(.number(v))
             continue
         }

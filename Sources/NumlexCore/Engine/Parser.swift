@@ -5,6 +5,7 @@ public enum ParseError: Error, LocalizedError {
     case unknownVariable(String)
     case invalidVariable(String)
     case divisionByZero
+    case nonFiniteResult
     case missingClosingParen
     case unexpectedEnd
     case unexpectedToken(String)
@@ -16,6 +17,7 @@ public enum ParseError: Error, LocalizedError {
         case .unknownVariable(let n): return "Unknown variable '\(n)'"
         case .invalidVariable(let n): return "Invalid variable '\(n)'"
         case .divisionByZero: return "Division by zero"
+        case .nonFiniteResult: return "Result is not finite"
         case .missingClosingParen: return "Missing closing parenthesis"
         case .unexpectedEnd: return "Unexpected end"
         case .unexpectedToken(let s): return "Unexpected token '\(s)'"
@@ -82,7 +84,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
         case .identifier(let name):
             _ = consume()
             guard let v = variables[name] else { throw ParseError.unknownVariable(name) }
-            if v.isNaN { throw ParseError.invalidVariable(name) }
+            if !v.isFinite { throw ParseError.invalidVariable(name) }
             value = v
         case .paren("("):
             _ = consume()
@@ -104,5 +106,10 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
     if pos < tokens.count {
         throw ParseError.unexpectedToken("\(tokens[pos])")
     }
+    // Overflow defense: pow/multiplication/addition can produce ±∞ or
+    // NaN (e.g. `10 ^ 400`). The invariant is that evaluateExpression
+    // only ever returns finite numbers, so every call site (expressions,
+    // assignments, cleaned fallbacks) rejects non-finite results here.
+    guard result.isFinite else { throw ParseError.nonFiniteResult }
     return result
 }

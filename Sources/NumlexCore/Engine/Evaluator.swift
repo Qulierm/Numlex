@@ -148,15 +148,9 @@ public func declaredVariables(_ source: String) -> [String: Bool] {
     return dict
 }
 
+/// Overflow-safe display formatting — a thin alias for the single shared
+/// formatter (`formatDisplayValue`). The previous implementation trapped
+/// on values above Int64.max via a direct `Int64(value)` cast.
 public func formatNumberForDisplay(_ value: Double) -> String {
-    if value.truncatingRemainder(dividingBy: 1) == 0 {
-        let intVal = Int64(value)
-        let fmt = NumberFormatter()
-        fmt.numberStyle = .decimal
-        fmt.groupingSeparator = ","
-        fmt.locale = Locale(identifier: "en_US")
-        return fmt.string(from: NSNumber(value: intVal)) ?? "\(intVal)"
-    } else {
-        return "\(value)"
-    }
+    formatDisplayValue(value)
 }
