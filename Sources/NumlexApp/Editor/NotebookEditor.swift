@@ -392,8 +392,14 @@ final class NotebookEditorCoordinator: NSObject {
             return
         }
         let content = text as NSString
-        var vars: [String: Double] = [:]
-        let rows = evaluateSheet(text, variables: &vars, rates: rates, decimalPlaces: decimalPlaces)
+        // The classifier is the single per-LINE source of truth: one
+        // spans entry per logical line, aligned 1:1 with the text. The
+        // evaluator's rows are deliberately NOT used here —
+        // evaluateSheet collapses empty/comment rows (a leading blank
+        // line produces no row at all), which would shift the alignment
+        // for every line after it. Line kinds that need special styling
+        // (hash heading, title) are recognized from the same prefixes
+        // the evaluator uses.
         let spans = SyntaxClassifier.spans(for: text, rates: rates, decimalPlaces: decimalPlaces)
 
         let font = NSFont.systemFont(ofSize: fontSize)
@@ -411,23 +417,39 @@ final class NotebookEditorCoordinator: NSObject {
         for (i, line) in parts.enumerated() {
             let len = (line as NSString).length
             defer { lineStart += len + (i < parts.count - 1 ? 1 : 0) }
-            guard i < rows.count, len > 0 else { continue }
+            guard len > 0 else { continue }
             let range = NSRange(location: lineStart, length: len)
-            switch rows[i] {
-            case .error:
-                // No whole-line red: errors are painted from their
-                // lexical spans only, everything else stays white base.
-                applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
-            case .title:
-                storage.addAttribute(.font,
-                                     value: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
-                                     range: range)
-                storage.addAttribute(.foregroundColor, value: Design.titleColor, range: range)
-            case .number, .variable:
-                applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
-            case .blank, .skip:
-                break
+            // Hash heading (same `hasPrefix("#")` rule as the
+            // evaluator): the marker stays a regular-font gray `#`, the
+            // body after it is fixed white at system weight .black.
+            if line.hasPrefix("#") {
+                storage.addAttribute(
+                    .foregroundColor, value: Design.headingMarkerColor,
+                    range: NSRange(location: lineStart, length: 1)
+                )
+                if len > 1 {
+                    let body = NSRange(location: lineStart + 1, length: len - 1)
+                    storage.addAttribute(
+                        .font, value: NSFont.systemFont(ofSize: fontSize, weight: .black),
+                        range: body
+                    )
+                    storage.addAttribute(.foregroundColor, value: Design.baseText, range: body)
+                }
+                continue
             }
+            if line.hasPrefix("// ") {
+                storage.addAttribute(
+                    .font, value: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+                    range: range
+                )
+                storage.addAttribute(.foregroundColor, value: Design.titleColor, range: range)
+                continue
+            }
+            // Everything else (expressions, assignments, conversions,
+            // partial assignments and errors) is painted purely from the
+            // line's classified spans; prose carries no spans and keeps
+            // the base attributes set above.
+            applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
         }
         storage.endEditing()
         textView.typingAttributes = typingAttrs
@@ -441,12 +463,15 @@ final class NotebookEditorCoordinator: NSObject {
     private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int, in storage: NSTextStorage) {
         for span in lineSpans {
             let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
-            let color: NSColor
-            switch span.role {
-            case .number: color = Design.numberColor
-            case .variable: color = Design.variableColor
-            case .conversion: color = Design.conversionColor
-            }
+            // Hash spans are styled by the dedicated hash-heading branch
+            // (gray regular marker, very-bold white body), never by the
+            // chromatic palette.
+            guard let color: NSColor = switch span.role {
+                case .number: Design.numberColor
+                case .variable: Design.variableColor
+                case .conversion: Design.conversionColor
+                case .hashMarker, .hashBody: nil
+            } else { continue }
             storage.addAttribute(.foregroundColor, value: color, range: r)
         }
     }

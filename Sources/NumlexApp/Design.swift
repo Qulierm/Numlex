@@ -20,6 +20,11 @@ enum Design {
     /// The gutter number of the line the caret is on: one step brighter.
     static var gutterColorActive: NSColor { .secondaryLabelColor }
 
+    /// Hash-heading `#` marker: adaptive secondary label gray — clearly
+    /// gray against the white, very-bold heading body, in both
+    /// appearances.
+    static var headingMarkerColor: NSColor { .secondaryLabelColor }
+
     // MARK: Notebook syntax palette (deterministic sRGB values)
     //
     // Every chromatic token is an explicit sRGB value: the same hue

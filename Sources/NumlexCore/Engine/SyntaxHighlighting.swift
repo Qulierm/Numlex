@@ -13,6 +13,10 @@ public enum SyntaxRole: Equatable, Sendable {
     case variable
     /// A unit word of a conversion (the `to` keyword carries no role).
     case conversion
+    /// The `#` marker character of a hash heading line.
+    case hashMarker
+    /// The heading body: every character after the `#` on the line.
+    case hashBody
 }
 
 /// One classified span. `range` is a UTF-16 `NSRange` inside a single
@@ -42,12 +46,30 @@ public enum SyntaxClassifier {
         var result: [[SyntaxSpan]] = []
         var vars: [String: Double] = [:]
         for line in source.components(separatedBy: "\n") {
-            // Mirror evaluateSheet's line-kind handling: empty, `#` and
-            // `//` lines never carry token spans.
+            // Mirror evaluateSheet's line-kind handling: empty and `//`
+            // lines never carry token spans.
             if line.trimmingCharacters(in: .whitespaces).isEmpty
-                || line.hasPrefix("#")
                 || line.hasPrefix("//") {
                 result.append([])
+                continue
+            }
+            // Hash heading: the evaluator treats `#` lines as
+            // non-evaluated blanks, but they carry explicit heading
+            // spans — the single `#` marker and the whole body after it
+            // (UTF-16 lengths via NSString, so surrogate pairs in the
+            // body stay consistent with the text storage).
+            if line.hasPrefix("#") {
+                let ns = line as NSString
+                var heading: [SyntaxSpan] = [
+                    SyntaxSpan(role: .hashMarker, range: NSRange(location: 0, length: 1))
+                ]
+                if ns.length > 1 {
+                    heading.append(SyntaxSpan(
+                        role: .hashBody,
+                        range: NSRange(location: 1, length: ns.length - 1)
+                    ))
+                }
+                result.append(heading)
                 continue
             }
             let evaluation = evalLine(line, variables: &vars,
@@ -114,10 +136,23 @@ public enum SyntaxClassifier {
             return conversionSpans(line)
         }
         var spans: [SyntaxSpan] = []
+        // Partial assignment: a valid ASCII identifier directly before
+        // the first `=` (leading whitespace allowed, exactly like the
+        // evaluator's LHS parse) is a variable even without a valid
+        // RHS — `hello =` paints `hello` on the same tick the `=` is
+        // typed. Visual only: the evaluator still decides when the
+        // variable is really set; a bare `hello` (no `=`) never reaches
+        // here (it is .skip prose) and an invalid LHS (`2hello =`) does
+        // not match the identifier pattern.
+        let lhsRange = firstMatchGroup(#"^\s*([A-Za-z_]\w*)\s*="#, group: 1, in: ns)
+        if let lhsRange {
+            spans.append(SyntaxSpan(role: .variable, range: lhsRange))
+        }
         for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
-        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where variables[ns.substring(with: m)] != nil {
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns)
+        where variables[ns.substring(with: m)] != nil && (lhsRange == nil || m != lhsRange) {
             spans.append(SyntaxSpan(role: .variable, range: m))
         }
         return spans
@@ -176,5 +211,16 @@ public enum SyntaxClassifier {
 
     private static func firstMatch(_ pattern: String, in ns: NSString) -> NSRange? {
         matches(pattern, in: ns).first
+    }
+
+    /// The range of a capture group of the first match (UTF-16 offsets).
+    private static func firstMatchGroup(_ pattern: String, group: Int = 1,
+                                        in ns: NSString) -> NSRange? {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let full = NSRange(location: 0, length: ns.length)
+        guard let m = re.firstMatch(in: ns as String, range: full),
+              m.numberOfRanges > group else { return nil }
+        let g = m.range(at: group)
+        return g.location == NSNotFound ? nil : g
     }
 }
