@@ -20,31 +20,39 @@ enum Design {
     /// The gutter number of the line the caret is on: one step brighter.
     static var gutterColorActive: NSColor { .secondaryLabelColor }
 
-    /// Hash-heading `#` marker: adaptive secondary label gray — clearly
-    /// gray against the white, very-bold heading body, in both
-    /// appearances.
-    static var headingMarkerColor: NSColor { .secondaryLabelColor }
+    /// Hash-heading `#` marker: a deterministic adaptive neutral gray —
+    /// clearly lighter than secondaryLabelColor in dark mode (around
+    /// sRGB 185 on the editor's near-black background) and a readable
+    /// medium gray in light mode. Explicit sRGB per appearance, full
+    /// alpha; no system dynamic colors.
+    static let headingMarkerColor = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark
+            ? NSColor(srgbRed: 185.0 / 255.0, green: 185.0 / 255.0, blue: 187.0 / 255.0, alpha: 1)
+            : NSColor(srgbRed: 122.0 / 255.0, green: 122.0 / 255.0, blue: 126.0 / 255.0, alpha: 1)
+    }
 
     // MARK: Notebook syntax palette (deterministic sRGB values)
     //
     // Every chromatic token is an explicit sRGB value: the same hue
-    // direction as the original gamut with coherently RAISED lightness
-    // (v2 step) on top of the v1 matte values — a matte finish, not a
-    // washed-out one, and no neon clipping: each role moved ~4-6% in
-    // HSL lightness while keeping its own hue and a moderate
-    // saturation, so numbers, variables, conversions and titles each
-    // read clearly on both the editor's dark background and the raised
-    // answer panel. The fixed white base, operators, `to` and answer
-    // values are untouched. No opacity layering is used.
+    // direction as the original gamut, now with coherently RAISED CHROMA
+    // (v3 step) on top of the v2 lightness step — a more saturated,
+    // still matte finish with no neon clipping: each role's color is
+    // pulled further from gray at (roughly) the same lightness, keeping
+    // the four role hues clearly distinct, so numbers, variables,
+    // conversions and titles each read clearly on both the editor's
+    // dark background and the raised answer panel. The fixed white base,
+    // operators, `to` and answer values are untouched. No opacity
+    // layering is used.
 
-    /// Numeric literals: sRGB(83, 217, 229) — brighter matte cyan (H185 S74 L61).
-    static let numberColor = NSColor(srgbRed: 83.0 / 255.0, green: 217.0 / 255.0, blue: 229.0 / 255.0, alpha: 1)
-    /// Variable identifiers: sRGB(96, 215, 123) — brighter matte green (H134 S69 L66).
-    static let variableColor = NSColor(srgbRed: 96.0 / 255.0, green: 215.0 / 255.0, blue: 123.0 / 255.0, alpha: 1)
-    /// Unit words in conversions: sRGB(226, 145, 245) — brighter matte purple (H289 S71 L73).
-    static let conversionColor = NSColor(srgbRed: 226.0 / 255.0, green: 145.0 / 255.0, blue: 245.0 / 255.0, alpha: 1)
-    /// Comment titles: sRGB(117, 190, 242) — brighter matte blue (H205 S83 L70).
-    static let titleColor = NSColor(srgbRed: 117.0 / 255.0, green: 190.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
+    /// Numeric literals: sRGB(61, 224, 239) — saturated matte cyan (H185 S85 L59).
+    static let numberColor = NSColor(srgbRed: 61.0 / 255.0, green: 224.0 / 255.0, blue: 239.0 / 255.0, alpha: 1)
+    /// Variable identifiers: sRGB(75, 220, 110) — saturated matte green (H134 S68 L58).
+    static let variableColor = NSColor(srgbRed: 75.0 / 255.0, green: 220.0 / 255.0, blue: 110.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: sRGB(231, 137, 251) — saturated matte purple (H289 S94 L76).
+    static let conversionColor = NSColor(srgbRed: 231.0 / 255.0, green: 137.0 / 255.0, blue: 251.0 / 255.0, alpha: 1)
+    /// Comment titles: sRGB(101, 188, 246) — saturated matte blue (H204 S89 L68).
+    static let titleColor = NSColor(srgbRed: 101.0 / 255.0, green: 188.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
 
     /// Editor caret: sRGB(52, 120, 247) — fixed accent blue matched to
     /// the Soulver reference. Constant across appearances; the caret's

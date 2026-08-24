@@ -420,9 +420,14 @@ final class NotebookEditorCoordinator: NSObject {
             guard len > 0 else { continue }
             let range = NSRange(location: lineStart, length: len)
             // Hash heading (same `hasPrefix("#")` rule as the
-            // evaluator): the marker stays a regular-font gray `#`, the
-            // body after it is fixed white at system weight .black.
+            // evaluator): the `#` marker is a bold-ish (.heavy) gray,
+            // the body after it is fixed white, also .heavy — slightly
+            // less heavy than the old .black body.
             if line.hasPrefix("#") {
+                storage.addAttribute(
+                    .font, value: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
+                    range: NSRange(location: lineStart, length: 1)
+                )
                 storage.addAttribute(
                     .foregroundColor, value: Design.headingMarkerColor,
                     range: NSRange(location: lineStart, length: 1)
@@ -430,7 +435,7 @@ final class NotebookEditorCoordinator: NSObject {
                 if len > 1 {
                     let body = NSRange(location: lineStart + 1, length: len - 1)
                     storage.addAttribute(
-                        .font, value: NSFont.systemFont(ofSize: fontSize, weight: .black),
+                        .font, value: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
                         range: body
                     )
                     storage.addAttribute(.foregroundColor, value: Design.baseText, range: body)
@@ -464,7 +469,7 @@ final class NotebookEditorCoordinator: NSObject {
         for span in lineSpans {
             let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
             // Hash spans are styled by the dedicated hash-heading branch
-            // (gray regular marker, very-bold white body), never by the
+            // (heavy gray marker, heavy white body), never by the
             // chromatic palette.
             guard let color: NSColor = switch span.role {
                 case .number: Design.numberColor
