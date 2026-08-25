@@ -59,4 +59,9 @@ struct EngineTests {
     func overflowCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: answerReferenceCases)
+    func answerReferenceCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

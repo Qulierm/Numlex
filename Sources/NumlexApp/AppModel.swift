@@ -23,9 +23,15 @@ final class AppModel {
             // then refresh automatic titles so they reflect the canonical
             // text. Manual titles are untouched by `retitled`.
             sheets = payload.sheets.map { sheet in
-                let result = Sheet.canonicalized(sheet)
-                if result.changed { migrated = true }
-                return result.sheet
+                var s = Sheet.canonicalized(sheet).sheet
+                // Defensive: a corrupted payload must never carry dead
+                // references or a stale line-ID table.
+                s.references = Sheet.sanitizeReferences(s.references, in: s.content)
+                if s.lineIDs.count != s.logicalLineCount {
+                    s.lineIDs = (0..<s.logicalLineCount).map { _ in UUID() }
+                }
+                if s.lineIDs.count != s.logicalLineCount || !s.references.isEmpty { migrated = true }
+                return s
             }
             selectedIndex = min(payload.selectedIndex, max(sheets.count - 1, 0))
             settings = payload.settings
@@ -52,20 +58,85 @@ final class AppModel {
         return sheets[selectedIndex]
     }
 
-    func updateContent(_ content: String) {
+    /// User edit of the selected sheet. The announced edit (range +
+    /// replacement, nil when unknown) drives the pure line-identity
+    /// reconciliation: logical line IDs and token marker positions are
+    /// carried over exactly, the canonical format pass included.
+    func updateContent(_ content: String, edit: NotebookEdit?) {
         guard sheets.indices.contains(selectedIndex) else { return }
         var sheet = sheets[selectedIndex]
+        let reconciled = LineIdentity.reconcile(
+            oldContent: sheet.content,
+            oldLineIDs: sheet.lineIDs,
+            oldReferences: sheet.references,
+            newContent: content,
+            edit: edit
+        )
         sheet.content = content
+        sheet.lineIDs = reconciled.lineIDs
+        sheet.references = reconciled.references
         sheet.modifiedAt = Date()
         // Title follows the first calculation until the user renames it.
         sheets[selectedIndex] = Sheet.retitled(sheet, content: content)
         persist()
     }
 
+    /// Registers references born from an internal paste; the editor has
+    /// already derived each marker's final UTF-16 location.
+    func addReferences(_ refs: [AnswerReference]) {
+        guard sheets.indices.contains(selectedIndex) else { return }
+        var sheet = sheets[selectedIndex]
+        var all = sheet.references
+        all.append(contentsOf: refs)
+        sheet.references = Sheet.sanitizeReferences(all, in: sheet.content)
+        sheets[selectedIndex] = sheet
+        persist()
+    }
+
+    /// Double-click on a successful answer: append ONE token on its own
+    /// new final logical line — occupying an existing trailing blank
+    /// line when present, otherwise adding a newline first. The token
+    /// references the source line by STABLE ID; `labelLine` remembers
+    /// the 1-based line number for the inactive `Line N` label. The caret
+    /// lands right after the token.
+    func insertToken(sourceLineIndex: Int) {
+        guard sheets.indices.contains(selectedIndex) else { return }
+        var sheet = sheets[selectedIndex]
+        guard sheet.lineIDs.indices.contains(sourceLineIndex) else { return }
+        let content = sheet.content
+        var newContent: String
+        var lineIDs = sheet.lineIDs
+        if content.isEmpty || content.hasSuffix("\n") {
+            // The final logical line is blank: it becomes the token line.
+            newContent = content + String(answerTokenMarker)
+        } else {
+            newContent = content + "\n" + String(answerTokenMarker)
+            lineIDs.append(UUID())
+        }
+        let location = (newContent as NSString).length - 1
+        var refs = sheet.references
+        refs.append(AnswerReference(
+            sourceLineID: sheet.lineIDs[sourceLineIndex],
+            labelLine: sourceLineIndex + 1,
+            location: location
+        ))
+        sheet.content = newContent
+        sheet.lineIDs = lineIDs
+        sheet.references = Sheet.sanitizeReferences(refs, in: newContent)
+        sheet.modifiedAt = Date()
+        sheets[selectedIndex] = Sheet.retitled(sheet, content: newContent)
+        persist()
+        focusSheetID = sheet.id
+        focusCaret = location + 1
+    }
+
     /// One-shot keyboard-focus request for a freshly created sheet.
     /// Transient on purpose: it is never part of the persisted payload,
     /// so relaunches and imports can never steal focus.
     var focusSheetID: Sheet.ID?
+    /// UTF-16 caret position for the pending focus request (nil = 0);
+    /// token insertion lands the caret right after the fresh marker.
+    var focusCaret: Int?
 
     func newSheet() {
         let seed = "\(settings.sheetName) \(sheets.count + 1)"
@@ -123,7 +194,9 @@ final class AppModel {
 
     func exportCurrent() -> SheetExport? {
         guard let s = selectedSheet else { return nil }
-        return SheetExport(title: s.title, content: s.content, isTitleCustom: s.isTitleCustom)
+        return SheetExport(title: s.title, content: s.content,
+                           isTitleCustom: s.isTitleCustom,
+                           lineIDs: s.lineIDs, references: s.references)
     }
 
     private func makeImportedSheet(_ obj: SheetExport) -> Sheet {
@@ -133,8 +206,30 @@ final class AppModel {
         // Imported math lines are canonicalized too; prose, comments,
         // titles and conversions come back byte-identical.
         let content = NotebookFormatting.canonicalDocument(obj.content)
+        // The format pass may re-space token lines: replay its UTF-16
+        // map so imported references keep pointing at real markers.
+        var refs = obj.references ?? []
+        if !refs.isEmpty {
+            let map: [Int]
+            if content != obj.content {
+                map = NotebookFormatting.mapDocument(from: obj.content, to: content)
+            } else {
+                map = Array(0...((obj.content as NSString).length))
+            }
+            let ns = content as NSString
+            refs = refs.compactMap { r in
+                let p = map[min(max(r.location, 0), map.count - 1)]
+                guard p >= 0, p < ns.length, ns.character(at: p) == answerTokenMarkerUTF16 else { return nil }
+                return r.withLocation(p)
+            }
+        }
+        var lineIDs = obj.lineIDs ?? []
+        if lineIDs.count != content.components(separatedBy: "\n").count {
+            lineIDs = content.components(separatedBy: "\n").map { _ in UUID() }
+        }
         return Sheet(title: obj.title, content: content,
-                     createdAt: Date(), modifiedAt: Date(), isTitleCustom: custom)
+                     createdAt: Date(), modifiedAt: Date(), isTitleCustom: custom,
+                     lineIDs: lineIDs, references: refs)
     }
 
     func importSheet(from url: URL) {

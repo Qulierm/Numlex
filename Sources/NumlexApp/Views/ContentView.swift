@@ -28,7 +28,17 @@ struct ContentView: View {
                     let sheet = model.selectedSheet
                     let binding = Binding<String>(
                         get: { sheet?.content ?? "" },
-                        set: { model.updateContent($0) }
+                        set: { model.updateContent($0, edit: nil) }
+                    )
+                    // Reference-aware evaluation: the SAME one-row-per-
+                    // logical-line result as before, plus the live state
+                    // of every token marker the editor renders.
+                    let resolved = resolveSheet(
+                        content: sheet?.content ?? "",
+                        lineIDs: sheet?.lineIDs ?? [],
+                        references: sheet?.references ?? [],
+                        rates: model.rates,
+                        decimalPlaces: settings.decimalPlaces
                     )
                     NotebookEditor(
                         text: binding,
@@ -44,9 +54,13 @@ struct ContentView: View {
                             topOffset = offset
                         },
                         onLayout: { m in metrics = m },
-                        onTextChange: { model.updateContent($0) },
+                        onTextChange: { text, edit in model.updateContent(text, edit: edit) },
+                        tokenStates: resolved.tokens,
+                        tokenRefs: sheet?.references ?? [],
+                        onPasteReferences: { refs in model.addReferences(refs) },
                         focusRequestID: model.focusSheetID,
-                        onFocusConsumed: { model.focusSheetID = nil },
+                        focusPosition: model.focusCaret,
+                        onFocusConsumed: { model.focusSheetID = nil; model.focusCaret = nil },
                         onReady: { bridge in editorBridge = bridge }
                     )
                     .id(sheet?.id)
@@ -58,13 +72,18 @@ struct ContentView: View {
                 Divider()
 
                 let settings = model.settings
+                // Reference-aware rows (same strict 1:1 contract as
+                // evaluateSheet, with token lines resolved to their
+                // current linked values).
                 let rows: [SheetLine] = {
-                    var vars: [String: Double] = [:]
-                    // evaluateSheet returns exactly one indexed line per
-                    // logical source line (strict 1:1 contract) and
-                    // accumulates variables across lines sequentially.
-                    let content = model.selectedSheet?.content ?? ""
-                    return evaluateSheet(content, variables: &vars, rates: model.rates, decimalPlaces: settings.decimalPlaces)
+                    let sheet = model.selectedSheet
+                    return resolveSheet(
+                        content: sheet?.content ?? "",
+                        lineIDs: sheet?.lineIDs ?? [],
+                        references: sheet?.references ?? [],
+                        rates: model.rates,
+                        decimalPlaces: settings.decimalPlaces
+                    ).lines
                 }()
                 AnswerColumnView(
                     rows: rows,
@@ -76,6 +95,9 @@ struct ContentView: View {
                         // single native momentum/elasticity source and its
                         // BoundsDidChange drives topOffset back.
                         editorBridge?.forwardScrollWheel(event)
+                    },
+                    onAnswerDoubleTap: { lineIndex in
+                        model.insertToken(sourceLineIndex: lineIndex)
                     },
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
@@ -169,7 +191,9 @@ struct NLXDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.nlx, .json] }
     init(model: AppModel) {
         if let s = model.sheets.indices.contains(model.selectedIndex) ? model.sheets[model.selectedIndex] : nil {
-            export = SheetExport(title: s.title, content: s.content, isTitleCustom: s.isTitleCustom)
+            export = SheetExport(title: s.title, content: s.content,
+                                 isTitleCustom: s.isTitleCustom,
+                                 lineIDs: s.lineIDs, references: s.references)
         } else {
             export = SheetExport(title: "Sheet", content: "")
         }

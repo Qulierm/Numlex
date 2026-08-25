@@ -84,7 +84,7 @@ public enum SyntaxClassifier {
                 spans = expressionSpans(line, variables: vars)
             case .variable(let name, _):
                 spans = assignmentSpans(line, name: name, variables: vars)
-            case .blank, .skip, .title:
+            case .blank, .skip, .title, .brokenToken:
                 spans = []
             case .error:
                 // Evaluation failures are still lexically classifiable:

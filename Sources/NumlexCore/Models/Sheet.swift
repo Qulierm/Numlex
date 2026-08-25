@@ -12,6 +12,14 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     /// Generic name assigned at creation — used as the fallback for
     /// automatic titles once the first calculation disappears again.
     public var titleSeed: String
+    /// One stable UUID per LOGICAL line (the same split the evaluator
+    /// uses, including blanks and the trailing line after a final
+    /// newline). Answer tokens reference lines by this ID, never by
+    /// index, so edits above must not redirect them.
+    public var lineIDs: [UUID]
+    /// Live answer reference tokens (U+FFFC markers + sidecar metadata),
+    /// sorted by marker location.
+    public var references: [AnswerReference]
 
     public init(id: UUID = UUID(),
                 title: String,
@@ -19,7 +27,9 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
                 createdAt: Date = Date(),
                 modifiedAt: Date = Date(),
                 isTitleCustom: Bool = false,
-                titleSeed: String? = nil) {
+                titleSeed: String? = nil,
+                lineIDs: [UUID] = [],
+                references: [AnswerReference] = []) {
         self.id = id
         self.title = title
         self.content = content
@@ -27,11 +37,17 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         self.modifiedAt = modifiedAt
         self.isTitleCustom = isTitleCustom
         self.titleSeed = titleSeed ?? title
+        // Normalize: one ID per logical line, only references whose
+        // marker really points at a U+FFFC in the content.
+        self.lineIDs = (lineIDs.count == content.components(separatedBy: "\n").count)
+            ? lineIDs
+            : content.components(separatedBy: "\n").map { _ in UUID() }
+        self.references = Sheet.sanitizeReferences(references, in: content)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, content, createdAt, modifiedAt
-        case isTitleCustom, titleSeed
+        case isTitleCustom, titleSeed, lineIDs, references
     }
 
     /// Backward-compatible decoding: stores saved before the naming feature
@@ -51,6 +67,34 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
             isTitleCustom = !Sheet.isGenericTitle(title)
         }
         titleSeed = try c.decodeIfPresent(String.self, forKey: .titleSeed) ?? title
+        // Backward-compatible: stores saved before the reference-token
+        // feature carry neither key. Line IDs regenerate per logical
+        // line; references are sanitized against the actual content so a
+        // corrupted payload can never carry dead markers.
+        let storedLineIDs = try c.decodeIfPresent([UUID].self, forKey: .lineIDs) ?? []
+        let lineCount = content.components(separatedBy: "\n").count
+        lineIDs = (storedLineIDs.count == lineCount)
+            ? storedLineIDs
+            : content.components(separatedBy: "\n").map { _ in UUID() }
+        let storedRefs = try c.decodeIfPresent([AnswerReference].self, forKey: .references) ?? []
+        references = Sheet.sanitizeReferences(storedRefs, in: content)
+    }
+
+    /// One entry per logical line (the evaluator's split), including the
+    /// single blank line of an empty document.
+    public var logicalLineCount: Int {
+        content.components(separatedBy: "\n").count
+    }
+
+    /// Keeps only references whose `location` really points at a U+FFFC
+    /// marker in `content`, sorted by location.
+    public static func sanitizeReferences(_ refs: [AnswerReference], in content: String) -> [AnswerReference] {
+        let ns = content as NSString
+        let kept = refs.filter { r in
+            r.location >= 0 && r.location < ns.length
+                && ns.character(at: r.location) == answerTokenMarkerUTF16
+        }
+        return kept.sorted { $0.location < $1.location }
     }
 
     // MARK: Automatic titles
@@ -153,10 +197,20 @@ public struct SheetExport: Codable, Sendable {
     public var content: String
     /// Optional so files exported before the naming feature still decode.
     public var isTitleCustom: Bool?
+    /// Line identity + live reference tokens: optional so files exported
+    /// before the reference-token feature still decode.
+    public var lineIDs: [UUID]?
+    public var references: [AnswerReference]?
 
-    public init(title: String, content: String, isTitleCustom: Bool? = nil) {
+    public init(title: String,
+                content: String,
+                isTitleCustom: Bool? = nil,
+                lineIDs: [UUID]? = nil,
+                references: [AnswerReference]? = nil) {
         self.title = title
         self.content = content
         self.isTitleCustom = isTitleCustom
+        self.lineIDs = lineIDs
+        self.references = references
     }
 }

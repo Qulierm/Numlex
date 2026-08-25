@@ -17,6 +17,12 @@ public enum LineResult: Equatable, Sendable {
     case title(String)
     case number(value: Double, unit: String?)
     case variable(name: String, value: Double)
+    /// A line that is ONLY an inactive reference token (its source line
+    /// was deleted or stopped evaluating to a number/variable). The token
+    /// stays in place in the editor; the line displays the remembered
+    /// `Line <line>` label. Dependent expressions instead yield a generic
+    /// hidden error — never a stale snapshot.
+    case brokenToken(line: Int)
     case error(message: String)
 }
 

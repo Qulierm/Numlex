@@ -49,7 +49,7 @@ public enum NotebookFormatting {
                 switch result {
                 case .number(_, .none), .variable, .error:
                     out.append(canonicalMathText(line))
-                case .number(_, .some), .blank, .skip, .title:
+                case .number(_, .some), .blank, .skip, .title, .brokenToken:
                     out.append(line)
                 }
             } else {
@@ -73,7 +73,7 @@ public enum NotebookFormatting {
             return unit == nil
         case .variable, .error:
             return true
-        case .blank, .skip, .title, .none:
+        case .blank, .skip, .title, .brokenToken, .none:
             return false
         }
     }

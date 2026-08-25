@@ -18,10 +18,27 @@ struct AnswerColumnView: View {
     /// no visible scroll bar of its own: the wheel catcher is the whole
     /// content width.
     var onWheelScroll: (NSEvent) -> Void
+    /// Double-click on a SUCCESSFUL answer row (`.number` / `.variable`)
+    /// reports the row's explicit source line index; the owner mints a
+    /// token referencing that line. All other rows (errors, titles,
+    /// prose, the Total bar) are inert.
+    var onAnswerDoubleTap: (Int) -> Void
     var fontSize: Double
     var lineHeight: Double
     var decimalPlaces: Int
     var totalLabel: String
+
+    /// The answer row whose block contains content y `y` (the same
+    /// coordinate space the wheel-catcher overlay lives in: row top
+    /// minus the shared topOffset), or nil between rows.
+    private func rowAt(y: CGFloat) -> SheetLine? {
+        for line in rows {
+            let g = rowGeometry(line)
+            let top = g.top - topOffset
+            if y >= top - 0.5, y < top + g.height { return line }
+        }
+        return nil
+    }
 
     private func rowGeometry(_ line: SheetLine) -> (top: CGFloat, height: CGFloat) {
         // Row frames are expressed in the same coordinates as the editor
@@ -131,8 +148,22 @@ struct AnswerColumnView: View {
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 .overlay(alignment: .leading) {
                     // The wheel catcher covers the FULL content width —
-                    // no scroller strip, no dead zone at the trailing edge.
-                    ScrollWheelCatcher(onScroll: onWheelScroll)
+                    // no scroller strip, no dead zone at the trailing
+                    // edge. It also owns double-clicks over the surface:
+                    // a hit on a successful answer row mints a token.
+                    ScrollWheelCatcher(
+                        onScroll: onWheelScroll,
+                        onDoubleTap: { y in
+                            if let line = rowAt(y: y) {
+                                switch line.result {
+                                case .number, .variable:
+                                    onAnswerDoubleTap(line.sourceLineIndex)
+                                default:
+                                    break
+                                }
+                            }
+                        }
+                    )
                         .allowsHitTesting(true)
                         .frame(width: geo.size.width, alignment: .leading)
                 }
@@ -201,6 +232,12 @@ struct AnswerColumnView: View {
                     .font(Design.body(fontSize))
                     .foregroundStyle(.white)
                     .lineLimit(1)
+            case .brokenToken(let line):
+                // An inactive token on its own line: the remembered
+                // label, dimmed to read as "not live".
+                Text("Line \(line)")
+                    .font(Design.labelSmall)
+                    .foregroundStyle(.secondary)
             case .error(let msg):
                 if msg == "Rates unavailable" {
                     // The explicit no-rate state is preserved and
@@ -276,19 +313,30 @@ extension VerticalAlignment {
 
 private struct ScrollWheelCatcher: NSViewRepresentable {
     var onScroll: (NSEvent) -> Void
+    var onDoubleTap: ((CGFloat) -> Void)?
+
+    init(onScroll: @escaping (NSEvent) -> Void, onDoubleTap: ((CGFloat) -> Void)? = nil) {
+        self.onScroll = onScroll
+        self.onDoubleTap = onDoubleTap
+    }
 
     func makeNSView(context: Context) -> WheelView {
         let v = WheelView()
         v.onScroll = onScroll
+        v.onDoubleTap = onDoubleTap
         return v
     }
 
     func updateNSView(_ v: WheelView, context: Context) {
         v.onScroll = onScroll
+        v.onDoubleTap = onDoubleTap
     }
 
     final class WheelView: NSView {
         var onScroll: (NSEvent) -> Void = { _ in }
+        /// Double-clicks over the surface, reported as y from the TOP of
+        /// the view (the row geometry the owner maps through).
+        var onDoubleTap: ((CGFloat) -> Void)?
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             self
@@ -296,6 +344,13 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
 
         override func scrollWheel(with event: NSEvent) {
             onScroll(event)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2, let cb = onDoubleTap {
+                let p = convert(event.locationInWindow, from: nil)
+                cb(bounds.height - p.y)
+            }
         }
     }
 }

@@ -22,12 +22,29 @@ struct NotebookEditor: NSViewRepresentable {
     var onScroll: (CGFloat) -> Void
     /// Per-logical-line block metrics in text-container coordinates.
     var onLayout: (LineMetrics) -> Void
-    /// User typing — pushes the new string up to the model.
-    var onTextChange: (String) -> Void
+    /// User typing — pushes the new string up to the model together with
+    /// the edit AppKit announced before performing it (nil when the
+    /// coordinator could not attribute the change), so line identity and
+    /// token marker positions stay exact.
+    var onTextChange: (String, NotebookEdit?) -> Void
+    /// Current per-marker token states (from the reference-aware
+    /// evaluation) — the editor renders each U+FFFC as a live capsule
+    /// from these, never from stored text.
+    var tokenStates: [TokenResolution]
+    /// The sheet's reference sidecar, needed only to build the clipboard
+    /// representation of a copy (internal pastes preserve the link).
+    var tokenRefs: [AnswerReference]
+    /// A paste carrying Numlex reference data produced these references;
+    /// the model registers them once their final marker locations are
+    /// known.
+    var onPasteReferences: ([AnswerReference]) -> Void
     /// One-shot focus request: the sheet ID the owner wants focused (nil
     /// means none). Consumed exactly once after the editor is attached
     /// to the window — plain sheet switches never carry one.
     var focusRequestID: Sheet.ID?
+    /// UTF-16 caret position for the pending focus request (nil = 0).
+    /// Used by token insertion to land the caret right after the token.
+    var focusPosition: Int?
     /// Called exactly once after the request was consumed (or to clear
     /// the owner's token when the editor goes away unconsumed).
     var onFocusConsumed: () -> Void
@@ -44,7 +61,11 @@ struct NotebookEditor: NSViewRepresentable {
             onScroll: onScroll,
             onLayout: onLayout,
             onTextChange: onTextChange,
+            tokenStates: tokenStates,
+            tokenRefs: tokenRefs,
+            onPasteReferences: onPasteReferences,
             focusRequestID: focusRequestID,
+            focusPosition: focusPosition,
             onFocusConsumed: onFocusConsumed,
             onReady: onReady
         )
@@ -65,7 +86,11 @@ struct NotebookEditor: NSViewRepresentable {
             onScroll: onScroll,
             onLayout: onLayout,
             onTextChange: onTextChange,
+            tokenStates: tokenStates,
+            tokenRefs: tokenRefs,
+            onPasteReferences: onPasteReferences,
             focusRequestID: focusRequestID,
+            focusPosition: focusPosition,
             onFocusConsumed: onFocusConsumed
         )
     }
@@ -78,7 +103,14 @@ final class NotebookEditorCoordinator: NSObject {
     let textView: NotebookTextView
     var onScroll: (CGFloat) -> Void
     var onLayout: (LineMetrics) -> Void
-    var onTextChange: (String) -> Void
+    var onTextChange: (String, NotebookEdit?) -> Void
+    var onPasteReferences: ([AnswerReference]) -> Void
+    /// The live token states for the current content (the editor draws a
+    /// capsule attachment at every U+FFFC from these).
+    var tokenStates: [TokenResolution] = []
+    /// The sheet's references, used only to build the internal clipboard
+    /// representation of a copy.
+    var tokenRefs: [AnswerReference] = []
 
     /// The intent of the pending user edit (see `EditIntent` in
     /// NumlexCore), armed by
@@ -93,6 +125,15 @@ final class NotebookEditorCoordinator: NSObject {
     /// cancelled edit is at worst a skipped format pass, never a forced
     /// one.
     private var pendingIntent: EditIntent = .none
+    /// The user edit AppKit announced before performing it (armed in
+    /// `textView(_:shouldChangeTextIn:replacementString:)`, consumed by
+    /// the next `textDidChange` pass) — the exact input the line-identity
+    /// reconciliation needs to keep token marker positions exact.
+    private var pendingRange: NSRange?
+    private var pendingReplacement: String = ""
+    /// The last known model text (before the in-flight edit); the
+    /// paste-reference remap needs the pre-edit content.
+    private var lastText: String = ""
     private var fontSize: Double
     private var lineHeight: Double
     private var lineNumbers: Bool
@@ -101,6 +142,7 @@ final class NotebookEditorCoordinator: NSObject {
     /// One-shot focus request, armed by init/update and cleared the
     /// moment it is consumed (or the editor leaves the window).
     private var pendingFocusID: Sheet.ID?
+    private var pendingFocusPosition: Int?
     var onFocusConsumed: () -> Void = {}
     private var observer: NSObjectProtocol?
     private var frameObserver: NSObjectProtocol?
@@ -109,8 +151,12 @@ final class NotebookEditorCoordinator: NSObject {
          rates: Rates, decimalPlaces: Int,
          onScroll: @escaping (CGFloat) -> Void,
          onLayout: @escaping (LineMetrics) -> Void,
-         onTextChange: @escaping (String) -> Void,
+         onTextChange: @escaping (String, NotebookEdit?) -> Void,
+         tokenStates: [TokenResolution],
+         tokenRefs: [AnswerReference],
+         onPasteReferences: @escaping ([AnswerReference]) -> Void,
          focusRequestID: Sheet.ID?,
+         focusPosition: Int?,
          onFocusConsumed: @escaping () -> Void,
          onReady: (NotebookEditorCoordinator) -> Void) {
         self.fontSize = fontSize
@@ -119,10 +165,14 @@ final class NotebookEditorCoordinator: NSObject {
         self.rates = rates
         self.decimalPlaces = decimalPlaces
         self.pendingFocusID = focusRequestID
+        self.pendingFocusPosition = focusPosition
         self.onFocusConsumed = onFocusConsumed
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
+        self.tokenStates = tokenStates
+        self.tokenRefs = tokenRefs
+        self.onPasteReferences = onPasteReferences
 
         let contentSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         let tv = NotebookTextView(frame: NSRect(origin: .zero, size: contentSize))
@@ -215,7 +265,10 @@ final class NotebookEditorCoordinator: NSObject {
     private func tryConsumeFocus() {
         guard pendingFocusID != nil, let window = scrollView.window else { return }
         pendingFocusID = nil
-        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        // Token insertion lands the caret right after the fresh marker;
+        // ordinary focus requests keep the historical position 0.
+        let pos = min(pendingFocusPosition ?? 0, (textView.string as NSString).length)
+        textView.setSelectedRange(NSRange(location: max(0, pos), length: 0))
         window.makeFirstResponder(textView)
         notifyConsumed()
     }
@@ -249,12 +302,19 @@ final class NotebookEditorCoordinator: NSObject {
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
                 onScroll: @escaping (CGFloat) -> Void,
                 onLayout: @escaping (LineMetrics) -> Void,
-                onTextChange: @escaping (String) -> Void,
+                onTextChange: @escaping (String, NotebookEdit?) -> Void,
+                tokenStates: [TokenResolution],
+                tokenRefs: [AnswerReference],
+                onPasteReferences: @escaping ([AnswerReference]) -> Void,
                 focusRequestID: Sheet.ID?,
+                focusPosition: Int?,
                 onFocusConsumed: @escaping () -> Void) {
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
+        self.onPasteReferences = onPasteReferences
+        self.tokenStates = tokenStates
+        self.tokenRefs = tokenRefs
         self.onFocusConsumed = onFocusConsumed
         var appearanceChanged = false
         if fontSize != self.fontSize { self.fontSize = fontSize; appearanceChanged = true }
@@ -271,6 +331,7 @@ final class NotebookEditorCoordinator: NSObject {
         // attached to a window.
         if let id = focusRequestID {
             pendingFocusID = id
+            pendingFocusPosition = focusPosition
             if scrollView.window != nil { tryConsumeFocus() }
         }
         if text != textView.string {
@@ -286,6 +347,7 @@ final class NotebookEditorCoordinator: NSObject {
             let clip = scrollView.contentView
             let delta = -clip.bounds.origin.y
             if abs(delta) > 0.5 { clip.scroll(NSPoint(x: 0, y: delta)) }
+            lastText = text
         }
     }
 
@@ -418,9 +480,65 @@ final class NotebookEditorCoordinator: NSObject {
             // the base attributes set above.
             applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
         }
+        applyTokenAttachments(in: storage)
         storage.endEditing()
         textView.typingAttributes = typingAttrs
         textView.needsDisplay = true
+    }
+
+    /// Rebuilds every U+FFFC marker's capsule attachment from the LIVE
+    /// token states: the label always comes from the current source-line
+    /// result (or the remembered `Line N` when broken), so a source edit
+    /// updates the capsule on the next highlight without any stored
+    /// value. The base `setAttributes` pass does not touch the
+    /// `.attachment` key, so the attribute is rewritten from scratch on
+    /// every highlight; a marker without a state never gets a capsule.
+    private func applyTokenAttachments(in storage: NSTextStorage) {
+        let content = storage.string as NSString
+        guard content.length > 0 else { return }
+        storage.removeAttribute(.attachment, range: NSRange(location: 0, length: content.length))
+        let font = NSFont.systemFont(ofSize: fontSize)
+        var drawStates: [(location: Int, label: String, active: Bool)] = []
+        for token in tokenStates {
+            let p = token.location
+            guard p >= 0, p < content.length,
+                  content.character(at: p) == answerTokenMarkerUTF16 else { continue }
+            let label: String
+            let active: Bool
+            switch token.state {
+            case .active(_, _, let display):
+                label = display
+                active = true
+            case .broken(let line):
+                label = "Line \(line)"
+                active = false
+            }
+            let width = TokenAttachment.capsuleWidth(label: label, font: font)
+            storage.addAttribute(
+                .attachment,
+                value: TokenAttachment(width: width),
+                range: NSRange(location: p, length: 1)
+            )
+            drawStates.append((p, label, active))
+        }
+        textView.tokenDrawStates = drawStates
+        // Clipboard metadata: every marker's sidecar identity plus its
+        // live display text (internal pastes preserve the link, external
+        // copies expose the plain quantity or the Line N label).
+        var meta: [(location: Int, sourceLineID: UUID, labelLine: Int, display: String)] = []
+        for ref in tokenRefs {
+            guard ref.location >= 0, ref.location < content.length,
+                  content.character(at: ref.location) == answerTokenMarkerUTF16 else { continue }
+            let state = tokenStates.first { $0.location == ref.location }?.state
+            let display: String
+            switch state {
+            case .active(_, _, let d): display = d
+            case .broken(let n): display = "Line \(n)"
+            case nil: display = "Line \(ref.labelLine)"
+            }
+            meta.append((ref.location, ref.sourceLineID, ref.labelLine, display))
+        }
+        textView.tokenMeta = meta
     }
 
     /// Paints the classified token spans of one line at its document
@@ -573,7 +691,13 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
             guard let sender, self.textView === sender else { return }
             let new = sender.string
             let intent = self.pendingIntent
+            // The edit AppKit announced before performing this change —
+            // the exact input line-identity reconciliation needs.
+            let edit = NotebookEdit(range: self.pendingRange, replacement: self.pendingReplacement)
             self.pendingIntent = .none
+            self.pendingRange = nil
+            self.pendingReplacement = ""
+            let oldText = self.lastText
             if self.applyAutoFormat(intent: intent) {
                 // The programmatic storage rewrite does NOT reliably
                 // re-post textDidChange (AppKit suppresses it within the
@@ -585,16 +709,51 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
                 self.textView.caretLine = Self.caretLineIndex(of: self.textView)
                 self.highlight()
                 self.refreshLayoutAndMetrics()
-                self.onTextChange(canonical)
+                self.lastText = canonical
+                self.onTextChange(canonical, edit)
+                self.handlePasteReferences(edit: edit, oldText: oldText, final: canonical)
                 self.onScroll(self.scrollView.contentView.bounds.origin.y)
                 return
             }
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.highlight()
             self.refreshLayoutAndMetrics()
-            self.onTextChange(new)
+            self.lastText = new
+            self.onTextChange(new, edit)
+            self.handlePasteReferences(edit: edit, oldText: oldText, final: new)
             self.onScroll(self.scrollView.contentView.bounds.origin.y)
         }
+    }
+
+    /// A paste that carried Numlex reference data left pending metadata on
+    /// the text view (source line ID, remembered label, and the marker's
+    /// UTF-16 offset INSIDE the pasted string). Once the final content is
+    /// known, each marker's document position is derived by applying the
+    /// announced edit to the pre-edit text and, when the canonical format
+    /// pass followed the edit, replaying the format map. The model then
+    /// registers the fresh references (its own reconciliation ran first,
+    /// on the old references only).
+    private func handlePasteReferences(edit: NotebookEdit, oldText: String, final: String) {
+        let paste = textView.pendingPasteRefs
+        textView.pendingPasteRefs = nil
+        guard let paste, !paste.isEmpty, let range = edit.range, range.location >= 0 else { return }
+        let nsOld = oldText as NSString
+        guard range.location + range.length <= nsOld.length else { return }
+        let intermediate = nsOld.replacingCharacters(in: range, with: edit.replacement)
+        let nsFinal = final as NSString
+        var refs: [AnswerReference] = []
+        for p in paste {
+            var pos = range.location + p.offset
+            if intermediate != final {
+                guard NotebookFormatting.canonicalDocument(intermediate) == final else { continue }
+                let map = NotebookFormatting.mapDocument(from: intermediate, to: final)
+                pos = map[min(max(pos, 0), map.count - 1)]
+            }
+            if pos >= 0, pos < nsFinal.length, nsFinal.character(at: pos) == answerTokenMarkerUTF16 {
+                refs.append(AnswerReference(sourceLineID: p.sourceLineID, labelLine: p.labelLine, location: pos))
+            }
+        }
+        if !refs.isEmpty { onPasteReferences(refs) }
     }
 
     /// On user INSERTION the mathematical lines are canonicalized IN
@@ -656,6 +815,8 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         MainActor.assumeIsolated {
             guard self.textView === textView, !textView.hasMarkedText() else { return }
             self.pendingIntent = EditIntent(replacement: replacementString)
+            self.pendingRange = charRange
+            self.pendingReplacement = replacementString ?? ""
         }
         return true
     }
@@ -699,6 +860,105 @@ final class NotebookTextView: NSTextView {
     /// 1-based logical line the caret currently sits on (set by the
     /// coordinator on every selection change).
     var caretLine: Int = 1
+    /// Clipboard metadata for every token marker in the document (the
+    /// coordinator refreshes it on every highlight): the sidecar identity
+    /// plus the LIVE display text used for the external plain string.
+    var tokenMeta: [(location: Int, sourceLineID: UUID, labelLine: Int, display: String)] = []
+    /// One-shot: a paste that carried Numlex reference data. Each entry
+    /// is (source line ID, remembered label, the marker's UTF-16 offset
+    /// inside the PASTED string); the coordinator consumes it after the
+    /// paste edit settles and the model registers the fresh references.
+    var pendingPasteRefs: [(sourceLineID: UUID, labelLine: Int, offset: Int)]?
+    /// Live drawing states of the token capsules (the coordinator
+    /// refreshes them on every highlight): marker location, current
+    /// label and active flag.
+    var tokenDrawStates: [(location: Int, label: String, active: Bool)] = []
+
+    // MARK: - Clipboard (answer reference tokens)
+
+    /// Copy: the plain string representation replaces every token marker
+    /// with its LIVE display quantity (or `Line N` when inactive) so an
+    /// external clipboard always gets plain text; when the selection
+    /// contains tokens the sidecar link data is additionally written to
+    /// the private `com.numlex.answerReferences` type so an internal
+    /// paste restores the reference, not a snapshot.
+    override func copy(_ sender: Any?) {
+        let sel = selectedRange()
+        guard sel.length > 0, let storage = textStorage else { return super.copy(sender) }
+        // The raw selected text: it carries the U+FFFC markers verbatim.
+        let selected = (storage.string as NSString).substring(with: sel)
+        let ns = selected as NSString
+        // The plain representation: every marker becomes its live display
+        // text. This is what external consumers ever see.
+        var plain = ""
+        var payload: [TokenClipboardItem] = []
+        var searchStart = 0
+        while searchStart <= ns.length {
+            let r = ns.range(of: "\u{FFFC}",
+                             range: NSRange(location: searchStart, length: ns.length - searchStart))
+            if r.location == NSNotFound { break }
+            plain += ns.substring(with: NSRange(location: searchStart, length: r.location - searchStart))
+            let docLoc = sel.location + r.location
+            if let meta = tokenMeta.first(where: { $0.location == docLoc }) {
+                plain += meta.display
+                payload.append(TokenClipboardItem(
+                    sourceLineID: meta.sourceLineID,
+                    labelLine: meta.labelLine
+                ))
+            }
+            searchStart = r.location + 1
+        }
+        plain += ns.substring(from: searchStart)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(plain, forType: .string)
+        if !payload.isEmpty {
+            // Internal representations: the marker-carrying text and the
+            // sidecar identities, written only for Numlex's own pastes.
+            pb.setString(selected, forType: .numlexTokenText)
+            if let data = try? JSONEncoder().encode(payload) {
+                pb.setData(data, forType: .numlexReferences)
+            }
+        }
+    }
+
+    /// Paste: a Numlex clipboard (the private marker-text and reference
+    /// types present, aligned 1:1 with the markers of the marker text) is
+    /// inserted WITH the markers and the metadata parked on the view for
+    /// the coordinator — the link survives the round trip. Anything else
+    /// is sanitized so an orphan U+FFFC can never enter the document.
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        if let data = pb.data(forType: .numlexReferences),
+           let s = pb.string(forType: .numlexTokenText),
+           let items = try? JSONDecoder().decode([TokenClipboardItem].self, from: data) {
+            var refs: [(sourceLineID: UUID, labelLine: Int, offset: Int)] = []
+            var ok = true
+            let ns = s as NSString
+            var scan = 0
+            for item in items {
+                let r = ns.range(of: "\u{FFFC}",
+                                 range: NSRange(location: scan, length: ns.length - scan))
+                if r.location == NSNotFound { ok = false; break }
+                refs.append((item.sourceLineID, item.labelLine, r.location))
+                scan = r.location + 1
+            }
+            let tail = ns.range(of: "\u{FFFC}", range: NSRange(location: scan, length: ns.length - scan))
+            if ok, refs.count == items.count, tail.location == NSNotFound {
+                pendingPasteRefs = refs
+                // insertText (not replaceCharacters) drives the full
+                // delegate pipeline — shouldChangeTextIn arms the edit
+                // range the paste-reference remap depends on.
+                insertText(s, replacementRange: selectedRange())
+                return
+            }
+        }
+        if let s = pb.string(forType: .string), s.contains("\u{FFFC}") {
+            replaceCharacters(in: selectedRange(), with: s.replacingOccurrences(of: "\u{FFFC}", with: ""))
+        } else {
+            super.paste(sender)
+        }
+    }
 
     // MARK: Caret blink (self-managed)
 
@@ -718,6 +978,7 @@ final class NotebookTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawTokenCapsules(dirtyRect)
         // v2: the empty new sheet already has a line, so the gutter draws
         // for every document — drawLineNumbers handles the empty case
         // with an explicit synthetic first-line fragment.
@@ -725,6 +986,65 @@ final class NotebookTextView: NSTextView {
             drawLineNumbers()
         }
         drawCaret(dirtyRect)
+    }
+
+    /// Paints every token capsule over its marker glyph. The geometry is
+    /// the fixed-row rule shared with the caret and the gutter: the
+    /// capsule is vertically centered in the marker's row and its text
+    /// sits on exactly that row's baseline — so a capsule reads as text
+    /// on the line at every font size and line height.
+    private func drawTokenCapsules(_ dirtyRect: NSRect) {
+        guard !tokenDrawStates.isEmpty,
+              let lm = layoutManager, let tc = textContainer else { return }
+        lm.ensureLayout(for: tc)
+        let content = string as NSString
+        let font = self.font ?? NSFont.systemFont(ofSize: 14)
+        let naturalHeight = font.ascender - font.descender + font.leading
+        let rowHeight = CGFloat(lineHeight)
+        for t in tokenDrawStates {
+            guard t.location >= 0, t.location < content.length,
+                  content.character(at: t.location) == answerTokenMarkerUTF16 else { continue }
+            let glyph = lm.glyphIndexForCharacter(at: t.location)
+            guard glyph != NSNotFound else { continue }
+            let glyphRect = lm.boundingRect(
+                forGlyphRange: NSRange(location: glyph, length: 1), in: tc
+            )
+            // The row's TOP comes from the marker's line fragment (the
+            // fixed paragraph line height clamps it exactly); the capsule
+            // width comes from the reserved glyph advance.
+            let frag = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let viewRect = NSRect(
+                x: glyphRect.minX + textContainerOrigin.x + textContainerInset.width,
+                y: frag.minY + textContainerOrigin.y + textContainerInset.height,
+                width: glyphRect.width,
+                height: rowHeight
+            )
+            guard viewRect.intersects(dirtyRect.insetBy(dx: -60, dy: -60)) else { continue }
+            let capH = min(rowHeight * 0.72, font.pointSize * 1.22)
+            let capRect = NSRect(
+                x: viewRect.minX,
+                y: viewRect.minY + (rowHeight - capH) / 2,
+                width: viewRect.width,
+                height: capH
+            )
+            let path = NSBezierPath(roundedRect: capRect, xRadius: capH * 0.30, yRadius: capH * 0.30)
+            (t.active ? Design.tokenFill : Design.tokenFillInactive).setFill()
+            path.fill()
+            let baseline = CaretGeometry.baseline(
+                rowTop: viewRect.minY,
+                rowHeight: rowHeight,
+                ascender: font.ascender,
+                naturalHeight: naturalHeight
+            )
+            let hPad = font.pointSize * 0.32
+            (t.label as NSString).draw(
+                at: NSPoint(x: viewRect.minX + hPad, y: baseline - font.ascender),
+                withAttributes: [
+                    .font: font,
+                    .foregroundColor: t.active ? Design.tokenText : Design.tokenTextInactive
+                ]
+            )
+        }
     }
 
     /// Paint the large custom caret while the blink phase is on. The
@@ -1063,4 +1383,53 @@ final class NotebookTextView: NSTextView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+}
+
+// MARK: - Answer token attachment
+
+extension NSPasteboard.PasteboardType {
+    /// Private types written on copies that contain token markers: an
+    /// internal paste reads them to preserve the valid reference link,
+    /// external consumers only ever see the plain string representation.
+    static let numlexTokenText = NSPasteboard.PasteboardType("com.numlex.answerTokenText")
+    static let numlexReferences = NSPasteboard.PasteboardType("com.numlex.answerReferences")
+}
+
+/// One marker entry of the private clipboard payload (written per marker
+/// in order, aligned 1:1 with the U+FFFC characters of the plain string
+/// representation).
+struct TokenClipboardItem: Codable {
+    var sourceLineID: UUID
+    var labelLine: Int
+}
+
+/// The U+FFFC glyph's attachment: a 1×1 TRANSPARENT image whose only job
+/// is to reserve the capsule's horizontal width in the layout. The
+/// capsule itself is painted by `NotebookTextView.drawTokenCapsules` at
+/// the marker's glyph rect — deterministic geometry from the same fixed-
+/// row rule the caret and gutter use, independent of TextKit's opaque
+/// image-attachment box metrics.
+final class TokenAttachment: NSTextAttachment {
+    init(width: CGFloat) {
+        super.init(data: nil, ofType: nil)
+        let img = NSImage(size: NSSize(width: 1, height: 1))
+        img.lockFocus()
+        NSColor.clear.set()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        img.unlockFocus()
+        image = img
+        bounds = NSRect(x: 0, y: 0, width: width, height: 1)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    /// The capsule's horizontal width for a label: the label's text width
+    /// plus the design padding on both sides. One place defines it, so
+    /// the reserved layout width and the drawn capsule always agree.
+    static func capsuleWidth(label: String, font: NSFont) -> CGFloat {
+        let textW = (label as NSString).size(withAttributes: [.font: font]).width
+        return ceil(textW) + font.pointSize * 0.32 * 2
+    }
 }

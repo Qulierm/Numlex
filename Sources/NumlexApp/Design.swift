@@ -62,6 +62,19 @@ enum Design {
     /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
     static let baseText = NSColor.white
 
+    // MARK: Answer reference tokens
+
+    /// Active token capsule: the light-blue fill of the reference design
+    /// (sRGB(201, 223, 253)) with near-black text. Constant across
+    /// appearances — the capsule is its own opaque surface.
+    static let tokenFill = NSColor(srgbRed: 201.0 / 255.0, green: 223.0 / 255.0, blue: 253.0 / 255.0, alpha: 1)
+    static let tokenText = NSColor(srgbRed: 24.0 / 255.0, green: 28.0 / 255.0, blue: 34.0 / 255.0, alpha: 1)
+    /// Inactive (broken) token capsule: a quiet dark-gray surface with
+    /// muted text — clearly not live, but still legible on the editor
+    /// background.
+    static let tokenFillInactive = NSColor(srgbRed: 66.0 / 255.0, green: 66.0 / 255.0, blue: 72.0 / 255.0, alpha: 1)
+    static let tokenTextInactive = NSColor(srgbRed: 168.0 / 255.0, green: 168.0 / 255.0, blue: 176.0 / 255.0, alpha: 1)
+
     // MARK: Panel surfaces
 
     /// Answer panel background: a darker, calm gray that still separates

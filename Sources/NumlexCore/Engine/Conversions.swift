@@ -182,3 +182,108 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResu
     }
     return .error(message: "Unknown units")
 }
+
+// MARK: - Quantity helpers (shared by reference tokens)
+
+/// Resolves a DISPLAY unit label (the `unit` carried by a `.number`
+/// result, e.g. `meters`, `m`, `kg`, `ton`, `L`) back to its unit
+/// definition. Returns nil for temperature/currency labels, which are
+/// not dimension-factor based.
+public func unitDefinition(byLabel label: String) -> (dimension: String, baseFactor: Double)? {
+    let key = label.lowercased()
+    for def in units.values where def.label.lowercased() == key {
+        return (def.dimension, def.baseFactor)
+    }
+    return nil
+}
+
+/// Whether two display unit labels name the same quantity kind: both
+/// nil (unitless), identical case-insensitively, or both measurement
+/// labels of the SAME dimension. Temperature and currency labels match
+/// only when identical (there is no factor-based conversion between
+/// them in the quantity rules).
+public func sameQuantityUnit(_ a: String?, _ b: String?) -> Bool {
+    if a == nil && b == nil { return true }
+    guard let a, let b else { return false }
+    if a.caseInsensitiveCompare(b) == .orderedSame { return true }
+    if let da = unitDefinition(byLabel: a)?.dimension,
+       let db = unitDefinition(byLabel: b)?.dimension {
+        return da == db
+    }
+    return false
+}
+
+/// Converts a value between two measurement display labels of the same
+/// dimension (identical labels are a no-op). Returns nil for pairs that
+/// are not both factor-based measurement units.
+public func convertQuantityUnit(_ value: Double, fromLabel: String, toLabel: String) -> Double? {
+    if fromLabel.caseInsensitiveCompare(toLabel) == .orderedSame { return value }
+    guard let from = unitDefinition(byLabel: fromLabel),
+          let to = unitDefinition(byLabel: toLabel),
+          from.dimension == to.dimension else { return nil }
+    let v = value * from.baseFactor / to.baseFactor
+    return v.isFinite ? v : nil
+}
+
+/// Converts a token quantity (the current result of its referenced line,
+/// carrying a display unit label) into the target unit word of a
+/// `<token> to <unit>` line — the SAME tables and rate lookups the
+/// `<number> <from> to <to>` grammar uses. Returns the unrounded value
+/// and the canonical target label, or nil when the token has no unit or
+/// the pair is unsupported (the caller then reports the generic hidden
+/// error).
+public func convertTokenQuantity(
+    value: Double,
+    fromLabel: String?,
+    to: String,
+    rates: Rates
+) -> (value: Double, unit: String)? {
+    guard let fromLabel else { return nil }
+    let toLower = to.lowercased()
+    // 1. Temperature: the result labels C°/F°/K° map to the c/f/k
+    //    symbols the temperature table is keyed by.
+    let tempSym: [String: String] = ["c°": "c", "f°": "f", "k°": "k"]
+    if let sym = tempSym[fromLabel.lowercased()] {
+        guard let t = temps["\(sym) to \(toLower)"] else { return nil }
+        let r = t.fn(value)
+        guard r.isFinite else { return nil }
+        return (r, t.label)
+    }
+    // 2. Currency: the result labels RUB/EUR/USD/usd map to the rub/eur/
+    //    usd codes the rate pairs are keyed by.
+    let curSym: [String: String] = ["rub": "rub", "eur": "eur", "usd": "usd"]
+    if let code = curSym[fromLabel.lowercased()] {
+        let key = "\(code) to \(toLower)"
+        switch key {
+        case "usd to rub":
+            guard let r = rates.USD else { return nil }
+            let v = value * r; return v.isFinite ? (v, "RUB") : nil
+        case "eur to rub":
+            guard let r = rates.EUR else { return nil }
+            let v = value * r; return v.isFinite ? (v, "RUB") : nil
+        case "rub to eur":
+            guard let r = rates.EUR, r != 0 else { return nil }
+            let v = value / r; return v.isFinite ? (v, "EUR") : nil
+        case "usd to eur":
+            guard let r = rates.EURUSD else { return nil }
+            let v = value * r; return v.isFinite ? (v, "EUR") : nil
+        case "eur to usd":
+            guard let r = rates.EURUSD, r != 0 else { return nil }
+            let v = value / r; return v.isFinite ? (v, "USD") : nil
+        case "rub to usd":
+            guard let r = rates.USD, r != 0 else { return nil }
+            let v = value / r; return v.isFinite ? (v, "usd") : nil
+        default:
+            return nil
+        }
+    }
+    // 3. Measurement: the token's label resolves to a unit definition
+    //    and the target word is an alias; the result uses the target's
+    //    canonical label (same rule as the plain conversion grammar).
+    guard let from = unitDefinition(byLabel: fromLabel),
+          let toDef = units[toLower] else { return nil }
+    guard from.dimension == toDef.dimension else { return nil }
+    let v = value * from.baseFactor / toDef.baseFactor
+    guard v.isFinite else { return nil }
+    return (v, toDef.label)
+}
