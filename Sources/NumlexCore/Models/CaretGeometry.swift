@@ -76,6 +76,52 @@ public enum CaretGeometry {
         baseline - capHeight / 2
     }
 
+    /// Answer-token capsule height: the font's MEASURED natural line
+    /// box (ascender − descender + leading), clamped to the configured
+    /// row height. One constant badge size at every scale (≈23 pt at
+    /// the 20 pt system font — the reference design's height), never
+    /// taller than its row, never a fraction of the line height.
+    public static func tokenCapsuleHeight(
+        naturalHeight: CGFloat,
+        rowHeight: CGFloat
+    ) -> CGFloat {
+        Swift.min(Swift.max(naturalHeight, 1), Swift.max(rowHeight, 1))
+    }
+
+    /// The answer-token capsule inside one row, sharing the row's
+    /// baseline and ink centerline with the caret and the gutter.
+    /// `rowTop`/`rowHeight` must be the marker's ACTUAL row box (see
+    /// rowBox) in the same coordinate space the caret and gutter draw
+    /// in. The label baseline is the row baseline (the same rule the
+    /// editor's own glyphs sit on) and the capsule is centered on the
+    /// row's ink centerline — the ONE shared visual center. The corner
+    /// radius is 20% of the capsule height, measured from the reference
+    /// design (no hand-tuned offset anywhere: everything derives from
+    /// rowBox + baseline + inkCenter).
+    public static func tokenCapsule(
+        rowTop: CGFloat,
+        rowHeight: CGFloat,
+        ascender: CGFloat,
+        naturalHeight: CGFloat,
+        capHeight: CGFloat,
+        x: CGFloat,
+        width: CGFloat
+    ) -> (rect: CGRect, labelBaseline: CGFloat, cornerRadius: CGFloat) {
+        let baseline = CaretGeometry.baseline(
+            rowTop: rowTop, rowHeight: rowHeight,
+            ascender: ascender, naturalHeight: naturalHeight
+        )
+        let center = CaretGeometry.inkCenter(baseline: baseline, capHeight: capHeight)
+        let height = CaretGeometry.tokenCapsuleHeight(
+            naturalHeight: naturalHeight, rowHeight: rowHeight
+        )
+        return (
+            CGRect(x: x, y: center - height / 2, width: width, height: height),
+            baseline,
+            height * 0.20
+        )
+    }
+
     /// Final insertion-point rect: `caretWidth` wide, pixel aligned (all
     /// edges rounded to the point grid), vertically centered on the rect
     /// passed in — the editor passes a row box whose midline IS the

@@ -305,4 +305,91 @@ public let baselineCases: [EngineCase] = [
                             rowTop: 0, rowHeight: lh,
                             ascender: m.ascender, naturalHeight: m.natural))
     },
+
+    // MARK: Token capsule geometry (r14)
+
+    EngineCase("capsule-height-is-measured-natural-line-box") {
+        // At every settings size the capsule is the font's measured
+        // natural line box (≈23 pt at 20 pt), not a fraction of the row.
+        for size in [18.0, 20.0, 30.0] {
+            let m = fontMetrics(size)
+            let row = lineHeight(size)
+            try expect(m.natural <= row, "settings row at \(size) pt is ≥ the natural box")
+            let h = CaretGeometry.tokenCapsuleHeight(
+                naturalHeight: m.natural, rowHeight: row)
+            try expectEqual(h, m.natural, "\(size) pt: capsule = natural line box")
+        }
+        // The default 20 pt size must land on the reference design's
+        // ≈23 pt badge, not the old tight ≈20.5 pt one.
+        let h20 = CaretGeometry.tokenCapsuleHeight(
+            naturalHeight: fontMetrics(20).natural, rowHeight: lineHeight(20))
+        try expect(h20 > 22 && h20 < 25, "20 pt capsule is the reference ≈23 pt, got \(h20)")
+    },
+
+    EngineCase("capsule-clamps-to-short-custom-row") {
+        // A customized (tight) line height shorter than the natural box
+        // clamps the capsule to the row — never taller than its line.
+        let m = fontMetrics(20)
+        let h = CaretGeometry.tokenCapsuleHeight(naturalHeight: m.natural, rowHeight: 20)
+        try expectEqual(h, 20, "clamped to the 20 pt row")
+        try expect(h < m.natural, "smaller than the natural box")
+    },
+
+    EngineCase("capsule-centers-on-shared-ink-centerline") {
+        // The capsule midline IS the row's ink centerline and the label
+        // sits on the row baseline — the same rules as caret and gutter.
+        for size in [18.0, 20.0, 30.0] {
+            let m = fontMetrics(size)
+            let row = lineHeight(size)
+            let rowTop: CGFloat = 64
+            let c = CaretGeometry.tokenCapsule(
+                rowTop: rowTop, rowHeight: row,
+                ascender: m.ascender, naturalHeight: m.natural, capHeight: m.cap,
+                x: 100, width: 40)
+            let baseline = CaretGeometry.baseline(
+                rowTop: rowTop, rowHeight: row,
+                ascender: m.ascender, naturalHeight: m.natural)
+            let center = CaretGeometry.inkCenter(baseline: baseline, capHeight: m.cap)
+            try expectEqual(c.labelBaseline, baseline, "\(size) pt label on the row baseline")
+            try expectEqual(c.rect.midY, center, "\(size) pt capsule centered on the ink centerline")
+            try expectEqual(c.rect.height, CaretGeometry.tokenCapsuleHeight(
+                naturalHeight: m.natural, rowHeight: row), "\(size) pt capsule height")
+            try expectEqual(c.cornerRadius, c.rect.height * 0.20, "\(size) pt corner = 20% of height")
+        }
+    },
+
+    EngineCase("capsule-uses-actual-fragment-row-box") {
+        // The capsule derives its row from the marker's ACTUAL fragment
+        // and the next fragment's advance — the same rowBox the caret
+        // uses — so it follows wrapped and fixed-height lines alike.
+        let m = fontMetrics(20)
+        let lh = CGFloat(lineHeight(20))
+        // Second line: fragment at y = lh, next at y = 2×lh.
+        let frag = CGRect(x: 0, y: lh, width: 30, height: 20)
+        let next = CGRect(x: 0, y: lh * 2, width: 30, height: 20)
+        let row = CaretGeometry.rowBox(fragment: frag, nextFragment: next, fixedLineHeight: lh)
+        try expectEqual(row.minY, lh, "row starts at the fragment")
+        try expectEqual(row.height, lh, "row height = fragment advance")
+        let c = CaretGeometry.tokenCapsule(
+            rowTop: row.minY, rowHeight: row.height,
+            ascender: m.ascender, naturalHeight: m.natural, capHeight: m.cap,
+            x: 8, width: 44)
+        let baseline = CaretGeometry.baseline(
+            rowTop: row.minY, rowHeight: row.height,
+            ascender: m.ascender, naturalHeight: m.natural)
+        // The capsule center sits in the row; its natural-box height,
+        // centered on the ink center, may overshoot the row edge by a
+        // sub-point fraction (ink center ≠ natural-box center) but never
+        // approaches the next line's ink (≈8 pt clearance).
+        try expect(c.rect.midY >= row.minY && c.rect.midY <= row.minY + row.height,
+                   "capsule center inside its row")
+        try expect(c.rect.maxY - (row.minY + row.height) < 1,
+                   "no visible bleed into the next row")
+        try expectEqual(c.labelBaseline, baseline, "label on the fragment row's baseline")
+        // No next fragment (last line): the fixed height applies.
+        let last = CaretGeometry.rowBox(
+            fragment: CGRect(x: 0, y: lh * 3, width: 30, height: 20),
+            nextFragment: nil, fixedLineHeight: lh)
+        try expectEqual(last.height, lh, "trailing row uses the fixed line height")
+    }
 ]

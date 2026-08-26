@@ -313,6 +313,14 @@ final class NotebookEditorCoordinator: NSObject {
         self.onLayout = onLayout
         self.onTextChange = onTextChange
         self.onPasteReferences = onPasteReferences
+        // Compare BEFORE replacing: when the content stays byte-identical
+        // but the resolved token states changed (a source edit changed an
+        // answer, a token broke or recovered), the capsules must be
+        // rebuilt in THIS update — nothing else re-runs the highlight
+        // pipeline, and the per-keystroke highlight has already painted
+        // with the previous commit's states.
+        let statesChanged = self.tokenStates != tokenStates
+            || self.tokenRefs != tokenRefs
         self.tokenStates = tokenStates
         self.tokenRefs = tokenRefs
         self.onFocusConsumed = onFocusConsumed
@@ -348,6 +356,15 @@ final class NotebookEditorCoordinator: NSObject {
             let delta = -clip.bounds.origin.y
             if abs(delta) > 0.5 { clip.scroll(NSPoint(x: 0, y: delta)) }
             lastText = text
+        } else if statesChanged {
+            // Content identical, token states fresh: rebuild the capsule
+            // attachments and draw states from the just-resolved states
+            // and re-lay-out synchronously (label width changes shift
+            // following glyphs and wrapping). The string, selection,
+            // caret, IME state are untouched and the text pipeline is
+            // not re-entered, so this can only run once per commit.
+            highlight()
+            refreshLayoutAndMetrics()
         }
     }
 
@@ -1000,49 +1017,63 @@ final class NotebookTextView: NSTextView {
         let content = string as NSString
         let font = self.font ?? NSFont.systemFont(ofSize: 14)
         let naturalHeight = font.ascender - font.descender + font.leading
-        let rowHeight = CGFloat(lineHeight)
+        // The ONE transform the gutter and caret use: the container
+        // inset added exactly ONCE. textContainerOrigin already carries
+        // the container's x position; the y inset is added here and
+        // nowhere else (adding origin AND inset would double-count it).
+        let insetY = textContainerInset.height
         for t in tokenDrawStates {
             guard t.location >= 0, t.location < content.length,
                   content.character(at: t.location) == answerTokenMarkerUTF16 else { continue }
             let glyph = lm.glyphIndexForCharacter(at: t.location)
             guard glyph != NSNotFound else { continue }
+            // The reserved glyph advance gives the capsule's x range.
             let glyphRect = lm.boundingRect(
                 forGlyphRange: NSRange(location: glyph, length: 1), in: tc
             )
-            // The row's TOP comes from the marker's line fragment (the
-            // fixed paragraph line height clamps it exactly); the capsule
-            // width comes from the reserved glyph advance.
+            // The SAME actual row box the caret centers on: the marker's
+            // fragment plus the measured advance to the next fragment
+            // (wrapped lines included), fixed line height as fallback.
             let frag = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            let viewRect = NSRect(
-                x: glyphRect.minX + textContainerOrigin.x + textContainerInset.width,
-                y: frag.minY + textContainerOrigin.y + textContainerInset.height,
-                width: glyphRect.width,
-                height: rowHeight
+            var next: CGRect?
+            var found = false
+            lm.enumerateLineFragments(
+                forGlyphRange: NSMakeRange(0, lm.numberOfGlyphs)
+            ) { rect, _, _, _, stop in
+                if !found, rect.minY > frag.minY + 0.5 {
+                    next = rect
+                    found = true
+                    stop.pointee = true
+                }
+            }
+            let row = CaretGeometry.rowBox(
+                fragment: frag,
+                nextFragment: next,
+                fixedLineHeight: CGFloat(lineHeight)
             )
-            guard viewRect.intersects(dirtyRect.insetBy(dx: -60, dy: -60)) else { continue }
-            let capH = min(rowHeight * 0.72, font.pointSize * 1.22)
-            let capRect = NSRect(
-                x: viewRect.minX,
-                y: viewRect.minY + (rowHeight - capH) / 2,
-                width: viewRect.width,
-                height: capH
-            )
-            let path = NSBezierPath(roundedRect: capRect, xRadius: capH * 0.30, yRadius: capH * 0.30)
-            (t.active ? Design.tokenFill : Design.tokenFillInactive).setFill()
-            path.fill()
-            let baseline = CaretGeometry.baseline(
-                rowTop: viewRect.minY,
-                rowHeight: rowHeight,
+            let (capRect, labelBaseline, radius) = CaretGeometry.tokenCapsule(
+                rowTop: insetY + row.minY,
+                rowHeight: row.height,
                 ascender: font.ascender,
-                naturalHeight: naturalHeight
+                naturalHeight: naturalHeight,
+                capHeight: font.capHeight,
+                x: textContainerOrigin.x + glyphRect.minX,
+                width: glyphRect.width
             )
-            let hPad = font.pointSize * 0.32
+            guard capRect.insetBy(dx: -12, dy: -12).intersects(dirtyRect) else { continue }
+            (t.active ? Design.tokenFill : Design.tokenFillInactive).setFill()
+            NSBezierPath(roundedRect: capRect, xRadius: radius, yRadius: radius).fill()
+            // The label sits on the row's actual text baseline (the same
+            // rule the editor's own glyphs sit on), centered horizontally
+            // in the reserved advance.
+            let labelAttrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: t.active ? Design.tokenText : Design.tokenTextInactive
+            ]
+            let labelSize = (t.label as NSString).size(withAttributes: labelAttrs)
             (t.label as NSString).draw(
-                at: NSPoint(x: viewRect.minX + hPad, y: baseline - font.ascender),
-                withAttributes: [
-                    .font: font,
-                    .foregroundColor: t.active ? Design.tokenText : Design.tokenTextInactive
-                ]
+                at: NSPoint(x: capRect.midX - labelSize.width / 2, y: labelBaseline - font.ascender),
+                withAttributes: labelAttrs
             )
         }
     }

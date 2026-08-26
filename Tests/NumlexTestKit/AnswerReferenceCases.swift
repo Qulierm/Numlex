@@ -399,5 +399,108 @@ public let answerReferenceCases: [EngineCase] = [
         try expect(canonical.content.contains(M), "canonicalization keeps the marker")
         let loc = (canonical.content as NSString).range(of: M).location
         try expectEqual(loc, 10, "marker offset unchanged")
+    },
+
+    // MARK: Live-update regression (r14): same-line source edits
+
+    EngineCase("ref-same-line-edit-preserves-uuid") {
+        let u0 = UUID(), u1 = UUID()
+        let old = "800 + 98\n" + M
+        var (new, ids, refs) = try step(old,
+                                        edit: NotebookEdit(range: NSRange(location: 0, length: 3),
+                                                           replacement: "900"),
+                                        ids: [u0, u1],
+                                        refs: [AnswerReference(sourceLineID: u0, labelLine: 1, location: 9)])
+        try expectEqual(new, "900 + 98\n" + M, "same-length value swap")
+        try expectEqual(ids[0], u0, "source line kept its UUID")
+        try expectEqual(refs[0].sourceLineID, u0, "token still bound to it")
+        try expectEqual(refs[0].location, 9, "marker offset unchanged (same line count)")
+        let (lines, tokens) = resolve(new, ids: ids, refs: refs)
+        try expectEqual(tokens[0].state, .active(value: 998, unit: nil, display: "998"),
+                        "live value after the same-line edit")
+        if case .number(let v, _) = lines[0].result {
+            try expectEqual(v, 998, "source line evaluated")
+        } else {
+            throw CaseFailure(message: "expected 998, got \(lines[0].result)",
+                              location: "AnswerReferenceCases")
+        }
+    },
+
+    EngineCase("ref-same-line-length-change-preserves-uuid") {
+        let u0 = UUID(), u1 = UUID()
+        let old = "800 + 98\n" + M
+        var (new, ids, refs) = try step(old,
+                                        edit: NotebookEdit(range: NSRange(location: 3, length: 0),
+                                                           replacement: "0"),
+                                        ids: [u0, u1],
+                                        refs: [AnswerReference(sourceLineID: u0, labelLine: 1, location: 9)])
+        try expectEqual(new, "8000 + 98\n" + M, "value grew by one digit")
+        try expectEqual(ids[0], u0, "UUID stable on length change")
+        try expectEqual(refs[0].location, 10, "marker followed the inserted digit")
+        let (lines, tokens) = resolve(new, ids: ids, refs: refs)
+        try expectEqual(tokens[0].state, .active(value: 8098, unit: nil, display: "8,098"),
+                        "live value after growth")
+        // Now the value shrinks again (raw edit, canonical keeps it).
+        var (new2, ids2, refs2) = try step(new,
+                                           edit: NotebookEdit(range: NSRange(location: 3, length: 1),
+                                                              replacement: ""),
+                                           ids: ids,
+                                           refs: refs)
+        try expectEqual(new2, "800 + 98\n" + M, "value shrank back")
+        try expectEqual(ids2[0], u0, "UUID still the original one")
+        try expectEqual(refs2[0].location, 9, "marker back to its original offset")
+        let (lines2, tokens2) = resolve(new2, ids: ids2, refs: refs2)
+        try expectEqual(tokens2[0].state, .active(value: 898, unit: nil, display: "898"),
+                        "live value after shrink")
+        _ = lines
+    },
+
+    EngineCase("ref-valid-invalid-valid-resolution") {
+        let u0 = UUID(), u1 = UUID()
+        var (new, ids, refs) = try step("800 + 98\n" + M,
+                                        edit: NotebookEdit(range: NSRange(location: 6, length: 2),
+                                                           replacement: ""),
+                                        ids: [u0, u1],
+                                        refs: [AnswerReference(sourceLineID: u0, labelLine: 1, location: 9)])
+        try expectEqual(new, "800 + \n" + M, "dangling operator: source truly invalid")
+        try expectEqual(ids.count, 2, "both lines still exist")
+        var (lines, tokens) = resolve(new, ids: ids, refs: refs)
+        try expectEqual(tokens[0].state, .broken(line: 1), "inactive while the source is invalid")
+        // Type a valid number back in (after the pending operator space).
+        let (new2, ids2, refs2) = try step(new,
+                                           edit: NotebookEdit(range: NSRange(location: 6, length: 0),
+                                                              replacement: "99"),
+                                           ids: ids,
+                                           refs: refs)
+        try expectEqual(new2, "800 + 99\n" + M, "source valid again")
+        try expectEqual(ids2[0], u0, "same source UUID all along")
+        let (lines2, tokens2) = resolve(new2, ids: ids2, refs: refs2)
+        try expectEqual(tokens2[0].state, .active(value: 899, unit: nil, display: "899"),
+                        "immediately live once valid again — no stale snapshot")
+        _ = (lines, lines2)
+    },
+
+    EngineCase("ref-state-change-detection-stability") {
+        // Models the coordinator's statesChanged guard: a commit that
+        // keeps the text identical but changes the token states must be
+        // DETECTED (re-render), and an unchanged commit must compare
+        // equal (no feedback loop).
+        let u0 = UUID(), u1 = UUID()
+        let old = "800 + 98\n" + M
+        let refs = [AnswerReference(sourceLineID: u0, labelLine: 1, location: 9)]
+        let (lines0, tokens0) = resolve(old, ids: [u0, u1], refs: refs)
+        let (new, ids, refsNew) = try step(old,
+                                           edit: NotebookEdit(range: NSRange(location: 0, length: 3),
+                                                              replacement: "900"),
+                                           ids: [u0, u1],
+                                           refs: refs)
+        let (lines1, tokens1) = resolve(new, ids: ids, refs: refsNew)
+        _ = (lines0, lines1)
+        try expect(tokens0 != tokens1, "edited source changes the token state (triggers re-render)")
+        try expectEqual(refsNew[0].sourceLineID, u0, "reference stays bound while text churns")
+        // Re-resolving the same state is stable: the next identical
+        // SwiftUI commit must be a no-op.
+        let (_, tokens1Again) = resolve(new, ids: ids, refs: refsNew)
+        try expectEqual(tokens1Again, tokens1, "re-resolution is stable (no feedback loop)")
     }
 ]
