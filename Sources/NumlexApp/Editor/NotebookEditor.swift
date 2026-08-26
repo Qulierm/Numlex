@@ -111,6 +111,16 @@ final class NotebookEditorCoordinator: NSObject {
     /// The sheet's references, used only to build the internal clipboard
     /// representation of a copy.
     var tokenRefs: [AnswerReference] = []
+    /// Pure appearance-pass state keyed by the STABLE reference UUIDs
+    /// (never marker locations): seeded with the IDs present when this
+    /// editor instance attaches (load/relaunch/switch — no replay), so
+    /// only newly introduced references animate, once each.
+    var appearance = TokenAppearance()
+    /// One-shot chained tick for the appearance pass (1/60 s, common
+    /// run-loop mode); the chain self-terminates on completion, removal
+    /// or window detach, so no perpetual timer survives.
+    private var animTimer: Timer?
+    private var animRunning = false
 
     /// The intent of the pending user edit (see `EditIntent` in
     /// NumlexCore), armed by
@@ -172,6 +182,10 @@ final class NotebookEditorCoordinator: NSObject {
         self.onTextChange = onTextChange
         self.tokenStates = tokenStates
         self.tokenRefs = tokenRefs
+        // The references already on the sheet at attach time are KNOWN:
+        // a load, relaunch or sheet switch must never replay their
+        // appearance pass.
+        appearance.seed(ids: tokenRefs.map(\.id))
         self.onPasteReferences = onPasteReferences
 
         let contentSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
@@ -275,16 +289,77 @@ final class NotebookEditorCoordinator: NSObject {
 
     /// Window attachment changed: consume a pending request on attach,
     /// drop it on detach (window close / sheet switch) so it can never
-    /// fire late on a different sheet.
+    /// fire late on a different sheet; a detach also cancels any
+    /// in-flight appearance pass.
     private func handleWindowChanged() {
         if scrollView.window != nil {
             tryConsumeFocus()
         } else {
+            stopAppearanceTick()
             if pendingFocusID != nil {
                 pendingFocusID = nil
                 notifyConsumed()
             }
         }
+    }
+
+    // MARK: - Answer-token appearance pass
+
+    /// Starts the one-shot chained tick (1/60 s) that drives the
+    /// appearance pass. Only the animating capsules' union rect is
+    /// invalidated each frame — never the whole document.
+    private func startAppearanceTick() {
+        guard !animRunning else { return }
+        animRunning = true
+        scheduleAppearanceTick()
+    }
+
+    private func scheduleAppearanceTick() {
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appearanceTick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        animTimer = timer
+    }
+
+    private func appearanceTick() {
+        let now = ProcessInfo.processInfo.systemUptime
+        var locations: Set<Int> = []
+        var settled: Set<Int> = []
+        var progress: [Int: Double] = [:]
+        for ref in tokenRefs {
+            if let p = appearance.progress(for: ref.id, now: now) {
+                progress[ref.location] = p
+                locations.insert(ref.location)
+            } else if appearance.inFlight[ref.id] != nil {
+                // A pass that settles on THIS frame: the final repaint
+                // must cover its capsule too.
+                settled.insert(ref.location)
+            }
+        }
+        appearance.expire(now: now)
+        textView.tokenAnimProgress = progress
+        if appearance.isAnimating {
+            if let rect = textView.tokenCapsuleUnionRect(locations: locations) {
+                textView.setNeedsDisplay(rect)
+            }
+            scheduleAppearanceTick()
+        } else {
+            // Settled: stop the chain and repaint the exact rects in
+            // their final state (layout was never touched).
+            stopAppearanceTick()
+            let all = locations.union(settled)
+            if let rect = textView.tokenCapsuleUnionRect(locations: all) {
+                textView.setNeedsDisplay(rect)
+            }
+        }
+    }
+
+    private func stopAppearanceTick() {
+        animTimer?.invalidate()
+        animTimer = nil
+        animRunning = false
+        textView.tokenAnimProgress = [:]
     }
 
     /// Clears the owner's token on the next main-queue turn: updateNSView
@@ -323,6 +398,19 @@ final class NotebookEditorCoordinator: NSObject {
             || self.tokenRefs != tokenRefs
         self.tokenStates = tokenStates
         self.tokenRefs = tokenRefs
+        // Newly introduced reference IDs (double-click insertion, valid
+        // internal paste) play ONE appearance pass; live label/source
+        // updates and broken/recovered transitions change neither the ID
+        // set nor any start time, so they never replay. Reduce Motion
+        // renders the final state immediately (no pass scheduled).
+        let fresh = appearance.observe(
+            ids: tokenRefs.map(\.id),
+            now: ProcessInfo.processInfo.systemUptime,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+        if !fresh.isEmpty, appearance.isAnimating {
+            startAppearanceTick()
+        }
         self.onFocusConsumed = onFocusConsumed
         var appearanceChanged = false
         if fontSize != self.fontSize { self.fontSize = fontSize; appearanceChanged = true }
@@ -903,6 +991,11 @@ final class NotebookTextView: NSTextView {
     /// refreshes them on every highlight): marker location, current
     /// label and active flag.
     var tokenDrawStates: [(location: Int, label: String, active: Bool)] = []
+    /// Appearance-animation progress (0...1) per marker location; a
+    /// missing entry means the final settled state. The layout (the
+    /// reserved glyph advance) is NEVER touched — only the drawn
+    /// opacity and center scale of the capsule change.
+    var tokenAnimProgress: [Int: Double] = [:]
 
     // MARK: - Clipboard (answer reference tokens)
 
@@ -1074,14 +1167,30 @@ final class NotebookTextView: NSTextView {
                 width: glyphRect.width
             )
             guard capRect.insetBy(dx: -12, dy: -12).intersects(dirtyRect) else { continue }
-            (t.active ? Design.tokenFill : Design.tokenFillInactive).setFill()
-            NSBezierPath(roundedRect: capRect, xRadius: radius, yRadius: radius).fill()
+            // Appearance pass: opacity + CENTER scale inside the exact
+            // final rect (nil progress = the locked final capsule).
+            let progress = tokenAnimProgress[t.location]
+            let scale = TokenAppearance.scale(progress: progress)
+            let alpha = TokenAppearance.opacity(progress: progress)
+            let cap = scale == 1
+                ? capRect
+                : CGRect(
+                    x: capRect.midX - capRect.width * scale / 2,
+                    y: capRect.midY - capRect.height * scale / 2,
+                    width: capRect.width * scale,
+                    height: capRect.height * scale
+                )
+            (t.active ? Design.tokenFill : Design.tokenFillInactive)
+                .withAlphaComponent(alpha).setFill()
+            NSBezierPath(roundedRect: cap, xRadius: radius * scale, yRadius: radius * scale).fill()
             // The label sits on the row's actual text baseline (the same
             // rule the editor's own glyphs sit on), centered horizontally
             // in the reserved advance.
+            let labelColor = (t.active ? Design.tokenText : Design.tokenTextInactive)
+                .withAlphaComponent(alpha)
             let labelAttrs: [NSAttributedString.Key: Any] = [
                 .font: font,
-                .foregroundColor: t.active ? Design.tokenText : Design.tokenTextInactive
+                .foregroundColor: labelColor
             ]
             let labelSize = (t.label as NSString).size(withAttributes: labelAttrs)
             (t.label as NSString).draw(
@@ -1089,6 +1198,58 @@ final class NotebookTextView: NSTextView {
                 withAttributes: labelAttrs
             )
         }
+    }
+
+    /// The union rect (view coordinates) of the capsule geometry of the
+    /// given marker locations — the minimal invalidation target of the
+    /// appearance tick. Returns nil when no location resolves to a
+    /// drawable capsule.
+    func tokenCapsuleUnionRect(locations: Set<Int>) -> NSRect? {
+        guard !locations.isEmpty,
+              let lm = layoutManager, let tc = textContainer else { return nil }
+        lm.ensureLayout(for: tc)
+        let content = string as NSString
+        let font = self.font ?? NSFont.systemFont(ofSize: 14)
+        let naturalHeight = font.ascender - font.descender + font.leading
+        let insetY = textContainerInset.height
+        var union: NSRect?
+        for loc in locations {
+            guard loc >= 0, loc < content.length,
+                  content.character(at: loc) == answerTokenMarkerUTF16 else { continue }
+            let glyph = lm.glyphIndexForCharacter(at: loc)
+            guard glyph != NSNotFound else { continue }
+            let glyphRect = lm.boundingRect(
+                forGlyphRange: NSRange(location: glyph, length: 1), in: tc)
+            let frag = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            var next: CGRect?
+            var found = false
+            lm.enumerateLineFragments(
+                forGlyphRange: NSMakeRange(0, lm.numberOfGlyphs)
+            ) { rect, _, _, _, stop in
+                if !found, rect.minY > frag.minY + 0.5 {
+                    next = rect
+                    found = true
+                    stop.pointee = true
+                }
+            }
+            let row = CaretGeometry.rowBox(
+                fragment: frag,
+                nextFragment: next,
+                fixedLineHeight: CGFloat(lineHeight)
+            )
+            let (capRect, _, _) = CaretGeometry.tokenCapsule(
+                rowTop: insetY + row.minY,
+                rowHeight: row.height,
+                ascender: font.ascender,
+                naturalHeight: naturalHeight,
+                capHeight: font.capHeight,
+                x: textContainerOrigin.x + glyphRect.minX,
+                width: glyphRect.width
+            )
+            let r = capRect.insetBy(dx: -12, dy: -12)
+            union = union.map { $0.union(r) } ?? r
+        }
+        return union
     }
 
     /// Paint the large custom caret while the blink phase is on. The

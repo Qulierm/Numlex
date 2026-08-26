@@ -6,12 +6,15 @@ struct SettingsView: View {
     @Bindable var model: AppModel
 
     var body: some View {
+        // The container coordinates the neighboring glass cards; each
+        // section card carries the ONE native glass level (no nested
+        // milky glass: the outer surface is plain window background).
         GlassEffectContainer(spacing: 16) {
             VStack(alignment: .leading, spacing: 16) {
                 Text(L10n.t("settings", language: model.settings.language))
                     .font(.title3.weight(.semibold))
 
-                GroupBox {
+                settingsCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.t("round", language: model.settings.language))
                             .font(Design.labelSmall).foregroundStyle(.secondary)
@@ -27,7 +30,7 @@ struct SettingsView: View {
                     }
                 }
 
-                GroupBox {
+                settingsCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.t("fontsize", language: model.settings.language))
                             .font(Design.labelSmall).foregroundStyle(.secondary)
@@ -43,7 +46,7 @@ struct SettingsView: View {
                     }
                 }
 
-                GroupBox {
+                settingsCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(L10n.t("sheetname", language: model.settings.language))
                             .font(Design.labelSmall).foregroundStyle(.secondary)
@@ -55,7 +58,7 @@ struct SettingsView: View {
                     }
                 }
 
-                GroupBox {
+                settingsCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle(L10n.t("linenumber", language: model.settings.language), isOn: Binding(
                             get: { model.settings.lineNumbers },
@@ -76,7 +79,7 @@ struct SettingsView: View {
                 // Currency rate attribution: the bundled fiat catalog is
                 // converted with the open provider table fetched at
                 // launch (no API key required).
-                GroupBox {
+                settingsCard {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Currency rates")
                             .font(Design.labelSmall).foregroundStyle(.secondary)
@@ -90,9 +93,18 @@ struct SettingsView: View {
             }
             .padding(20)
             .frame(width: 420)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         }
         .padding(20)
+    }
+
+    /// One native glass section card (macOS 26): the real
+    /// `glassEffect` clipped to a continuous rounded rect — hierarchy
+    /// from the system material, no faux blur or stacked fills.
+    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

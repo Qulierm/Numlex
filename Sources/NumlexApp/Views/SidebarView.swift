@@ -15,6 +15,9 @@ struct SidebarView: View {
             // sits as high as possible (clear of the traffic lights, which
             // occupy only the left edge) and the sheet list rises right up
             // against the band.
+            // Native Liquid Glass surface (macOS 26): the real glass
+            // button style — hover, press and focus states come from the
+            // system, no matte fill of our own.
             Button {
                 model.newSheet()
             } label: {
@@ -27,8 +30,8 @@ struct SidebarView: View {
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .buttonStyle(.glass)
+            .buttonBorderShape(.roundedRectangle(radius: 8))
             .help(L10n.t("newSheet", language: model.settings.language))
 
             // Sheet list. Selection is a single system gray pill
@@ -67,24 +70,28 @@ struct SidebarView: View {
                 if let rid = renamingID, !ids.contains(rid) { renamingID = nil }
             }
 
-            // Bottom actions: one coherent cluster, same geometry and icon size.
-            HStack(spacing: 8) {
-                sidebarIconButton("square.and.arrow.up") {
-                    NotificationCenter.default.post(name: .importSheet, object: nil)
-                }
-                .help(L10n.t("importSheet", language: model.settings.language))
+            // Bottom actions: one coherent native glass cluster — the
+            // GlassEffectContainer coordinates the neighboring glass
+            // surfaces (no stacked fake fills).
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    sidebarIconButton("square.and.arrow.up") {
+                        NotificationCenter.default.post(name: .importSheet, object: nil)
+                    }
+                    .help(L10n.t("importSheet", language: model.settings.language))
 
-                sidebarIconButton("square.and.arrow.down") {
-                    NotificationCenter.default.post(name: .exportSheet, object: nil)
-                }
-                .help(L10n.t("exportSheet", language: model.settings.language))
+                    sidebarIconButton("square.and.arrow.down") {
+                        NotificationCenter.default.post(name: .exportSheet, object: nil)
+                    }
+                    .help(L10n.t("exportSheet", language: model.settings.language))
 
-                Spacer()
+                    Spacer()
 
-                sidebarIconButton("gearshape") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    sidebarIconButton("gearshape") {
+                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    }
+                    .help(L10n.t("settings", language: model.settings.language))
                 }
-                .help(L10n.t("settings", language: model.settings.language))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -139,12 +146,19 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(isSelected
-                      ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-                      : Color.clear)
-        )
+        // ONE coherent native glass surface for the selection (macOS
+        // 26): the matte pill is gone — the selected sheet reads as a
+        // real glass card over the sidebar. Unselected rows stay
+        // transparent; there is no second selection layer.
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.clear)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .transition(reduceMotion ? .identity : .opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .snappy(duration: 0.18), value: isSelected)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .contextMenu {
             Button {
@@ -178,14 +192,16 @@ struct SidebarView: View {
     }
 
     private func sidebarIconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+        // Native glass icon button: the system renders the surface,
+        // hover, press and keyboard-focus states.
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: Design.sidebarIconSize, weight: .regular))
                 .frame(width: Design.sidebarButtonSize.width, height: Design.sidebarButtonSize.height)
-                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: Design.sidebarButtonCorner, style: .continuous))
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.roundedRectangle(radius: Design.sidebarButtonCorner))
     }
 
 }

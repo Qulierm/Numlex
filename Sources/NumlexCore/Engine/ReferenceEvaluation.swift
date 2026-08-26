@@ -256,9 +256,11 @@ public func resolveSheet(
         }
 
         // General quantity expression. Money-context lines (a currency
-        // marker, or token quantities carrying currency units) drop the
-        // bounded neutral prose first; any other surviving word is a
-        // hidden generic error — never a numeric fallback.
+        // marker, or token quantities carrying currency units) mask the
+        // bounded neutral prose FIRST — range-preserving, so every
+        // U+FFFC marker stays at its original offset; any other
+        // surviving word is a hidden generic error, never a numeric
+        // fallback.
         let tokenUnits = quantities.compactMap { $0?.unit }
         let moneyCtx = NaturalCalculation.isMoneyContext(line: line, tokenUnits: tokenUnits)
         let exprLine: String
@@ -272,6 +274,10 @@ public func resolveSheet(
         }
         do {
             let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: varsAll())
+            // Currency units are carried as the quantity's unit label:
+            // the shared `formatQuantity` renders them through
+            // `formatMoney` (`$920.00`), exactly like a bare money
+            // token — one result shape for every token quantity.
             return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
         } catch {
             return .error(message: "Invalid expression")
@@ -431,15 +437,17 @@ enum TokenExpr {
                 i += 1
                 return v
             }
+            // A currency literal: a marker (bare `$`/`€`/`£`/`¥`/`₽` or
+            // letter-prefixed `CA$`/`NZ$`/`HK$`/`A$`/`S$`) glued in FRONT
+            // of the amount — the same shared marker/amount grammar the
+            // money pipeline uses.
+            if prefixMarkerStarts(at: i) {
+                let code = try parsePrefixMarker()
+                let value = try parseAmount()
+                return PE(q: Qty(v: value, unit: code), purePercent: false)
+            }
             if isDigit16(c) || c == 0x2E {
-                var j = i
-                while j < ns.length,
-                      isDigit16(ns.character(at: j)) || ns.character(at: j) == 0x2E {
-                    j += 1
-                }
-                let numStr = ns.substring(with: NSRange(location: i, length: j - i))
-                i = j
-                guard let n = Double(numStr), n.isFinite else { throw ExprError.invalid }
+                let n = try parseAmount()
                 var v = n
                 var pct = 0
                 while let p = nextChar(), p == 0x25 {
@@ -448,6 +456,12 @@ enum TokenExpr {
                     pct += 1
                 }
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
+                // Postfix marker: `240$`, `2.5k$` — a symbol glued right
+                // after the amount (no digit after it, `45$5` is not a
+                // marker) carries the currency unit.
+                if pct == 0, let code = parsePostfixMarker() {
+                    return PE(q: Qty(v: v, unit: code), purePercent: false)
+                }
                 return PE(q: Qty(v: v, unit: nil), purePercent: pct > 0)
             }
             if isLetter16(c) || c == 0x5F {
@@ -470,6 +484,111 @@ enum TokenExpr {
                 return PE(q: Qty(v: v, unit: nil), purePercent: pct > 0)
             }
             throw ExprError.invalid
+        }
+
+        /// Whether `i` starts a PREFIX currency marker: a bare symbol
+        /// (`$` `€` `£` `¥` `₽`) followed by a number/decimal point, or a
+        /// letter-prefixed dollar (`CA$`, `NZ$`, `HK$`, `A$`, `S$`) with
+        /// the symbol followed by a number/decimal point.
+        func prefixMarkerStarts(at idx: Int) -> Bool {
+            let c = ns.character(at: idx)
+            func numAfter(_ p: Int) -> Bool {
+                guard p < ns.length else { return false }
+                let d = ns.character(at: p)
+                return (0x30...0x39).contains(d) || d == 0x2E
+            }
+            if c == 0x24 || c == 0x20AC || c == 0x00A3 || c == 0x00A5 || c == 0x20BD {
+                return numAfter(idx + 1)
+            }
+            if isLetter16(c) {
+                var j = idx
+                while j < ns.length, isLetter16(ns.character(at: j)) { j += 1 }
+                return j > idx && j < ns.length
+                    && ns.character(at: j) == 0x24 && numAfter(j + 1)
+            }
+            return false
+        }
+
+        /// Consumes a prefix marker at `i` and returns its ISO code.
+        /// Throws when the shape is not a real marker.
+        func parsePrefixMarker() throws -> String {
+            let c = ns.character(at: i)
+            let marker: String
+            if isLetter16(c) {
+                var j = i
+                while j < ns.length, isLetter16(ns.character(at: j)) { j += 1 }
+                guard j < ns.length, j > i, ns.character(at: j) == 0x24 else {
+                    throw ExprError.invalid
+                }
+                marker = ns.substring(with: NSRange(location: i, length: j - i + 1))
+                i = j + 1
+            } else {
+                marker = String(utf16CodeUnits: [c], count: 1)
+                i += 1
+            }
+            guard let code = CurrencyPresentation.code(forMarker: marker) else {
+                throw ExprError.invalid
+            }
+            return code
+        }
+
+        /// Postfix marker at `i`: a bare symbol glued right after an
+        /// amount (a digit after the symbol is NOT a marker).
+        func parsePostfixMarker() -> String? {
+            guard i < ns.length else { return nil }
+            let c = ns.character(at: i)
+            guard c == 0x24 || c == 0x20AC || c == 0x00A3 || c == 0x00A5 || c == 0x20BD
+            else { return nil }
+            let after = i + 1 < ns.length ? ns.character(at: i + 1) : 0
+            guard !(0x30...0x39).contains(after) else { return nil }
+            let code = CurrencyPresentation.code(forMarker: String(utf16CodeUnits: [c], count: 1))
+            i += 1
+            return code
+        }
+
+        /// One amount literal: digits with optional GROUPING commas and
+        /// at most one decimal point, plus the shared compact suffixes
+        /// (`k`/`K` ×1000, `m`/`M` ×1,000,000). Advances `i`.
+        func parseAmount() throws -> Double {
+            let start = i
+            var j = i
+            var hasDot = false
+            while j < ns.length {
+                let c = ns.character(at: j)
+                if isDigit16(c) {
+                    j += 1
+                } else if c == 0x2E {
+                    if hasDot { break }
+                    hasDot = true
+                    j += 1
+                } else if c == 0x2C, j + 1 < ns.length, isDigit16(ns.character(at: j + 1)) {
+                    j += 1
+                } else {
+                    break
+                }
+            }
+            guard j > start else { throw ExprError.invalid }
+            var text = ns.substring(with: NSRange(location: start, length: j - start))
+            text = text.replacingOccurrences(of: ",", with: "")
+            guard let n = Double(text), n.isFinite else { throw ExprError.invalid }
+            i = j
+            // Compact magnitude suffix (k/m/M), standalone word only.
+            if j < ns.length {
+                let sfx = ns.character(at: j)
+                let mult: Double?
+                if sfx == 0x6B || sfx == 0x4B { mult = 1_000 }
+                else if sfx == 0x6D || sfx == 0x4D { mult = 1_000_000 }
+                else { mult = nil }
+                if let mult,
+                   j + 1 >= ns.length
+                       || !(isLetter16(ns.character(at: j + 1)) || isDigit16(ns.character(at: j + 1))) {
+                    i = j + 1
+                    let v = n * mult
+                    guard v.isFinite else { throw ExprError.incompatibleUnits }
+                    return v
+                }
+            }
+            return n
         }
 
         func combine(_ a: PE, _ b: PE, _ op: String) throws -> PE {

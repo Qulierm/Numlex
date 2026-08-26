@@ -24,24 +24,41 @@ public enum NotebookFormatting {
 
     /// Canonical form of one line plus a UTF-16 insertion-point map from
     /// the original line to the result (`map` has `line`'s UTF-16 length
-    /// plus one entries). Returns `nil` when the line must be left
-    /// untouched (prose, comment, title, blank, conversion).
+    /// plus one entries). Natural lines get the bounded operator
+    /// canonicalization (never nil); returns `nil` when the line must be
+    /// left untouched (prose, comment, title, blank, conversion).
     public static func canonicalLine(_ line: String,
                                      rates: Rates = Rates(),
                                      decimalPlaces: Int = 7) -> (text: String, map: [Int])? {
         let env = TypedEnv()
-        guard isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces) else {
-            return nil
+        if isNaturalShape(line, env: env) {
+            return naturalOperatorCanonical(line)
         }
-        let text = canonicalMathText(line)
-        return (text, insertionMap(from: line, to: text))
+        if isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces) {
+            let text = canonicalMathText(line)
+            return (text, insertionMap(from: line, to: text))
+        }
+        // A money result that is not in natural shape (a reference to a
+        // single-identifier money name) gets the bounded natural pass.
+        var env2 = env
+        if case .money? = evalLineTyped(line, env: &env2, rates: rates,
+                                        decimalPlaces: decimalPlaces,
+                                        now: Date(), calendar: Calendar.current) {
+            return naturalOperatorCanonical(line)
+        }
+        return nil
     }
 
     /// One canonical pass over a whole document, following the same
     /// top-down TYPED environment flow the evaluator and the answer
-    /// column use. Untouched lines — and every natural line (money
-    /// assignments, rate lines, named references, even incomplete
-    /// prefixes typed mid-edit) — are preserved byte-for-byte.
+    /// column use. Untouched lines come back byte-identical; natural
+    /// lines (money assignments, rate lines, named references, token
+    /// expressions — even incomplete prefixes typed mid-edit) get the
+    /// BOUNDED operator canonicalization only: `*` becomes `×`, binary
+    /// operators get exactly one space on each side, everything else —
+    /// prose, currency adjacency, compact suffixes, time words, terminal
+    /// punctuation, U+FFFC markers, unrelated whitespace — is preserved
+    /// byte-for-byte.
     public static func canonicalDocument(_ content: String,
                                          rates: Rates = Rates(),
                                          decimalPlaces: Int = 7) -> String {
@@ -49,13 +66,17 @@ public enum NotebookFormatting {
         let lines = content.components(separatedBy: "\n")
         var out: [String] = []
         for line in lines {
-            // Natural lines are NEVER touched: their prose and glyph
-            // placement (currency markers, `per`/time words, terminal
-            // dots, multiword names) have no caret map, and rewriting
-            // them mid-typing would move the caret or the U+FFFC
-            // answer markers.
             if isNaturalShape(line, env: env) {
-                out.append(line)
+                // Advance the shared top-down environment exactly like
+                // the evaluator: a natural assignment records its name
+                // for the LATER lines, so names format and evaluate
+                // consistently in the same pass.
+                var lineEnv = env
+                _ = evalLineTyped(line, env: &lineEnv, rates: rates,
+                                  decimalPlaces: decimalPlaces,
+                                  now: Date(), calendar: Calendar.current)
+                env = lineEnv
+                out.append(naturalOperatorCanonical(line).text)
                 continue
             }
             if let result = evalLineTyped(line, env: &env, rates: rates,
@@ -64,10 +85,17 @@ public enum NotebookFormatting {
                 switch result {
                 case .number(_, .none), .variable, .error:
                     out.append(canonicalMathText(line))
-                case .number(_, .some), .money, .date, .blank, .skip, .title, .brokenToken:
-                    // Conversions, money and date lines are preserved
+                case .money:
+                    // A money result that is NOT in natural shape (a
+                    // reference to a single-identifier money name like
+                    // `rent × 12`): the BOUNDED natural operator pass —
+                    // operators canonicalized, every other glyph (names,
+                    // markers, prose) byte-identical.
+                    out.append(naturalOperatorCanonical(line).text)
+                case .number(_, .some), .date, .blank, .skip, .title, .brokenToken:
+                    // Conversions and date lines are preserved
                     // byte-identical: their prose and glyph placement
-                    // (currency markers, month names) have no caret map.
+                    // (unit words, month names) have no caret map.
                     out.append(line)
                 }
             } else {
@@ -155,6 +183,121 @@ public enum NotebookFormatting {
             return true
         }
         return false
+    }
+
+    /// The pure, BOUNDED operator canonicalizer for natural lines
+    /// (money/rate/named/token expressions — see `isNaturalShape`):
+    /// - ASCII `*` becomes the canonical `×`;
+    /// - binary `+`, `-`, `×`, `÷`, `/`, `^` and `=` get EXACTLY one
+    ///   space on each side (unary signs and postfix `%` stay attached);
+    /// - every other glyph is preserved verbatim: prose words, currency
+    ///   adjacency (`$50`, `45$`, `CA$`), compact suffixes (`2.5k`),
+    ///   time/unit words, terminal punctuation, hyphenated words
+    ///   (`state-of-the-art`), `and/or`-style prose slashes, leading
+    ///   indentation, U+FFFC markers and unrelated explicitly-typed
+    ///   whitespace.
+    ///
+    /// The output keeps every non-space character in order (only `*`
+    /// becomes `×`), so the shared `insertionMap` contract applies:
+    /// the returned map is monotone and exact for caret/selection and
+    /// marker remapping.
+    public static func naturalOperatorCanonical(_ line: String) -> (text: String, map: [Int]) {
+        let ns = line as NSString
+        let n = ns.length
+        guard n > 0 else { return (line, [0]) }
+        let c = (0..<n).map { ns.character(at: $0) }
+        let opSet: Set<unichar> = [0x2B, 0x2D, 0x00D7, 0x00F7, 0x2F, 0x5E, 0x3D]
+        func isDigit(_ u: unichar) -> Bool { (0x30...0x39).contains(u) }
+        func isAlpha(_ u: unichar) -> Bool {
+            (0x41...0x5A).contains(u) || (0x61...0x7A).contains(u)
+        }
+        func isMarker(_ u: unichar) -> Bool {
+            u == 0x24 || u == 0x20AC || u == 0x00A3 || u == 0x00A5 || u == 0x20BD
+        }
+        func prevSig(_ i: Int) -> unichar? {
+            var k = i - 1
+            while k >= 0, c[k] == 0x20 { k -= 1 }
+            return k >= 0 ? c[k] : nil
+        }
+        func nextSigIndex(_ i: Int) -> Int? {
+            var k = i + 1
+            while k < n, c[k] == 0x20 { k += 1 }
+            return k < n ? k : nil
+        }
+        /// Whether the operator at `i` is binary (spaced) rather than
+        /// unary/prose. Deliberately conservative: a `-` between two
+        /// letters is a prose hyphen, a `/` between two letters is prose
+        /// (`and/or`) — both pass through byte-identical.
+        func binary(_ op: unichar, at i: Int) -> Bool {
+            let p = prevSig(i)
+            let nx = nextSigIndex(i).flatMap { c[$0] }
+            switch op {
+            case 0x3D:  // =
+                return p != nil
+            case 0x2B:  // +
+                guard let p else { return false }
+                return !opSet.contains(p) && p != 0x28
+            case 0x00D7, 0x00F7, 0x5E:  // × ÷ ^
+                return p != nil && nx != nil
+            case 0x2F:  // /
+                guard let p, let nx else { return false }
+                // An arithmetic context on EITHER side: `$85 / hr`,
+                // `240$ / 2`, `) / (`. Word/word (`and/or`) is prose
+                // and passes through byte-identical.
+                let pArith = isDigit(p) || p == 0x29 || p == 0x25
+                    || p == 0xFFFC || isMarker(p)
+                let nxArith = isDigit(nx) || nx == 0x28
+                    || nx == 0xFFFC || isMarker(nx)
+                return pArith || nxArith
+            case 0x2D:  // -
+                guard let p, let nx else { return false }
+                // After an operator, `=`, `(` or a line start the sign
+                // is UNARY: it stays attached to its operand.
+                if opSet.contains(p) || p == 0x28 { return false }
+                if isDigit(nx) || nx == 0x28 || nx == 0xFFFC || isMarker(nx) { return true }
+                if isDigit(p) && isAlpha(nx) { return true }
+                return false
+            default:
+                return false
+            }
+        }
+        var out: [unichar] = []
+        out.reserveCapacity(n)
+        var i = 0
+        while i < n {
+            let ch = c[i]
+            // `*` is the ASCII multiplication in natural lines: the same
+            // binary rule as `×`, emitted as `×`.
+            let op: unichar? = (ch == 0x2A) ? 0x00D7 : (opSet.contains(ch) ? ch : nil)
+            if let op, binary(op, at: i) {
+                // Left: exactly one space (drop any run, add one).
+                while let last = out.last, last == 0x20 { out.removeLast() }
+                if !out.isEmpty { out.append(0x20) }
+                out.append(op)
+                // Right: exactly one space while a next significant
+                // glyph exists — EXCEPT before `(`, where the ORIGINAL
+                // adjacency is preserved (`× (2)` stays loose, `×(2)`
+                // stays tight). Trailing spaces after an operator never
+                // survive.
+                if let j = nextSigIndex(i) {
+                    if c[j] == 0x28 {
+                        if i + 1 < n, c[i + 1] == 0x20 {
+                            out.append(contentsOf: c[(i + 1)..<j])
+                        }
+                    } else {
+                        out.append(0x20)
+                    }
+                    i = j
+                    continue
+                }
+                i = n
+                continue
+            }
+            out.append(ch == 0x2A ? 0x00D7 : ch)
+            i += 1
+        }
+        let text = String(utf16CodeUnits: out, count: out.count)
+        return (text, insertionMap(from: line, to: text))
     }
 
     /// The pure text transformation for a mathematical line (see the

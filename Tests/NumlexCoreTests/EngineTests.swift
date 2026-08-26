@@ -99,4 +99,19 @@ struct EngineTests {
     func moneyAssignmentCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r18Cases)
+    func r18ProseMoneyAndTokenMixing(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: r18FormatCases)
+    func r18NaturalAutospacing(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: r18AnimationCases)
+    func r18TokenAppearance(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

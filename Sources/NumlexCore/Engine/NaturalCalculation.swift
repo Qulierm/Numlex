@@ -45,6 +45,7 @@ public enum NaturalCalculation {
         "salary", "people", "person", "tip", "tips", "tax", "taxes",
         "sales", "total", "bill", "order", "cost", "price", "item",
         "items", "each", "spent", "paid", "got", "for", "the",
+        "food", "material", "materials",
     ]
 
     /// Time words that open a rate or a duration (`per day`, `8 hrs`).
@@ -397,10 +398,17 @@ public enum NaturalCalculation {
     }
 
     /// Money-aware prose stripping for reference-token lines: the same
-    /// bounded neutral-word drop as `tryMoney`, applied only when the
+    /// bounded neutral-word list as `tryMoney`, applied only when the
     /// line is money-context (a currency marker, or the token quantity
     /// carrying a currency unit). Returns nil when a non-whitelisted
-    /// word would survive (hidden error), or the line when unchanged.
+    /// word would survive (hidden error), or a RANGE-PRESERVING masked
+    /// line otherwise.
+    ///
+    /// The mask REPLACES each neutral word with spaces of the same
+    /// length instead of deleting it: the line keeps its exact UTF-16
+    /// length, so every U+FFFC marker (and the caller's `location`
+    /// map) stays at the same offset — prose BEFORE a marker can never
+    /// shift the marker lookup.
     public static func stripTokenProse(
         line: String,
         variables: [String: Double],
@@ -409,18 +417,15 @@ public enum NaturalCalculation {
         guard moneyContext, let wordRe else { return line }
         let ns = line as NSString
         var hasBadWord = false
-        var cleaned = line
-        for m in wordRe.matches(in: line, range: NSRange(location: 0, length: ns.length))
-            .reversed() {
+        var chars = [unichar](repeating: 0, count: ns.length)
+        for u in 0..<ns.length { chars[u] = ns.character(at: u) }
+        for m in wordRe.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
             let word = ns.substring(with: m.range)
             let lower = word.lowercased()
             if neutralWords.contains(lower) {
-                let loc = m.range.location > 0
-                    && ns.character(at: m.range.location - 1) == 0x20
-                    ? m.range.location - 1 : m.range.location
-                let len = m.range.length + (loc == m.range.location ? 0 : 1)
-                cleaned = (cleaned as NSString).replacingCharacters(
-                    in: NSRange(location: loc, length: len), with: "")
+                for u in m.range.location..<NSMaxRange(m.range) {
+                    chars[u] = 0x20
+                }
             } else if lower == "of" || variables[word] != nil {
                 continue
             } else {
@@ -428,7 +433,8 @@ public enum NaturalCalculation {
                 break
             }
         }
-        return hasBadWord ? nil : cleaned
+        guard !hasBadWord else { return nil }
+        return String(utf16CodeUnits: chars, count: chars.count)
     }
 
     /// Whether a token line is in money context: a currency marker is
