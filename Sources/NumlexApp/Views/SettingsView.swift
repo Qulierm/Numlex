@@ -73,6 +73,19 @@ struct SettingsView: View {
                     }
                 }
 
+                // Currency rate attribution: the bundled fiat catalog is
+                // converted with the open provider table fetched at
+                // launch (no API key required).
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Currency rates")
+                            .font(Design.labelSmall).foregroundStyle(.secondary)
+                        Link("open.er-api.com",
+                             destination: URL(string: "https://open.er-api.com")!)
+                            .font(.callout)
+                    }
+                }
+
                 Spacer()
             }
             .padding(20)

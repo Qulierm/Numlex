@@ -22,6 +22,13 @@ public func expect(_ condition: @autoclosure () -> Bool,
     }
 }
 
+/// Two-string convenience: the tag is folded into the message.
+public func expect(_ condition: @autoclosure () -> Bool,
+                   _ message: String, _ tag: String,
+                   file: String = #fileID, line: Int = #line) throws {
+    try expect(condition(), "\(tag): \(message)", file: file, line: line)
+}
+
 public func expectEqual<T: Equatable>(_ a: T, _ b: T,
                                       _ message: String = "",
                                       file: String = #fileID, line: Int = #line) throws {
@@ -202,7 +209,7 @@ public let engineCases: [EngineCase] = [
     EngineCase("linear-conversion-km") {
         var vars: [String: Double] = [:]
         let rows = evaluateSheet("10 km to meter", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        try expectEqual(rows.last?.result, LineResult.number(value: 10_000, unit: "meters"), "10 km to meter")
+        try expectEqual(rows.last?.result, LineResult.number(value: 10_000, unit: "m"), "10 km to meter")
     },
     EngineCase("temperature-c-to-f") {
         var vars: [String: Double] = [:]
@@ -216,7 +223,7 @@ public let engineCases: [EngineCase] = [
     },
     EngineCase("currency-with-rates") {
         var vars: [String: Double] = [:]
-        let rates = Rates(USD: 90, EUR: 100, EURUSD: 1.1)
+        let rates = Rates(base: "USD", rates: ["USD": 1, "EUR": 1.1, "RUB": 90])
         let rows = evaluateSheet("10 USD to RUB", variables: &vars, rates: rates, decimalPlaces: 7)
         try expectEqual(rows.last?.result, LineResult.number(value: 900, unit: "RUB"), "10 USD to RUB @ 90")
     },

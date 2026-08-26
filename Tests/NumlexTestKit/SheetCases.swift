@@ -253,7 +253,7 @@ public let sheetCases: [EngineCase] = [
                         [.blank,
                          .variable(name: "x", value: 5),
                          .number(value: 6, unit: nil),
-                         .number(value: 10_000, unit: "meters")],
+                         .number(value: 10_000, unit: "m")],
                         "heading is a blank row, answers stay on their lines")
         try expectEqual(rows[3].sourceLineIndex, 3, "conversion stays on line 3")
     },

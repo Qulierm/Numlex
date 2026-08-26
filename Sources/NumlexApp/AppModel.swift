@@ -252,15 +252,20 @@ final class AppModel {
         Persistence.save(payload)
     }
 
+    /// Loads (and, when stale, refreshes) the currency table through
+    /// the single-flight refresher; the MainActor publish happens here.
+    /// A failed refresh keeps the stale cached table — the app never
+    /// shows an error state for rates, it just uses the last good one.
     @MainActor
     func loadRates() async {
-        let r = await RatesService.shared.load()
+        let r = await RateRefresher.shared.refresh()
         rates = r
         isRatesLoaded = true
     }
 
+    /// Manual/test hook: install a table without any network.
     func setRates(_ r: Rates) async {
-        await RatesService.shared.set(r)
+        await RateRefresher.shared.set(r)
         rates = r
     }
 }

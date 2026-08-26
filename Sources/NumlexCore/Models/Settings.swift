@@ -13,7 +13,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var fontColor: String // legacy
 
     public static let defaults = AppSettings(
-        decimalPlaces: 7,
+        decimalPlaces: 10,
         fontSizeKey: "tf",
         language: .en,
         sheetName: "Sheet",
@@ -21,7 +21,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 7, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white") {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white") {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language

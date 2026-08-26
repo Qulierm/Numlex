@@ -141,7 +141,7 @@ public let baselineCases: [EngineCase] = [
             .blank,
             .variable(name: "x", value: 5),
             .number(value: 6, unit: nil),
-            .number(value: 10_000, unit: "meters"),
+            .number(value: 10_000, unit: "m"),
         ]
         try expectEqual(rows.count, 4, "one line per logical source line")
         try expectEqual(rows.map { $0.result }, expected, "results on their own lines")

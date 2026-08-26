@@ -223,20 +223,23 @@ public func resolveSheet(
     return (out, tokens)
 }
 
-/// The `to <unit>` word of a `<marker> to <unit>` conversion line, or
+/// The target unit text of a `<marker> to <unit>` conversion line, or
 /// nil when the line does not have exactly that shape (the marker must
-/// stand at the start, followed by one `to` keyword and one unit word).
+/// stand at the start, followed by the `to` keyword and a non-empty
+/// unit expression — the unit may be multi-word, slashed or carry
+/// `·`/`²` characters; the unit catalog decides legality).
 private func tokenConversionShape(line: String, markerAt: Int) -> String? {
     let ns = line as NSString
     let before = ns.substring(to: markerAt).trimmingCharacters(in: .whitespaces)
     guard before.isEmpty else { return nil }
     let after = ns.substring(from: markerAt + 1)
-    let parts = after.trimmingCharacters(in: .whitespaces)
-        .split(whereSeparator: { $0.isWhitespace })
-        .map(String.init)
-    guard parts.count == 2, parts[0].lowercased() == "to" else { return nil }
-    guard !parts[1].isEmpty, parts[1].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return nil }
-    return parts[1]
+    let t = after.trimmingCharacters(in: .whitespaces)
+    guard t.lowercased().hasPrefix("to") else { return nil }
+    let rest = String(t.dropFirst(2))
+    guard !rest.isEmpty, rest.first!.isWhitespace else { return nil }
+    let unitText = rest.trimmingCharacters(in: .whitespaces)
+    guard !unitText.isEmpty, unitText.contains(where: { $0.isLetter }) else { return nil }
+    return unitText
 }
 
 private func isValidReferenceIdentifier(_ name: String) -> Bool {

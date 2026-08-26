@@ -64,4 +64,24 @@ struct EngineTests {
     func answerReferenceCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: unitCatalogCases)
+    func unitCatalogCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: richConversionCases)
+    func richConversionCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: rateTableCases)
+    func rateTableCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: rateServiceCases)
+    func rateServiceCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

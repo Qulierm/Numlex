@@ -49,7 +49,7 @@ public let syntaxCases: [EngineCase] = [
     },
 
     EngineCase("syntax-conversion-currency") {
-        let rates = Rates(USD: 90, EUR: 100, EURUSD: 1.1)
+        let rates = Rates(base: "USD", rates: ["USD": 1, "EUR": 1.1, "RUB": 90])
         let spans = SyntaxClassifier.spans(for: "10 USD to RUB", rates: rates, decimalPlaces: 7)
         try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 0, length: 2)])

@@ -174,13 +174,13 @@ public let overflowCases: [EngineCase] = [
         // Non-finite rates: generic error, never a .number.
         var vars: [String: Double] = [:]
         let inf = evalLine("10 USD to RUB", variables: &vars,
-                           rates: Rates(USD: .infinity), decimalPlaces: 7)
+                           rates: Rates(base: "USD", rates: ["USD": 1, "RUB": .infinity]), decimalPlaces: 7)
         guard case .error? = inf else {
             throw CaseFailure(message: "infinite rate must be an error, got \(String(describing: inf))",
                               location: "OverflowCases")
         }
         let nan = evalLine("10 USD to RUB", variables: &vars,
-                           rates: Rates(USD: .nan), decimalPlaces: 7)
+                           rates: Rates(base: "USD", rates: ["USD": 1, "RUB": .nan]), decimalPlaces: 7)
         guard case .error? = nan else {
             throw CaseFailure(message: "NaN rate must be an error, got \(String(describing: nan))",
                               location: "OverflowCases")
@@ -188,14 +188,14 @@ public let overflowCases: [EngineCase] = [
         // Overflow through a rate: 1e308 × 90 = +∞.
         let big = "1" + String(repeating: "0", count: 308)
         let ovf = evalLine("\(big) USD to RUB", variables: &vars,
-                           rates: Rates(USD: 90), decimalPlaces: 7)
+                           rates: Rates(base: "USD", rates: ["USD": 1, "RUB": 90]), decimalPlaces: 7)
         guard case .error? = ovf else {
             throw CaseFailure(message: "rate overflow must be an error, got \(String(describing: ovf))",
                               location: "OverflowCases")
         }
         // Ordinary rates are untouched.
         let ok = evalLine("10 USD to RUB", variables: &vars,
-                          rates: Rates(USD: 90), decimalPlaces: 7)
+                          rates: Rates(base: "USD", rates: ["USD": 1, "RUB": 90]), decimalPlaces: 7)
         guard case .number(let v, let u)? = ok else {
             throw CaseFailure(message: "10 USD to RUB @90 must work, got \(String(describing: ok))",
                               location: "OverflowCases")

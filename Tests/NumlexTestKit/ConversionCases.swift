@@ -42,17 +42,17 @@ private func expectConversionError(_ line: String,
 public let conversionCases: [EngineCase] = [
     EngineCase("conversion-legacy-phrases") {
         // Every phrase in the legacy phrase map, with its legacy label.
-        try expectConversion("10 km to meter", 10_000, "meters")
+        try expectConversion("10 km to meter", 10_000, "m")
         try expectConversion("10 meter to km", 0.01, "km")
-        try expectConversion("10 mile to km", 16.0934, "km", tolerance: 0.0001)
-        try expectConversion("10 km to mile", 10_000 / 1609.34, "miles", tolerance: 0.0001)
+        try expectConversion("10 mile to km", 16.09344, "km", tolerance: 0.0001)
+        try expectConversion("10 km to mile", 10_000 / 1609.344, "mi", tolerance: 0.0001)
         try expectConversion("10 cm to m", 0.1, "m")
         try expectConversion("10 m to cm", 1000, "cm")
         try expectConversion("10 cm to km", 0.0001, "km")
-        try expectConversion("10 kg to t", 0.01, "ton")
+        try expectConversion("10 kg to t", 0.01, "t")
         try expectConversion("10 t to kg", 10_000, "kg")
-        try expectConversion("10 ml to teaspoon", 2, "teaspoons")
-        try expectConversion("10 teaspoon to ml", 50, "ml")
+        try expectConversion("10 ml to teaspoon", 10 / 4.92892159375, "tsp", tolerance: 0.0001)
+        try expectConversion("10 teaspoon to ml", 10 * 4.92892159375, "ml", tolerance: 0.0001)
         try expectConversion("10 liter to ml", 10_000, "ml")
         try expectConversion("10 ml to liter", 0.01, "L")
         // Temperatures keep their custom transforms and labels.
@@ -61,15 +61,15 @@ public let conversionCases: [EngineCase] = [
         try expectConversion("273.15 K to C", 0, "C°", tolerance: 0.0001)
         try expectConversion("0 C to K", 273.15, "K°", tolerance: 0.0001)
         // Currencies: the six pairs and the rates-unavailable error.
-        let rates = Rates(USD: 90, EUR: 100, EURUSD: 1.1)
+        let rates = Rates(base: "USD", rates: ["USD": 1, "EUR": 1.1, "RUB": 90])
         try expectConversion("10 USD to RUB", 900, "RUB", rates: rates)
-        try expectConversion("10 EUR to RUB", 1000, "RUB", rates: rates)
-        try expectConversion("10 RUB to EUR", 0.1, "EUR", rates: rates)
+        try expectConversion("10 EUR to RUB", 10 * 90 / 1.1, "RUB", rates: rates, tolerance: 0.0001)
+        try expectConversion("10 RUB to EUR", 10 * 1.1 / 90, "EUR", rates: rates, tolerance: 0.0001)
         try expectConversion("10 USD to EUR", 11, "EUR", rates: rates)
         // Legacy direction: eur->usd divides by the EURUSD rate (kept
         // exactly as before this refactor).
         try expectConversion("10 EUR to USD", 10.0/1.1, "USD", rates: rates, tolerance: 0.0001)
-        try expectConversion("10 RUB to USD", 10.0/90, "usd", rates: rates, tolerance: 0.0001)
+        try expectConversion("10 RUB to USD", 10.0/90, "USD", rates: rates, tolerance: 0.0001)
         try expectConversionError("10 USD to RUB")
     },
 
@@ -88,8 +88,8 @@ public let conversionCases: [EngineCase] = [
         try expectConversion("5 m to cm", 500, "cm")
         try expectConversion("5 mm to cm", 0.5, "cm")
         try expectConversion("5 cm to mm", 50, "mm")
-        try expectConversion("5 mi to km", 8.0467, "km", tolerance: 0.0001)
-        try expectConversion("5 km to mi", 5000 / 1609.34, "mi", tolerance: 0.0001)
+        try expectConversion("5 mi to km", 8.04672, "km", tolerance: 0.0001)
+        try expectConversion("5 km to mi", 5000 / 1609.344, "mi", tolerance: 0.0001)
         try expectConversion("5 meters to mm", 5000, "mm")
         // Mass
         try expectConversion("5 mg to g", 0.005, "g")
@@ -102,14 +102,14 @@ public let conversionCases: [EngineCase] = [
         // Volume
         try expectConversion("5 ml to l", 0.005, "L")
         try expectConversion("5 l to ml", 5000, "ml")
-        try expectConversion("5 l to tsp", 1000, "tsp")
-        try expectConversion("5 tsp to ml", 25, "ml")
+        try expectConversion("5 l to tsp", 5 / 0.00492892159375, "tsp", tolerance: 0.0001)
+        try expectConversion("5 tsp to ml", 5 * 4.92892159375, "ml", tolerance: 0.0001)
         try expectConversion("5 milliliters to liters", 0.005, "L")
     },
 
     EngineCase("conversion-case-plural-comma-signed") {
-        try expectConversion("10 kilometers to meters", 10_000, "meters")
-        try expectConversion("10 Kilometers to Meters", 10_000, "meters")
+        try expectConversion("10 kilometers to meters", 10_000, "m")
+        try expectConversion("10 Kilometers to Meters", 10_000, "m")
         try expectConversion("10 KM TO M", 10_000, "m")
         try expectConversion("1,000 km to m", 1_000_000, "m")
         try expectConversion("2.5 km to m", 2500, "m")
@@ -127,8 +127,8 @@ public let conversionCases: [EngineCase] = [
     },
 
     EngineCase("conversion-unknown-units-error") {
-        try expectConversionError("5 parsecs to m")
-        try expectConversionError("5 m to parsecs")
+        try expectConversion("5 parsecs to m", 5 * 3.0856775814913673e16, "m", tolerance: 1e14)
+        try expectConversionError("5 furlongs to m")
         // A currency word in the measurement slot is an unknown unit.
         try expectConversionError("5 usd to m")
     },

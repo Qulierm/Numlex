@@ -99,10 +99,37 @@ public enum SyntaxClassifier {
 
     // MARK: - Per-line span extraction
 
-    /// Conversion grammar: the leading numeric literal stays a number;
-    /// every identifier after it (unit words and `to`) is a conversion.
+    /// Conversion grammar: the leading number stays a number; the whole
+    /// from-unit expression and the whole to-unit expression are each
+    /// ONE conversion span (multi-word units like `US mpg`, slashed
+    /// units like `km/h` and `N·m` stay unsplit); the `to` keyword
+    /// carries no role.
     private static func conversionSpans(_ line: String) -> [SyntaxSpan] {
         let ns = line as NSString
+        // Leading-whitespace offset (the shape detector trims).
+        var offset = 0
+        while offset < ns.length {
+            let c = ns.character(at: offset)
+            if c == 0x20 || c == 0x09 { offset += 1 } else { break }
+        }
+        let trimmed = ns.substring(from: offset)
+        if let shape = conversionShape(trimmed) {
+            return [
+                SyntaxSpan(role: .number,
+                           range: NSRange(location: shape.numberRange.location + offset,
+                                          length: shape.numberRange.length)),
+                SyntaxSpan(role: .conversion,
+                           range: NSRange(location: shape.fromRange.location + offset,
+                                          length: shape.fromRange.length)),
+                SyntaxSpan(role: .conversion,
+                           range: NSRange(location: shape.toRange.location + offset,
+                                          length: shape.toRange.length))
+            ]
+        }
+        // Fallback for unit-bearing results without a plain shape (most
+        // notably reference-token conversion lines): the numeric literal
+        // is a number, every identifier after it (except `to`) is a
+        // conversion word.
         var spans: [SyntaxSpan] = []
         var unitStart = 0
         if let m = firstMatch(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#,
@@ -129,10 +156,10 @@ public enum SyntaxClassifier {
     private static func errorSpans(_ line: String,
                                    variables: [String: Double]) -> [SyntaxSpan] {
         let ns = line as NSString
-        let fullLine = NSRange(location: 0, length: ns.length)
-        if let m = firstMatch(
-            #"^\s*(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)\s+[A-Za-z_]\w*\s+to\s+[A-Za-z_]\w*\s*$"#,
-            in: ns), m == fullLine {
+        // Any conversion-shaped line (incompatible units, unknown units,
+        // unavailable rates) keeps the conversion treatment: number plus
+        // both unit expressions, base `to`.
+        if conversionShape(line.trimmingCharacters(in: .whitespaces)) != nil {
             return conversionSpans(line)
         }
         var spans: [SyntaxSpan] = []
