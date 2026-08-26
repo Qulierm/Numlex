@@ -10,15 +10,23 @@ import Foundation
 ///
 /// Grammar (English natural words only):
 /// - currency markers: `CA$` `NZ$` `HK$` `A$` `S$` `$` (→ USD by
-///   default), `€` `£` `¥` `₽`, or `<number> <ISO-3 code>`;
-/// - amounts: grouping (`$3,400`), decimals, scientific input, and the
-///   shared compact suffixes (`$3k`);
+///   default), `€` `£` `¥` `₽` — PREFIX (`$45`) or POSTFIX (`45$`,
+///   `2.5k$`); a doubled/malformed marker is never a marker;
+/// - amounts: grouping (`$3,400`), decimals, and the shared compact
+///   suffixes (`$3k`);
+/// - time rates: `per <time>` and `/ <time>` open a money/time rate
+///   (`per day` == `/ 1 day`); a numeric duration (`30 days`, `8 hrs`)
+///   carries the same time and cancels the rate when multiplied —
+///   exact catalog time factors, so `$24 per day × 12 hrs` = $12.
+///   Uncancelled rates are a hidden error, never a number;
+/// - a terminal prose period after a completed expression is accepted
+///   (`8 hrs.`) — a decimal dot is never stripped;
 /// - one currency per line: a second, different currency is a hidden
 ///   error (`$10 + €5`);
 /// - prose: a BOUNDED neutral word list (`lunch was`, `earnings`,
-///   `people`, `tip`, `sales tax`, ...) is dropped; any other word that
-///   is not a known variable or the percent infix `of` makes the line
-///   malformed;
+///   `people`, `tip`, `sales tax`, ...) is dropped; declared named
+///   values (single or multiword) keep their values; any other word
+///   makes the line malformed;
 /// - arithmetic: everything the shared expression engine does — `+`,
 ///   `-`, `×`, `÷`, contextual percentages, `of`, parentheses — with
 ///   the ISO code carried through the result.
@@ -31,11 +39,24 @@ public enum NaturalCalculation {
     }
 
     /// Bounded neutral prose words that may surround money amounts.
+    /// Count annotations like `people` stay dimensionless.
     static let neutralWords: Set<String> = [
         "was", "is", "lunch", "dinner", "breakfast", "earnings", "income",
         "salary", "people", "person", "tip", "tips", "tax", "taxes",
         "sales", "total", "bill", "order", "cost", "price", "item",
         "items", "each", "spent", "paid", "got", "for", "the",
+    ]
+
+    /// Time words that open a rate or a duration (`per day`, `8 hrs`).
+    /// Resolved through the UnitCatalog for EXACT factors (base second);
+    /// a word the catalog does not resolve as pure time is ignored here
+    /// (it then fails the word loop as a hidden error).
+    static let timeWords: Set<String> = [
+        "s", "sec", "secs", "second", "seconds",
+        "min", "mins", "minute", "minutes",
+        "h", "hr", "hrs", "hour", "hours",
+        "d", "day", "days",
+        "w", "wk", "wks", "week", "weeks",
     ]
 
     private static let markerRe = try? NSRegularExpression(
@@ -45,59 +66,170 @@ public enum NaturalCalculation {
     private static let isoAnnotationRe = try? NSRegularExpression(
         pattern: #"(?<=[0-9.])\s+([A-Z]{3})(?![A-Za-z0-9_])"#)
 
-    /// Detects and evaluates a natural money line. `variables` lets known
-    /// identifiers stay in the cleaned expression.
-    public static func tryMoney(line: String, variables: [String: Double]) -> Outcome {
-        guard let markerRe, let wordRe else { return .none }
+    // MARK: - Time factors
+
+    /// The exact seconds factor of a time word via the UnitCatalog
+    /// (pure time vector, linear factor), or nil when the word is not a
+    /// resolvable time unit.
+    public static func timeFactor(word: String) -> Double? {
+        let w = word.lowercased()
+        guard timeWords.contains(w) else { return nil }
+        guard let p = UnitCatalog.resolveExpression(w) else { return nil }
+        guard case .factor = p.unit.kind, p.unit.isLinear else { return nil }
+        let v = p.unit.vector
+        guard v.l == 0, v.m == 0, v.t != 0, v.a == 0, v.i == 0 else { return nil }
+        return p.unit.toBase
+    }
+
+    // MARK: - Marker detection
+
+    /// Every valid currency marker occurrence: PREFIX symbols glued
+    /// before a number (preceded by a non-alphanumeric or line start)
+    /// and POSTFIX symbols glued after a number (preceded by a digit or
+    /// a compact `k`/`m`/`M` suffix, followed by a non-digit). Doubled
+    /// or arithmetic `$` are never markers.
+    static func markerOccurrences(in line: String) -> [NSRange] {
+        guard let re = markerRe else { return [] }
+        let ns = line as NSString
+        var out: [NSRange] = []
+        for m in re.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+            let r = m.range
+            let before = r.location > 0 ? ns.character(at: r.location - 1) : 0
+            let after = r.location + r.length < ns.length
+                ? ns.character(at: r.location + r.length) : 0
+            let afterIsDigit = (0x30...0x39).contains(after)
+            let beforeIsDigit = (0x30...0x39).contains(before)
+            let beforeIsSuffix = before == 0x6B || before == 0x6D  // k / m
+            // Postfix: a number (or `2.5k`) right before, no digit after.
+            if (beforeIsDigit || beforeIsSuffix), !afterIsDigit {
+                out.append(r)
+                continue
+            }
+            // Prefix: a number (or decimal point) right after, nothing
+            // alphanumeric before.
+            if (0x30...0x39).contains(after) || after == 0x2E,
+                !beforeIsDigit,
+                before != 0x24,  // a doubled `$$` is never a marker
+                !(0x41...0x5A).contains(before), !(0x61...0x7A).contains(before) {
+                out.append(r)
+            }
+        }
+        return out
+    }
+
+    // MARK: - Named money assignment
+
+    /// Validates a natural assignment LHS: bounded English words
+    /// (ASCII letters, digits after the first, `_`), 1–6 words, total
+    /// ≤ 40 chars, no digits-first word, no operators. Returns the
+    /// trimmed display name or nil.
+    static func naturalLHS(_ raw: String) -> String? {
+        let s = raw.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty, s.count <= 40 else { return nil }
+        guard s.range(of: #"[^A-Za-z_0-9 ]"#, options: .regularExpression) == nil else {
+            return nil
+        }
+        let words = s.split(whereSeparator: { $0.isWhitespace })
+        guard (1...6).contains(words.count) else { return nil }
+        for w in words {
+            guard w.count >= 1, w.count <= 24 else { return nil }
+            guard let first = w.first, first.isLetter else { return nil }
+            guard w.allSatisfy({ ($0.isLetter || $0.isNumber) && $0.isASCII || $0 == "_" }) else {
+                return nil
+            }
+        }
+        return words.joined(separator: " ")
+    }
+
+    /// The evaluated quantity of a named value.
+    public enum AssignmentValue: Equatable {
+        case money(value: Double, code: String)
+        case scalar(Double)
+    }
+
+    /// A named assignment: `<name> = <money expression>` (and, for
+    /// multiword names, `<name> = <scalar expression>`). Returns the
+    /// display name plus the evaluated quantity; nil when the line is
+    /// not a natural assignment (or the right-hand side is malformed).
+    /// The caller records the name in the environment.
+    public static func tryAssignment(line: String, env: TypedEnv) -> (name: String, value: AssignmentValue)? {
+        guard let eq = line.firstIndex(of: "=") else { return nil }
+        let lhsRaw = String(line[..<eq])
+        guard let name = naturalLHS(lhsRaw) else { return nil }
+        let rhsRaw = String(line[line.index(after: eq)...])
+        guard !rhsRaw.contains("=") else { return nil }
+        // A money right-hand side is always recorded as money.
+        switch moneyOutcome(rhsRaw, env: env) {
+        case .money(let v, let c):
+            return (name, .money(value: v, code: c))
+        case .malformed, .none:
+            break
+        }
+        // Multiword names may also hold plain (possibly named) scalars;
+        // single identifiers keep the legacy assignment path.
+        guard name.contains(" ") else { return nil }
+        if let (v, codes) = evaluateNamedExpr(rhsRaw, env: env) {
+            guard codes.count <= 1 else { return nil }
+            if let c = codes.first {
+                return (name, .money(value: v, code: c))
+            }
+            return (name, .scalar(v))
+        }
+        return nil
+    }
+
+    // MARK: - Money detection
+
+    /// Detects and evaluates a natural money line against the typed
+    /// environment (declared names resolve to their values).
+    public static func tryMoney(line: String, env: TypedEnv) -> Outcome {
+        if line.contains("=") { return .none }  // assignments own their `=`
+        return moneyOutcome(line, env: env)
+    }
+
+    /// The money core. `.none` when the line is NOT money-looking (no
+    /// valid marker/ISO annotation); `.malformed` when it IS
+    /// money-looking but cannot complete (mixed currencies, unknown
+    /// words, uncancelled rates, non-finite) — the caller turns
+    /// `.malformed` into a hidden generic error, never a number.
+    static func moneyOutcome(_ line: String, env: TypedEnv) -> Outcome {
+        guard let wordRe else { return .none }
         let ns = line as NSString
         let full = NSRange(location: 0, length: ns.length)
 
-        // --- Locate currency markers (symbols adjacent to numbers) -----
+        // --- Locate currency markers (prefix AND postfix) --------------
+        let symbolRanges = markerOccurrences(in: line)
         var codes: Set<String> = []
-        var symbolRanges: [NSRange] = []
-        for m in markerRe.matches(in: line, range: full) {
-            let after = m.range.location + m.range.length
-            let c = after < ns.length ? ns.character(at: after) : 0
-            guard c == 0x2E || (0x30...0x39).contains(c) else {
-                // A `$` not glued to a number is prose, not money.
-                continue
+        for r in symbolRanges {
+            let marker = ns.substring(with: r)
+            if let code = CurrencyPresentation.code(forMarker: marker) {
+                codes.insert(code)
             }
-            let marker = ns.substring(with: m.range)
-            guard let code = CurrencyPresentation.code(forMarker: marker) else { continue }
-            codes.insert(code)
-            symbolRanges.append(m.range)
         }
 
         // --- ISO code annotations: `100 USD` ---------------------------
+        var isoRanges: [NSRange] = []
         if codes.isEmpty, let isoRe = isoAnnotationRe {
             for m in isoRe.matches(in: line, range: full) where m.numberOfRanges >= 2 {
                 let code = ns.substring(with: m.range(at: 1))
                 guard FiatCurrencies.codes.contains(code) else { continue }
                 codes.insert(code)
+                isoRanges = [m.range(at: 1)]
                 break
             }
         }
 
         guard !codes.isEmpty else { return .none }
-        // Assignments own their `=`; money detection never touches them.
-        if line.contains("=") { return .none }
         // Two different currencies are never silently combined.
         guard codes.count == 1, let code = codes.first else { return .malformed }
 
         // --- Clean the expression ---------------------------------------
         var cleaned = line
-        // Remove symbol markers (the number stays).
         for r in symbolRanges.sorted(by: { $0.location > $1.location }) {
-            cleaned = (cleaned as NSString).replacingCharacters(
-                in: r, with: "")
+            cleaned = (cleaned as NSString).replacingCharacters(in: r, with: "")
         }
-        // Remove ISO annotations (keep the number).
-        if symbolRanges.isEmpty, let isoRe = isoAnnotationRe {
-            for m in isoRe.matches(in: cleaned, range: (cleaned as NSString)
-                .fullRange).reversed() {
-                let r = NSRange(location: m.range(at: 1).location,
-                                length: m.range(at: 1).length)
-                // Swallow the preceding space too.
+        if symbolRanges.isEmpty {
+            for r in isoRanges.sorted(by: { $0.location > $1.location }) {
                 let loc = r.location > 0
                     && (cleaned as NSString).character(at: r.location - 1) == 0x20
                     ? r.location - 1 : r.location
@@ -107,23 +239,74 @@ public enum NaturalCalculation {
             }
         }
 
-        // Bounded prose stripping: neutral words drop, known variables
-        // stay, `of` (the percent infix) stays, anything else malformed.
-        let cleanedNS = cleaned as NSString
+        // --- Declared names resolve to their values ---------------------
+        // Scalar entries stay usable under their display name; compound
+        // names are substituted with tokenizer placeholders (a
+        // multiword name can never be a single identifier token).
+        var placeholderVars: [String: Double] = [:]
+        for e in env.entries {
+            switch e.qty {
+            case .scalar(let v) where v.isFinite:
+                placeholderVars[e.display] = v
+            case .money(let v, _) where v.isFinite:
+                // A single-word money name may appear as a plain word
+                // in another money line; the word loop enforces the
+                // same-currency rule for names the line actually uses.
+                placeholderVars[e.display] = v
+            default:
+                break
+            }
+        }
+        let matches = NamedValues.matches(in: cleaned, env: env)
+        for (idx, m) in matches.enumerated() {
+            switch m.entry.qty {
+            case .scalar:
+                break  // usable under its display name
+            case .money(let v, let c):
+                guard c.caseInsensitiveCompare(code) == .orderedSame else { return .malformed }
+                placeholderVars[namePlaceholder(idx)] = v
+            }
+        }
+        if !matches.isEmpty {
+            var substituted = cleaned
+            for (idx, m) in matches.enumerated().reversed() {
+                substituted = (substituted as NSString)
+                    .replacingCharacters(in: m.range, with: namePlaceholder(idx))
+            }
+            cleaned = substituted
+        }
+
+        // --- Typed time-rate expansion -----------------------------------
+        var rateCount = 0
+        var durationCount = 0
+        cleaned = expandTimeRates(cleaned, rateCount: &rateCount,
+                                  durationCount: &durationCount)
+        guard rateCount == durationCount else { return .malformed }
+
+        // Bounded prose stripping: neutral words drop, declared names
+        // stay (already substituted), `of` (the percent infix) stays,
+        // anything else malformed.
         var badWord = false
+        let cleanedNS = cleaned as NSString
         for m in wordRe.matches(in: cleaned, range: NSRange(location: 0, length: cleanedNS.length))
             .reversed() {
             let word = cleanedNS.substring(with: m.range)
             let lower = word.lowercased()
             if neutralWords.contains(lower) {
-                // Drop the word and one adjacent space (if present).
                 let loc = m.range.location > 0
                     && cleanedNS.character(at: m.range.location - 1) == 0x20
                     ? m.range.location - 1 : m.range.location
                 let len = m.range.length + (loc == m.range.location ? 0 : 1)
                 cleaned = (cleaned as NSString).replacingCharacters(
                     in: NSRange(location: loc, length: len), with: "")
-            } else if lower == "of" || variables[word] != nil {
+            } else if lower == "of" || placeholderVars[word] != nil {
+                // A single-word MONEY name used on this line must agree
+                // with the line's currency.
+                if case .money(_, let c)? = env.entry(display: word)?.qty,
+                   c.caseInsensitiveCompare(code) != .orderedSame {
+                    badWord = true
+                    break
+                }
                 continue
             } else {
                 badWord = true
@@ -132,20 +315,85 @@ public enum NaturalCalculation {
         }
         if badWord { return .malformed }
 
-        let trimmed = cleaned.trimmingCharacters(in: .whitespaces)
+        let trimmed = stripTerminalDot(cleaned).trimmingCharacters(in: .whitespaces)
         guard trimmed.range(of: #"\d"#, options: .regularExpression) != nil else {
             return .malformed
         }
 
-        // Same engine the free-expression path uses: compact suffixes
-        // (`3k`), grouping commas, contextual percentages, `of`, `÷`.
         do {
-            let raw = try evaluateExpression(normalizeExprCorrect(trimmed), variables: variables)
+            let raw = try evaluateExpression(normalizeExprCorrect(trimmed),
+                                             variables: placeholderVars)
             guard raw.isFinite else { return .malformed }
             return .money(value: roundResult(raw, decimalPlaces: 10), code: code)
         } catch {
             return .malformed
         }
+    }
+
+    /// Rewrites the typed time-rate forms with exact catalog seconds
+    /// factors: `per day` → `/ 86400`, `/ hr` → `/ 3600`,
+    /// `30 days` → `(30 * 86400)`. Reports how many rates were opened
+    /// and how many durations supplied (uncancelled ⇒ rejected).
+    public static func expandTimeRates(_ input: String,
+                                rateCount: inout Int,
+                                durationCount: inout Int) -> String {
+        var s = input
+        // 1. `per <time>` (word boundary, case-insensitive).
+        for w in timeWords.sorted(by: { $0.count > $1.count }) {
+            guard let f = timeFactor(word: w), f.isFinite, f > 0 else { continue }
+            let re = try? NSRegularExpression(
+                pattern: "(?<![A-Za-z0-9_])per\\s+" + w + "(?![a-z0-9])",
+                options: .caseInsensitive)
+            guard let re else { continue }
+            let full = NSRange(location: 0, length: (s as NSString).length)
+            let hits = re.matches(in: s, range: full).count
+            guard hits > 0 else { continue }
+            s = re.stringByReplacingMatches(in: s, range: full,
+                                            withTemplate: "/ \(literal(f))")
+            rateCount += hits
+        }
+        // 2. `<time>` right after a slash: `$85 / hr`.
+        for w in timeWords.sorted(by: { $0.count > $1.count }) {
+            guard let f = timeFactor(word: w), f.isFinite, f > 0 else { continue }
+            let re = try? NSRegularExpression(
+                pattern: "/\\s*" + w + "(?![a-z0-9])", options: .caseInsensitive)
+            guard let re else { continue }
+            let full = NSRange(location: 0, length: (s as NSString).length)
+            let hits = re.matches(in: s, range: full).count
+            guard hits > 0 else { continue }
+            s = re.stringByReplacingMatches(in: s, range: full,
+                                            withTemplate: "/ \(literal(f))")
+            rateCount += hits
+        }
+        // 3. `<number> <time>` durations.
+        for w in timeWords.sorted(by: { $0.count > $1.count }) {
+            guard let f = timeFactor(word: w), f.isFinite, f > 0 else { continue }
+            let re = try? NSRegularExpression(
+                pattern: "(\\d+(?:\\.\\d+)?)\\s+" + w + "(?![a-z0-9])",
+                options: .caseInsensitive)
+            guard let re else { continue }
+            let full = NSRange(location: 0, length: (s as NSString).length)
+            let hits = re.matches(in: s, range: full).count
+            guard hits > 0 else { continue }
+            s = re.stringByReplacingMatches(in: s, range: full,
+                                            withTemplate: "($1 * \(literal(f)))")
+            durationCount += hits
+        }
+        return s
+    }
+
+    private static func literal(_ f: Double) -> String {
+        f.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(f)) : String(f)
+    }
+
+    /// A terminal prose period (a `.` at the very end, NOT a decimal
+    /// dot: the previous character must not be a digit) is dropped for
+    /// evaluation only — the source line is never rewritten.
+    static func stripTerminalDot(_ s: String) -> String {
+        guard let last = s.last, last == "." else { return s }
+        guard let prev = s.dropLast().last else { return s }
+        if (0x30...0x39).contains(prev.asciiValue ?? 0xFF) { return s }
+        return String(s.dropLast())
     }
 
     /// Money-aware prose stripping for reference-token lines: the same
@@ -160,7 +408,6 @@ public enum NaturalCalculation {
     ) -> String? {
         guard moneyContext, let wordRe else { return line }
         let ns = line as NSString
-        var hasWord = false
         var hasBadWord = false
         var cleaned = line
         for m in wordRe.matches(in: line, range: NSRange(location: 0, length: ns.length))
@@ -168,7 +415,6 @@ public enum NaturalCalculation {
             let word = ns.substring(with: m.range)
             let lower = word.lowercased()
             if neutralWords.contains(lower) {
-                hasWord = true
                 let loc = m.range.location > 0
                     && ns.character(at: m.range.location - 1) == 0x20
                     ? m.range.location - 1 : m.range.location
@@ -176,29 +422,19 @@ public enum NaturalCalculation {
                 cleaned = (cleaned as NSString).replacingCharacters(
                     in: NSRange(location: loc, length: len), with: "")
             } else if lower == "of" || variables[word] != nil {
-                hasWord = true
+                continue
             } else {
-                hasWord = true
                 hasBadWord = true
                 break
             }
         }
-        _ = hasWord
         return hasBadWord ? nil : cleaned
     }
 
     /// Whether a token line is in money context: a currency marker is
     /// present, or the resolved token quantities carry currency units.
     public static func isMoneyContext(line: String, tokenUnits: [String?]) -> Bool {
-        if let markerRe,
-           let m = markerRe.firstMatch(in: line,
-                                       range: NSRange(location: 0, length: (line as NSString).length)) {
-            let after = m.range.location + m.range.length
-            if after < (line as NSString).length {
-                let c = (line as NSString).character(at: after)
-                if c == 0x2E || (0x30...0x39).contains(c) { return true }
-            }
-        }
+        if !markerOccurrences(in: line).isEmpty { return true }
         let currencyUnits = tokenUnits.filter { unit in
             unit.map(isCurrencyCode) ?? false
         }
@@ -207,8 +443,4 @@ public enum NaturalCalculation {
             unit == nil || isCurrencyCode(unit)
         }
     }
-}
-
-private extension NSString {
-    var fullRange: NSRange { NSRange(location: 0, length: length) }
 }

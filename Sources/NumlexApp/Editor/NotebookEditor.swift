@@ -495,7 +495,8 @@ final class NotebookEditorCoordinator: NSObject {
             // partial assignments and errors) is painted purely from the
             // line's classified spans; prose carries no spans and keeps
             // the base attributes set above.
-            applySpans(i < spans.count ? spans[i] : [], lineStart: lineStart, in: storage)
+            applySpans(i < spans.count ? spans[i] : [],
+                       lineStart: lineStart, lineLength: len, in: storage)
         }
         applyTokenAttachments(in: storage)
         storage.endEditing()
@@ -562,7 +563,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// offset using the Design palette tokens (raised matte sRGB values;
     /// see Design.swift for the exact numbers). Operators, `to` and
     /// unknown words keep the fixed white base.
-    private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int, in storage: NSTextStorage) {
+    private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int,
+                            lineLength: Int, in storage: NSTextStorage) {
+        let storageLength = (storage.string as NSString).length
         for span in lineSpans {
             let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
             // Hash spans are styled by the dedicated hash-heading branch
@@ -572,8 +575,18 @@ final class NotebookEditorCoordinator: NSObject {
                 case .number: Design.numberColor
                 case .variable: Design.variableColor
                 case .conversion: Design.conversionColor
+                case .moneyMarker: Design.moneyMarkerColor
                 case .hashMarker, .hashBody: nil
             } else { continue }
+            // Final document-bound guard: even a malformed span (a bad
+            // classifier result, an out-of-range offset, a zero-length
+            // or negative range) can never raise NSRangeException — it
+            // is simply dropped, so partial highlighting degrades to
+            // base color instead of crashing the editor.
+            guard r.location >= 0,
+                  r.length > 0,
+                  NSMaxRange(r) <= storageLength,
+                  NSMaxRange(r) <= lineStart + lineLength else { continue }
             storage.addAttribute(.foregroundColor, value: color, range: r)
         }
     }

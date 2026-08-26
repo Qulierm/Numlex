@@ -79,9 +79,28 @@ public func resolveSheet(
         acc += (line as NSString).length + 1
     }
 
-    var vars: [String: Double] = [:]
+    // ONE shared typed environment for the whole sheet: named values
+    // (unitless AND money) declared above a token line are visible to
+    // it, exactly like in `evaluateSheet`.
+    var env = TypedEnv()
     var memo: [Int: LineResult] = [:]
     var tokenStates: [Int: TokenResolution.State] = [:]
+
+    /// Scalar view of the environment for the legacy `[String: Double]`
+    /// expression plumbing: unitless names under their display name,
+    /// money names by their raw value (a money name used as a plain
+    /// operand keeps the surrounding quantity's unit).
+    func varsAll() -> [String: Double] {
+        var d: [String: Double] = [:]
+        for e in env.entries {
+            switch e.qty {
+            case .scalar(let v) where v.isFinite: d[e.display] = v
+            case .money(let v, _) where v.isFinite: d[e.display] = v
+            default: break
+            }
+        }
+        return d
+    }
 
     func plainLine(_ line: String) -> LineResult {
         // Exactly the line-kind handling `evaluateSheet` uses.
@@ -92,8 +111,8 @@ public func resolveSheet(
             return .title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
         }
         if line.hasPrefix("//") { return .blank }
-        if let eval = evalLine(line, variables: &vars, rates: rates, decimalPlaces: decimalPlaces,
-                               now: now, calendar: calendar) {
+        if let eval = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
+                                    now: now, calendar: calendar) {
             return eval
         }
         return .skip
@@ -225,9 +244,9 @@ public func resolveSheet(
                     rhsMap[pos - eqUTF16 - 1] = q
                 }
                 do {
-                    let q = try TokenExpr.evaluate(rhs, markerQuantities: rhsMap, vars: vars)
+                    let q = try TokenExpr.evaluate(rhs, markerQuantities: rhsMap, vars: varsAll())
                     guard q.unit == nil else { return .error(message: "Units cannot be assigned") }
-                    vars[lhs] = q.v
+                    env.set(display: lhs, qty: .scalar(q.v))
                     return .variable(name: lhs, value: roundResult(q.v, decimalPlaces: decimalPlaces))
                 } catch {
                     return .error(message: "Invalid expression")
@@ -244,7 +263,7 @@ public func resolveSheet(
         let moneyCtx = NaturalCalculation.isMoneyContext(line: line, tokenUnits: tokenUnits)
         let exprLine: String
         if moneyCtx, let stripped = NaturalCalculation.stripTokenProse(
-            line: line, variables: vars, moneyContext: true) {
+            line: line, variables: varsAll(), moneyContext: true) {
             exprLine = stripped
         } else if moneyCtx {
             return .error(message: "Invalid expression")
@@ -252,7 +271,7 @@ public func resolveSheet(
             exprLine = line
         }
         do {
-            let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: vars)
+            let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: varsAll())
             return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
         } catch {
             return .error(message: "Invalid expression")

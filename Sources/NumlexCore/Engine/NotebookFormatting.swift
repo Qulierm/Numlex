@@ -29,28 +29,43 @@ public enum NotebookFormatting {
     public static func canonicalLine(_ line: String,
                                      rates: Rates = Rates(),
                                      decimalPlaces: Int = 7) -> (text: String, map: [Int])? {
-        guard isMathematical(line, rates: rates, decimalPlaces: decimalPlaces) else { return nil }
+        let env = TypedEnv()
+        guard isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces) else {
+            return nil
+        }
         let text = canonicalMathText(line)
         return (text, insertionMap(from: line, to: text))
     }
 
     /// One canonical pass over a whole document, following the same
-    /// top-down variable flow the evaluator uses. Untouched lines are
-    /// preserved byte-for-byte.
+    /// top-down TYPED environment flow the evaluator and the answer
+    /// column use. Untouched lines — and every natural line (money
+    /// assignments, rate lines, named references, even incomplete
+    /// prefixes typed mid-edit) — are preserved byte-for-byte.
     public static func canonicalDocument(_ content: String,
                                          rates: Rates = Rates(),
                                          decimalPlaces: Int = 7) -> String {
-        var vars: [String: Double] = [:]
+        var env = TypedEnv()
         let lines = content.components(separatedBy: "\n")
         var out: [String] = []
         for line in lines {
-            var probe = vars
-            if let result = evalLine(line, variables: &probe, rates: rates, decimalPlaces: decimalPlaces) {
+            // Natural lines are NEVER touched: their prose and glyph
+            // placement (currency markers, `per`/time words, terminal
+            // dots, multiword names) have no caret map, and rewriting
+            // them mid-typing would move the caret or the U+FFFC
+            // answer markers.
+            if isNaturalShape(line, env: env) {
+                out.append(line)
+                continue
+            }
+            if let result = evalLineTyped(line, env: &env, rates: rates,
+                                          decimalPlaces: decimalPlaces,
+                                          now: Date(), calendar: Calendar.current) {
                 switch result {
                 case .number(_, .none), .variable, .error:
                     out.append(canonicalMathText(line))
                 case .number(_, .some), .money, .date, .blank, .skip, .title, .brokenToken:
-                    // Natural money and date lines are preserved
+                    // Conversions, money and date lines are preserved
                     // byte-identical: their prose and glyph placement
                     // (currency markers, month names) have no caret map.
                     out.append(line)
@@ -58,7 +73,6 @@ public enum NotebookFormatting {
             } else {
                 out.append(line)
             }
-            vars = probe
         }
         return out.joined(separator: "\n")
     }
@@ -70,8 +84,24 @@ public enum NotebookFormatting {
     public static func isMathematical(_ line: String,
                                       rates: Rates = Rates(),
                                       decimalPlaces: Int = 7) -> Bool {
-        var vars: [String: Double] = [:]
-        switch evalLine(line, variables: &vars, rates: rates, decimalPlaces: decimalPlaces) {
+        let env = TypedEnv()
+        return isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces)
+    }
+
+    /// The typed variant: a line is mathematical only when it is NOT in
+    /// natural shape (money assignment, rate line, named reference —
+    /// preserved byte-identical on every tick) AND it evaluates to a
+    /// plain number, a variable assignment, or an evaluation error.
+    /// Error lines always contain a digit (the evaluator classifies
+    /// digit-less lines as prose), so natural-language text is never
+    /// classified as mathematical.
+    static func isMathematical(_ line: String, env: TypedEnv,
+                               rates: Rates, decimalPlaces: Int) -> Bool {
+        if isNaturalShape(line, env: env) { return false }
+        var env2 = env
+        switch evalLineTyped(line, env: &env2, rates: rates,
+                             decimalPlaces: decimalPlaces,
+                             now: Date(), calendar: Calendar.current) {
         case .number(_, let unit):
             return unit == nil
         case .variable, .error:
@@ -80,6 +110,51 @@ public enum NotebookFormatting {
             // Money/date lines keep their exact typed form.
             return false
         }
+    }
+
+    /// Pure shape probe for natural lines — no evaluation involved, so
+    /// it answers correctly for INCOMPLETE prefixes while typing
+    /// (`monthly rent = $`, `food = $50 per`, `contractor = $85 / hr`):
+    /// - a currency marker adjacent to a digit anywhere (`$5`, `45$`,
+    ///   `$2.5k`);
+    /// - an ISO code annotating a number (`100 USD`);
+    /// - a grammar-valid natural LHS before `=` — multiword names
+    ///   always, single identifiers when the RHS carries a marker;
+    /// - a rate or duration word shape (`per day`, `/ hr`, `30 days`);
+    /// - a reference to a declared compound name in `env`.
+    public static func isNaturalShape(_ line: String, env: TypedEnv) -> Bool {
+        if !NaturalCalculation.markerOccurrences(in: line).isEmpty { return true }
+        if let m = line.range(of: #"(\d)\s+([A-Z]{3})\b"#, options: .regularExpression) {
+            let code = String(line[m].suffix(3))
+            if isCurrencyCode(code) { return true }
+        }
+        if let eq = line.firstIndex(of: "=") {
+            let lhs = String(line[..<eq])
+            if let name = NaturalCalculation.naturalLHS(lhs) {
+                if name.contains(" ") { return true }
+                let rhs = String(line[line.index(after: eq)...])
+                if !NaturalCalculation.markerOccurrences(in: rhs).isEmpty { return true }
+            }
+        }
+        let timeWords = "(?:s|sec|secs|second|seconds|min|mins|minute|minutes|"
+            + "h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)"
+        if line.range(of: "(?<![A-Za-z0-9_])per\\s+" + timeWords + "(?![a-z0-9])",
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
+        }
+        if line.range(of: "/\\s*" + timeWords + "(?![a-z0-9])",
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
+        }
+        if line.range(of: "(?<![A-Za-z0-9_])\\d+(?:\\.\\d+)?\\s+" + timeWords + "(?![a-z0-9])",
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
+        }
+        if NamedValues.matches(in: line, env: env).contains(
+            where: { !TypedEnv.isLegacyIdentifier($0.display) }) {
+            return true
+        }
+        return false
     }
 
     /// The pure text transformation for a mathematical line (see the

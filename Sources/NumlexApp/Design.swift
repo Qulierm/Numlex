@@ -54,6 +54,9 @@ enum Design {
     /// Comment titles: sRGB(101, 188, 246) — saturated matte blue (H204 S89 L68).
     static let titleColor = NSColor(srgbRed: 101.0 / 255.0, green: 188.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
 
+    /// Currency markers on money lines (`$`, `€`, ISO codes).
+    static let moneyMarkerColor = NSColor(srgbRed: 199.0 / 255.0, green: 128.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
+
     /// Editor caret: sRGB(52, 120, 247) — fixed accent blue matched to
     /// the Soulver reference. Constant across appearances; the caret's
     /// geometry, size, row-box centering and blink are owned by

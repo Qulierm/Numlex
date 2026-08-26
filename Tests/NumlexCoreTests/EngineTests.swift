@@ -94,4 +94,9 @@ struct EngineTests {
     func dateCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: moneyAssignmentCases)
+    func moneyAssignmentCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

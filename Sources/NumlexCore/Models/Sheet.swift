@@ -120,12 +120,16 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     /// `//` headings, plain notes and error lines. The line is trimmed,
     /// whitespace-collapsed and safely truncated.
     public static func autoTitle(from content: String, fallback: String) -> String {
-        var vars: [String: Double] = [:]
+        // ONE shared typed environment (named unitless values AND money)
+        // so natural lines evaluate the same way as in the sheet.
+        var env = TypedEnv()
         for rawLine in content.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
             if line.hasPrefix("#") || line.hasPrefix("//") { continue }
-            guard let result = evalLine(line, variables: &vars, rates: Rates(), decimalPlaces: 7) else { continue }
+            guard let result = evalLineTyped(line, env: &env, rates: Rates(),
+                                             decimalPlaces: 7, now: Date(),
+                                             calendar: Calendar.current) else { continue }
             switch result {
             case .number, .variable, .money, .date:
                 let collapsed = line
