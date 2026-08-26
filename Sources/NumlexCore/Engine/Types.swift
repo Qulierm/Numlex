@@ -77,6 +77,16 @@ public enum LineResult: Equatable, Sendable {
     case title(String)
     case number(value: Double, unit: String?)
     case variable(name: String, value: Double)
+    /// A natural money line (`$3k earnings ÷ 5 people`, `lunch was $55
+    /// + 25% tip`): the value carries full engine precision and an ISO
+    /// currency code; the display is the shared money presentation
+    /// (`$600.00`), never `600 USD`. Money results never enter the
+    /// numeric Total and never mix across currencies.
+    case money(value: Double, code: String)
+    /// A date answer (`May 5 + 43 days`): component form, never a
+    /// Double and never tokenized as a number. Display is compact
+    /// English (`Jun 17`, year added when explicit or crossed).
+    case date(year: Int, month: Int, day: Int, showYear: Bool)
     /// A line that is ONLY an inactive reference token (its source line
     /// was deleted or stopped evaluating to a number/variable). The token
     /// stays in place in the editor; the line displays the remembered

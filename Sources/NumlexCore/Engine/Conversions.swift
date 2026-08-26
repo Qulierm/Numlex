@@ -23,78 +23,118 @@ func roundResult(_ value: Double, decimalPlaces: Int) -> Double {
 
 // MARK: - Conversion shape
 
-/// The detected `<number> <unit> to <unit>` shape of a line, with
+/// The detected `<number> <unit> to|in <unit>` shape of a line, with
 /// UTF-16 ranges for syntax highlighting.
+///
+/// Generalization from r16: the keyword is exactly one whitespace-
+/// delimited `to` OR `in` (case-insensitive), and the number may carry
+/// a currency symbol source (`$3,740.00 in EUR`, `€100 to USD`) in
+/// which case the from side may be EMPTY (the symbol implies the
+/// source currency). When a bare `in` would collide with the inch unit
+/// (`3 in to cm`), the `to` keyword wins and `in` stays a unit word.
 struct ConversionShape: Equatable {
     let numberText: String
-    let fromText: String
+    let fromText: String?
     let toText: String
     let numberRange: NSRange
-    let fromRange: NSRange
+    let fromRange: NSRange?
     let toRange: NSRange
+    let symbolRange: NSRange?
+    let symbolCode: String?
 }
 
 private let conversionNumberPattern = try? NSRegularExpression(
     pattern: #"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?"#)
 
-/// Detects `<number> <unit> to <unit>`:
-/// - the line (after trimming) starts with a signed number — plain,
-///   comma-grouped or scientific — immediately followed by WHITESPACE
-///   (so compact magnitudes `5m`/`2.5k` never enter the conversion
-///   shape);
-/// - there is EXACTLY ONE whitespace-delimited `to` keyword
-///   (case-insensitive);
-/// - both sides of it are non-empty texts containing at least one
-///   letter (unit words may be multi-word, may carry `/`, `·`, `²`,
-///   `^2`, parentheses — the unit expression parser decides what is a
-///   legal unit).
-/// Returns nil otherwise; the line then flows to the expression
-/// evaluator.
+/// Matches a leading currency symbol source: the marker must be glued
+/// to a following digit or `.` (`$3,740.00`, `€100`), so prose like
+/// `the $ sign` never matches.
+private let conversionSymbolPattern = try? NSRegularExpression(
+    pattern: "^(?:" + CurrencyPresentation.inputMarkerPattern + ")(?=[0-9.])")
+
+/// Detects `<symbol?> <number> <fromUnit?> to|in <toUnit>` per the
+/// `ConversionShape` documentation. Returns nil otherwise; the line
+/// then flows on (money layer, date layer, expression evaluator).
 func conversionShape(_ line: String) -> ConversionShape? {
     let ns = line as NSString
     let lower = (ns as String).lowercased() as NSString
-    // Count whitespace-delimited `to` keywords.
-    var toCount = 0
-    var toKWRange: NSRange?
-    var searchStart = 0
-    while searchStart <= ns.length {
-        let r = lower.range(of: " to ",
-                            range: NSRange(location: searchStart,
-                                           length: ns.length - searchStart))
-        guard r.location != NSNotFound else { break }
-        toCount += 1
-        toKWRange = r
-        searchStart = r.location + r.length
+    // Count whitespace-delimited `to` and `in` keywords and pick the
+    // conversion keyword.
+    var toRanges: [NSRange] = []
+    var inRanges: [NSRange] = []
+    func collect(_ kw: String, into: inout [NSRange]) {
+        var start = 0
+        while start <= ns.length {
+            let r = lower.range(of: " \(kw) ",
+                                range: NSRange(location: start,
+                                               length: ns.length - start))
+            guard r.location != NSNotFound else { break }
+            into.append(r)
+            start = r.location + r.length
+        }
     }
-    guard toCount == 1, let toR = toKWRange else { return nil }
-    // The number must start the line.
+    collect("to", into: &toRanges)
+    collect("in", into: &inRanges)
+    var kwRange: NSRange?
+    if toRanges.count == 1, inRanges.isEmpty {
+        kwRange = toRanges[0]
+    } else if inRanges.count == 1, toRanges.isEmpty {
+        kwRange = inRanges[0]
+    } else if toRanges.count == 1, !inRanges.isEmpty,
+              inRanges.allSatisfy({ $0.location < toRanges[0].location }) {
+        // `3 in to cm`: `in` is the inch unit, `to` is the keyword.
+        kwRange = toRanges[0]
+    }
+    guard let toR = kwRange else { return nil }
+    // A leading currency symbol source (optional).
+    var symbolRange: NSRange?
+    var symbolCode: String?
+    if let symRe = conversionSymbolPattern,
+       let sM = symRe.firstMatch(in: line as String,
+                                 range: NSRange(location: 0, length: ns.length)) {
+        symbolRange = sM.range
+        symbolCode = CurrencyPresentation.code(forMarker: ns.substring(with: sM.range))
+    }
+    // The number must start the line (right after the symbol, if any).
+    let numberOrigin = symbolRange.map { $0.location + $0.length } ?? 0
     guard let numM = conversionNumberPattern?.firstMatch(
-        in: line as String, range: NSRange(location: 0, length: ns.length)),
+        in: String(ns.substring(from: numberOrigin)),
+        range: NSRange(location: 0, length: ns.length - numberOrigin)),
         numM.range.location == 0 else { return nil }
+    let numRange = NSRange(location: numM.range.location + numberOrigin,
+                           length: numM.range.length)
     // A whitespace must separate number and unit text.
-    let afterNum = numM.range.location + numM.range.length
+    let afterNum = numRange.location + numRange.length
     guard afterNum < ns.length,
           isWhitespace16(ns.character(at: afterNum)) else { return nil }
-    let fromEnd = toR.location
-    guard fromEnd > afterNum else { return nil }
-    let fromRaw = ns.substring(with: NSRange(location: afterNum, length: fromEnd - afterNum))
+    // The keyword RANGE includes its surrounding spaces; the keyword
+    // word itself sits one inside, so use the word boundaries for the
+    // from/to split (a symbol source may leave the from side empty).
+    let kwStart = toR.location + 1
+    let kwEnd = toR.location + 1 + (toR.length - 2)
+    guard symbolCode != nil || kwStart > afterNum else { return nil }
+    let fromRaw = ns.substring(with: NSRange(location: afterNum, length: kwStart - afterNum))
     let fromText = fromRaw.trimmingCharacters(in: .whitespaces)
-    guard fromText.containsLetter else { return nil }
-    let toStart = toR.location + toR.length
+    // The from side may be empty ONLY when a symbol supplies the source.
+    guard symbolCode != nil || fromText.containsLetter else { return nil }
+    let toStart = kwEnd
     let toRaw = ns.substring(from: toStart)
     let toText = toRaw.trimmingCharacters(in: .whitespaces)
     guard toText.containsLetter else { return nil }
     // Ranges of the TRIMMED texts (spans must cover the unit words only).
-    let fromRange = trimmedRange(of: fromText, in: fromRaw, origin: afterNum)
+    let fromRange = fromText.isEmpty ? nil
+        : trimmedRange(of: fromText, in: fromRaw, origin: afterNum)
     let toRange = trimmedRange(of: toText, in: toRaw, origin: toStart)
-    guard fromRange != nil, toRange != nil else { return nil }
+    guard fromRange != nil || fromText.isEmpty, toRange != nil else { return nil }
     return ConversionShape(
-        numberText: ns.substring(with: numM.range),
-        fromText: fromText,
+        numberText: ns.substring(with: numRange),
+        fromText: fromText.isEmpty ? nil : fromText,
         toText: toText,
-        numberRange: numM.range,
-        fromRange: fromRange!,
-        toRange: toRange!
+        numberRange: numRange,
+        fromRange: fromRange,
+        toRange: toRange!,
+        symbolRange: symbolRange,
+        symbolCode: symbolCode
     )
 }
 
@@ -189,8 +229,30 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResu
     let numText = shape.numberText.replacingOccurrences(of: ",", with: "")
     guard let num = Double(numText) else { return .error(message: "Invalid number") }
     guard num.isFinite else { return .error(message: "Invalid number") }
-    guard let from = UnitCatalog.resolveExpression(shape.fromText) else {
-        return .error(message: "Unknown units")
+    // From side: an explicit unit expression, or the currency implied
+    // by a leading symbol source (`$100 to EUR`, `€100 in USD`).
+    var from: UnitCatalog.ParsedExpr
+    if let code = shape.symbolCode {
+        guard let symUnit = UnitCatalog.resolveExpression(code) else {
+            return .error(message: "Unknown units")
+        }
+        if let fromText = shape.fromText {
+            guard let explicit = UnitCatalog.resolveExpression(fromText) else {
+                return .error(message: "Unknown units")
+            }
+            // A text source must agree with the symbol's currency.
+            guard case .currency(let ec) = explicit.unit.kind,
+                  ec.caseInsensitiveCompare(code) == .orderedSame else {
+                return .error(message: "Incompatible units")
+            }
+        }
+        from = symUnit
+    } else {
+        guard let fromText = shape.fromText,
+              let resolved = UnitCatalog.resolveExpression(fromText) else {
+            return .error(message: "Unknown units")
+        }
+        from = resolved
     }
     guard let to = UnitCatalog.resolveExpression(shape.toText) else {
         return .error(message: "Unknown units")

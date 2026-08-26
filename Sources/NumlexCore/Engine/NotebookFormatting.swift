@@ -49,7 +49,10 @@ public enum NotebookFormatting {
                 switch result {
                 case .number(_, .none), .variable, .error:
                     out.append(canonicalMathText(line))
-                case .number(_, .some), .blank, .skip, .title, .brokenToken:
+                case .number(_, .some), .money, .date, .blank, .skip, .title, .brokenToken:
+                    // Natural money and date lines are preserved
+                    // byte-identical: their prose and glyph placement
+                    // (currency markers, month names) have no caret map.
                     out.append(line)
                 }
             } else {
@@ -73,7 +76,8 @@ public enum NotebookFormatting {
             return unit == nil
         case .variable, .error:
             return true
-        case .blank, .skip, .title, .brokenToken, .none:
+        case .money, .date, .blank, .skip, .title, .brokenToken, .none:
+            // Money/date lines keep their exact typed form.
             return false
         }
     }
@@ -160,7 +164,7 @@ public enum NotebookFormatting {
         let wsBefore: Bool
     }
 
-    private static let opChars: Set<Character> = ["+", "-", "×", "/", "^", "="]
+    private static let opChars: Set<Character> = ["+", "-", "×", "÷", "/", "^", "="]
 
     private static func scan(_ s: String) -> [Tok] {
         var toks: [Tok] = []

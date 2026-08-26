@@ -1,6 +1,6 @@
 import Foundation
 
-private func normalizeExprCorrect(_ expr: String) -> String {
+func normalizeExprCorrect(_ expr: String) -> String {
     var s = expr.replacingOccurrences(of: ",", with: "")
     func expand(_ input: String, suffix: String, mult: String) -> String {
         let pattern = "(\\d+(?:\\.\\d+)?)\\s*\(suffix)\\b"
@@ -96,7 +96,39 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
 }
 
 public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int) -> LineResult? {
+    // Fresh reference clock/calendar per single-line call; sheet
+    // evaluation captures ONE context for the whole sheet.
+    evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
+             now: Date(), calendar: Calendar.current)
+}
+
+/// The full line pipeline in strict order:
+/// 1. conversion shape (`<number> <unit> to|in <unit>`, symbol sources);
+/// 2. natural money lines (currency marker or ISO annotation);
+/// 3. date arithmetic lines (month/today ± duration);
+/// 4. assignment; 5. free expression.
+/// Money and date detection run BEFORE the blind word-stripping
+/// fallback so currency- or date-looking input can never degenerate
+/// into a leading number.
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates,
+                     decimalPlaces: Int, now: Date, calendar: Calendar) -> LineResult? {
     if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces) { return conv }
+    switch NaturalCalculation.tryMoney(line: line, variables: variables) {
+    case .money(let value, let code):
+        return .money(value: value, code: code)
+    case .malformed:
+        return .error(message: "Invalid expression")
+    case .none:
+        break
+    }
+    switch DateArithmetic.detect(line: line, now: now, calendar: calendar) {
+    case .value(let v):
+        return .date(year: v.year, month: v.month, day: v.day, showYear: v.showYear)
+    case .malformed:
+        return .error(message: "Invalid expression")
+    case .none:
+        break
+    }
     if line.contains("=") {
         return evalAssignment(line: line, variables: &variables, decimalPlaces: decimalPlaces)
     }
@@ -114,6 +146,15 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// produced. Consumers must bind output by `sourceLineIndex`, never by
 /// position after any filtering.
 public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int) -> [SheetLine] {
+    evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
+                  now: Date(), calendar: Calendar.current)
+}
+
+/// Sheet evaluation with ONE captured date context per sheet: `today`/
+/// `tomorrow`/`yesterday` and implicit years are consistent across the
+/// whole sheet.
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates,
+                          decimalPlaces: Int, now: Date, calendar: Calendar) -> [SheetLine] {
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
@@ -124,7 +165,9 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             result = .title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
         } else if line.hasPrefix("//") {
             result = .blank
-        } else if let eval = evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces) {
+        } else if let eval = evalLine(line, variables: &variables, rates: rates,
+                                      decimalPlaces: decimalPlaces,
+                                      now: now, calendar: calendar) {
             result = eval
         } else {
             result = .skip

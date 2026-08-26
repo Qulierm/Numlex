@@ -84,12 +84,16 @@ public enum SyntaxClassifier {
                 spans = expressionSpans(line, variables: vars)
             case .variable(let name, _):
                 spans = assignmentSpans(line, name: name, variables: vars)
+            case .money:
+                spans = moneySpans(line)
+            case .date:
+                spans = dateSpans(line)
             case .blank, .skip, .title, .brokenToken:
                 spans = []
             case .error:
                 // Evaluation failures are still lexically classifiable:
                 // numeric literals and known variables keep their
-                // colors, everything else (including `to`) stays base.
+                // colors, everything else (including `to`/`in`) stays base.
                 spans = errorSpans(line, variables: vars)
             }
             result.append(spans)
@@ -114,21 +118,30 @@ public enum SyntaxClassifier {
         }
         let trimmed = ns.substring(from: offset)
         if let shape = conversionShape(trimmed) {
-            return [
-                SyntaxSpan(role: .number,
-                           range: NSRange(location: shape.numberRange.location + offset,
-                                          length: shape.numberRange.length)),
-                SyntaxSpan(role: .conversion,
-                           range: NSRange(location: shape.fromRange.location + offset,
-                                          length: shape.fromRange.length)),
-                SyntaxSpan(role: .conversion,
-                           range: NSRange(location: shape.toRange.location + offset,
-                                          length: shape.toRange.length))
-            ]
+            var spans: [SyntaxSpan] = []
+            if let sym = shape.symbolRange {
+                // The currency symbol source (`$`, `€`, `CA$`, ...) is
+                // conversion content, not a numeric glyph.
+                spans.append(SyntaxSpan(role: .conversion,
+                                        range: NSRange(location: sym.location + offset,
+                                                       length: sym.length)))
+            }
+            spans.append(SyntaxSpan(role: .number,
+                                    range: NSRange(location: shape.numberRange.location + offset,
+                                                   length: shape.numberRange.length)))
+            if let from = shape.fromRange {
+                spans.append(SyntaxSpan(role: .conversion,
+                                        range: NSRange(location: from.location + offset,
+                                                       length: from.length)))
+            }
+            spans.append(SyntaxSpan(role: .conversion,
+                                    range: NSRange(location: shape.toRange.location + offset,
+                                                   length: shape.toRange.length)))
+            return spans
         }
         // Fallback for unit-bearing results without a plain shape (most
         // notably reference-token conversion lines): the numeric literal
-        // is a number, every identifier after it (except `to`) is a
+        // is a number, every identifier after it (except `to`/`in`) is a
         // conversion word.
         var spans: [SyntaxSpan] = []
         var unitStart = 0
@@ -139,7 +152,45 @@ public enum SyntaxClassifier {
         }
         for m in matches(#"[A-Za-z_]\w*"#, in: ns)
         where m.location >= unitStart
-            && ns.substring(with: m).lowercased() != "to" {
+            && !["to", "in"].contains(ns.substring(with: m).lowercased()) {
+            spans.append(SyntaxSpan(role: .conversion, range: m))
+        }
+        return spans
+    }
+
+    /// Natural money line: numeric literals (and percent amounts) are
+    /// numbers; the currency symbol and ISO code words are conversion
+    /// content; operators, `%`, `of`, month names and neutral prose stay
+    /// base white.
+    private static func moneySpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var spans: [SyntaxSpan] = []
+        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*[eE][+-]?\d*|\.\d+)"#, in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        if let re = try? NSRegularExpression(pattern: CurrencyPresentation.inputMarkerPattern) {
+            for m in re.matches(in: line, range: full) {
+                spans.append(SyntaxSpan(role: .conversion, range: m.range))
+            }
+        }
+        for m in matches(#"\b[A-Z]{3}\b"#, in: ns) where isCurrencyCode(ns.substring(with: m)) {
+            spans.append(SyntaxSpan(role: .conversion, range: m))
+        }
+        return spans
+    }
+
+    /// Date line: the day/year/duration numbers are numbers; duration
+    /// unit words (`days`, `weeks`, ...) are conversion content; month
+    /// names, `today`/`tomorrow`/`yesterday`, operators and signs stay
+    /// base white.
+    private static func dateSpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(#"(?:\d{1,3}(?:,\d{3})+|\d+\.?\d*|\.\d+)"#, in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        for m in matches(#"\b(?:days?|weeks?|months?|years?)\b"#, in: ns) {
             spans.append(SyntaxSpan(role: .conversion, range: m))
         }
         return spans

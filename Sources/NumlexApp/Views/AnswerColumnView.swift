@@ -156,7 +156,10 @@ struct AnswerColumnView: View {
                         onDoubleTap: { y in
                             if let line = rowAt(y: y) {
                                 switch line.result {
-                                case .number, .variable:
+                                case .number, .variable, .money:
+                                    // Money answers are tokenizable (their
+                                    // tokens carry the ISO code); date
+                                    // answers are never minted.
                                     onAnswerDoubleTap(line.sourceLineIndex)
                                 default:
                                     break
@@ -210,21 +213,46 @@ struct AnswerColumnView: View {
             case .blank, .skip, .title(_):
                 Color.clear
             case .number(let v, let unit):
-                HStack(spacing: 5) {
-                    Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
+                if let u = unit, isCurrencyCode(u) {
+                    // Currency results render as ONE money string
+                    // (`$600.00`, `€107.64`) — symbol and value share
+                    // the same white regular glyphs, no unit suffix.
+                    Text(formatMoney(v, code: u))
                         .font(Design.body(fontSize))
-                        // Every answer/result glyph is fixed white
-                        // regular, per the design request.
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    if let u = unit {
-                        // Units are full answer content: exactly the
-                        // same size, weight and baseline as the value.
-                        Text(u)
+                } else {
+                    HStack(spacing: 5) {
+                        Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
                             .font(Design.body(fontSize))
+                            // Every answer/result glyph is fixed white
+                            // regular, per the design request.
                             .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let u = unit {
+                            // Units are full answer content: exactly the
+                            // same size, weight and baseline as the value.
+                            Text(u)
+                                .font(Design.body(fontSize))
+                                .foregroundStyle(.white)
+                        }
                     }
                 }
+            case .money(let v, let code):
+                // Natural money: shared presentation (`$600.00`),
+                // white regular, never enters the numeric Total.
+                Text(formatMoney(v, code: code))
+                    .font(Design.body(fontSize))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            case .date(let y, let m, let d, let showYear):
+                // Date answers: compact English, baseline-aligned white
+                // regular, never tokenized as a number.
+                Text(DateArithmetic.display(
+                    year: y, month: m, day: d, showYear: showYear))
+                    .font(Design.body(fontSize))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
             case .variable(_, let v):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.

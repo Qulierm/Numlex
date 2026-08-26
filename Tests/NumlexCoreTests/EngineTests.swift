@@ -84,4 +84,14 @@ struct EngineTests {
     func rateServiceCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: moneyCases)
+    func moneyCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: dateCases)
+    func dateCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

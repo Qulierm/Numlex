@@ -7,7 +7,7 @@ import NumlexTestKit
 //
 //     swift run NumlexTests
 
-let allCases = engineCases + sheetCases + syntaxCases + formatCases + settingsCases + caretCases + baselineCases + spaceTypingCases + conversionCases + deletionCases + overflowCases + answerReferenceCases + unitCatalogCases + richConversionCases + rateTableCases + rateServiceCases
+let allCases = engineCases + sheetCases + syntaxCases + formatCases + settingsCases + caretCases + baselineCases + spaceTypingCases + conversionCases + deletionCases + overflowCases + answerReferenceCases + unitCatalogCases + richConversionCases + rateTableCases + rateServiceCases + moneyCases + dateCases
 var failures = 0
 for testCase in allCases {
     do {

@@ -127,7 +127,7 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
             if line.hasPrefix("#") || line.hasPrefix("//") { continue }
             guard let result = evalLine(line, variables: &vars, rates: Rates(), decimalPlaces: 7) else { continue }
             switch result {
-            case .number, .variable:
+            case .number, .variable, .money, .date:
                 let collapsed = line
                     .split(whereSeparator: { $0.isWhitespace })
                     .joined(separator: " ")

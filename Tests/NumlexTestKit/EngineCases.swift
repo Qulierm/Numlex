@@ -96,7 +96,45 @@ public let engineCases: [EngineCase] = [
         try expectEqual(try evaluateExpression("200 * 10%", variables: [:]), 20, "200*10%")
     },
     EngineCase("percent-add") {
-        try expectClose(try evaluateExpression("100 + 10%", variables: [:]), 100.1, 0.001, "100 + 10%")
+        // Contextual: `100 + 10%` means 100 + 100×10/100.
+        try expectClose(try evaluateExpression("100 + 10%", variables: [:]), 110, 1e-9, "100 + 10%")
+    },
+    EngineCase("percent-subtract") {
+        try expectClose(try evaluateExpression("200 - 10%", variables: [:]), 180, 1e-9, "200 - 10%")
+    },
+    EngineCase("percent-sequential-compounds") {
+        try expectClose(try evaluateExpression("100 + 10% - 5%", variables: [:]), 104.5, 1e-9, "100 + 10% - 5%")
+        try expectClose(try evaluateExpression("100 + 10% + 10%", variables: [:]), 121, 1e-9, "100 + 10% + 10%")
+    },
+    EngineCase("percent-parentheses-base") {
+        try expectClose(try evaluateExpression("(100 + 10%) × 2", variables: [:]), 220, 1e-9, "(100 + 10%) × 2")
+        try expectClose(try evaluateExpression("2 × (100 + 10%)", variables: [:]), 220, 1e-9, "2 × (100 + 10%)")
+    },
+    EngineCase("percent-parenthesized-percent") {
+        try expectClose(try evaluateExpression("200 + (10%)", variables: [:]), 220, 1e-9, "200 + (10%)")
+    },
+    EngineCase("percent-of-infix") {
+        try expectClose(try evaluateExpression("15% of 490", variables: [:]), 73.5, 1e-9, "15% of 490")
+        try expectClose(try evaluateExpression("10% of 10% of 100", variables: [:]), 1, 1e-12, "10% of 10% of 100")
+        // `of` is bounded: a non-percent left side is not a percent infix.
+        try expectThrows { _ = try evaluateExpression("2 of 3", variables: [:]) }
+        try expectThrows { _ = try evaluateExpression("x of 3", variables: ["x": 2]) }
+    },
+    EngineCase("percent-unary-stays-scalar") {
+        try expectClose(try evaluateExpression("-10%", variables: [:]), -0.1, 1e-12, "-10%")
+        try expectClose(try evaluateExpression("-(10%)", variables: [:]), -0.1, 1e-12, "-(10%)")
+    },
+    EngineCase("percent-division-by-percent") {
+        try expectClose(try evaluateExpression("200 / 10%", variables: [:]), 2000, 1e-9, "200 / 10%")
+        try expectClose(try evaluateExpression("200 ÷ 10%", variables: [:]), 2000, 1e-9, "200 ÷ 10%")
+    },
+    EngineCase("percent-percent-left-is-scalar") {
+        // Left-side percent in addition is the legacy scalar form.
+        try expectClose(try evaluateExpression("10% + 100", variables: [:]), 100.1, 1e-9, "10% + 100")
+    },
+    EngineCase("percent-nonfinite-rejected") {
+        try expectThrows { _ = try evaluateExpression("1e308 + 200%", variables: [:]) }
+        try expectThrows { _ = try evaluateExpression("10 ^ 400 + 10%", variables: [:]) }
     },
     EngineCase("unary-minus") {
         try expectEqual(try evaluateExpression("-5 + 3", variables: [:]), -2, "-5+3")

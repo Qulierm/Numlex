@@ -49,6 +49,22 @@ public func resolveSheet(
     rates: Rates,
     decimalPlaces: Int
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
+    resolveSheet(content: content, lineIDs: lineIDs, references: references,
+                 rates: rates, decimalPlaces: decimalPlaces,
+                 now: Date(), calendar: Calendar.current)
+}
+
+/// Reference-aware sheet evaluation with ONE captured date context per
+/// sheet (`today`/implicit years stay consistent across the sheet).
+public func resolveSheet(
+    content: String,
+    lineIDs: [UUID],
+    references: [AnswerReference],
+    rates: Rates,
+    decimalPlaces: Int,
+    now: Date,
+    calendar: Calendar
+) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
     for (i, id) in lineIDs.enumerated() where idToIndex[id] == nil { idToIndex[id] = i }
@@ -76,7 +92,8 @@ public func resolveSheet(
             return .title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
         }
         if line.hasPrefix("//") { return .blank }
-        if let eval = evalLine(line, variables: &vars, rates: rates, decimalPlaces: decimalPlaces) {
+        if let eval = evalLine(line, variables: &vars, rates: rates, decimalPlaces: decimalPlaces,
+                               now: now, calendar: calendar) {
             return eval
         }
         return .skip
@@ -122,10 +139,18 @@ public func resolveSheet(
             }
             switch src {
             case .number(let v, let u) where v.isFinite:
-                let display = formatDisplayValue(v, decimalPlaces: decimalPlaces)
-                    + (u.map { " \($0)" } ?? "")
+                // The shared quantity display: currency units render
+                // through the money presentation (`$600.00`), every
+                // other unit keeps `<value> <unit>`.
+                let display = formatQuantity(v, unit: u, decimalPlaces: decimalPlaces)
                 tokenStates[docPos] = .active(value: v, unit: u, display: display)
                 quantities.append(Qty(v: v, unit: u))
+            case .money(let v, let code) where v.isFinite:
+                // A money source is a live quantity carrying the ISO
+                // code — tokenizable and convertible (`<token> in EUR`).
+                let display = formatMoney(v, code: code)
+                tokenStates[docPos] = .active(value: v, unit: code, display: display)
+                quantities.append(Qty(v: v, unit: code))
             case .variable(_, let v) where v.isFinite:
                 // A variable source is a unitless quantity.
                 let display = formatDisplayValue(v, decimalPlaces: decimalPlaces)
@@ -165,12 +190,24 @@ public func resolveSheet(
             }
         )
 
-        // Conversion shape: exactly one marker, then `to <unit>`.
+        // Conversion shape: exactly one marker, then `to <unit>` or
+        // `in <unit>` (identical semantics).
         if markerPos.count == 1,
            let toWord = tokenConversionShape(line: line, markerAt: markerPos[0]),
            let q = quantities[0] {
             if let (v, unit) = convertTokenQuantity(value: q.v, fromLabel: q.unit, to: toWord, rates: rates) {
                 return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: unit)
+            }
+            // A currency pair the rate table cannot answer keeps the
+            // explicit white `Rates unavailable` state.
+            let targetIsCurrency = UnitCatalog.resolveExpression(toWord).map { p in
+                if case .currency = p.unit.kind { return true } else { return false }
+            } ?? false
+            let fromIsCurrency = q.unit.flatMap { unitExpr(byLabel: $0).map { p in
+                if case .currency = p.kind { return true } else { return false }
+            } } ?? false
+            if fromIsCurrency, targetIsCurrency {
+                return .error(message: "Rates unavailable")
             }
             return .error(message: "Invalid conversion")
         }
@@ -199,9 +236,23 @@ public func resolveSheet(
             return .error(message: "Invalid assignment")
         }
 
-        // General quantity expression.
+        // General quantity expression. Money-context lines (a currency
+        // marker, or token quantities carrying currency units) drop the
+        // bounded neutral prose first; any other surviving word is a
+        // hidden generic error — never a numeric fallback.
+        let tokenUnits = quantities.compactMap { $0?.unit }
+        let moneyCtx = NaturalCalculation.isMoneyContext(line: line, tokenUnits: tokenUnits)
+        let exprLine: String
+        if moneyCtx, let stripped = NaturalCalculation.stripTokenProse(
+            line: line, variables: vars, moneyContext: true) {
+            exprLine = stripped
+        } else if moneyCtx {
+            return .error(message: "Invalid expression")
+        } else {
+            exprLine = line
+        }
         do {
-            let q = try TokenExpr.evaluate(line, markerQuantities: qtyByPos, vars: vars)
+            let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: vars)
             return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
         } catch {
             return .error(message: "Invalid expression")
@@ -223,18 +274,19 @@ public func resolveSheet(
     return (out, tokens)
 }
 
-/// The target unit text of a `<marker> to <unit>` conversion line, or
-/// nil when the line does not have exactly that shape (the marker must
-/// stand at the start, followed by the `to` keyword and a non-empty
-/// unit expression — the unit may be multi-word, slashed or carry
-/// `·`/`²` characters; the unit catalog decides legality).
+/// The target unit text of a `<marker> to|in <unit>` conversion line,
+/// or nil when the line does not have exactly that shape (the marker
+/// must stand at the start, followed by the `to` or `in` keyword and a
+/// non-empty unit expression — the unit may be multi-word, slashed or
+/// carry `·`/`²` characters; the unit catalog decides legality).
 private func tokenConversionShape(line: String, markerAt: Int) -> String? {
     let ns = line as NSString
     let before = ns.substring(to: markerAt).trimmingCharacters(in: .whitespaces)
     guard before.isEmpty else { return nil }
     let after = ns.substring(from: markerAt + 1)
     let t = after.trimmingCharacters(in: .whitespaces)
-    guard t.lowercased().hasPrefix("to") else { return nil }
+    let lower = t.lowercased()
+    guard lower.hasPrefix("to") || lower.hasPrefix("in") else { return nil }
     let rest = String(t.dropFirst(2))
     guard !rest.isEmpty, rest.first!.isWhitespace else { return nil }
     let unitText = rest.trimmingCharacters(in: .whitespaces)
@@ -290,7 +342,15 @@ enum TokenExpr {
             return i < ns.length ? ns.character(at: i) : nil
         }
 
-        func parseAdditive() throws -> Qty {
+        // A quantity plus its contextual-percentage flag: only a
+        // postfix `p%` is a pure percentage (a fraction of the base in
+        // additive/subtractive context); anything combined is scalar.
+        struct PE: Equatable {
+            var q: Qty
+            var purePercent: Bool
+        }
+
+        func parseAdditive() throws -> PE {
             var left = try parseMultiplicative()
             while let c = nextChar() {
                 if c == 0x2B {
@@ -308,7 +368,7 @@ enum TokenExpr {
             return left
         }
 
-        func parseMultiplicative() throws -> Qty {
+        func parseMultiplicative() throws -> PE {
             var left = try parsePrimary()
             while let c = nextChar() {
                 if c == 0x00D7 || c == 0x2A { // × and *
@@ -326,15 +386,15 @@ enum TokenExpr {
             return left
         }
 
-        func parsePrimary() throws -> Qty {
+        func parsePrimary() throws -> PE {
             // Unary sign applies to a token or a plain operand alike.
             if let c = nextChar(), c == 0x2B || c == 0x2D {
                 let sign: Double = (c == 0x2B) ? 1 : -1
                 i += 1
                 let v = try parsePrimary()
-                let r = v.v * sign
+                let r = v.q.v * sign
                 guard r.isFinite else { throw ExprError.incompatibleUnits }
-                return Qty(v: r, unit: v.unit)
+                return PE(q: Qty(v: r, unit: v.q.unit), purePercent: false)
             }
             // A reference token.
             skipWS()
@@ -342,7 +402,7 @@ enum TokenExpr {
                 let pos = i
                 i += 1
                 guard let q = markerQuantities[pos] else { throw ExprError.invalid }
-                return q
+                return PE(q: q, purePercent: false)
             }
             guard let c = nextChar() else { throw ExprError.invalid }
             if c == 0x28 { // '('
@@ -362,12 +422,14 @@ enum TokenExpr {
                 i = j
                 guard let n = Double(numStr), n.isFinite else { throw ExprError.invalid }
                 var v = n
-                while let pct = nextChar(), pct == 0x25 {
+                var pct = 0
+                while let p = nextChar(), p == 0x25 {
                     i += 1
                     v /= 100
+                    pct += 1
                 }
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
-                return Qty(v: v, unit: nil)
+                return PE(q: Qty(v: v, unit: nil), purePercent: pct > 0)
             }
             if isLetter16(c) || c == 0x5F {
                 var j = i
@@ -380,75 +442,89 @@ enum TokenExpr {
                 i = j
                 guard let val = vars[word], val.isFinite else { throw ExprError.invalid }
                 var v = val
-                while let pct = nextChar(), pct == 0x25 {
+                var pct = 0
+                while let p = nextChar(), p == 0x25 {
                     i += 1
                     v /= 100
+                    pct += 1
                 }
-                return Qty(v: v, unit: nil)
+                return PE(q: Qty(v: v, unit: nil), purePercent: pct > 0)
             }
             throw ExprError.invalid
         }
 
-        func combine(_ a: Qty, _ b: Qty, _ op: String) throws -> Qty {
+        func combine(_ a: PE, _ b: PE, _ op: String) throws -> PE {
+            let aq = a.q
+            let bq = b.q
             switch op {
             case "+", "-":
-                if a.unit == nil && b.unit == nil {
-                    let v = (op == "+") ? a.v + b.v : a.v - b.v
+                if b.purePercent {
+                    // Contextual percent: `base ± base×p/100` — the
+                    // base is the accumulated left quantity (unit kept,
+                    // so a money token plus `10% tip` stays money).
+                    let v = (op == "+")
+                        ? aq.v + aq.v * bq.v
+                        : aq.v - aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: nil)
+                    return PE(q: Qty(v: v, unit: aq.unit), purePercent: false)
                 }
-                guard let ua = a.unit, let ub = b.unit, sameQuantityUnit(ua, ub) else {
+                if aq.unit == nil && bq.unit == nil {
+                    let v = (op == "+") ? aq.v + bq.v : aq.v - bq.v
+                    guard v.isFinite else { throw ExprError.incompatibleUnits }
+                    return PE(q: Qty(v: v, unit: nil), purePercent: false)
+                }
+                guard let ua = aq.unit, let ub = bq.unit, sameQuantityUnit(ua, ub) else {
                     throw ExprError.incompatibleUnits
                 }
-                guard let vb = convertQuantityUnit(b.v, fromLabel: ub, toLabel: ua) else {
+                guard let vb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua) else {
                     throw ExprError.incompatibleUnits
                 }
-                let v = (op == "+") ? a.v + vb : a.v - vb
+                let v = (op == "+") ? aq.v + vb : aq.v - vb
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
-                return Qty(v: v, unit: ua)
+                return PE(q: Qty(v: v, unit: ua), purePercent: false)
             case "*":
-                if a.unit == nil && b.unit == nil {
-                    let v = a.v * b.v
+                if aq.unit == nil && bq.unit == nil {
+                    let v = aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: nil)
+                    return PE(q: Qty(v: v, unit: nil), purePercent: false)
                 }
-                if let ua = a.unit, b.unit == nil {
-                    let v = a.v * b.v
+                if let ua = aq.unit, bq.unit == nil {
+                    let v = aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: ua)
+                    return PE(q: Qty(v: v, unit: ua), purePercent: false)
                 }
-                if a.unit == nil, let ub = b.unit {
-                    let v = a.v * b.v
+                if aq.unit == nil, let ub = bq.unit {
+                    let v = aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: ub)
+                    return PE(q: Qty(v: v, unit: ub), purePercent: false)
                 }
                 throw ExprError.incompatibleUnits
             case "/":
-                if a.unit == nil && b.unit == nil {
-                    guard b.v != 0 else { throw ExprError.divisionByZero }
-                    let v = a.v / b.v
+                if aq.unit == nil && bq.unit == nil {
+                    guard bq.v != 0 else { throw ExprError.divisionByZero }
+                    let v = aq.v / bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: nil)
+                    return PE(q: Qty(v: v, unit: nil), purePercent: false)
                 }
-                if let ua = a.unit, b.unit == nil {
-                    guard b.v != 0 else { throw ExprError.divisionByZero }
-                    let v = a.v / b.v
+                if let ua = aq.unit, bq.unit == nil {
+                    guard bq.v != 0 else { throw ExprError.divisionByZero }
+                    let v = aq.v / bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: ua)
+                    return PE(q: Qty(v: v, unit: ua), purePercent: false)
                 }
-                if a.unit == nil, b.unit != nil {
+                if aq.unit == nil, bq.unit != nil {
                     // A unitless scalar over a quantity is not a safe
                     // inverse here: hidden generic error.
                     throw ExprError.incompatibleUnits
                 }
-                if let ua = a.unit, let ub = b.unit, sameQuantityUnit(ua, ub) {
+                if let ua = aq.unit, let ub = bq.unit, sameQuantityUnit(ua, ub) {
                     // Same-unit ratio: unitless.
-                    guard let bb = convertQuantityUnit(b.v, fromLabel: ub, toLabel: ua), bb != 0 else {
+                    guard let bb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua), bb != 0 else {
                         throw ExprError.divisionByZero
                     }
-                    let v = a.v / bb
+                    let v = aq.v / bb
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return Qty(v: v, unit: nil)
+                    return PE(q: Qty(v: v, unit: nil), purePercent: false)
                 }
                 throw ExprError.incompatibleUnits
             default:
@@ -459,7 +535,7 @@ enum TokenExpr {
         let result = try parseAdditive()
         skipWS()
         guard i == ns.length else { throw ExprError.invalid }
-        return result
+        return result.q
     }
 
     private static func isDigit16(_ c: UInt16) -> Bool {
