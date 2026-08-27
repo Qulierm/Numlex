@@ -1,6 +1,14 @@
 import SwiftUI
 import NumlexCore
 
+/// Sheets sidebar (liquid-glass redesign, matching the reference layout):
+/// a padded leading VStack with a full-width New Sheet capsule, a Sheets
+/// caption, the selectable sheet list, a compact import/export row and a
+/// full-width Settings row. Selection and controls use the system liquid
+/// glass materials (regular interactive when selected, clear otherwise),
+/// so the sidebar stays calm in inactive windows and both appearances.
+/// The background is the native window background; there is no fake
+/// titlebar, traffic-light row or sidebar toggle.
 struct SidebarView: View {
     @Bindable var model: AppModel
     @State private var renamingID: UUID?
@@ -11,37 +19,43 @@ struct SidebarView: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Compact text-style "new sheet" control, centered across the
-            // full sidebar width: 15pt regular icon + text, plain style, no
-            // capsule/glass, adaptive secondary gray. The visible label is
-            // top-aligned inside a 28pt hit band with zero top padding, so it
-            // sits as high as possible (clear of the traffic lights, which
-            // occupy only the left edge) and the sheet list rises right up
-            // against the band.
+        VStack(alignment: .leading, spacing: 10) {
+            // New Sheet: full-width plain button, `plus` symbol (not the
+            // circled variant), semibold label, liquid glass capsule.
+            // The hit shape stays a Rectangle: a Capsule contentShape
+            // suppresses the glass fill on this system even when the
+            // glass shape is the same capsule.
+            // Sits below the toolbar traffic lights (the split-view
+            // content never extends into the toolbar area).
             Button {
                 model.newSheet()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 15))
+                    Image(systemName: "plus")
                     Text(L10n.t("newSheet", language: model.settings.language))
-                        .font(.system(size: 15))
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .glassEffect(.regular.interactive().tint(.white.opacity(0.10)), in: Capsule())
             .help(L10n.t("newSheet", language: model.settings.language))
 
-            // Sheet list. Selection is a single system gray pill
-            // (unemphasized selected-content color): calm, system-aware,
-            // identical in active and inactive state, no accent tint and no
-            // double selection layer. The list sits inside the sidebar with
-            // a consistent 8pt horizontal inset at every width.
+            // Sheets caption above the list.
+            Text(L10n.t("sheets", language: model.settings.language))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.top, 5)
+                .padding(.horizontal, 6)
+
+            // Sheet list. Selection is the system regular-interactive
+            // glass pill; unselected rows stay clear. The list sits
+            // directly on the window background (rows carry their own
+            // 10pt horizontal padding).
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: 5) {
                     ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
                         sheetRow(idx: idx, sheet: sheet)
                             // Removal: a short opacity fade plus a slight
@@ -61,7 +75,6 @@ struct SidebarView: View {
                 // decorative animation at all.
                 .animation(reduceMotion ? nil : .snappy(duration: 0.22),
                            value: model.sheets.map(\.id))
-                .padding(.horizontal, 8)
                 .padding(.vertical, 2)
             }
             .scrollIndicators(.hidden)
@@ -71,30 +84,57 @@ struct SidebarView: View {
                 if let rid = renamingID, !ids.contains(rid) { renamingID = nil }
             }
 
-            // Bottom actions: one coherent cluster, same geometry and icon size.
-            HStack(spacing: 8) {
-                sidebarIconButton("square.and.arrow.up") {
+            Spacer(minLength: 0)
+
+            // Compact import/export auxiliary row, immediately above the
+            // Settings row: restrained clear-glass icon buttons with
+            // tooltips, so the file actions stay reachable without
+            // crowding the bottom cluster.
+            HStack(spacing: 6) {
+                importExportButton("square.and.arrow.up", helpKey: "importSheet") {
                     NotificationCenter.default.post(name: .importSheet, object: nil)
                 }
-                .help(L10n.t("importSheet", language: model.settings.language))
-
-                sidebarIconButton("square.and.arrow.down") {
+                importExportButton("square.and.arrow.down", helpKey: "exportSheet") {
                     NotificationCenter.default.post(name: .exportSheet, object: nil)
                 }
-                .help(L10n.t("exportSheet", language: model.settings.language))
-
                 Spacer()
-
-                sidebarIconButton("gear") {
-                    openSettings()
-                }
-                .help(L10n.t("settings", language: model.settings.language))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+
+            // Settings: full-width leading labeled row, clear glass in a
+            // rounded rect. A real button; the sidebar gear always opens
+            // exactly one Settings window (native openSettings action).
+            Button {
+                openSettings()
+            } label: {
+                Label(L10n.t("settings", language: model.settings.language),
+                      systemImage: "gear")
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .help(L10n.t("settings", language: model.settings.language))
         }
-        .frame(minWidth: 200, maxWidth: 260)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .frame(idealWidth: 235, maxWidth: 260)
+    }
+
+    private func importExportButton(_ symbol: String, helpKey: String,
+                                    action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .regular))
+                .frame(width: 34, height: 26)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .glassEffect(.identity, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .help(L10n.t(helpKey, language: model.settings.language))
     }
 
     @ViewBuilder
@@ -110,45 +150,52 @@ struct SidebarView: View {
             return "\(sheet.lineCount) \(unit)"
         }()
         let isSelected = idx == model.selectedIndex
+        // The row is a plain button for the single-click select (no tap
+        // delay). The double-click rename is a simultaneous count-2
+        // gesture on the button itself: a tap gesture on the label would
+        // be swallowed by the button, so the gesture owns the whole hit
+        // area. On a double tap the button just selects again, which the
+        // rename handler already does; on a single tap the select action
+        // fires immediately.
         Button {
             model.select(index: idx)
         } label: {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 titleView(sheet: sheet)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                // Metadata row: created time on the leading edge (primary
-                // weight of the row), line count pinned to the trailing edge
-                // so its right edge aligns across every row.
+                // Metadata: created time leading, localized line count
+                // trailing, both 13pt secondary; the count keeps its
+                // trailing alignment across every row.
                 HStack(spacing: 8) {
                     Text(sheet.createdLabel)
-                        .font(Design.labelSmall)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 8)
                     Text(count)
-                        .font(Design.labelSmall)
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
             }
-            // v2: stable raised tab height (Design.sidebarRowHeight = base * 1.2).
-            // The fixed frame replaces the old 4pt vertical padding, so the
-            // hit target and the selection pill are exactly 20% taller than
-            // the measured content base; the title/metadata block is centered
-            // vertically inside, keeping its internal leading alignment.
-            .padding(.horizontal, 6)
-            .frame(height: Design.sidebarRowHeight, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(isSelected
-                      ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-                      : Color.clear)
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                model.select(index: idx)
+                renamingID = sheet.id
+            }
         )
+        // Selection is exactly one layer: the system liquid glass pill,
+        // present only on the selected row (the System Settings look and
+        // the reference's spirit: an unselected row shows no material).
+        .modifier(RowGlassModifier(isSelected: isSelected))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .contextMenu {
             Button {
@@ -173,25 +220,29 @@ struct SidebarView: View {
             }
         } else {
             Text(sheet.displayTitle(language: model.settings.language))
-                .font(Design.label)
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .onTapGesture(count: 2) { renamingID = sheet.id }
         }
     }
+}
 
-    private func sidebarIconButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: Design.sidebarIconSize, weight: .regular))
-                .frame(width: Design.sidebarButtonSize.width, height: Design.sidebarButtonSize.height)
-                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: Design.sidebarButtonCorner, style: .continuous))
+/// Selection glass: the regular interactive liquid glass pill appears
+/// ONLY on the selected row (applied conditionally, so the unselected
+/// rows render no material at all — both `Glass.clear` and `.identity`
+/// draw a visible frosted panel on macOS 26, which would light up every
+/// row like a button instead of staying calm like the system sidebar).
+private struct RowGlassModifier: ViewModifier {
+    var isSelected: Bool
+    func body(content: Content) -> some View {
+        if isSelected {
+            content.glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
+                                in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        } else {
+            content
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
     }
-
 }
 
 /// Inline rename field: commits on submit or focus loss.
@@ -209,7 +260,7 @@ private struct RenameField: View {
 
     var body: some View {
         TextField("", text: $value)
-            .font(Design.label)
+            .font(.system(size: 15, weight: .medium))
             .foregroundStyle(.primary)
             .textFieldStyle(.plain)
             .focused($focused)

@@ -112,19 +112,4 @@ enum Design {
 
     static let label: Font = .system(size: 13)       // sidebar titles / controls
     static let labelSmall: Font = .system(size: 11)  // metadata
-
-    // MARK: Sidebar geometry
-
-    static let sidebarIconSize: CGFloat = 14
-    static let sidebarButtonSize = CGSize(width: 34, height: 28)
-    static let sidebarButtonCorner: CGFloat = 7
-
-    /// Effective base height of the sheet-row content, measured from the
-    /// font metrics: title line (SF 13 → 16.02) + inter-line spacing (3)
-    /// + metadata line (SF 11 → 13.56) + vertical padding (4 + 4) = 40.58.
-    static let sidebarRowBaseHeight: CGFloat = 40.6
-    /// Raised tab/hit-target height: EXACTLY 20% above the base (48.72).
-    /// Applied to the whole row so the selection pill and contentShape
-    /// grow with it; the title/metadata block stays centered inside.
-    static let sidebarRowHeight: CGFloat = sidebarRowBaseHeight * 1.2
 }

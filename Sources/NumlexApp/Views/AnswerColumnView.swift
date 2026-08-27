@@ -146,7 +146,7 @@ struct AnswerColumnView: View {
                                 height: geo2.height
                             )
                         ) {
-                            rowView(line.result)
+                            AnyView(rowView(line.result))
                         }
                         .offset(y: geo2.top - topOffset)
                     }
@@ -313,11 +313,19 @@ struct AnswerColumnView: View {
 /// target baseline of the row's source line. No empirical offset and no
 /// font-identity assumption: whatever baseline the subview actually has
 /// is the one that gets aligned.
-private struct BaselineAnswerRow<Content: View>: View {
+private struct BaselineAnswerRow: View {
     var width: CGFloat
     var height: CGFloat
     var baselineOffset: CGFloat
-    @ViewBuilder var content: Content
+    var content: AnyView
+
+    init(width: CGFloat, height: CGFloat, baselineOffset: CGFloat,
+         @ViewBuilder content: () -> AnyView) {
+        self.width = width
+        self.height = height
+        self.baselineOffset = baselineOffset
+        self.content = content()
+    }
 
     var body: some View {
         ZStack(alignment: Alignment(horizontal: .leading, vertical: .answerBaseline)) {

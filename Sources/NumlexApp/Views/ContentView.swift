@@ -15,8 +15,8 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     /// Live measured width of the sidebar column (tracks user resizes
     /// within 200...260). The window resize response uses this value, not
-    /// a hardcoded 220, so the width delta always matches the column.
-    @State private var sidebarWidth: CGFloat = 220
+    /// a hardcoded ideal, so the width delta always matches the column.
+    @State private var sidebarWidth: CGFloat = 235
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -33,7 +33,7 @@ struct ContentView: View {
                             }
                     }
                 )
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 235, max: 260)
         } detail: {
             // Editor and answer column share the same detail top, so a row's
             // editor-content y equals its answer-content y (modulo the fixed
