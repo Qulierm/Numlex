@@ -3,21 +3,39 @@
 #
 # Usage: Scripts/generate-app-icon.sh [iconset-dir]
 #   iconset-dir defaults to <repo>/Assets/AppIcon.iconset: the tracked,
-#   READY PER-SIZE EXPORTS with iconutil-standard filenames. Each slot
-#   is packed exactly as supplied — the script never resizes or
+#   READY PER-SIZE RIMLESS RASTERS with iconutil-standard filenames. Each
+#   slot is packed exactly as supplied — the script never resizes or
 #   recompresses a slot (sips is used for metadata queries only).
+#
+# Provenance (see Assets/README.md):
+#   * Canonical authored source: Assets/AppIcon.icon (Icon Composer
+#     package). icon.json has NO border/stroke: solid P3 0.11615
+#     background + blue N / green L gradient glyphs (neutral shadow 0.5,
+#     translucency 0.5).
+#   * Assets/AppIcon.flattened.iconset: flattened per-size exports kept
+#     ONLY as the deterministic strip input. ictool/Icon Composer raster
+#     exports (macOS or iOS-Default) bake a platform specular rim into
+#     the perimeter (top-center opaque RGB ~134 over ~20 px at 1024) —
+#     export machinery, not authored artwork.
+#   * Assets/AppIcon.iconset: GENERATED rimless fallback rasters (all ten
+#     native slots). Regenerate with: python3 Scripts/strip-icon-rim.py
+#     (deterministic; removes only the outer neutral perimeter).
 #
 # Produces Sources/NumlexApp/Resources/AppIcon.icns, replacing the
 # previous file atomically, then unpacks the result and validates all
 # ten slots:
-#   * the eight PNG-container slots (32, 64, 128, 256, 256, 512, 512,
-#     1024 px) are byte-identical to the tracked exports — enforced;
+#   * iconutil re-compresses IDAT streams that are not in its own
+#     encoder output, so byte preservation is not the invariant — pixels
+#     are. All slots must round-trip PIXEL-IDENTICAL to the tracked
+#     rimless rasters (0 differing RGBA pixels), enforced;
 #   * the two legacy-representation slots (16, 32 px @1x) are stored by
 #     iconutil in the legacy ICNS representation and its unpacker
 #     re-encodes them with palette quantization — enforced with exact
-#     dimensions, exact alpha (measured drift ≤1) and a documented,
-#     alpha-weighted pixel tolerance (measured worst case 186, limit
-#     200): only semi-transparent edge pixels shift, sub-perceptually.
+#     dimensions and a documented alpha-weighted pixel tolerance
+#     (measured worst case 186, limit 200; alpha drift ≤2).
+#
+# Requires: python3 + Pillow for pixel validation (same host dependency
+# as Scripts/strip-icon-rim.py).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -77,7 +95,8 @@ UP="${WORK}/check.iconset"
 iconutil -c iconset "$TMP_OUT" -o "$UP" || die "produced ICNS cannot be unpacked"
 [ "$(find "$UP" -name '*.png' | wc -l | tr -d ' ')" = "10" ] || die "unpacked ICNS does not contain all 10 slots"
 
-have_pil="$(python3 -c 'import PIL' 2>/dev/null && echo yes || echo no)"
+python3 -c 'import PIL' >/dev/null 2>&1 \
+    || die "python3 + Pillow is required for icon pixel validation (pip install pillow)"
 
 for slot in "${SLOTS[@]}"; do
     name="${slot%%:*}"
@@ -85,17 +104,19 @@ for slot in "${SLOTS[@]}"; do
     [ -s "$UP/${name}" ] || die "unpacked slot missing: ${name}"
     d="$(dims_of "$UP/${name}")"
     [ "$d" = "${size} ${size}" ] || die "unpacked slot ${name} is ${d}, expected ${size}x${size}"
-    case "$name" in
-        icon_16x16.png|icon_32x32.png)
-            # Legacy ICNS representation: iconutil's unpacker re-encodes
-            # these two slots with palette quantization. Exact
-            # dimensions/alpha are enforced above; pixels are checked
-            # within the documented tolerance when PIL is available.
-            if [ "$have_pil" = "yes" ]; then
-                python3 - "$UP/${name}" "${ICONSET}/${name}" << 'PYEOF' || die "legacy slot pixel check failed"
+    # Legacy ICNS representation: iconutil's unpacker re-encodes the two
+    # 16/32 @1x slots with palette quantization — documented tolerance.
+    # Every other slot must round-trip pixel-identical (tolerance 0).
+    if [ "$name" = "icon_16x16.png" ] || [ "$name" = "icon_32x32.png" ]; then
+        tol=200
+    else
+        tol=0
+    fi
+    python3 - "$UP/${name}" "${ICONSET}/${name}" "$tol" << 'PYEOF' || die "slot pixel check failed: ${name}"
 import sys
 from PIL import Image
 up, src = Image.open(sys.argv[1]).convert("RGBA"), Image.open(sys.argv[2]).convert("RGBA")
+tol = float(sys.argv[3])
 assert up.size == src.size, "size mismatch"
 du, ds = up.load(), src.load()
 maxa = 0.0
@@ -110,17 +131,8 @@ for y in range(up.size[1]):
         rgb = sum(abs(pu[i] - ps[i]) for i in range(3))
         maxw = max(maxw, rgb * ps[3] / 255.0)
 assert maxa <= 2, f"alpha drifted: {maxa}"
-assert maxw <= 200, f"palette delta beyond documented tolerance: {maxw:.1f}"
+assert maxw <= tol, f"pixel delta beyond tolerance {tol}: {maxw:.1f}"
 PYEOF
-            else
-                echo "generate-app-icon: note: python3+PIL unavailable; legacy slot ${name} checked by dimensions/alpha only"
-            fi
-            ;;
-        *)
-            cmp -s "$UP/${name}" "${ICONSET}/${name}" \
-                || die "payload not byte-preserved for ${name} (supplied exports must pass through untouched)"
-            ;;
-    esac
 done
 
 # --- Atomic replace of the tracked ICNS.
