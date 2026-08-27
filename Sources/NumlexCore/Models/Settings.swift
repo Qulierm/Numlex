@@ -80,6 +80,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var lineNumbers: Bool
     public var fontColor: String // legacy
     public var input: InputPreferences
+    /// r21: notebook styling (font design + role colors). The fontSizeKey
+    /// above stays the single size source; this section owns its UI.
+    public var styling: StylingPreferences
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -90,7 +93,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -98,10 +101,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.lineNumbers = lineNumbers
         self.fontColor = fontColor
         self.input = input
+        self.styling = styling
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
-    /// at all and must fall back to the defaults, not fail.
+    /// at all and must fall back to the defaults, not fail; the r21
+    /// `styling` key is optional the same way. StorePayload.version is
+    /// intentionally NOT bumped — decoding is purely additive.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         decimalPlaces = try c.decode(Int.self, forKey: .decimalPlaces)
@@ -111,6 +117,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         lineNumbers = try c.decode(Bool.self, forKey: .lineNumbers)
         fontColor = try c.decode(String.self, forKey: .fontColor)
         input = try c.decodeIfPresent(InputPreferences.self, forKey: .input) ?? .defaults
+        styling = (try? c.decodeIfPresent(StylingPreferences.self, forKey: .styling)) ?? .defaults
     }
 
     public var fontSize: Double {

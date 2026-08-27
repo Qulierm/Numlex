@@ -21,6 +21,10 @@ struct NotebookEditor: NSViewRepresentable {
     /// backtick/QuickOperators, thousand grouping and the previous-
     /// answer insertion gate.
     var inputPrefs: InputPreferences
+    /// r21: notebook styling (font design + role colors). Resolved
+    /// through `NotebookPalette` — the same resolver the settings
+    /// preview uses.
+    var styling: StylingPreferences
     var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// Editor scroll offset, top-down points in editor-content coordinates
     /// (0 = top of the document).
@@ -63,6 +67,7 @@ struct NotebookEditor: NSViewRepresentable {
             lineNumbers: lineNumbers,
             rates: rates,
             decimalPlaces: decimalPlaces,
+            styling: styling,
             onScroll: onScroll,
             onLayout: onLayout,
             onTextChange: onTextChange,
@@ -89,6 +94,7 @@ struct NotebookEditor: NSViewRepresentable {
             rates: rates,
             decimalPlaces: decimalPlaces,
             inputPrefs: inputPrefs,
+            styling: styling,
             onPreviousAnswerTrigger: onPreviousAnswerTrigger,
             onScroll: onScroll,
             onLayout: onLayout,
@@ -157,6 +163,9 @@ final class NotebookEditorCoordinator: NSObject {
     private var rates: Rates
     private var decimalPlaces: Int
     private var inputPrefs: InputPreferences = .defaults
+    /// r21: notebook styling; the palette is derived from it on every
+    /// use (cheap struct), so a setting change re-renders immediately.
+    private var styling: StylingPreferences = .defaults
     private var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// The exact UTF-16 map of the format pass applied by the LAST
     /// `applyAutoFormat` call (attached to the edit that follows it).
@@ -171,6 +180,7 @@ final class NotebookEditorCoordinator: NSObject {
 
     init(fontSize: Double, lineHeight: Double, lineNumbers: Bool,
          rates: Rates, decimalPlaces: Int,
+         styling: StylingPreferences,
          onScroll: @escaping (CGFloat) -> Void,
          onLayout: @escaping (LineMetrics) -> Void,
          onTextChange: @escaping (String, NotebookEdit?) -> Void,
@@ -186,6 +196,7 @@ final class NotebookEditorCoordinator: NSObject {
         self.lineNumbers = lineNumbers
         self.rates = rates
         self.decimalPlaces = decimalPlaces
+        self.styling = styling
         self.pendingFocusID = focusRequestID
         self.pendingFocusPosition = focusPosition
         self.onFocusConsumed = onFocusConsumed
@@ -388,6 +399,7 @@ final class NotebookEditorCoordinator: NSObject {
     func update(text: String, fontSize: Double, lineHeight: Double,
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
                 inputPrefs: InputPreferences,
+                styling: StylingPreferences,
                 onPreviousAnswerTrigger: ((Character, Int) -> Bool)?,
                 onScroll: @escaping (CGFloat) -> Void,
                 onLayout: @escaping (LineMetrics) -> Void,
@@ -434,9 +446,14 @@ final class NotebookEditorCoordinator: NSObject {
         if lineNumbers != self.lineNumbers { self.lineNumbers = lineNumbers; appearanceChanged = true }
         if rates != self.rates { self.rates = rates; appearanceChanged = true }
         if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; appearanceChanged = true }
+        if styling != self.styling { self.styling = styling; appearanceChanged = true }
         if appearanceChanged {
             textView.lineNumbers = lineNumbers
             applyTypography()
+            // Font design/size and palette changes re-lay-out the
+            // document so the answer column's metrics (baselines,
+            // row heights, wrapping) follow the new font immediately.
+            refreshLayoutAndMetrics()
         }
         // The owner may arm a one-shot focus request after the view was
         // created; re-arm and retry while we are (or are about to be)
@@ -482,8 +499,12 @@ final class NotebookEditorCoordinator: NSObject {
 
     // MARK: - Typography + highlighting
 
+    /// The r21 palette resolver: the same type the settings preview
+    /// uses, so role colors and the font design can never diverge.
+    private var palette: NotebookPalette { NotebookPalette(styling: styling) }
+
     private func applyTypography() {
-        let font = NSFont.systemFont(ofSize: fontSize)
+        let font = palette.editorFont(size: fontSize)
         textView.font = font
         textView.textColor = .textColor
         // New characters and new paragraphs inherit the gutter indent and
@@ -493,13 +514,14 @@ final class NotebookEditorCoordinator: NSObject {
         if !textView.string.isEmpty { highlight() }
     }
 
-    /// Attributes every new character/paragraph starts with: system font,
-    /// the fixed white base color and the indented fixed-line-height
-    /// paragraph style. A first char or a newline can never land left of
-    /// the gutter; highlight() recolors semantic spans on the same tick.
+    /// Attributes every new character/paragraph starts with: the chosen
+    /// font design, the fixed white base color and the indented
+    /// fixed-line-height paragraph style. A first char or a newline can
+    /// never land left of the gutter; highlight() recolors semantic
+    /// spans on the same tick.
     private var typingAttrs: [NSAttributedString.Key: Any] {
         [
-            .font: NSFont.systemFont(ofSize: fontSize),
+            .font: palette.editorFont(size: fontSize),
             .foregroundColor: Design.baseText,
             .paragraphStyle: paragraphStyle()
         ]
@@ -547,7 +569,7 @@ final class NotebookEditorCoordinator: NSObject {
         // evaluator uses (hash heading, title).
         let spans = SyntaxClassifier.spans(for: text, rates: rates, decimalPlaces: decimalPlaces)
 
-        let font = NSFont.systemFont(ofSize: fontSize)
+        let font = palette.editorFont(size: fontSize)
         let base: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: Design.baseText,
@@ -566,11 +588,11 @@ final class NotebookEditorCoordinator: NSObject {
             let range = NSRange(location: lineStart, length: len)
             // Hash heading (same `hasPrefix("#")` rule as the
             // evaluator): the `#` marker is a bold-ish (.heavy) gray,
-            // the body after it is fixed white, also .heavy — slightly
-            // less heavy than the old .black body.
+            // the body after it uses the chosen headings color, also
+            // .heavy — slightly less heavy than the old .black body.
             if line.hasPrefix("#") {
                 storage.addAttribute(
-                    .font, value: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
+                    .font, value: palette.editorFont(size: fontSize, weight: .heavy),
                     range: NSRange(location: lineStart, length: 1)
                 )
                 storage.addAttribute(
@@ -580,19 +602,19 @@ final class NotebookEditorCoordinator: NSObject {
                 if len > 1 {
                     let body = NSRange(location: lineStart + 1, length: len - 1)
                     storage.addAttribute(
-                        .font, value: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
+                        .font, value: palette.editorFont(size: fontSize, weight: .heavy),
                         range: body
                     )
-                    storage.addAttribute(.foregroundColor, value: Design.baseText, range: body)
+                    storage.addAttribute(.foregroundColor, value: palette.headings, range: body)
                 }
                 continue
             }
             if line.hasPrefix("// ") {
                 storage.addAttribute(
-                    .font, value: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+                    .font, value: palette.editorFont(size: fontSize, weight: .semibold),
                     range: range
                 )
-                storage.addAttribute(.foregroundColor, value: Design.titleColor, range: range)
+                storage.addAttribute(.foregroundColor, value: palette.comments, range: range)
                 continue
             }
             // Everything else (expressions, assignments, conversions,
@@ -619,7 +641,7 @@ final class NotebookEditorCoordinator: NSObject {
         let content = storage.string as NSString
         guard content.length > 0 else { return }
         storage.removeAttribute(.attachment, range: NSRange(location: 0, length: content.length))
-        let font = NSFont.systemFont(ofSize: fontSize)
+        let font = palette.editorFont(size: fontSize)
         var drawStates: [(location: Int, label: String, active: Bool)] = []
         for token in tokenStates {
             let p = token.location
@@ -664,21 +686,26 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     /// Paints the classified token spans of one line at its document
-    /// offset using the Design palette tokens (raised matte sRGB values;
-    /// see Design.swift for the exact numbers). Operators, `to` and
-    /// unknown words keep the fixed white base.
+    /// offset using the r21 palette (deterministic sRGB values; see
+    /// Design.swift for the exact numbers of the fixed roles).
+    /// Operators, `to`/`in`/`per`/`as` specifiers and `:` labels use
+    /// their own configurable roles; money markers stay fixed; hash
+    /// spans are styled by the dedicated hash-heading branch.
     private func applySpans(_ lineSpans: [SyntaxSpan], lineStart: Int,
                             lineLength: Int, in storage: NSTextStorage) {
         let storageLength = (storage.string as NSString).length
         for span in lineSpans {
             let r = NSRange(location: span.range.location + lineStart, length: span.range.length)
             // Hash spans are styled by the dedicated hash-heading branch
-            // (heavy gray marker, heavy white body), never by the
-            // chromatic palette.
+            // (heavy gray marker, heavy body), never by the chromatic
+            // palette.
             guard let color: NSColor = switch span.role {
-                case .number: Design.numberColor
-                case .variable: Design.variableColor
-                case .conversion: Design.conversionColor
+                case .number: palette.numbers
+                case .operatorGlyph: palette.operators
+                case .variable: palette.variables
+                case .conversion: palette.units
+                case .specifier: palette.specifiers
+                case .label: palette.labels
                 case .moneyMarker: Design.moneyMarkerColor
                 case .hashMarker, .hashBody: nil
             } else { continue }
@@ -741,7 +768,7 @@ final class NotebookEditorCoordinator: NSObject {
         }
         lm.ensureLayout(for: tc)
         let parts = textView.string.components(separatedBy: "\n")
-        let font = NSFont.systemFont(ofSize: fontSize)
+        let font = palette.editorFont(size: fontSize)
         let naturalHeight = font.ascender - font.descender + font.leading
         let fixedLineHeight = CGFloat(lineHeight)
 

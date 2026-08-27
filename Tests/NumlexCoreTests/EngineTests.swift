@@ -149,4 +149,14 @@ struct EngineTests {
     func windowSidebarGeometry(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: stylingCases)
+    func stylingStoreBehavior(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: syntaxRoleCases)
+    func syntaxRoleClassification(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

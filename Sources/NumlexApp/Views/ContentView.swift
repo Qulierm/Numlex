@@ -64,6 +64,7 @@ struct ContentView: View {
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
                         inputPrefs: settings.input,
+                        styling: settings.styling,
                         onPreviousAnswerTrigger: { key, caret in
                             model.insertPreviousAnswer(key: key, at: caret)
                         },
@@ -122,6 +123,7 @@ struct ContentView: View {
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
                     decimalPlaces: settings.decimalPlaces,
+                    fontDesign: settings.styling.fontDesign,
                     totalLabel: L10n.t("total", language: settings.language)
                 )
             }

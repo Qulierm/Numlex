@@ -351,8 +351,8 @@ private func bodySpans() throws {
     try expectEqual(l2.filter { $0.role == .number }.map { $0.range },
                     [NSRange(location: 8, length: 2), NSRange(location: 21, length: 2)],
                     "cyan 50 and 30")
-    // Time UNIT aliases are conversion content; `per` is grammar
-    // prose and stays base white (no span).
+    // Time UNIT aliases are conversion content; `per` keeps its own
+    // specifier role in the natural context (base-colored by default).
     try expectEqual(l2.filter { $0.role == .conversion }.map { $0.range },
                     [NSRange(location: 15, length: 3), NSRange(location: 24, length: 4)],
                     "day / days conversion color")
@@ -362,9 +362,11 @@ private func bodySpans() throws {
     }
     covered = covered.filter { $0 < 29 }
     try expect(!covered.contains(28), "terminal dot stays base")
-    try expect(!covered.contains(19), "× stays base")
-    try expect(!covered.contains(11) && !covered.contains(12) && !covered.contains(13),
-               "per stays base white")
+    // r21: × and `per` carry their own roles (operatorGlyph / specifier)
+    // and are base-colored by default — the default look is unchanged.
+    try expect(covered.contains(19), "× keeps its operator role")
+    try expect(covered.contains(11) && covered.contains(12) && covered.contains(13),
+               "`per` keeps its specifier role in a natural money context")
     // Line 3: `contractor = $85 / hr × 8 hrs.`
     let l3 = spans[3]
     try expectEqual(l3.filter { $0.role == .variable }.map { $0.range },

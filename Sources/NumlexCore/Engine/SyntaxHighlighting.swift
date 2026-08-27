@@ -13,10 +13,20 @@ import Foundation
 public enum SyntaxRole: Equatable, Sendable {
     /// A numeric literal (including the leading value of a conversion).
     case number
+    /// An operator glyph (`+`, `-`, `−`, `×`, `÷`, `*`, `/`, `=`) on a
+    /// line the evaluator actually treats as math — canonical and
+    /// accepted input alike, never the answer-token marker U+FFFC and
+    /// never inside a unit expression (the unit span wins). `operator`
+    /// is a Swift keyword, hence the `operatorGlyph` case name.
+    case operatorGlyph
     /// A variable identifier — single or a whole multiword natural name.
     case variable
     /// A unit word of a conversion (the `to` keyword carries no role).
     case conversion
+    /// One contextual syntax word (`to`, `in`, `per`, `as`) on a
+    /// conversion/natural/money/date line only — never in prose or
+    /// identifiers.
+    case specifier
     /// A currency marker (`$`, `€`, `CA$`, ... or an ISO code on a
     /// money line).
     case moneyMarker
@@ -24,6 +34,9 @@ public enum SyntaxRole: Equatable, Sendable {
     case hashMarker
     /// The heading body: every character after the `#` on the line.
     case hashBody
+    /// A prose label line ending with `:` (evaluated as skip) — the
+    /// whole trimmed line, e.g. `Total:`.
+    case label
 }
 
 /// One classified span. `range` is a UTF-16 `NSRange` inside a single
@@ -86,23 +99,31 @@ public enum SyntaxClassifier {
                                            rates: rates, decimalPlaces: decimalPlaces,
                                            now: Date(), calendar: Calendar.current)
             let isNatural = lineIsNatural(line, env: env)
+            var isMath = false
             let spans: [SyntaxSpan]
             switch evaluation {
             case nil:
-                spans = []                       // .skip prose
+                // Skip/prose: a trailing-colon label line keeps an
+                // explicit label span; everything else keeps none.
+                spans = labelSpans(line)
             case .number(_, .some):
+                isMath = true
                 spans = conversionSpans(line)
             case .number(_, .none):
+                isMath = true
                 spans = isNatural
                     ? naturalSpans(line, env: env)
                     : expressionSpans(line, variables: env.scalarDict())
             case .variable(let name, _):
+                isMath = true
                 spans = isNatural || name.contains(" ")
                     ? naturalSpans(line, env: env)
                     : assignmentSpans(line, name: name, variables: env.scalarDict())
             case .money:
+                isMath = true
                 spans = naturalSpans(line, env: env)
             case .date:
+                isMath = true
                 spans = dateSpans(line)
             case .blank, .skip, .title, .brokenToken:
                 spans = []
@@ -111,11 +132,25 @@ public enum SyntaxClassifier {
                 // marker, unknown word) keeps its intentional palette;
                 // everything else stays lexical (numbers and known
                 // variables only).
+                isMath = true
                 spans = isNatural
                     ? naturalSpans(line, env: env)
                     : errorSpans(line, variables: env.scalarDict())
             }
-            result.append(sanitize(spans, lineLength: lineLength))
+            // r21: operator glyphs and contextual syntax words are painted
+            // ONLY on lines the evaluator treated as math (isMath — the
+            // conversion/expression/natural/money/date/error cases above).
+            // Prose/skip lines (label rows included) and the
+            // comment/heading branches never receive them. Overlaps (e.g.
+            // `/` inside a `km/h` unit span) are resolved by sanitize:
+            // the longer/earlier unit span wins, so a unit expression is
+            // never split by an operator color.
+            var withGrammar = spans
+            if isMath && !spans.isEmpty {
+                withGrammar += operatorSpans(line)
+                withGrammar += specifierSpans(line)
+            }
+            result.append(sanitize(withGrammar, lineLength: lineLength))
         }
         return result
     }
@@ -365,6 +400,49 @@ public enum SyntaxClassifier {
             spans.append(SyntaxSpan(role: .variable, range: m))
         }
         return spans
+    }
+
+    // MARK: - r21 grammar spans (operators, specifiers, labels)
+
+    /// Operators on one math-classified line: canonical (`+`, `-`, `−`,
+    /// `×`, `÷`, `=`) and accepted input (`*`, `/`) glyph runs. The
+    /// answer-token marker U+FFFC is not an operator character and can
+    /// never match; unit-span overlaps are resolved by `sanitize`
+    /// (the unit spans win).
+    private static func operatorSpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(#"[+\-−×÷*/=]+"#, in: ns) {
+            spans.append(SyntaxSpan(role: .operatorGlyph, range: m))
+        }
+        return spans
+    }
+
+    /// Contextual syntax words on a conversion/natural/money/date line:
+    /// standalone `to`, `in`, `per`, `as` (case-insensitive, whole-word).
+    /// Callers only add these to lines the evaluator already classified
+    /// as math, so prose and identifiers never match.
+    private static func specifierSpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(#"(?i)\b(?:to|in|per|as)\b"#, in: ns) {
+            spans.append(SyntaxSpan(role: .specifier, range: m))
+        }
+        return spans
+    }
+
+    /// A skip/prose label line ending with `:` — the whole trimmed line
+    /// is one label span (`Total:`). Prose without the trailing colon,
+    /// comment/heading prefixes (handled earlier) and evaluated lines
+    /// never become labels.
+    private static func labelSpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.hasSuffix(":") else { return [] }
+        let start = ns.range(of: trimmed).location
+        guard start != NSNotFound else { return [] }
+        return [SyntaxSpan(role: .label,
+                           range: NSRange(location: start, length: (trimmed as NSString).length))]
     }
 
     // MARK: - Sanitizing

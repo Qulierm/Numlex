@@ -12,8 +12,12 @@ public let syntaxCases: [EngineCase] = [
                          NSRange(location: 5, length: 2),
                          NSRange(location: 10, length: 1)],
                         "number spans")
-        try expectEqual(spans[0].filter { $0.role != .number }.count, 0,
-                        "operators stay base")
+        // r21: operator glyphs get their own role (base-colored by
+        // default, so the default look is unchanged).
+        try expectEqual(spans[0].filter { $0.role == .operatorGlyph }.map { $0.range },
+                        [NSRange(location: 3, length: 1),
+                         NSRange(location: 8, length: 1)],
+                        "`+` and `*` are operator glyphs")
     },
 
     EngineCase("syntax-variable-assignment-use") {
@@ -123,7 +127,9 @@ public let syntaxCases: [EngineCase] = [
         let spans = SyntaxClassifier.spans(for: "hello =", rates: Rates(), decimalPlaces: 7)
         try expectEqual(spans[0].filter { $0.role == .variable }.map { $0.range },
                         [NSRange(location: 0, length: 5)], "LHS green with no RHS")
-        try expectEqual(spans[0].count, 1)
+        try expectEqual(spans[0].filter { $0.role == .operatorGlyph }.map { $0.range },
+                        [NSRange(location: 6, length: 1)], "`=` is an operator glyph")
+        try expectEqual(spans[0].count, 2, "LHS variable + `=`")
 
         let trailing = SyntaxClassifier.spans(for: "hello = ", rates: Rates(), decimalPlaces: 7)
         try expectEqual(trailing[0].filter { $0.role == .variable }.map { $0.range },
@@ -149,7 +155,10 @@ public let syntaxCases: [EngineCase] = [
         // (no duplicate from the known-variable pass).
         try expectEqual(spans[1].filter { $0.role == .variable }.map { $0.range },
                         [NSRange(location: 0, length: 1)])
-        try expectEqual(spans[1].count, 1, "no duplicate LHS span")
+        try expectEqual(spans[1].filter { $0.role == .variable }.count, 1,
+                        "no duplicate LHS span")
+        try expectEqual(spans[1].filter { $0.role == .operatorGlyph }.count, 1,
+                        "`=` operator glyph")
         // Invalid LHS: never a variable; the leading `2` and the RHS
         // literal keep their number spans.
         try expectEqual(spans[2].filter { $0.role == .variable }.count, 0)
@@ -173,12 +182,14 @@ public let syntaxCases: [EngineCase] = [
         let spans = SyntaxClassifier.spans(for: "12 + \nx = ", rates: Rates(), decimalPlaces: 7)
         try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 0, length: 2)], "incomplete expression keeps its literal")
-        try expectEqual(spans[0].count, 1, "only the literal is spanned")
+        try expectEqual(spans[0].filter { $0.role == .operatorGlyph }.map { $0.range },
+                        [NSRange(location: 3, length: 1)], "`+` operator glyph")
+        try expectEqual(spans[0].count, 2, "literal + operator")
         // `x = ` is a partial assignment: the valid LHS is a variable
         // immediately (no duplicate, no literal present).
         try expectEqual(spans[1].filter { $0.role == .variable }.map { $0.range },
                         [NSRange(location: 0, length: 1)])
-        try expectEqual(spans[1].count, 1)
+        try expectEqual(spans[1].count, 2, "variable + `=` operator")
     },
 
     EngineCase("syntax-error-division-by-zero") {
@@ -186,7 +197,9 @@ public let syntaxCases: [EngineCase] = [
         try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 0, length: 2),
                          NSRange(location: 5, length: 1)], "both literals stay numbers")
-        try expectEqual(spans[0].count, 2)
+        try expectEqual(spans[0].filter { $0.role == .operatorGlyph }.map { $0.range },
+                        [NSRange(location: 3, length: 1)], "`/` operator glyph")
+        try expectEqual(spans[0].count, 3)
     },
 
     EngineCase("syntax-error-unavailable-currency") {
@@ -198,8 +211,11 @@ public let syntaxCases: [EngineCase] = [
                         [NSRange(location: 0, length: 2)], "leading value stays number")
         try expectEqual(spans[0].filter { $0.role == .conversion }.map { $0.range },
                         [NSRange(location: 3, length: 3),
-                         NSRange(location: 10, length: 3)], "unit words; `to` stays base")
-        try expectEqual(spans[0].count, 3)
+                         NSRange(location: 10, length: 3)], "unit words")
+        // `to` keeps its own specifier role in the conversion context.
+        try expectEqual(spans[0].filter { $0.role == .specifier }.map { $0.range },
+                        [NSRange(location: 7, length: 2)], "`to` specifier")
+        try expectEqual(spans[0].count, 4)
     },
 
     EngineCase("syntax-error-known-variable") {
@@ -208,7 +224,9 @@ public let syntaxCases: [EngineCase] = [
                         [NSRange(location: 0, length: 1)], "partial expression keeps known variable")
         try expectEqual(spans[1].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 5, length: 1)], "partial expression keeps its literal")
-        try expectEqual(spans[1].count, 2)
+        try expectEqual(spans[1].filter { $0.role == .operatorGlyph }.map { $0.range },
+                        [NSRange(location: 2, length: 1)], "`+` operator glyph")
+        try expectEqual(spans[1].count, 3)
     },
 
     EngineCase("syntax-decimals-unary-thousands") {
@@ -217,11 +235,14 @@ public let syntaxCases: [EngineCase] = [
             rates: Rates(), decimalPlaces: 7)
         try expectEqual(spans[0].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 1, length: 3),
-                         NSRange(location: 7, length: 1)], "unary sign stays operator")
+                         NSRange(location: 7, length: 1)], "unary sign excluded from numbers")
+        try expectEqual(spans[0].filter { $0.role == .operatorGlyph }.map { $0.range },
+                        [NSRange(location: 0, length: 1),
+                         NSRange(location: 5, length: 1)], "unary sign and `+` are operator glyphs")
         try expectEqual(spans[1].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 0, length: 5),
                          NSRange(location: 8, length: 1)], "thousands separator")
-        try expectEqual(spans[2].count, 2, "assignment spans")
+        try expectEqual(spans[2].count, 3, "assignment spans: variable + number + `=`")
         try expectEqual(spans[3].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 0, length: 4)])
         try expectEqual(spans[3].filter { $0.role == .variable }.map { $0.range },

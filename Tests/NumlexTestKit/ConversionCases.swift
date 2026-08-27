@@ -166,26 +166,28 @@ public let conversionCases: [EngineCase] = [
 
     EngineCase("conversion-syntax-spans") {
         // Alias conversion: number cyan, unit words conversion-colored,
-        // `to` carries no span (base white).
+        // `to` keeps its own specifier role in the conversion context
+        // (base-colored by default, so the default look is unchanged).
         let spans = SyntaxClassifier.spans(for: "5 km to m",
                                            rates: Rates(), decimalPlaces: 7)[0]
-        try expectEqual(spans.count, 3, "three spans: number + two units")
+        try expectEqual(spans.count, 4, "four spans: number + two units + `to`")
         try expectEqual(spans[0].role, .number, "leading number")
         try expectEqual(spans[0].range, NSRange(location: 0, length: 1), "5 range")
         try expectEqual(spans[1].role, .conversion, "from unit")
         try expectEqual(spans[1].range, NSRange(location: 2, length: 2), "km range")
-        try expectEqual(spans[2].role, .conversion, "to unit")
-        try expectEqual(spans[2].range, NSRange(location: 8, length: 1), "m range")
-        let toRange = NSRange(location: 4, length: 2)
-        try expect(!spans.contains { $0.range == toRange }, "`to` stays base")
+        try expectEqual(spans[2].role, .specifier, "`to` is a specifier")
+        try expectEqual(spans[2].range, NSRange(location: 5, length: 2), "to range")
+        try expectEqual(spans[3].role, .conversion, "to unit")
+        try expectEqual(spans[3].range, NSRange(location: 8, length: 1), "m range")
         // An incompatible line is a generic error but keeps the
-        // conversion coloring (errorSpans conversion shape).
+        // conversion coloring (errorSpans conversion shape); `to`
+        // keeps its specifier role in the conversion context too.
         let errSpans = SyntaxClassifier.spans(for: "5 kg to m",
                                               rates: Rates(), decimalPlaces: 7)[0]
         try expectEqual(errSpans.map { $0.role },
-                        [.number, .conversion, .conversion],
-                        "error line keeps unit colors")
-        try expect(!errSpans.contains { $0.range == NSRange(location: 4, length: 2) },
-                   "error `to` stays base")
+                        [.number, .conversion, .specifier, .conversion],
+                        "error line keeps unit colors + `to` specifier")
+        try expectEqual(errSpans.filter { $0.role == .specifier }.first?.range,
+                        NSRange(location: 5, length: 2), "error `to` range")
     },
 ]

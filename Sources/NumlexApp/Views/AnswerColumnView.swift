@@ -26,6 +26,9 @@ struct AnswerColumnView: View {
     var fontSize: Double
     var lineHeight: Double
     var decimalPlaces: Int
+    /// r21: the selected font design — answers stay fixed white but the
+    /// face must match the editor exactly (same resolver).
+    var fontDesign: StylingFontDesign = .system
     var totalLabel: String
 
     /// The answer row whose block contains content y `y` (the same
@@ -53,6 +56,12 @@ struct AnswerColumnView: View {
         )
     }
 
+    /// The r21 palette resolver (only the font side is used here:
+    /// answers are fixed white by design).
+    private var palette: NotebookPalette {
+        NotebookPalette(styling: StylingPreferences(fontDesign: fontDesign))
+    }
+
     /// Y offset from the top of the row frame to the answer's target
     /// first-text baseline, in row-local coordinates. A measured metric
     /// line supplies it directly (its container-coordinate answer baseline
@@ -67,7 +76,7 @@ struct AnswerColumnView: View {
         if let metric {
             return metric.answerBaseline - metric.top
         }
-        let font = NSFont.systemFont(ofSize: fontSize)
+        let font = palette.editorFont(size: fontSize)
         let naturalHeight = font.ascender - font.descender + font.leading
         return AnswerBaseline.baseline(
             rowTop: 0,
@@ -181,7 +190,7 @@ struct AnswerColumnView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(s.value)
-                        .font(Design.body(fontSize))
+                        .font(palette.swiftUIFont(fontSize))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
@@ -218,13 +227,13 @@ struct AnswerColumnView: View {
                     // (`$600.00`, `€107.64`) — symbol and value share
                     // the same white regular glyphs, no unit suffix.
                     Text(formatMoney(v, code: u))
-                        .font(Design.body(fontSize))
+                        .font(palette.swiftUIFont(fontSize))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 } else {
                     HStack(spacing: 5) {
                         Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
-                            .font(Design.body(fontSize))
+                            .font(palette.swiftUIFont(fontSize))
                             // Every answer/result glyph is fixed white
                             // regular, per the design request.
                             .foregroundStyle(.white)
@@ -233,7 +242,7 @@ struct AnswerColumnView: View {
                             // Units are full answer content: exactly the
                             // same size, weight and baseline as the value.
                             Text(u)
-                                .font(Design.body(fontSize))
+                                .font(palette.swiftUIFont(fontSize))
                                 .foregroundStyle(.white)
                         }
                     }
@@ -242,7 +251,7 @@ struct AnswerColumnView: View {
                 // Natural money: shared presentation (`$600.00`),
                 // white regular, never enters the numeric Total.
                 Text(formatMoney(v, code: code))
-                    .font(Design.body(fontSize))
+                    .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(.white)
                     .lineLimit(1)
             case .date(let y, let m, let d, let showYear):
@@ -250,14 +259,14 @@ struct AnswerColumnView: View {
                 // regular, never tokenized as a number.
                 Text(DateArithmetic.display(
                     year: y, month: m, day: d, showYear: showYear))
-                    .font(Design.body(fontSize))
+                    .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(.white)
                     .lineLimit(1)
             case .variable(_, let v):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
                 Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
-                    .font(Design.body(fontSize))
+                    .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(.white)
                     .lineLimit(1)
             case .brokenToken(let line):
