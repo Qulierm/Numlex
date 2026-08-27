@@ -17,6 +17,11 @@ struct NotebookEditor: NSViewRepresentable {
     var lineNumbers: Bool
     var rates: Rates
     var decimalPlaces: Int
+    /// The user's input preferences (r19): operator padding/star/
+    /// backtick/QuickOperators, thousand grouping and the previous-
+    /// answer insertion gate.
+    var inputPrefs: InputPreferences
+    var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// Editor scroll offset, top-down points in editor-content coordinates
     /// (0 = top of the document).
     var onScroll: (CGFloat) -> Void
@@ -83,6 +88,8 @@ struct NotebookEditor: NSViewRepresentable {
             lineNumbers: lineNumbers,
             rates: rates,
             decimalPlaces: decimalPlaces,
+            inputPrefs: inputPrefs,
+            onPreviousAnswerTrigger: onPreviousAnswerTrigger,
             onScroll: onScroll,
             onLayout: onLayout,
             onTextChange: onTextChange,
@@ -149,6 +156,11 @@ final class NotebookEditorCoordinator: NSObject {
     private var lineNumbers: Bool
     private var rates: Rates
     private var decimalPlaces: Int
+    private var inputPrefs: InputPreferences = .defaults
+    private var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
+    /// The exact UTF-16 map of the format pass applied by the LAST
+    /// `applyAutoFormat` call (attached to the edit that follows it).
+    private var lastFormatMap: [Int]?
     /// One-shot focus request, armed by init/update and cleared the
     /// moment it is consumed (or the editor leaves the window).
     private var pendingFocusID: Sheet.ID?
@@ -375,6 +387,8 @@ final class NotebookEditorCoordinator: NSObject {
 
     func update(text: String, fontSize: Double, lineHeight: Double,
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
+                inputPrefs: InputPreferences,
+                onPreviousAnswerTrigger: ((Character, Int) -> Bool)?,
                 onScroll: @escaping (CGFloat) -> Void,
                 onLayout: @escaping (LineMetrics) -> Void,
                 onTextChange: @escaping (String, NotebookEdit?) -> Void,
@@ -384,6 +398,8 @@ final class NotebookEditorCoordinator: NSObject {
                 focusRequestID: Sheet.ID?,
                 focusPosition: Int?,
                 onFocusConsumed: @escaping () -> Void) {
+        self.inputPrefs = inputPrefs
+        self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
@@ -811,12 +827,16 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
             let intent = self.pendingIntent
             // The edit AppKit announced before performing this change —
             // the exact input line-identity reconciliation needs.
-            let edit = NotebookEdit(range: self.pendingRange, replacement: self.pendingReplacement)
+            let range = self.pendingRange
+            let replacement = self.pendingReplacement
             self.pendingIntent = .none
             self.pendingRange = nil
             self.pendingReplacement = ""
             let oldText = self.lastText
             if self.applyAutoFormat(intent: intent) {
+                let formatMap = self.lastFormatMap
+                self.lastFormatMap = nil
+                let edit = NotebookEdit(range: range, replacement: replacement, formatMap: formatMap)
                 // The programmatic storage rewrite does NOT reliably
                 // re-post textDidChange (AppKit suppresses it within the
                 // same editing pass), so the rest of the pipeline runs
@@ -833,6 +853,7 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
                 self.onScroll(self.scrollView.contentView.bounds.origin.y)
                 return
             }
+            let edit = NotebookEdit(range: range, replacement: replacement)
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.highlight()
             self.refreshLayoutAndMetrics()
@@ -863,9 +884,14 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         for p in paste {
             var pos = range.location + p.offset
             if intermediate != final {
-                guard NotebookFormatting.canonicalDocument(intermediate) == final else { continue }
-                let map = NotebookFormatting.mapDocument(from: intermediate, to: final)
-                pos = map[min(max(pos, 0), map.count - 1)]
+                if let map = edit.formatMap, map.count == (intermediate as NSString).length + 1 {
+                    // The editor's actual preference-aware pass: exact.
+                    pos = map[min(max(pos, 0), map.count - 1)]
+                } else {
+                    guard NotebookFormatting.canonicalDocument(intermediate) == final else { continue }
+                    let map = NotebookFormatting.mapDocument(from: intermediate, to: final)
+                    pos = map[min(max(pos, 0), map.count - 1)]
+                }
             }
             if pos >= 0, pos < nsFinal.length, nsFinal.character(at: pos) == answerTokenMarkerUTF16 {
                 refs.append(AnswerReference(sourceLineID: p.sourceLineID, labelLine: p.labelLine, location: pos))
@@ -898,10 +924,14 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         guard !textView.hasMarkedText() else { return false }
         guard intent == .content else { return false }
         let newText = storage.string
-        let canonical = NotebookFormatting.canonicalDocument(newText)
+        // r19: the user's OWN input preferences drive the pass; the
+        // returned map is the exact transformation (caret, marker and
+        // pasted-reference remapping all reuse it).
+        let (canonical, map) = InputFormatting.formatDocument(
+            newText, prefs: self.inputPrefs, rates: self.rates, decimalPlaces: self.decimalPlaces)
         guard canonical != newText else { return false }
+        self.lastFormatMap = map
         let sel = textView.selectedRange()
-        let map = NotebookFormatting.mapDocument(from: newText, to: canonical)
         let start = map[sel.location]
         let end = min(map[sel.location + sel.length], (canonical as NSString).length)
         storage.beginEditing()
@@ -930,13 +960,48 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
     nonisolated func textView(_ textView: NSTextView,
                               shouldChangeTextIn charRange: NSRange,
                               replacementString: String?) -> Bool {
+        var rejected = false
         MainActor.assumeIsolated {
             guard self.textView === textView, !textView.hasMarkedText() else { return }
+            let replacement = replacementString ?? ""
+            // r19 previous-answer helper: an operator typed on a BLANK
+            // line (right after Return) becomes `token + operator`, the
+            // token linking the nearest earlier answerable line. The
+            // model plans and inserts atomically; when it consumes the
+            // keystroke we reject the raw edit and drop the pending
+            // state so the next edit starts clean.
+            if self.inputPrefs.insertPreviousAnswer,
+               charRange.length == 0,
+               replacement.count == 1,
+               let op = replacement.first,
+               PreviousAnswerPlan.operators.contains(op),
+               self.caretLineIsBlank(textView: textView, caret: charRange.location),
+               self.onPreviousAnswerTrigger?(op, charRange.location) == true {
+                self.pendingIntent = .none
+                self.pendingRange = nil
+                self.pendingReplacement = ""
+                rejected = true
+                return
+            }
             self.pendingIntent = EditIntent(replacement: replacementString)
             self.pendingRange = charRange
-            self.pendingReplacement = replacementString ?? ""
+            self.pendingReplacement = replacement
         }
-        return true
+        return !rejected
+    }
+
+    /// The caret's logical line is blank (spaces/tabs only) — the gate
+    /// for the previous-answer helper. Indentation before the caret is
+    /// preserved (the insertion lands at the caret).
+    private func caretLineIsBlank(textView: NSTextView, caret: Int) -> Bool {
+        let ns = textView.string as NSString
+        let c = min(max(caret, 0), ns.length)
+        let nl = (ns.substring(to: c) as NSString).range(of: "\n", options: .backwards)
+        let start = (nl.location == NSNotFound) ? 0 : nl.location + 1
+        let lineEnd = (ns.substring(from: c) as NSString).range(of: "\n")
+        let end = (lineEnd.location == NSNotFound) ? ns.length : c + lineEnd.location
+        let line = ns.substring(with: NSRange(location: start, length: end - start))
+        return line.allSatisfy { $0 == " " || $0 == "\t" }
     }
 
     nonisolated func textViewDidChangeSelection(_ notification: Notification) {

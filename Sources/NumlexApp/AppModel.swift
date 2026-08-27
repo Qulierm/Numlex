@@ -18,12 +18,25 @@ final class AppModel {
     init() {
         var migrated = false
         if let payload = Persistence.load() {
-            // Legacy stores: canonicalize the mathematical lines of every
-            // sheet once (visible `*` becomes `×` in the stored content),
-            // then refresh automatic titles so they reflect the canonical
-            // text. Manual titles are untouched by `retitled`.
+            // r19 store migration: v1 stores get the EXACT pre-r19
+            // canonicalization once (marker positions remapped through
+            // the real transformation map); v2+ stores are loaded
+            // byte-identical — a setting toggle or relaunch never
+            // rewrites typed content again.
+            settings = payload.settings
+            let storeVersion = payload.version
             sheets = payload.sheets.map { sheet in
-                var s = Sheet.canonicalized(sheet).sheet
+                var s = sheet
+                if storeVersion < StorePayload.currentVersion {
+                    let (content, map) = InputFormatting.formatDocument(
+                        s.content, prefs: .legacy)
+                    if content != s.content {
+                        s.references = Self.remapReferences(s.references, content: content, map: map)
+                        s.content = content
+                        s = Sheet.retitled(s, content: content)
+                        migrated = true
+                    }
+                }
                 // Defensive: a corrupted payload must never carry dead
                 // references or a stale line-ID table.
                 s.references = Sheet.sanitizeReferences(s.references, in: s.content)
@@ -34,7 +47,6 @@ final class AppModel {
                 return s
             }
             selectedIndex = min(payload.selectedIndex, max(sheets.count - 1, 0))
-            settings = payload.settings
         }
         if sheets.isEmpty {
             sheets = [
@@ -130,6 +142,56 @@ final class AppModel {
         focusCaret = location + 1
     }
 
+    /// The "insert previous answer" input helper (r19): when the user
+    /// types an operator on a fresh line, the nearest earlier
+    /// answerable line becomes a live token followed by the operator.
+    /// The plan is computed PURE (PreviousAnswerPlan) and applied in one
+    /// atomic mutation; returns whether the keystroke was consumed.
+    @discardableResult
+    func insertPreviousAnswer(key: Character, at caret: Int) -> Bool {
+        guard settings.input.insertPreviousAnswer else { return false }
+        guard let sheet = selectedSheet else { return false }
+        guard let plan = PreviousAnswerPlan.plan(
+            content: sheet.content, lineIDs: sheet.lineIDs, caret: caret,
+            op: key, rates: rates, decimalPlaces: settings.decimalPlaces
+        ) else { return false }
+        // Honor the operator settings in the inserted text.
+        var op = key
+        if op == "*" && settings.input.replaceAsterisk { op = "×" }
+        let sep = settings.input.padOperators ? " " : ""
+        let insertion = String(answerTokenMarker) + sep + String(op)
+        var s = sheet
+        let contentNS = s.content as NSString
+        s.content = contentNS.replacingCharacters(
+            in: NSRange(location: plan.insertionLocation, length: 0),
+            with: insertion)
+        var refs = s.references
+        refs.append(AnswerReference(
+            sourceLineID: plan.sourceLineID,
+            labelLine: plan.sourceLineIndex + 1,
+            location: plan.insertionLocation
+        ))
+        s.references = Sheet.sanitizeReferences(refs, in: s.content)
+        s.modifiedAt = Date()
+        sheets[selectedIndex] = Sheet.retitled(s, content: s.content)
+        persist()
+        focusSheetID = s.id
+        focusCaret = plan.insertionLocation + (insertion as NSString).length
+        return true
+    }
+
+    /// Marker remap through an EXACT transformation map (the v1 store
+    /// migration): a marker landing on anything but U+FFFC is dropped.
+    static func remapReferences(_ refs: [AnswerReference], content: String, map: [Int]) -> [AnswerReference] {
+        let ns = content as NSString
+        return refs.compactMap { r in
+            guard map.count >= 1 else { return nil }
+            let p = map[min(max(r.location, 0), map.count - 1)]
+            guard p >= 0, p < ns.length, ns.character(at: p) == answerTokenMarkerUTF16 else { return nil }
+            return r.withLocation(p)
+        }
+    }
+
     /// One-shot keyboard-focus request for a freshly created sheet.
     /// Transient on purpose: it is never part of the persisted payload,
     /// so relaunches and imports can never steal focus.
@@ -203,22 +265,21 @@ final class AppModel {
         // Files exported before the naming feature decode with a nil flag;
         // then meaningful names stay custom and generic ones stay automatic.
         let custom = obj.isTitleCustom ?? !Sheet.isGenericTitle(obj.title)
-        // Imported math lines are canonicalized too; prose, comments,
-        // titles and conversions come back byte-identical.
-        let content = NotebookFormatting.canonicalDocument(obj.content)
-        // The format pass may re-space token lines: replay its UTF-16
+        // Imported lines go through the SAME preference-aware input
+        // pass as typing (r19): the user's own operator/grouping
+        // settings apply, prose/comments/titles/conversions untouched.
+        let (content, map) = InputFormatting.formatDocument(
+            obj.content, prefs: settings.input)
+        // The pass may re-space token lines: replay its EXACT UTF-16
         // map so imported references keep pointing at real markers.
         var refs = obj.references ?? []
         if !refs.isEmpty {
-            let map: [Int]
-            if content != obj.content {
-                map = NotebookFormatting.mapDocument(from: obj.content, to: content)
-            } else {
-                map = Array(0...((obj.content as NSString).length))
-            }
+            let m: [Int] = content == obj.content
+                ? Array(0...((obj.content as NSString).length))
+                : map
             let ns = content as NSString
             refs = refs.compactMap { r in
-                let p = map[min(max(r.location, 0), map.count - 1)]
+                let p = m[min(max(r.location, 0), m.count - 1)]
                 guard p >= 0, p < ns.length, ns.character(at: p) == answerTokenMarkerUTF16 else { return nil }
                 return r.withLocation(p)
             }
@@ -248,7 +309,9 @@ final class AppModel {
     }
 
     func persist() {
-        let payload = StorePayload(sheets: sheets, selectedIndex: selectedIndex, settings: settings)
+        let payload = StorePayload(sheets: sheets, selectedIndex: selectedIndex,
+                                  settings: settings,
+                                  version: StorePayload.currentVersion)
         Persistence.save(payload)
     }
 

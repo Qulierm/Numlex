@@ -201,7 +201,7 @@ public enum NotebookFormatting {
     /// becomes `×`), so the shared `insertionMap` contract applies:
     /// the returned map is monotone and exact for caret/selection and
     /// marker remapping.
-    public static func naturalOperatorCanonical(_ line: String) -> (text: String, map: [Int]) {
+    public static func naturalOperatorCanonical(_ line: String, replaceStar: Bool = true) -> (text: String, map: [Int]) {
         let ns = line as NSString
         let n = ns.length
         guard n > 0 else { return (line, [0]) }
@@ -273,7 +273,8 @@ public enum NotebookFormatting {
                 // Left: exactly one space (drop any run, add one).
                 while let last = out.last, last == 0x20 { out.removeLast() }
                 if !out.isEmpty { out.append(0x20) }
-                out.append(op)
+                // `*` emits as `×` only when the replacement is on.
+                out.append((ch == 0x2A && !replaceStar) ? 0x2A : op)
                 // Right: exactly one space while a next significant
                 // glyph exists — EXCEPT before `(`, where the ORIGINAL
                 // adjacency is preserved (`× (2)` stays loose, `×(2)`
@@ -293,7 +294,7 @@ public enum NotebookFormatting {
                 i = n
                 continue
             }
-            out.append(ch == 0x2A ? 0x00D7 : ch)
+            out.append(ch == 0x2A && replaceStar ? 0x00D7 : ch)
             i += 1
         }
         let text = String(utf16CodeUnits: out, count: out.count)
@@ -303,7 +304,7 @@ public enum NotebookFormatting {
     /// The pure text transformation for a mathematical line (see the
     /// type-level rules). Idempotent: already-canonical input comes back
     /// unchanged.
-    public static func canonicalMathText(_ input: String) -> String {
+    public static func canonicalMathText(_ input: String, replaceStar: Bool = true) -> String {
         // Preserve leading indentation verbatim.
         var prefix = ""
         var i = input.startIndex
@@ -311,10 +312,13 @@ public enum NotebookFormatting {
             prefix.append(input[i])
             i = input.index(after: i)
         }
-        var s = String(input[i...]).replacingOccurrences(of: "*", with: "×")
+        var s = String(input[i...])
+        // Legacy behavior always rewrites `*`; r19 keeps it when the
+        // user disabled the replacement (it still gets padded below).
+        if replaceStar { s = s.replacingOccurrences(of: "*", with: "×") }
         s = s.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
         s = s.replacingOccurrences(of: "\t", with: " ")
-        return prefix + reemit(scan(s))
+        return prefix + reemit(scan(s, replaceStar: replaceStar), replaceStar: replaceStar)
     }
 
     /// UTF-16 insertion-point map: `map[p]` is the position in `to` that
@@ -384,7 +388,10 @@ public enum NotebookFormatting {
 
     private static let opChars: Set<Character> = ["+", "-", "×", "÷", "/", "^", "="]
 
-    private static func scan(_ s: String) -> [Tok] {
+    private static func scan(_ s: String, replaceStar: Bool) -> [Tok] {
+        // With the star replacement OFF, `*` survives the input and must
+        // still be treated as a binary operator for the padding rules.
+        let ops = replaceStar ? opChars : opChars.union(["*"])
         var toks: [Tok] = []
         var i = s.startIndex
         var wsBefore = false
@@ -396,7 +403,7 @@ public enum NotebookFormatting {
                 continue
             }
             let kind: Tok.Kind
-            if opChars.contains(c) {
+            if ops.contains(c) {
                 // Unary when there is nothing before, or the previous
                 // significant token is an operator/`(`/`=`.
                 kind = (toks.isEmpty || lastSignificant(toks)) ? .unary : .op
@@ -443,22 +450,23 @@ public enum NotebookFormatting {
 
     // MARK: - Re-emitter
 
-    private static func reemit(_ toks: [Tok]) -> String {
+    private static func reemit(_ toks: [Tok], replaceStar: Bool) -> String {
         var out = ""
         var lastWasOp = false
         var justUnary = false
         for t in toks {
             switch t.kind {
             case .op:
+                let glyph = (t.text == "*" && replaceStar) ? "×" : t.text
                 if !out.isEmpty && !out.hasSuffix(" ") { out.append(" ") }
-                out.append(t.text)
+                out.append(glyph)
                 out.append(" ")
                 lastWasOp = true
                 justUnary = false
             case .unary:
                 // Attached to the operand; a pending space stays only
                 // when it belongs to the previous operator (`x × -2`).
-                out.append(t.text)
+                out.append((t.text == "*" && replaceStar) ? "×" : t.text)
                 lastWasOp = false
                 justUnary = true
             case .parenOpen:

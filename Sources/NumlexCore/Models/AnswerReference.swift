@@ -41,9 +41,14 @@ public struct AnswerReference: Codable, Equatable, Identifiable, Sendable {
 public struct NotebookEdit: Equatable, Sendable {
     public let range: NSRange?
     public let replacement: String
-    public init(range: NSRange? = nil, replacement: String = "") {
+    /// The EXACT UTF-16 caret map of the format pass applied after the
+    /// announced edit (from the post-edit text to the stored text).
+    /// Nil = unknown: reconciliation infers the legacy canonical map.
+    public let formatMap: [Int]?
+    public init(range: NSRange? = nil, replacement: String = "", formatMap: [Int]? = nil) {
         self.range = range
         self.replacement = replacement
+        self.formatMap = formatMap
     }
 }
 
@@ -204,6 +209,10 @@ public enum LineIdentity {
                 let finalPos: Int
                 if intermediate == newContent {
                     finalPos = inter
+                } else if let formatMap = edit.formatMap,
+                          formatMap.count == (intermediate as NSString).length + 1 {
+                    // The editor's actual preference-aware pass: exact.
+                    finalPos = formatMap[min(max(inter, 0), formatMap.count - 1)]
                 } else if NotebookFormatting.canonicalDocument(intermediate) == newContent {
                     let map = NotebookFormatting.mapDocument(from: intermediate, to: newContent)
                     finalPos = map[min(max(inter, 0), map.count - 1)]

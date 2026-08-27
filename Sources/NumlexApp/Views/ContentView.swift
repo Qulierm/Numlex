@@ -47,6 +47,10 @@ struct ContentView: View {
                         lineNumbers: settings.lineNumbers,
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
+                        inputPrefs: settings.input,
+                        onPreviousAnswerTrigger: { key, caret in
+                            model.insertPreviousAnswer(key: key, at: caret)
+                        },
                         onScroll: { offset in
                             // Raw native offset: negative values are the
                             // elastic overscroll at the top and must show

@@ -114,4 +114,29 @@ struct EngineTests {
     func r18TokenAppearance(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r19OperatorCases)
+    func r19OperatorFormatting(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: r19GroupCases)
+    func r19ThousandGrouping(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: r19PrevAnswerCases)
+    func r19PreviousAnswer(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: r19IdentityCases)
+    func r19TokenIdentityWithExactMap(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: r19SettingsCases)
+    func r19SettingsCompatibility(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

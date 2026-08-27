@@ -7,6 +7,7 @@ struct SettingsView: View {
 
     var body: some View {
         GlassEffectContainer(spacing: 16) {
+            ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text(L10n.t("settings", language: model.settings.language))
                     .font(.title3.weight(.semibold))
@@ -25,6 +26,47 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                }
+
+                // r19: the six configurable input helpers.
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 14) {
+                        inputRow("opPad", captionKey: "opPadCap", value: Binding(
+                            get: { model.settings.input.padOperators },
+                            set: { model.settings.input.padOperators = $0; model.persist() }
+                        ))
+                        inputRow("opStar", captionKey: "opStarCap", value: Binding(
+                            get: { model.settings.input.replaceAsterisk },
+                            set: { model.settings.input.replaceAsterisk = $0; model.persist() }
+                        ))
+                        inputRow("opBacktick", captionKey: "opBacktickCap", value: Binding(
+                            get: { model.settings.input.replaceBacktick },
+                            set: { model.settings.input.replaceBacktick = $0; model.persist() }
+                        ))
+                        inputRow("opQuick", captionKey: "opQuickCap", value: Binding(
+                            get: { model.settings.input.quickOperators },
+                            set: { model.settings.input.quickOperators = $0; model.persist() }
+                        ))
+                    }
+                } label: {
+                    Text(L10n.t("operators", language: model.settings.language))
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 14) {
+                        inputRow("autoGroup", captionKey: "autoGroupCap", value: Binding(
+                            get: { model.settings.input.groupNumbers },
+                            set: { model.settings.input.groupNumbers = $0; model.persist() }
+                        ))
+                        inputRow("autoPrev", captionKey: "autoPrevCap", value: Binding(
+                            get: { model.settings.input.insertPreviousAnswer },
+                            set: { model.settings.input.insertPreviousAnswer = $0; model.persist() }
+                        ))
+                    }
+                } label: {
+                    Text(L10n.t("autoInsert", language: model.settings.language))
+                        .font(.system(size: 13, weight: .semibold))
                 }
 
                 GroupBox {
@@ -86,13 +128,27 @@ struct SettingsView: View {
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding(20)
             .frame(width: 420)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .scrollIndicators(.hidden)
         }
         .padding(20)
+    }
+
+    /// One checkbox row with a muted example caption under the label
+    /// (the r19 input-helper sections).
+    private func inputRow(_ labelKey: String, captionKey: String, value: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(L10n.t(labelKey, language: model.settings.language), isOn: value)
+            Text(L10n.t(captionKey, language: model.settings.language))
+                .font(Design.labelSmall)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 20)
+        }
     }
 }
 
@@ -101,6 +157,6 @@ struct NativeSettingsView: View {
     @Bindable var model: AppModel
     var body: some View {
         SettingsView(model: model)
-            .frame(width: 480, height: 520)
+            .frame(width: 480, height: 640)
     }
 }
