@@ -151,32 +151,33 @@ final class AppModel {
     func insertPreviousAnswer(key: Character, at caret: Int) -> Bool {
         guard settings.input.insertPreviousAnswer else { return false }
         guard let sheet = selectedSheet else { return false }
+        // The sheet's CURRENT sidecar must take part in eligibility:
+        // an active token chain (`token + 1`) is answerable, a broken
+        // token line never is.
         guard let plan = PreviousAnswerPlan.plan(
             content: sheet.content, lineIDs: sheet.lineIDs, caret: caret,
-            op: key, rates: rates, decimalPlaces: settings.decimalPlaces
+            op: key, rates: rates, decimalPlaces: settings.decimalPlaces,
+            references: sheet.references
         ) else { return false }
-        // Honor the operator settings in the inserted text.
-        var op = key
-        if op == "*" && settings.input.replaceAsterisk { op = "×" }
+        // Honor the operator settings in the inserted text, and apply
+        // the pure insertion: marker + separator + operator lands at
+        // the caret, every pre-existing reference at/after the caret
+        // shifts by the insertion's UTF-16 length (line IDs untouched),
+        // and the fresh reference is appended before sanitizing.
+        let op = (key == "*" && settings.input.replaceAsterisk) ? "×" : String(key)
         let sep = settings.input.padOperators ? " " : ""
-        let insertion = String(answerTokenMarker) + sep + String(op)
+        let applied = PreviousAnswerPlan.apply(
+            plan: plan, content: sheet.content, lineIDs: sheet.lineIDs,
+            references: sheet.references, operatorText: op, separator: sep)
         var s = sheet
-        let contentNS = s.content as NSString
-        s.content = contentNS.replacingCharacters(
-            in: NSRange(location: plan.insertionLocation, length: 0),
-            with: insertion)
-        var refs = s.references
-        refs.append(AnswerReference(
-            sourceLineID: plan.sourceLineID,
-            labelLine: plan.sourceLineIndex + 1,
-            location: plan.insertionLocation
-        ))
-        s.references = Sheet.sanitizeReferences(refs, in: s.content)
+        s.content = applied.content
+        s.lineIDs = applied.lineIDs
+        s.references = applied.references
         s.modifiedAt = Date()
         sheets[selectedIndex] = Sheet.retitled(s, content: s.content)
         persist()
         focusSheetID = s.id
-        focusCaret = plan.insertionLocation + (insertion as NSString).length
+        focusCaret = applied.caret
         return true
     }
 

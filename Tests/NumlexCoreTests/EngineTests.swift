@@ -139,4 +139,9 @@ struct EngineTests {
     func r19SettingsCompatibility(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r19RefFixCases)
+    func r19PreviousAnswerReferencePreservation(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

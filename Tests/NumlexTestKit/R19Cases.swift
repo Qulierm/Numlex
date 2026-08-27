@@ -341,3 +341,163 @@ public let r19SettingsCases: [EngineCase] = [
         try expectEqual(t2, "$680.00 + materials $240", "money addition canonicalized")
     },
 ]
+
+// MARK: - r19 fix: previous-answer insertion must respect live references
+
+public let r19RefFixCases: [EngineCase] = [
+    EngineCase("r19fix-active-token-chain-is-source") {
+        let id0 = UUID(), id1 = UUID(), id2 = UUID()
+        // `100 + 50` (0-7), \n 8, `M + 1` (9-13), \n 14, blank line 2 at 15.
+        let content = "100 + 50\n\(M19) + 1\n"
+        let refs = [AnswerReference(sourceLineID: id0, labelLine: 1, location: 9)]
+        let plan = PreviousAnswerPlan.plan(
+            content: content, lineIDs: [id0, id1, id2], caret: 15, op: "+",
+            rates: r19Rates(), references: refs)
+        try expect19(plan != nil, "active token chain plans")
+        try expectEqual(plan?.sourceLineIndex, 1, "the token line is the source")
+        try expectEqual(plan?.sourceLineID, id1, "stable UUID of the token line")
+        // Without the live sidecar the same line resolves broken and the
+        // plain number line above it wins instead.
+        let bare = PreviousAnswerPlan.plan(
+            content: content, lineIDs: [id0, id1, id2], caret: 15, op: "+",
+            rates: r19Rates())
+        try expectEqual(bare?.sourceLineIndex, 0, "no sidecar: broken line skipped")
+    },
+    EngineCase("r19fix-broken-token-source-stays-ineligible") {
+        let id0 = UUID(), id1 = UUID(), id2 = UUID()
+        let content = "100 + 50\n\(M19) + 1\n"
+        // The marker's source UUID is missing from the line-ID table:
+        // the token is broken and must never become the source.
+        let orphan = [AnswerReference(sourceLineID: UUID(), labelLine: 1, location: 9)]
+        let plan = PreviousAnswerPlan.plan(
+            content: content, lineIDs: [id0, id1, id2], caret: 15, op: "*",
+            rates: r19Rates(), references: orphan)
+        try expectEqual(plan?.sourceLineIndex, 0, "broken token line is skipped")
+        try expectEqual(plan?.sourceLineID, id0, "falls back to the number line")
+        // A source that evaluates to an error breaks the token too: with
+        // nothing else answerable, no plan exists at all.
+        let badContent = "abc xyz\n\(M19) + 1\n"
+        let badRefs = [AnswerReference(sourceLineID: id0, labelLine: 1, location: 9)]
+        let bad = PreviousAnswerPlan.plan(
+            content: badContent, lineIDs: [id0, id1, id2], caret: 15, op: "+",
+            rates: r19Rates(), references: badRefs)
+        try expect19(bad == nil, "error source: token stays broken, no plan")
+    },
+    EngineCase("r19fix-conversion-results-qualify") {
+        let id0 = UUID(), id1 = UUID(), id2 = UUID()
+        // `10 km to meter` (0-13), \n 14, `M to m` (15-20), \n 21, blank at 22.
+        // Conversions resolve to .number — both the direct line and the
+        // token-of-conversion line are answerable; the nearest wins.
+        let content = "10 km to meter\n\(M19) to m\n"
+        let refs = [AnswerReference(sourceLineID: id0, labelLine: 1, location: 15)]
+        let plan = PreviousAnswerPlan.plan(
+            content: content, lineIDs: [id0, id1, id2], caret: 22, op: "+",
+            rates: r19Rates(), references: refs)
+        try expectEqual(plan?.sourceLineIndex, 1, "token of conversion is nearest")
+        // With the sidecar absent the token line is broken and the direct
+        // conversion line (a plain .number) must still qualify.
+        let bare = PreviousAnswerPlan.plan(
+            content: content, lineIDs: [id0, id1, id2], caret: 22, op: "+",
+            rates: r19Rates())
+        try expectEqual(bare?.sourceLineIndex, 0, "conversion line itself qualifies")
+    },
+    EngineCase("r19fix-mid-document-insertion-preserves-refs") {
+        let id0 = UUID(), id1 = UUID(), id2 = UUID(), id3 = UUID(),
+            id4 = UUID(), id5 = UUID()
+        //  0: `10 + 20`    0-6,  \n 7
+        //  1: `M × 2`      8-12, \n 13      (ref A -> line 0, value 60)
+        //  2: blank        \n 14            <- caret, type `+`
+        //  3: `🎉`          15-16, \n 17     (emoji before the refs below)
+        //  4: `M + 5`      18-22, \n 23      (ref B -> line 1)
+        //  5: `M ÷ 5`      24-28             (ref C -> line 1)
+        let content = "10 + 20\n\(M19) × 2\n\n🎉\n\(M19) + 5\n\(M19) ÷ 5"
+        let aId = UUID(), bId = UUID(), cId = UUID()
+        let refs = [
+            AnswerReference(id: aId, sourceLineID: id0, labelLine: 1, location: 8),
+            AnswerReference(id: bId, sourceLineID: id1, labelLine: 2, location: 18),
+            AnswerReference(id: cId, sourceLineID: id1, labelLine: 2, location: 24),
+        ]
+        let ids = [id0, id1, id2, id3, id4, id5]
+        let plan = PreviousAnswerPlan.plan(
+            content: content, lineIDs: ids, caret: 14, op: "+",
+            rates: r19Rates(), references: refs)
+        try expectEqual(plan?.sourceLineIndex, 1, "token line above the blank is source")
+        let applied = PreviousAnswerPlan.apply(
+            plan: plan!, content: content, lineIDs: ids, references: refs,
+            operatorText: "+", separator: " ")
+        try expectEqual(applied.content,
+                        "10 + 20\n\(M19) × 2\n\(M19) +\n🎉\n\(M19) + 5\n\(M19) ÷ 5",
+                        "insertion lands on the blank line")
+        // The marker occupies 3 UTF-16 units; every reference at/after the
+        // caret moves by exactly 3, the one before it stays put.
+        try expectEqual(applied.references.map { $0.location }, [8, 14, 21, 27],
+                        "existing refs shift, none dropped")
+        // Direct field checks (fresh ref id is app-generated).
+        let byLoc = Dictionary(uniqueKeysWithValues: applied.references.map { ($0.location, $0) })
+        try expectEqual(byLoc[8]?.id, aId, "ref A keeps its ID at its old spot")
+        try expectEqual(byLoc[21]?.id, bId, "ref B keeps its ID, shifted by 3")
+        try expectEqual(byLoc[27]?.id, cId, "ref C keeps its ID, shifted by 3")
+        let fresh = byLoc[14]
+        try expect19(fresh != nil, "new marker ref exists at the caret")
+        try expectEqual(fresh?.sourceLineID, id1, "new ref targets the token line")
+        try expectEqual(fresh?.labelLine, 2, "new ref remembers line 2")
+        try expectEqual(applied.lineIDs, ids, "line IDs untouched by pure insertion")
+        try expectEqual(applied.caret, 17, "caret right after the inserted text")
+        // Everything still resolves: the two post-blank tokens stay live.
+        let resolved = resolveSheet(
+            content: applied.content, lineIDs: applied.lineIDs,
+            references: applied.references, rates: r19Rates(), decimalPlaces: 7)
+        try expectEqual(resolved.lines[1].result,
+                        .number(value: 60, unit: nil), "line 1 still 60")
+        try expectEqual(resolved.lines[4].result,
+                        .number(value: 65, unit: nil), "token + 5 still live")
+        try expectEqual(resolved.lines[5].result,
+                        .number(value: 12, unit: nil), "token ÷ 5 still live")
+        try expectEqual(resolved.tokens.count, 4, "all four markers resolve")
+        for t in resolved.tokens {
+            if case .broken = t.state {
+                throw CaseFailure(message: "a token went broken: \(t.location)", location: "R19Cases")
+            }
+        }
+        // Relaunch / export roundtrip: encode, decode, re-resolve.
+        let sheet = Sheet(title: "S", content: applied.content,
+                          lineIDs: applied.lineIDs, references: applied.references)
+        let data = try JSONEncoder().encode(sheet)
+        let back = try JSONDecoder().decode(Sheet.self, from: data)
+        try expectEqual(back.references.count, 4, "roundtrip keeps all refs")
+        try expectEqual(back.references.map { $0.location }, [8, 14, 21, 27],
+                        "roundtrip keeps exact locations")
+        let backLocs = Set(back.references.map { $0.id })
+        try expect19(backLocs.contains(aId) && backLocs.contains(bId) && backLocs.contains(cId),
+                     "roundtrip keeps existing ref IDs")
+        try expectEqual(back.lineIDs, ids, "roundtrip keeps line IDs")
+        let again = resolveSheet(
+            content: back.content, lineIDs: back.lineIDs, references: back.references,
+            rates: r19Rates(), decimalPlaces: 7)
+        try expectEqual(again.lines[4].result,
+                        .number(value: 65, unit: nil), "still live after relaunch")
+    },
+    EngineCase("r19fix-unpadded-insertion-shifts-by-two") {
+        let id0 = UUID(), id1 = UUID(), id2 = UUID()
+        //  0: `5 + 5`  0-4, \n 5;  1: blank \n 6;  2: `M + 1` 7-11 (ref D -> line 0)
+        let content = "5 + 5\n\n\(M19) + 1"
+        let dId = UUID()
+        let refs = [AnswerReference(id: dId, sourceLineID: id0, labelLine: 1, location: 7)]
+        let plan = PreviousAnswerPlan.plan(
+            content: content, lineIDs: [id0, id1, id2], caret: 6, op: "*",
+            rates: r19Rates(), references: refs)
+        try expectEqual(plan?.sourceLineIndex, 0, "number line is source")
+        // Pad OFF: the insertion is marker + operator (2 UTF-16 units).
+        let applied = PreviousAnswerPlan.apply(
+            plan: plan!, content: content, lineIDs: [id0, id1, id2],
+            references: refs, operatorText: "×", separator: "")
+        try expectEqual(applied.content, "5 + 5\n\(M19)×\n\(M19) + 1",
+                        "unpadded insertion shape")
+        try expectEqual(applied.references.map { $0.location }, [6, 9],
+                        "ref D shifts by exactly 2")
+        let byLoc = Dictionary(uniqueKeysWithValues: applied.references.map { ($0.location, $0) })
+        try expectEqual(byLoc[9]?.id, dId, "ref D keeps its ID")
+        try expectEqual(byLoc[6]?.sourceLineID, id0, "new ref targets line 0")
+        try expectEqual(applied.caret, 8, "caret after the 2-unit insertion")
+    },
+]
