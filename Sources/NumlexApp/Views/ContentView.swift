@@ -13,10 +13,26 @@ struct ContentView: View {
     @State private var showImport = false
     @State private var showExport = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Live measured width of the sidebar column (tracks user resizes
+    /// within 200...260). The window resize response uses this value, not
+    /// a hardcoded 220, so the width delta always matches the column.
+    @State private var sidebarWidth: CGFloat = 220
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
+                // Track the ACTUAL rendered column width (user resizes
+                // included) so the window resize response always uses the
+                // true value.
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onChange(of: proxy.size.width, initial: true) { _, w in
+                                if w > 0 { sidebarWidth = w }
+                            }
+                    }
+                )
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
             // Editor and answer column share the same detail top, so a row's
@@ -111,7 +127,13 @@ struct ContentView: View {
             }
             .toolbar(removing: .title)
         }
-        .frame(minWidth: 820, minHeight: 560)
+        .frame(minWidth: 600, minHeight: 560)
+        // Window chrome + the sidebar-toggle window resize response.
+        .background(WindowConfigurator(
+            columnVisibility: columnVisibility,
+            sidebarWidth: sidebarWidth,
+            reduceMotion: reduceMotion
+        ))
         // Reset the editor-bound state when the selected SHEET ID changes,
         // not only the numeric index: deleting the selected non-last row
         // changes the ID under an unchanged index, and stale answer
@@ -142,7 +164,6 @@ struct ContentView: View {
         .fileExporter(isPresented: $showExport, document: NLXDocument(model: model), contentType: .nlx, defaultFilename: "\(model.selectedSheet?.title ?? "Sheet").nlx") { result in
             if case .failure(let err) = result { print("export failed \(err)") }
         }
-        .background(WindowConfigurator())
         .onAppear {
             Task { @MainActor in await model.loadRates() }
             if let window = NSApp.keyWindow {
@@ -155,19 +176,45 @@ struct ContentView: View {
 
 /// Grabs the hosting NSView's window once it exists and applies window
 /// chrome the SwiftUI scene APIs cannot express: no titlebar separator
-/// strip and the minimum content size. The representable's view is in the
-/// hierarchy, so `view.window` is the real window (unlike NSApp.keyWindow,
-/// which can be nil while the scene is still coming up).
+/// strip, the dynamic minimum size, and the resize response to the system
+/// sidebar toggle. The representable's view is in the hierarchy, so
+/// `view.window` is the real window (unlike NSApp.keyWindow, which can be
+/// nil while the scene is still coming up).
+///
+/// Sidebar-toggle behavior: when the user hides the sidebar via the SYSTEM
+/// toggle, the window narrows by the measured sidebar column width with the
+/// RIGHT edge fixed (detail width stays stable instead of filling the
+/// vacated space); showing it again widens leftward and restores the
+/// previous frame. The math is the pure, tested
+/// `SidebarWindowGeometry` helper — repeated cycles carry no drift.
 private struct WindowConfigurator: NSViewRepresentable {
+    var columnVisibility: NavigationSplitViewVisibility
+    var sidebarWidth: CGFloat
+    var reduceMotion: Bool
+
+    private let expandedMinWidth: CGFloat = 820
+    private let collapsedMinWidth: CGFloat = 600
+    private let minHeight: CGFloat = 560
+
+    @MainActor
+    final class Coordinator {
+        var lastVisibility: NavigationSplitViewVisibility = .all
+        var chromeObserver: NSObjectProtocol?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
+        context.coordinator.lastVisibility = columnVisibility
         Task { @MainActor in
             guard let window = view.window else { return }
-            window.minSize = NSSize(width: 820, height: 560)
+            window.minSize = NSSize(width: expandedMinWidth, height: minHeight)
             applyNoSeparatorChrome(to: window)
             // SwiftUI re-asserts the default chrome during later layout and
-            // activation passes; hold the override.
-            NotificationCenter.default.addObserver(
+            // activation passes; hold the override. The token is removed in
+            // dismantleNSView so no observer outlives the representable.
+            context.coordinator.chromeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
             ) { _ in
                 Task { @MainActor in applyNoSeparatorChrome(to: window) }
@@ -176,7 +223,46 @@ private struct WindowConfigurator: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let coord = context.coordinator
+        guard coord.lastVisibility != columnVisibility else { return }
+        let nowVisible = columnVisibility == .all
+        coord.lastVisibility = columnVisibility
+        Task { @MainActor in
+            guard let window = nsView.window else { return }
+            window.minSize = NSSize(width: nowVisible ? expandedMinWidth : collapsedMinWidth,
+                                    height: minHeight)
+            let frame = window.frame
+            let edge = SidebarWindowGeometry.Edge(originX: frame.minX, width: frame.width)
+            let screenVisible: ClosedRange<CGFloat>? = window.screen.map {
+                $0.visibleFrame.minX...$0.visibleFrame.maxX
+            }
+            let target: SidebarWindowGeometry.Edge = nowVisible
+                ? SidebarWindowGeometry.expanded(from: edge, sidebarWidth: sidebarWidth,
+                                                 screenVisible: screenVisible)
+                : SidebarWindowGeometry.collapsed(from: edge, sidebarWidth: sidebarWidth,
+                                                  minWidth: collapsedMinWidth,
+                                                  screenVisible: screenVisible)
+            guard abs(target.originX - frame.minX) > 0.5
+                || abs(target.width - frame.width) > 0.5 else { return }
+            var newFrame = frame
+            newFrame.origin.x = target.originX
+            newFrame.size.width = target.width
+            // Native frame animation; bottom/height unchanged. Reduce Motion
+            // gets the non-animated variant.
+            if reduceMotion {
+                window.setFrame(newFrame, display: true)
+            } else {
+                window.animator().setFrame(newFrame, display: true)
+            }
+        }
+    }
+
+    func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let obs = coordinator.chromeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
 }
 
 @MainActor

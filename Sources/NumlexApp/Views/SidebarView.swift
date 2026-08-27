@@ -5,6 +5,10 @@ struct SidebarView: View {
     @Bindable var model: AppModel
     @State private var renamingID: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Native SwiftUI settings action: opens the Settings scene and brings
+    /// an already-open settings window forward (no duplicates, no AppKit
+    /// selector bridge).
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,8 +85,8 @@ struct SidebarView: View {
 
                 Spacer()
 
-                sidebarIconButton("gearshape") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                sidebarIconButton("gear") {
+                    openSettings()
                 }
                 .help(L10n.t("settings", language: model.settings.language))
             }

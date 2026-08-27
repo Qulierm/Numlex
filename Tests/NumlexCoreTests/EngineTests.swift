@@ -144,4 +144,9 @@ struct EngineTests {
     func r19PreviousAnswerReferencePreservation(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: windowGeometryCases)
+    func windowSidebarGeometry(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

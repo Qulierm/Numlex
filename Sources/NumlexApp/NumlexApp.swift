@@ -9,7 +9,11 @@ struct NumlexApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
-                .frame(minWidth: 820, minHeight: 560)
+                // The SwiftUI content minimum must allow the COLLAPSED
+                // window size; the expanded 820pt minimum is enforced
+                // dynamically by WindowConfigurator's window.minSize so the
+                // system sidebar toggle can shrink the window.
+                .frame(minWidth: 600, minHeight: 560)
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentSize)
@@ -39,12 +43,11 @@ struct NumlexApp: App {
                 }
                 .keyboardShortcut("d", modifiers: .command)
             }
-            CommandGroup(replacing: .appSettings) {
-                Button("Settings…") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
+            // The system registers the single Settings… item (⌘,) from the
+            // Settings scene automatically; replacing the group here makes
+            // macOS 26 render a SECOND item with the same shortcut, which
+            // also makes ⌘, ambiguous. The gear button in the sidebar uses
+            // the environment openSettings action instead.
         }
 
         Settings {
