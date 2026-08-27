@@ -3,23 +3,17 @@
 #
 # Usage: Scripts/generate-app-icon.sh [iconset-dir]
 #   iconset-dir defaults to <repo>/Assets/AppIcon.iconset: the tracked,
-#   READY PER-SIZE RIMLESS RASTERS with iconutil-standard filenames. Each
-#   slot is packed exactly as supplied — the script never resizes or
+#   CANONICAL silver rasters with iconutil-standard filenames. Each slot
+#   is packed exactly as supplied — the script never resizes or
 #   recompresses a slot (sips is used for metadata queries only).
 #
 # Provenance (see Assets/README.md):
-#   * Canonical authored source: Assets/AppIcon.icon (Icon Composer
-#     package). icon.json has NO border/stroke: solid P3 0.11615
-#     background + blue N / green L gradient glyphs (neutral shadow 0.5,
-#     translucency 0.5).
-#   * Assets/AppIcon.flattened.iconset: flattened per-size exports kept
-#     ONLY as the deterministic strip input. ictool/Icon Composer raster
-#     exports (macOS or iOS-Default) bake a platform specular rim into
-#     the perimeter (top-center opaque RGB ~134 over ~20 px at 1024) —
-#     export machinery, not authored artwork.
-#   * Assets/AppIcon.iconset: GENERATED rimless fallback rasters (all ten
-#     native slots). Regenerate with: python3 Scripts/strip-icon-rim.py
-#     (deterministic; removes only the outer neutral perimeter).
+#   * Assets/AppIcon.iconset: the canonical silver monochrome N/L icon,
+#     all ten native slots imported EXACT PER SIZE (no resize, no rim
+#     stripping, no filtering) from the supplied iOS Default exports.
+#   * No layered source is supplied or tracked: the per-size PNGs ARE
+#     the source of truth. If a layered Icon Composer package is ever
+#     added back, it must rasterize to these exact pixels.
 #
 # Produces Sources/NumlexApp/Resources/AppIcon.icns, replacing the
 # previous file atomically, then unpacks the result and validates all
@@ -27,15 +21,14 @@
 #   * iconutil re-compresses IDAT streams that are not in its own
 #     encoder output, so byte preservation is not the invariant — pixels
 #     are. All slots must round-trip PIXEL-IDENTICAL to the tracked
-#     rimless rasters (0 differing RGBA pixels), enforced;
+#     silver rasters (0 differing RGBA pixels), enforced;
 #   * the two legacy-representation slots (16, 32 px @1x) are stored by
 #     iconutil in the legacy ICNS representation and its unpacker
 #     re-encodes them with palette quantization — enforced with exact
 #     dimensions and a documented alpha-weighted pixel tolerance
 #     (measured worst case 186, limit 200; alpha drift ≤2).
 #
-# Requires: python3 + Pillow for pixel validation (same host dependency
-# as Scripts/strip-icon-rim.py).
+# Requires: python3 + Pillow for pixel validation.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

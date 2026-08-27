@@ -1,35 +1,43 @@
 # Numlex app icon sources
 
-Canonical authored source
--------------------------
-`AppIcon.icon/` is the original Icon Composer package (icon.json + the two
-glyph alpha masks). It contains NO border, stroke, or outline layer: the
-background is a solid display-p3 `0.11615` fill with the blue N / green L
-gradient glyph layers (group neutral shadow 0.5, translucency 0.5).
+Canonical icon
+--------------
+`AppIcon.iconset/` is the CANONICAL silver monochrome N/L icon: all ten
+native slots, imported EXACT PER SIZE (no resizing, no filtering, no rim
+stripping) from the supplied iOS Default exports
+(`numlex-iOS-Default-16x16@1x.png` ... `numlex-iOS-Default-1024x1024@1x.png`).
 
-Why the iconset directories exist
----------------------------------
-Raster exports of this `.icon` (Icon Composer / ictool, "macOS" or
-"iOS Default" platform) bake in a platform specular finish: a bright
-neutral bevel around the outer perimeter (top-center opaque RGB ~134 fading
-over ~20 px into the dark fill). That rim is export machinery, not authored
-artwork, so the flattened exports are NOT canonical.
+Slot mapping:
 
-- `AppIcon.flattened.iconset/` — flattened per-size exports, kept only as
-  the deterministic INPUT for the rim strip (the per-size variants are
-  hand-tuned and stay crisper than downscaling; the strip preserves them
-  outside the outer correction band).
-- `AppIcon.iconset/` — GENERATED rimless fallback rasters (all ten native
-  slots). Regenerate with:
-  `Scripts/strip-icon-rim.py` (rim correction) then
-  `Scripts/generate-app-icon.sh` (iconutil ICNS build).
+| source export                    | iconset slot            |
+| -------------------------------- | ----------------------- |
+| `16x16@1x`                       | `icon_16x16.png`        |
+| `16x16@2x`                       | `icon_16x16@2x.png`     |
+| `32x32@1x`                       | `icon_32x32.png`        |
+| `32x32@2x`                       | `icon_32x32@2x.png`     |
+| `128x128@1x`                     | `icon_128x128.png`      |
+| `128x128@2x`                     | `icon_128x128@2x.png`   |
+| `256x256@1x`                     | `icon_256x256.png`      |
+| `256x256@2x`                     | `icon_256x256@2x.png`   |
+| `512x512@1x`                     | `icon_512x512.png`      |
+| `1024x1024@1x`                   | `icon_512x512@2x.png`   |
 
-Build notes
------------
+No layered source
+-----------------
+The supplied export directory contains PNGs only — no Icon Composer
+(`.icon`) package or layered asset was supplied, and none is tracked.
+The per-size PNGs ARE the source of truth; if a layered package is ever
+added back, it must rasterize to these exact pixels.
+
+Build
+-----
 - `Scripts/generate-app-icon.sh` packs `AppIcon.iconset` into
-  `Sources/NumlexApp/Resources/AppIcon.icns` (legacy fallback, no resizing).
-- `Scripts/build-app.sh` additionally tries the official Xcode `actool`
-  route to compile `AppIcon.icon` into a native `Assets.car`
-  (`CFBundleIconName`) when a full Xcode is available; the rimless ICNS
-  (`CFBundleIconFile`) is the verified resource macOS actually presents when
-  the native route would reintroduce the specular rim.
+  `Sources/NumlexApp/Resources/AppIcon.icns` (iconutil, NO resizing) and
+  validates the result by unpacking it and checking all ten slots:
+  exact dimensions everywhere; pixel-identical round-trip for every
+  slot except the two legacy-representation slots (16, 32 px @1x), which
+  iconutil re-encodes with palette quantization — those use a documented
+  alpha-weighted pixel tolerance.
+- `Scripts/build-app.sh` copies that ICNS into the bundle and signs it.
+  The ICNS is the single authoritative icon resource
+  (`CFBundleIconFile=AppIcon`); no `Assets.car` is produced.

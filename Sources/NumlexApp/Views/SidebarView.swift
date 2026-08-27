@@ -31,7 +31,7 @@ struct SidebarView: View {
                 model.newSheet()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "plus")
+                    Image(systemName: "plus.capsule")
                     Text(L10n.t("newSheet", language: model.settings.language))
                         .font(.system(size: 13, weight: .semibold))
                 }

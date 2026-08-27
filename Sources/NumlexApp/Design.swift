@@ -67,11 +67,13 @@ enum Design {
 
     // MARK: Answer reference tokens (r23 premium bubble)
 
-    /// Active token base color: the reference sRGB(205, 222, 250). The
-    /// capsule fills with a luminous top-leading to bottom-trailing
-    /// gradient between the two alpha stops below — constant across
-    /// appearances; the capsule is its own opaque surface.
-    static let tokenBase = NSColor(srgbRed: 205.0 / 255.0, green: 222.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
+    /// Active token base color: the reference sRGB(195, 220, 255).
+    /// Slightly more blue/saturated than the earlier (205, 222, 250)
+    /// while staying light and premium — not neon. The capsule fills
+    /// with a luminous top-leading to bottom-trailing gradient between
+    /// the two alpha stops below — constant across appearances; the
+    /// capsule is its own opaque surface.
+    static let tokenBase = NSColor(srgbRed: 195.0 / 255.0, green: 220.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
     static let tokenGradientTopAlpha: CGFloat = 0.98
     static let tokenGradientBottomAlpha: CGFloat = 0.72
     /// Near-black label at 85%, composited over the gradient fill.
@@ -97,10 +99,11 @@ enum Design {
     /// background.
     static let tokenFillInactive = NSColor(srgbRed: 66.0 / 255.0, green: 66.0 / 255.0, blue: 72.0 / 255.0, alpha: 1)
     static let tokenTextInactive = NSColor(srgbRed: 168.0 / 255.0, green: 168.0 / 255.0, blue: 176.0 / 255.0, alpha: 1)
-    /// Horizontal reservation on EACH side of the label (the reference
-    /// bubble's 14 pt). One constant: the reserved layout width and the
-    /// drawn capsule always agree.
-    static let tokenHPadding: CGFloat = 14
+    /// Horizontal reservation on EACH side of the label (8 pt, 16 pt
+    /// total) — tightened from the reference bubble's 14 pt per side.
+    /// One constant: the reserved layout width and the drawn capsule
+    /// always agree.
+    static let tokenHPadding: CGFloat = 8
     /// The ONE token label face: medium rounded system typography with
     /// monospaced digits (feature-based, falling back to plain rounded
     /// when the feature cannot be constructed). `applyTokenAttachments`

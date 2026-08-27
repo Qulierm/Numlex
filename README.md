@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/Qulierm/Numlex/assets/132899713/5d48f135-9a20-4b43-93b2-d304bf6c8da3" alt="Numlex" width="150px" height="150px"/>
+  <img src="Assets/AppIcon.iconset/icon_512x512@2x.png" alt="Numlex" width="150px" height="150px"/>
 </p>
 
 <h1 align="center">Numlex</h1>

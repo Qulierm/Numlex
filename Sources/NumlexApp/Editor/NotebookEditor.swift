@@ -1805,8 +1805,8 @@ final class TokenAttachment: NSTextAttachment {
 
     /// The capsule's horizontal width for a label: the label's text width
     /// plus the design padding on both sides (Design.tokenHPadding —
-    /// the reference bubble's 14 pt per side). One place defines it, so
-    /// the reserved layout width and the drawn capsule always agree.
+    /// 8 pt per side, 16 pt total). One place defines it, so the
+    /// reserved layout width and the drawn capsule always agree.
     static func capsuleWidth(label: String, font: NSFont) -> CGFloat {
         let textW = (label as NSString).size(withAttributes: [.font: font]).width
         return ceil(textW) + Design.tokenHPadding * 2
