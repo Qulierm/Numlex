@@ -14,9 +14,9 @@ struct ContentView: View {
     @State private var showExport = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     /// Live measured width of the sidebar column (tracks user resizes
-    /// within 200...260). The window resize response uses this value, not
+    /// within 180...220). The window resize response uses this value, not
     /// a hardcoded ideal, so the width delta always matches the column.
-    @State private var sidebarWidth: CGFloat = 235
+    @State private var sidebarWidth: CGFloat = 190
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -33,7 +33,7 @@ struct ContentView: View {
                             }
                     }
                 )
-                .navigationSplitViewColumnWidth(min: 200, ideal: 235, max: 260)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
         } detail: {
             // Editor and answer column share the same detail top, so a row's
             // editor-content y equals its answer-content y (modulo the fixed
@@ -129,7 +129,7 @@ struct ContentView: View {
             }
             .toolbar(removing: .title)
         }
-        .frame(minWidth: 600, minHeight: 560)
+        .frame(minWidth: 600, minHeight: 260)
         // Window chrome + the sidebar-toggle window resize response.
         .background(WindowConfigurator(
             columnVisibility: columnVisibility,
@@ -167,10 +167,39 @@ struct ContentView: View {
             if case .failure(let err) = result { print("export failed \(err)") }
         }
         .onAppear {
-            Task { @MainActor in await model.loadRates() }
-            if let window = NSApp.keyWindow {
-                window.setContentSize(NSSize(width: 890, height: 680))
-                window.center()
+            Task { @MainActor in
+                await model.loadRates()
+                // The main window may not be key during the first layout
+                // pass (and a stale autosaved frame can sit off-screen);
+                // retry a few times so the designed default size and
+                // centered position always apply on launch.
+                for _ in 0..<15 {
+                    if let window = NSApp.keyWindow
+                        ?? NSApp.windows.first(where: { $0.isVisible }) {
+                        // window.center() is a no-op when the window is
+                        // fully off another display (its screen is nil),
+                        // so place the designed 800x600 frame explicitly
+                        // in the visible area of the PRIMARY display
+                        // (screens.first), never a secondary one a stale
+                        // autosaved frame may have pointed to.
+                        window.setContentSize(NSSize(width: 800, height: 600))
+                        let primary = NSScreen.screens.first
+                        if let vf = (primary ?? NSScreen.main)?.visibleFrame,
+                           vf.width >= 800, vf.height >= 600 {
+                            let x = vf.minX + (vf.width - window.frame.width) / 2
+                            let y = vf.minY + (vf.height - window.frame.height) / 2
+                            window.setFrame(
+                                NSRect(x: x, y: y,
+                                       width: window.frame.width,
+                                       height: window.frame.height),
+                                display: true)
+                        } else {
+                            window.center()
+                        }
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
             }
         }
     }
@@ -194,7 +223,7 @@ private struct WindowConfigurator: NSViewRepresentable {
     var sidebarWidth: CGFloat
     var reduceMotion: Bool
 
-    private let expandedMinWidth: CGFloat = 820
+    private let expandedMinWidth: CGFloat = 800
     private let collapsedMinWidth: CGFloat = 600
     private let minHeight: CGFloat = 560
 

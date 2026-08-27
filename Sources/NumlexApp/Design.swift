@@ -65,18 +65,75 @@ enum Design {
     /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
     static let baseText = NSColor.white
 
-    // MARK: Answer reference tokens
+    // MARK: Answer reference tokens (r23 premium bubble)
 
-    /// Active token capsule: the light-blue fill of the reference design
-    /// (sRGB(201, 223, 253)) with near-black text. Constant across
-    /// appearances — the capsule is its own opaque surface.
-    static let tokenFill = NSColor(srgbRed: 201.0 / 255.0, green: 223.0 / 255.0, blue: 253.0 / 255.0, alpha: 1)
-    static let tokenText = NSColor(srgbRed: 24.0 / 255.0, green: 28.0 / 255.0, blue: 34.0 / 255.0, alpha: 1)
-    /// Inactive (broken) token capsule: a quiet dark-gray surface with
-    /// muted text — clearly not live, but still legible on the editor
+    /// Active token base color: the reference sRGB(205, 222, 250). The
+    /// capsule fills with a luminous top-leading to bottom-trailing
+    /// gradient between the two alpha stops below — constant across
+    /// appearances; the capsule is its own opaque surface.
+    static let tokenBase = NSColor(srgbRed: 205.0 / 255.0, green: 222.0 / 255.0, blue: 250.0 / 255.0, alpha: 1)
+    static let tokenGradientTopAlpha: CGFloat = 0.98
+    static let tokenGradientBottomAlpha: CGFloat = 0.72
+    /// Near-black label at 85%, composited over the gradient fill.
+    static let tokenText = NSColor.black.withAlphaComponent(0.85)
+    /// 1 pt border gradient (white), top-leading to bottom-trailing.
+    static let tokenBorderTopAlpha: CGFloat = 0.75
+    static let tokenBorderBottomAlpha: CGFloat = 0.18
+    /// Soft top sheen: a ~2 pt white capsule strip fading to clear.
+    static let tokenHighlightAlpha: CGFloat = 0.35
+    static let tokenHighlightHeight: CGFloat = 2
+    /// Soft shadow under the active capsule — the reference's
+    /// black 28% / 14 blur / 7 y scaled down to the editor's ~23 pt
+    /// badge (premium, not neon).
+    static let tokenShadowOpacity: CGFloat = 0.28
+    static let tokenShadowBlur: CGFloat = 6
+    static let tokenShadowOffsetY: CGFloat = 3
+    /// Invalidation inset around a capsule: covers the shadow extent
+    /// (blur + offset) plus the border and sheen.
+    static let tokenInvalidationInset: CGFloat = 20
+    /// Inactive (broken) token capsule: a quiet dark-gray FLAT surface
+    /// with muted text — no gradient, border, sheen or shadow, so it
+    /// can never read as live, but stays legible on the editor
     /// background.
     static let tokenFillInactive = NSColor(srgbRed: 66.0 / 255.0, green: 66.0 / 255.0, blue: 72.0 / 255.0, alpha: 1)
     static let tokenTextInactive = NSColor(srgbRed: 168.0 / 255.0, green: 168.0 / 255.0, blue: 176.0 / 255.0, alpha: 1)
+    /// Horizontal reservation on EACH side of the label (the reference
+    /// bubble's 14 pt). One constant: the reserved layout width and the
+    /// drawn capsule always agree.
+    static let tokenHPadding: CGFloat = 14
+    /// The ONE token label face: medium rounded system typography with
+    /// monospaced digits (feature-based, falling back to plain rounded
+    /// when the feature cannot be constructed). `applyTokenAttachments`
+    /// (reserved width) and `drawTokenCapsules` (ink) both resolve
+    /// through this, so width and drawing can never disagree.
+    static func tokenFont(size: CGFloat) -> NSFont {
+        // Rounded medium with monospaced digits: the monospaced-digit
+        // system face keeps its even digit advances through the
+        // rounded-design round-trip (verified: .AppleSystemUIFontRounded
+        // with 0 pt advance difference between 1 and 2). If either step
+        // ever fails, the digit-advance check rejects the candidate and
+        // the plain rounded medium wins — the design face is preferred
+        // over the digits.
+        func advance(_ s: String, in font: NSFont) -> CGFloat {
+            (s as NSString).size(withAttributes: [.font: font]).width
+        }
+        func isMonospaced(_ font: NSFont) -> Bool {
+            abs(advance("1", in: font) - advance("2", in: font)) < 0.001
+        }
+        let medium = NSFont.systemFont(ofSize: size, weight: .medium)
+        var rounded: NSFont?
+        if let d = medium.fontDescriptor.withDesign(.rounded),
+           let f = NSFont(descriptor: d, size: size) {
+            rounded = f
+        }
+        let monoBase = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
+        if let d = monoBase.fontDescriptor.withDesign(.rounded),
+           let f = NSFont(descriptor: d, size: size), isMonospaced(f) {
+            return f
+        }
+        if let r = rounded { return r }
+        return medium
+    }
 
     // MARK: Panel surfaces
 

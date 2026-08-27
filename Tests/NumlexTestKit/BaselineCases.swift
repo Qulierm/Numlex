@@ -354,8 +354,35 @@ public let baselineCases: [EngineCase] = [
             try expectEqual(c.rect.midY, center, "\(size) pt capsule centered on the ink centerline")
             try expectEqual(c.rect.height, CaretGeometry.tokenCapsuleHeight(
                 naturalHeight: m.natural, rowHeight: row), "\(size) pt capsule height")
-            try expectEqual(c.cornerRadius, c.rect.height * 0.20, "\(size) pt corner = 20% of height")
+            // The 8 pt corner clamped by half the capsule height:
+            // less rounded than a pill, capped at 8 pt on taller
+            // (e.g. 30 pt) capsules.
+            try expectEqual(c.cornerRadius, Swift.min(
+                CaretGeometry.tokenMaxCornerRadius, c.rect.height / 2),
+                "\(size) pt corner = min(8, height/2)")
         }
+    },
+
+    EngineCase("capsule-corner-radius-clamps-at-eight") {
+        // Tall capsules (natural box > 16 pt) cap at the 8 pt
+        // continuous corner; short ones stay a half-height pill.
+        let tall = CaretGeometry.tokenCapsule(
+            rowTop: 0, rowHeight: 60,
+            ascender: 24, naturalHeight: 36, capHeight: 20,
+            x: 0, width: 80)
+        try expectEqual(tall.rect.height, 36, "tall capsule uses the natural box")
+        try expectEqual(tall.cornerRadius, CaretGeometry.tokenMaxCornerRadius,
+                        "corner clamped to 8 pt, not height/2 = 18")
+        // A capsule SHORTER than 16 pt (twice the cap) stays a true
+        // half-height pill below the 8 pt cap.
+        let pill = CaretGeometry.tokenCapsule(
+            rowTop: 0, rowHeight: 20,
+            ascender: 6, naturalHeight: 15, capHeight: 11,
+            x: 0, width: 40)
+        try expectEqual(pill.rect.height, 15, "short capsule uses the natural box")
+        try expectEqual(pill.cornerRadius, 15 / 2, "short capsule is a half-height pill")
+        try expect(pill.cornerRadius < CaretGeometry.tokenMaxCornerRadius,
+                   "pill radius below the 8 pt cap")
     },
 
     EngineCase("capsule-uses-actual-fragment-row-box") {

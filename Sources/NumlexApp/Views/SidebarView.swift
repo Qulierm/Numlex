@@ -43,17 +43,12 @@ struct SidebarView: View {
             .glassEffect(.regular.interactive().tint(.white.opacity(0.10)), in: Capsule())
             .help(L10n.t("newSheet", language: model.settings.language))
 
-            // Sheets caption above the list.
-            Text(L10n.t("sheets", language: model.settings.language))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.top, 5)
-                .padding(.horizontal, 6)
-
-            // Sheet list. Selection is the system regular-interactive
-            // glass pill; unselected rows stay clear. The list sits
-            // directly on the window background (rows carry their own
-            // 10pt horizontal padding).
+            // Sheet list: no caption — the list begins directly below
+            // the New Sheet capsule with the VStack's own 10 pt gap.
+            // Selection is the system regular-interactive glass pill;
+            // unselected rows stay clear. The list sits directly on the
+            // window background (rows carry their own 10pt horizontal
+            // padding).
             ScrollView {
                 LazyVStack(spacing: 5) {
                     ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
@@ -164,17 +159,17 @@ struct SidebarView: View {
                 titleView(sheet: sheet)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 // Metadata: created time leading, localized line count
-                // trailing, both 13pt secondary; the count keeps its
+                // trailing, both 11pt secondary; the count keeps its
                 // trailing alignment across every row.
                 HStack(spacing: 8) {
                     Text(sheet.createdLabel)
-                        .font(.system(size: 13))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 8)
                     Text(count)
-                        .font(.system(size: 13))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .layoutPriority(1)
@@ -220,7 +215,7 @@ struct SidebarView: View {
             }
         } else {
             Text(sheet.displayTitle(language: model.settings.language))
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -260,7 +255,7 @@ private struct RenameField: View {
 
     var body: some View {
         TextField("", text: $value)
-            .font(.system(size: 15, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(.primary)
             .textFieldStyle(.plain)
             .focused($focused)

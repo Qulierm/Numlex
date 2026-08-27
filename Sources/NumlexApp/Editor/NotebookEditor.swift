@@ -641,7 +641,10 @@ final class NotebookEditorCoordinator: NSObject {
         let content = storage.string as NSString
         guard content.length > 0 else { return }
         storage.removeAttribute(.attachment, range: NSRange(location: 0, length: content.length))
-        let font = palette.editorFont(size: fontSize)
+        // The ONE token label face (r23): medium rounded with
+        // monospaced digits; the width reservation and the capsule ink
+        // both resolve through Design.tokenFont.
+        let font = Design.tokenFont(size: fontSize)
         var drawStates: [(location: Int, label: String, active: Bool)] = []
         for token in tokenStates {
             let p = token.location
@@ -1213,7 +1216,9 @@ final class NotebookTextView: NSTextView {
               let lm = layoutManager, let tc = textContainer else { return }
         lm.ensureLayout(for: tc)
         let content = string as NSString
-        let font = self.font ?? NSFont.systemFont(ofSize: 14)
+        // The SAME label face applyTokenAttachments sized the reserved
+        // advance with — width and ink can never disagree.
+        let font = Design.tokenFont(size: (self.font ?? NSFont.systemFont(ofSize: 14)).pointSize)
         let naturalHeight = font.ascender - font.descender + font.leading
         // The ONE transform the gutter and caret use: the container
         // inset added exactly ONCE. textContainerOrigin already carries
@@ -1258,7 +1263,12 @@ final class NotebookTextView: NSTextView {
                 x: textContainerOrigin.x + glyphRect.minX,
                 width: glyphRect.width
             )
-            guard capRect.insetBy(dx: -12, dy: -12).intersects(dirtyRect) else { continue }
+            // The invalidation union covers the shadow extent (blur +
+            // offset), the border and the sheen.
+            guard capRect.insetBy(
+                dx: -Design.tokenInvalidationInset,
+                dy: -Design.tokenInvalidationInset
+            ).intersects(dirtyRect) else { continue }
             // Appearance pass: opacity + CENTER scale inside the exact
             // final rect (nil progress = the locked final capsule).
             let progress = tokenAnimProgress[t.location]
@@ -1272,9 +1282,17 @@ final class NotebookTextView: NSTextView {
                     width: capRect.width * scale,
                     height: capRect.height * scale
                 )
-            (t.active ? Design.tokenFill : Design.tokenFillInactive)
-                .withAlphaComponent(alpha).setFill()
-            NSBezierPath(roundedRect: cap, xRadius: radius * scale, yRadius: radius * scale).fill()
+            let r = radius * scale
+            let path = NSBezierPath(roundedRect: cap, xRadius: r, yRadius: r)
+            if t.active {
+                drawTokenBubble(path: path, rect: cap, radius: r, alpha: alpha)
+            } else {
+                // Broken: the SAME geometry, flat muted surface — no
+                // gradient, border, sheen or shadow, so it can never
+                // read as active.
+                Design.tokenFillInactive.withAlphaComponent(alpha).setFill()
+                path.fill()
+            }
             // The label sits on the row's actual text baseline (the same
             // rule the editor's own glyphs sit on), centered horizontally
             // in the reserved advance.
@@ -1290,6 +1308,69 @@ final class NotebookTextView: NSTextView {
                 withAttributes: labelAttrs
             )
         }
+    }
+
+    /// One ACTIVE token bubble: the reference's luminous pass — a soft
+    /// shadow, the base gradient (98% to 72%, top-leading to bottom-
+    /// trailing in the flipped view space), the 1 pt white gradient
+    /// border (an even-odd annulus) and the ~2 pt top sheen. All
+    /// constants come from Design, so the look is centralized.
+    private func drawTokenBubble(path: NSBezierPath, rect: NSRect,
+                                 radius: CGFloat, alpha: CGFloat) {
+        NSGraphicsContext.saveGraphicsState()
+        // Soft shadow under the capsule (positive y in the flipped
+        // view paints toward the bottom of the line, like the
+        // reference's downward shadow).
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(Design.tokenShadowOpacity * alpha)
+        shadow.shadowBlurRadius = Design.tokenShadowBlur
+        shadow.shadowOffset = NSSize(width: 0, height: Design.tokenShadowOffsetY)
+        shadow.set()
+        let top = NSPoint(x: rect.minX, y: rect.minY)
+        let bottom = NSPoint(x: rect.maxX, y: rect.maxY)
+        // Luminous gradient fill.
+        guard let fill = NSGradient(colors: [
+            Design.tokenBase.withAlphaComponent(Design.tokenGradientTopAlpha * alpha),
+            Design.tokenBase.withAlphaComponent(Design.tokenGradientBottomAlpha * alpha)
+        ]) else { return }
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+        fill.draw(from: top, to: bottom, options: [])
+        NSGraphicsContext.restoreGraphicsState()
+        NSGraphicsContext.restoreGraphicsState()
+        // 1 pt border: even-odd annulus painted with its own gradient.
+        let inner = NSBezierPath(
+            roundedRect: rect.insetBy(dx: 1, dy: 1),
+            xRadius: max(0, radius - 1), yRadius: max(0, radius - 1)
+        )
+        let ring = path.copy() as! NSBezierPath
+        ring.append(inner)
+        ring.windingRule = .evenOdd
+        guard let border = NSGradient(colors: [
+            NSColor.white.withAlphaComponent(Design.tokenBorderTopAlpha * alpha),
+            NSColor.white.withAlphaComponent(Design.tokenBorderBottomAlpha * alpha)
+        ]) else { return }
+        NSGraphicsContext.saveGraphicsState()
+        ring.addClip()
+        border.draw(from: top, to: bottom, options: [])
+        NSGraphicsContext.restoreGraphicsState()
+        // ~2 pt top sheen: a soft vertical fade inset like the
+        // reference's blurred capsule strip.
+        let w = Swift.max(rect.width - 32, 10)
+        let h = Design.tokenHighlightHeight + 1
+        let strip = CGRect(x: rect.midX - w / 2, y: rect.minY + 2, width: w, height: h)
+        guard let sheen = NSGradient(colors: [
+            NSColor.white.withAlphaComponent(Design.tokenHighlightAlpha * alpha),
+            NSColor.white.withAlphaComponent(0)
+        ]) else { return }
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: strip, xRadius: h / 2, yRadius: h / 2).addClip()
+        sheen.draw(
+            from: NSPoint(x: rect.midX, y: strip.minY),
+            to: NSPoint(x: rect.midX, y: strip.maxY),
+            options: []
+        )
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     /// The union rect (view coordinates) of the capsule geometry of the
@@ -1338,7 +1419,7 @@ final class NotebookTextView: NSTextView {
                 x: textContainerOrigin.x + glyphRect.minX,
                 width: glyphRect.width
             )
-            let r = capRect.insetBy(dx: -12, dy: -12)
+            let r = capRect.insetBy(dx: -Design.tokenInvalidationInset, dy: -Design.tokenInvalidationInset)
             union = union.map { $0.union(r) } ?? r
         }
         return union
@@ -1723,10 +1804,11 @@ final class TokenAttachment: NSTextAttachment {
     }
 
     /// The capsule's horizontal width for a label: the label's text width
-    /// plus the design padding on both sides. One place defines it, so
+    /// plus the design padding on both sides (Design.tokenHPadding —
+    /// the reference bubble's 14 pt per side). One place defines it, so
     /// the reserved layout width and the drawn capsule always agree.
     static func capsuleWidth(label: String, font: NSFont) -> CGFloat {
         let textW = (label as NSString).size(withAttributes: [.font: font]).width
-        return ceil(textW) + font.pointSize * 0.32 * 2
+        return ceil(textW) + Design.tokenHPadding * 2
     }
 }

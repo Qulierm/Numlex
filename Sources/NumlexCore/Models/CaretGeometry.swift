@@ -76,6 +76,12 @@ public enum CaretGeometry {
         baseline - capHeight / 2
     }
 
+    /// Maximum corner radius of the answer-token capsule (a clearly
+    /// smaller, less rounded 8 pt continuous corner), clamped by half
+    /// the capsule height so the shape stays a valid rounded rect at
+    /// small sizes.
+    public static let tokenMaxCornerRadius: CGFloat = 8
+
     /// Answer-token capsule height: the font's MEASURED natural line
     /// box (ascender − descender + leading), clamped to the configured
     /// row height. One constant badge size at every scale (≈23 pt at
@@ -95,9 +101,9 @@ public enum CaretGeometry {
     /// in. The label baseline is the row baseline (the same rule the
     /// editor's own glyphs sit on) and the capsule is centered on the
     /// row's ink centerline — the ONE shared visual center. The corner
-    /// radius is 20% of the capsule height, measured from the reference
-    /// design (no hand-tuned offset anywhere: everything derives from
-    /// rowBox + baseline + inkCenter).
+    /// radius is `tokenMaxCornerRadius` (12 pt), clamped by half the
+    /// capsule height (no hand-tuned offset anywhere: everything
+    /// derives from rowBox + baseline + inkCenter).
     public static func tokenCapsule(
         rowTop: CGFloat,
         rowHeight: CGFloat,
@@ -118,7 +124,7 @@ public enum CaretGeometry {
         return (
             CGRect(x: x, y: center - height / 2, width: width, height: height),
             baseline,
-            height * 0.20
+            Swift.min(Self.tokenMaxCornerRadius, height / 2)
         )
     }
 
