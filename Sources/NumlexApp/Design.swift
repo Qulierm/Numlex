@@ -34,23 +34,20 @@ enum Design {
 
     // MARK: Notebook syntax palette (deterministic sRGB values)
     //
-    // Every chromatic token is an explicit sRGB value: the same hue
-    // direction as the original gamut, now with coherently RAISED CHROMA
-    // (v3 step) on top of the v2 lightness step — a more saturated,
-    // still matte finish with no neon clipping: each role's color is
-    // pulled further from gray at (roughly) the same lightness, keeping
-    // the four role hues clearly distinct, so numbers, variables,
-    // conversions and titles each read clearly on both the editor's
-    // dark background and the raised answer panel. The fixed white base,
-    // operators, `to` and answer values are untouched. No opacity
-    // layering is used.
+    // Every chromatic token is an explicit sRGB value. The three role
+    // colors are the user-specified palette: #99CEFF cyan (numbers),
+    // #6CDA76 green (variables) and #BE89EC pink-purple (units), each
+    // reading clearly on both the editor's dark background and the
+    // raised answer panel, with the four role hues clearly distinct.
+    // The fixed white base, operators, `to` and answer values are
+    // untouched. No opacity layering is used.
 
-    /// Numeric literals: sRGB(61, 224, 239) — saturated matte cyan (H185 S85 L59).
-    static let numberColor = NSColor(srgbRed: 61.0 / 255.0, green: 224.0 / 255.0, blue: 239.0 / 255.0, alpha: 1)
-    /// Variable identifiers: sRGB(75, 220, 110) — saturated matte green (H134 S68 L58).
-    static let variableColor = NSColor(srgbRed: 75.0 / 255.0, green: 220.0 / 255.0, blue: 110.0 / 255.0, alpha: 1)
-    /// Unit words in conversions: sRGB(231, 137, 251) — saturated matte purple (H289 S94 L76).
-    static let conversionColor = NSColor(srgbRed: 231.0 / 255.0, green: 137.0 / 255.0, blue: 251.0 / 255.0, alpha: 1)
+    /// Numeric literals: #99CEFF — sRGB(153, 206, 255).
+    static let numberColor = NSColor(srgbRed: 153.0 / 255.0, green: 206.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
+    /// Variable identifiers: #6CDA76 — sRGB(108, 218, 118).
+    static let variableColor = NSColor(srgbRed: 108.0 / 255.0, green: 218.0 / 255.0, blue: 118.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: #BE89EC — sRGB(190, 137, 236).
+    static let conversionColor = NSColor(srgbRed: 190.0 / 255.0, green: 137.0 / 255.0, blue: 236.0 / 255.0, alpha: 1)
     /// Comment titles: sRGB(101, 188, 246) — saturated matte blue (H204 S89 L68).
     static let titleColor = NSColor(srgbRed: 101.0 / 255.0, green: 188.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
 
@@ -123,13 +120,13 @@ enum Design {
         func isMonospaced(_ font: NSFont) -> Bool {
             abs(advance("1", in: font) - advance("2", in: font)) < 0.001
         }
-        let medium = NSFont.systemFont(ofSize: size, weight: .medium)
+        let medium = NSFont.systemFont(ofSize: size, weight: .regular)
         var rounded: NSFont?
         if let d = medium.fontDescriptor.withDesign(.rounded),
            let f = NSFont(descriptor: d, size: size) {
             rounded = f
         }
-        let monoBase = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium)
+        let monoBase = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
         if let d = monoBase.fontDescriptor.withDesign(.rounded),
            let f = NSFont(descriptor: d, size: size), isMonospaced(f) {
             return f
