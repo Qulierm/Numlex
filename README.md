@@ -4,7 +4,7 @@
 
 <h1 align="center">Numlex</h1>
 <p align="center">
-<img src="https://github.com/Qulierm/Numlex/assets/132899713/82d4d861-3dbf-4a50-addd-01503269eb0f"/>
+  <img src="Assets/NumlexScreenshot.png" alt="Numlex calculator notebook"/>
 </p>
 
 A simple and elegant notepad-based calculator to create and manage sheets with real-time evaluation of mathematical expressions.
