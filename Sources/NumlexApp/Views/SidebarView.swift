@@ -2,11 +2,13 @@ import SwiftUI
 import NumlexCore
 
 /// Sheets sidebar (liquid-glass redesign, matching the reference layout):
-/// a padded leading VStack with a full-width New Sheet capsule, a Sheets
-/// caption, the selectable sheet list, a compact import/export row and a
-/// full-width Settings row. Selection and controls use the system liquid
-/// glass materials (regular interactive when selected, clear otherwise),
-/// so the sidebar stays calm in inactive windows and both appearances.
+/// a padded leading VStack with a full-width New Sheet button, the
+/// selectable sheet list and a full-width Settings button. Both buttons
+/// share the exact same rounded-10 continuous shape. Selection and
+/// controls use the system liquid glass materials (regular interactive
+/// when selected, clear otherwise), so the sidebar stays calm in inactive
+/// windows and both appearances. Sheet import/export live in the File
+/// menu (NumlexApp commands); the sidebar carries no file-action row.
 /// The background is the native window background; there is no fake
 /// titlebar, traffic-light row or sidebar toggle.
 struct SidebarView: View {
@@ -18,13 +20,21 @@ struct SidebarView: View {
     /// selector bridge).
     @Environment(\.openSettings) private var openSettings
 
+    /// The ONE shared shape of the two full-width sidebar buttons
+    /// (New Sheet, Settings): the exact same rounded rect, so the two
+    /// rows can never drift apart visually.
+    private var sidebarButtonShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // New Sheet: full-width plain button, `plus` symbol (not the
-            // circled variant), semibold label, liquid glass capsule.
-            // The hit shape stays a Rectangle: a Capsule contentShape
-            // suppresses the glass fill on this system even when the
-            // glass shape is the same capsule.
+            // New Sheet: full-width plain button, `plus.capsule` symbol,
+            // semibold label, regular interactive glass in the shared
+            // sidebarButtonShape (the exact same rounded-10 continuous
+            // shape as the Settings row). The hit shape stays a
+            // Rectangle: a non-rect contentShape suppresses the glass
+            // fill on this system even when the glass shape matches.
             // Sits below the toolbar traffic lights (the split-view
             // content never extends into the toolbar area).
             Button {
@@ -40,12 +50,21 @@ struct SidebarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive().tint(.white.opacity(0.10)), in: Capsule())
+            .glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
+                        in: sidebarButtonShape)
             .help(L10n.t("newSheet", language: model.settings.language))
 
-            // Sheet list: no caption — the list begins directly below
-            // the New Sheet capsule with the VStack's own 10 pt gap.
-            // Selection is the system regular-interactive glass pill;
+            // A hairline between New Sheet and the list: the native
+            // Divider only — no glass, no material, no custom rectangle.
+            // Inset 4 pt per side so it sits optically inside the
+            // sidebar padding; the VStack's 10 pt spacing on both sides
+            // is the breathing room (within the 8–10 pt design band).
+            Divider()
+                .padding(.horizontal, 4)
+
+            // Sheet list: no caption — the list begins below the New
+            // Sheet button, separated by the hairline Divider. Selection
+            // is the system regular-interactive glass pill;
             // unselected rows stay clear. The list sits directly on the
             // window background (rows carry their own 10pt horizontal
             // padding).
@@ -81,23 +100,13 @@ struct SidebarView: View {
 
             Spacer(minLength: 0)
 
-            // Compact import/export auxiliary row, immediately above the
-            // Settings row: restrained clear-glass icon buttons with
-            // tooltips, so the file actions stay reachable without
-            // crowding the bottom cluster.
-            HStack(spacing: 6) {
-                importExportButton("square.and.arrow.up", helpKey: "importSheet") {
-                    NotificationCenter.default.post(name: .importSheet, object: nil)
-                }
-                importExportButton("square.and.arrow.down", helpKey: "exportSheet") {
-                    NotificationCenter.default.post(name: .exportSheet, object: nil)
-                }
-                Spacer()
-            }
-
-            // Settings: full-width leading labeled row, clear glass in a
-            // rounded rect. A real button; the sidebar gear always opens
-            // exactly one Settings window (native openSettings action).
+            // Settings: the lone bottom row, full-width leading label,
+            // clear glass in the shared sidebarButtonShape (the exact
+            // same rounded-10 continuous shape as New Sheet). A real
+            // button; the sidebar gear always opens exactly one Settings
+            // window (native openSettings action). Sheet import/export
+            // are File-menu commands (Import Sheet… ⌘I / Export Sheet…
+            // ⌘E) — no arrow buttons live in the sidebar.
             Button {
                 openSettings()
             } label: {
@@ -110,26 +119,12 @@ struct SidebarView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .glassEffect(.clear, in: sidebarButtonShape)
             .help(L10n.t("settings", language: model.settings.language))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .frame(idealWidth: 235, maxWidth: 260)
-    }
-
-    private func importExportButton(_ symbol: String, helpKey: String,
-                                    action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .regular))
-                .frame(width: 34, height: 26)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .glassEffect(.identity, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .help(L10n.t(helpKey, language: model.settings.language))
     }
 
     @ViewBuilder
@@ -265,9 +260,4 @@ private struct RenameField: View {
             }
             .onAppear { focused = true }
     }
-}
-
-extension Notification.Name {
-    static let importSheet = Notification.Name("numlex.importSheet")
-    static let exportSheet = Notification.Name("numlex.exportSheet")
 }

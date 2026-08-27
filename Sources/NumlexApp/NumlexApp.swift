@@ -28,7 +28,13 @@ struct NumlexApp: App {
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }
-            CommandGroup(after: .importExport) {
+            // Explicit File-menu ownership: this ONE group owns the
+            // standard import/export placement (replacing it, so exactly
+            // one Import Sheet… and one Export Sheet… ever appear —
+            // the sidebar carries no file-action buttons). Import/Export
+            // post to ContentView's native fileImporter/fileExporter
+            // (.nlx, security-scoped); Delete Sheet stays beside them.
+            CommandGroup(replacing: .importExport) {
                 Button("Import Sheet…") {
                     NotificationCenter.default.post(name: .importSheet, object: nil)
                 }
@@ -59,4 +65,10 @@ struct NumlexApp: App {
 extension Notification.Name {
     static let newSheet = Notification.Name("numlex.newSheet")
     static let deleteSheet = Notification.Name("numlex.deleteSheet")
+    // Sheet file actions: posted by the File-menu commands above, caught
+    // by ContentView's fileImporter/fileExporter. Declared here (not in
+    // the sidebar) because the file actions no longer live in the UI
+    // sidebar.
+    static let importSheet = Notification.Name("numlex.importSheet")
+    static let exportSheet = Notification.Name("numlex.exportSheet")
 }
