@@ -9,6 +9,13 @@
 
 A simple and elegant notepad-based calculator to create and manage sheets with real-time evaluation of mathematical expressions.
 
+## Download
+
+Get the latest release from the [GitHub releases page](https://github.com/Qulierm/Numlex/releases/latest).
+
+- macOS 26 or later, Apple Silicon (arm64).
+- The current release is ad-hoc signed and not notarized. On the first launch, Control-click (or right-click) `Numlex.app` and choose **Open** to bypass the Gatekeeper warning.
+
 ## Architecture
 
 Numlex is a native **Swift 6 / SwiftUI** macOS app (macOS 26, Liquid Glass). The calculation engine is a pure, evaluation-free domain parser in `Sources/NumlexCore` — no scripting, no web view.

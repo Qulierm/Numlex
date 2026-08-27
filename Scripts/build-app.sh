@@ -4,12 +4,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${1:-release}"
 APP_NAME="Numlex"
 BUNDLE_ID="com.numlex.app"
-VERSION="3.1.0"
 BIN_PATH="$(swift build -c $CONFIG --show-bin-path)"
 APP_DIR="$ROOT/.build/Numlex.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
+# Single source of truth for the app version: the source Info.plist.
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Sources/NumlexApp/Resources/Info.plist")"
 
 echo "Building Numlex ($CONFIG)..."
 swift build -c $CONFIG
@@ -47,6 +48,12 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Minimal assertions on the packaged metadata (fail loudly on drift).
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CONTENTS/Info.plist")" == "$BUNDLE_ID" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$CONTENTS/Info.plist")" == "$VERSION" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CONTENTS/Info.plist")" == "$VERSION" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$CONTENTS/Info.plist")" == "26.0" ]]
+
 # Icon (required — declared as CFBundleIconFile=AppIcon in Info.plist).
 # THE icon: the silver AppIcon.icns built by Scripts/generate-app-icon.sh
 # from Assets/AppIcon.iconset (see Assets/README.md for provenance). No
@@ -59,10 +66,12 @@ fi
 cp "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
 
-# Ad-hoc sign if codesign available
-if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || echo "codesign ad-hoc failed (ignored)"
-fi
+# Sign the bundle. Default is ad-hoc (-); set NUMLEX_SIGN_IDENTITY for a
+# specific identity. This is NOT Developer ID and NOT notarized — do not
+# rely on Apple Development identities for public distribution.
+# Signing failure is fatal (no silent ignore).
+codesign --force --sign "${NUMLEX_SIGN_IDENTITY:--}" "$APP_DIR"
+codesign --verify --strict --verbose=2 "$APP_DIR"
 
 echo "Done: $APP_DIR"
 ls -lh "$APP_DIR/Contents/MacOS/Numlex"

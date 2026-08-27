@@ -5,10 +5,11 @@
     <key>CFBundleName</key><string>Numlex</string>
     <key>CFBundleDisplayName</key><string>Numlex</string>
     <key>CFBundleIdentifier</key><string>com.numlex.app</string>
-    <key>CFBundleVersion</key><string>3.1.0</string>
+    <key>CFBundleVersion</key><string>4.0.0</string>
+    <key>CFBundleShortVersionString</key><string>4.0.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleExecutable</key><string>Numlex</string>
-    <key>LSMinimumSystemVersion</key><string>15.0</string>
+    <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
