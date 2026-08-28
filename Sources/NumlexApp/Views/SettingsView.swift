@@ -2,15 +2,32 @@ import AppKit
 import SwiftUI
 import NumlexCore
 
-/// The Settings scene content (r21, r33): one native macOS `TabView`
+/// r34 — the ONE settings-window geometry source (points). Width range
+/// plus CONTENT height range (NSWindow content size — the titlebar is
+/// extra, and the configurator applies these through contentMinSize /
+/// contentMaxSize, never frame minSize/maxSize). The window opens at
+/// 720x460 (r34 compact: the old 510...640 content range left too much
+/// dead vertical space at the 540 default) and the user may resize
+/// vertically 460...540 and horizontally 690...820.
+private enum SettingsGeometry {
+    static let minWidth: CGFloat = 690
+    static let idealWidth: CGFloat = 720
+    static let maxWidth: CGFloat = 820
+    static let minHeight: CGFloat = 460
+    static let idealHeight: CGFloat = 460
+    static let maxHeight: CGFloat = 540
+}
+
+/// The Settings scene content (r21, r33, r34): one native macOS `TabView`
 /// with exactly three tabs — General (all non-style settings, six input
-/// helpers, language/line numbers, sheet title, rate attribution),
+/// helpers, language/line numbers, rate attribution),
 /// Constants (the GLOBAL user-defined constants, one scrollable row
 /// table) and Styling (font size/family plus one finite color picker
 /// per notebook role, with a live preview). One restrained outer Liquid
 /// Glass surface per tab with native GroupBox sections; no in-content
 /// "Settings" heading (the system titlebar carries the single localized
-/// window title), no nested cards, no fake tabs.
+/// window title), no nested cards, no fake tabs. Geometry comes from
+/// SettingsGeometry (720x460 content initial; 690...820 x 460...540).
 struct SettingsView: View {
     @Bindable var model: AppModel
 
@@ -32,12 +49,18 @@ struct SettingsView: View {
                           systemImage: "paintbrush")
                 }
         }
-        .frame(minWidth: 690, idealWidth: 720, maxWidth: 820,
-               minHeight: 510, idealHeight: 540, maxHeight: 640)
+        .frame(minWidth: SettingsGeometry.minWidth,
+               idealWidth: SettingsGeometry.idealWidth,
+               maxWidth: SettingsGeometry.maxWidth,
+               minHeight: SettingsGeometry.minHeight,
+               idealHeight: SettingsGeometry.idealHeight,
+               maxHeight: SettingsGeometry.maxHeight)
         // Window chrome the scene APIs cannot express: resizability and
-        // the designed min/content sizes. The title stays the native tab
-        // title (General/Styling — the System Settings convention); the
-        // configurator never fights it.
+        // the designed CONTENT size range (the SwiftUI frame above
+        // drives the content bounds; the configurator mirrors them on
+        // the NSWindow). The title stays the native tab title
+        // (General/Constants/Styling — the System Settings convention);
+        // the configurator never fights it.
         .background(SettingsWindowConfigurator())
     }
 }
@@ -59,14 +82,15 @@ private struct GeneralSettingsTab: View {
     }
 
     var body: some View {
-        // r23 compact: NO scroll view — a fixed two-column layout that
-        // shows every control at once in the 720x540 window (and at the
-        // 690x510 minimum). Left: rounding + operators. Right:
-        // automatic insertions, line numbers + language, currency
-        // attribution. Every surface is exactly one glass card; section
-        // titles sit outside their cards. (The Sheet title control was
-        // removed from the UI in r23; AppSettings.sheetName stays in the
-        // model for decoding and new-sheet naming.)
+        // r23 compact, r34 verified: NO scroll view — a fixed
+        // two-column layout that shows every control at once in the
+        // 720x460 window (and at the 690x460 minimum). Left: rounding
+        // + operators. Right: automatic insertions, line numbers +
+        // language, currency attribution. Every surface is exactly one
+        // glass card; section titles sit outside their cards. (The
+        // Sheet title control was removed from the UI in r23;
+        // AppSettings.sheetName stays in the model for decoding and
+        // new-sheet naming.)
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 // Rounding numbers: 12 pt label + segmented 2...10.
@@ -452,12 +476,16 @@ private struct StylingSettingsTab: View {
     }
 
     var body: some View {
-        // r23 compact: NO scroll view — the font size/family rows and all
-        // eight role rows are a fixed compact column (8 pt rhythm, 14 pt
-        // padding, 11 pt labels) that fits the 720x540 window at once.
-        // The live preview keeps the REAL notebook font size (including
-        // 30 pt) and its answer strip hugs its content, so the preview
-        // fits by width-sharing instead of shrinking its semantic font.
+        // r23 compact, r34 verified: NO scroll view — the font
+        // size/family rows and all eight role rows are a fixed compact
+        // column (8 pt rhythm, 11 pt labels) that fits the 720x460
+        // window at once. The live preview keeps the REAL notebook font
+        // size (including 30 pt) and its answer strip hugs its content,
+        // so the preview fits by width-sharing instead of shrinking its
+        // semantic font. The right column's VERTICAL chrome is compact
+        // (10 pt top/bottom padding, 6 pt heading spacing) so the 30 pt
+        // preview stays fully visible at the 460 content minimum; the
+        // preview font and line height are never touched.
         HStack(spacing: 0) {
             // Left column: aligned control rows.
             VStack(alignment: .leading, spacing: 8) {
@@ -521,8 +549,12 @@ private struct StylingSettingsTab: View {
 
             Divider()
 
-            // Right column: live preview.
-            VStack(alignment: .leading, spacing: 8) {
+            // Right column: live preview (r34 compact: 8 pt vertical /
+            // 14 pt horizontal padding, 4 pt heading spacing; the box
+            // hugs the heading instead of floating in the middle, so the
+            // 30 pt preview — REAL font and line height, never shrunk —
+            // stays fully visible at the 460 content minimum).
+            VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.t("styling.preview", language: language))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -531,9 +563,10 @@ private struct StylingSettingsTab: View {
                     lineHeight: model.settings.lineHeight,
                     styling: styling
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
@@ -663,7 +696,7 @@ private struct StylingPreview: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
             .background(Color(nsColor: .textBackgroundColor))
@@ -685,7 +718,7 @@ private struct StylingPreview: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
             // Hugs the widest answer at the REAL preview font size (the
             // semantic font never shrinks); the editor side above takes
             // the remaining width via layoutPriority.
@@ -754,10 +787,13 @@ private struct StylingPreview: View {
     }
 }
 
-/// Configures the native Settings scene window: resizability and the
-/// designed content size/minimum (the swiftUI frame drives the max). The
-/// title is owned by the native tab view (the active tab's localized
-/// name), matching the System Settings convention — exactly one settings
+/// Configures the native Settings scene window (r34): resizability and
+/// the designed CONTENT size range from the single SettingsGeometry
+/// source — applied through `contentMinSize`/`contentMaxSize` (the
+/// titlebar is excluded, unlike the old frame-based minSize/maxSize
+/// mix). The initial open is deterministic: content 720x460. The title
+/// is owned by the native tab view (the active tab's localized name),
+/// matching the System Settings convention — exactly one settings
 /// window, exactly one title, no duplicates.
 private struct SettingsWindowConfigurator: NSViewRepresentable {
     @MainActor
@@ -767,17 +803,28 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// Content range from the ONE geometry source (never frame sizes).
+    private var contentMin: NSSize {
+        NSSize(width: SettingsGeometry.minWidth, height: SettingsGeometry.minHeight)
+    }
+    private var contentMax: NSSize {
+        NSSize(width: SettingsGeometry.maxWidth, height: SettingsGeometry.maxHeight)
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         Task { @MainActor in
             guard let window = view.window else { return }
             window.styleMask.insert(.resizable)
-            // The root .frame on the TabView gives the hosting view the
-            // designed size range (690x510 ... 820x640); the NSWindow
-            // min/max mirror it so the window opens at 720x540.
-            window.minSize = NSSize(width: 690, height: 518)
-            window.maxSize = NSSize(width: 820, height: 648)
-            window.setContentSize(NSSize(width: 720, height: 540))
+            // Content (not frame) bounds: 690x460 ... 820x540, mirroring
+            // the root SwiftUI frame exactly — no titlebar arithmetic.
+            window.contentMinSize = contentMin
+            window.contentMaxSize = contentMax
+            // Deterministic first open: content 720x460 — even when a
+            // frame persisted from an older (taller) build would reopen
+            // the window oversized, setContentSize snaps it back.
+            window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
+                                         height: SettingsGeometry.idealHeight))
             // SwiftUI re-asserts its own style mask during scene
             // reconfiguration and drops the resizable bit; hold it.
             context.coordinator.observers.append(
@@ -797,8 +844,26 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         Task { @MainActor in
-            if let window = nsView.window, !window.styleMask.contains(.resizable) {
+            guard let window = nsView.window else { return }
+            if !window.styleMask.contains(.resizable) {
                 window.styleMask.insert(.resizable)
+            }
+            // Re-assert the content bounds (scene reconfiguration can
+            // reset them). Idempotent — never resizes a legal window.
+            window.contentMinSize = contentMin
+            window.contentMaxSize = contentMax
+            // Only when something (a stale persisted frame from an older
+            // build, an external resize) pushed the window OUT of the
+            // designed range: snap back to the designed initial size.
+            // A user resize inside the range is never touched.
+            let size = window.contentRect(forFrameRect: window.frame).size
+            let outOfRange = size.width < SettingsGeometry.minWidth - 0.5
+                || size.width > SettingsGeometry.maxWidth + 0.5
+                || size.height < SettingsGeometry.minHeight - 0.5
+                || size.height > SettingsGeometry.maxHeight + 0.5
+            if outOfRange {
+                window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
+                                             height: SettingsGeometry.idealHeight))
             }
         }
     }

@@ -6,6 +6,20 @@ struct NumlexApp: App {
     // and the Settings scene so they always stay in sync.
     @State private var model = AppModel()
 
+    init() {
+        // r34: the Settings window's NSWindow FRAME AUTOSAVE persists its
+        // frame from the previous session, and AppKit restores it at
+        // window creation — BEFORE the SwiftUI restoration behavior and
+        // the configurator's first setContentSize can apply. Clear the
+        // stale key at launch so the window always opens at the designed
+        // initial size (SettingsGeometry: content 720x460), even when a
+        // previous build or session left it oversized. A session resize
+        // is re-persisted on close and simply ignored at the next launch
+        // — the open size is deterministic by design.
+        UserDefaults.standard.removeObject(
+            forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
@@ -59,6 +73,13 @@ struct NumlexApp: App {
         Settings {
             NativeSettingsView(model: model)
         }
+        // r34: the Settings scene used to resurrect its persisted frame
+        // from an older (taller) build after every relaunch; with state
+        // restoration disabled the window always opens at the designed
+        // initial size (SettingsGeometry: content 720x460), and a user
+        // resize lives for the session only — the next open is the
+        // deterministic initial size again.
+        .restorationBehavior(.disabled)
     }
 }
 
