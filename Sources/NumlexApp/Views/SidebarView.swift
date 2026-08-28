@@ -69,24 +69,38 @@ struct SidebarView: View {
             // window background (rows carry their own 10pt horizontal
             // padding).
             ScrollView {
-                LazyVStack(spacing: 5) {
+                // A plain (non-lazy) VStack is DELIBERATE here: sheet rows
+                // are lightweight sidebar metadata, and coherent full-list
+                // reflow matters more than lazy realization. SwiftUI lazy
+                // stacks do not guarantee coordinated insertion reflow — on
+                // a top insertion only the first realized rows animate and
+                // the rest snap, which is exactly the two-top-row movement
+                // this list had. A non-lazy stack lays out every row in the
+                // same transaction, so the .animation below moves ALL
+                // surviving rows down by exactly one row height together
+                // (50-row lists stay cheap: each row is two text lines and
+                // one optional glass pill).
+                VStack(spacing: 5) {
                     ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
                         sheetRow(idx: idx, sheet: sheet)
-                            // Removal: a short opacity fade plus a slight
-                            // leading nudge; insertion mirrors it. The
-                            // LazyVStack reflow below moves the remaining
-                            // rows into the gap.
+                            // Asymmetric: insertion is a calm opacity-only
+                            // fade in place (no offset — the parent layout
+                            // animation already moves the list), removal is
+                            // a short opacity fade plus a slight leading
+                            // nudge. reduceMotion gets identity (no
+                            // transition at all).
                             .transition(reduceMotion
                                         ? .identity
-                                        : .opacity.combined(with: .offset(x: -12)))
+                                        : .asymmetric(insertion: .opacity,
+                                                      removal: .opacity.combined(with: .offset(x: -12))))
                     }
                 }
-                // Row removal/reflow animates ONLY inside this list: the
-                // value changes exactly when the sheet-ID list changes, and
-                // the transaction is scoped here, so the editor and answer
-                // column (which also observe the model) never pick up an
-                // animated transaction on deletion. reduceMotion gets no
-                // decorative animation at all.
+                // Row insertion/removal/reflow animates ONLY inside this
+                // list: the value changes exactly when the sheet-ID list
+                // changes, and the transaction is scoped here, so the
+                // editor and answer column (which also observe the model)
+                // never pick up an animated transaction on add/delete.
+                // reduceMotion gets no decorative animation at all.
                 .animation(reduceMotion ? nil : .snappy(duration: 0.22),
                            value: model.sheets.map(\.id))
                 .padding(.vertical, 2)
@@ -223,15 +237,29 @@ struct SidebarView: View {
 /// rows render no material at all — both `Glass.clear` and `.identity`
 /// draw a visible frosted panel on macOS 26, which would light up every
 /// row like a button instead of staying calm like the system sidebar).
+///
+/// The selected/unselected branch is wrapped in a LOCAL no-animation
+/// transaction: the branch is a structural change, and without this it
+/// would inherit the list's sheet-ID transaction, fading the glass out
+/// of the old row and into the new one over the reflow duration (the
+/// highlight appeared to travel between rows). With `animation = nil`
+/// here, the glass switches instantly at the correct row while the row
+/// frame itself is still repositioned by the parent layout animation,
+/// which is applied by the list outside this modifier — so the row
+/// transitions and reflow set by the caller are untouched.
 private struct RowGlassModifier: ViewModifier {
     var isSelected: Bool
+    @ViewBuilder
     func body(content: Content) -> some View {
-        if isSelected {
-            content.glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
-                                in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-        } else {
-            content
+        Group {
+            if isSelected {
+                content.glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
+                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            } else {
+                content
+            }
         }
+        .transaction { $0.animation = nil }
     }
 }
 
