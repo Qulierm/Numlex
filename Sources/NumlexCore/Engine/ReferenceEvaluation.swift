@@ -47,15 +47,20 @@ public func resolveSheet(
     lineIDs: [UUID],
     references: [AnswerReference],
     rates: Rates,
-    decimalPlaces: Int
+    decimalPlaces: Int,
+    constants: [UserConstant] = []
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
-                 now: Date(), calendar: Calendar.current)
+                 now: Date(), calendar: Calendar.current,
+                 constants: constants)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
-/// sheet (`today`/implicit years stay consistent across the sheet).
+/// sheet (`today`/implicit years stay consistent across the sheet) and,
+/// when given, the GLOBAL user constants (r33) available before line 1
+/// on every path — normal lines, reference-token lines and their
+/// expression algebra alike.
 public func resolveSheet(
     content: String,
     lineIDs: [UUID],
@@ -63,7 +68,8 @@ public func resolveSheet(
     rates: Rates,
     decimalPlaces: Int,
     now: Date,
-    calendar: Calendar
+    calendar: Calendar,
+    constants: [UserConstant] = []
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -81,8 +87,10 @@ public func resolveSheet(
 
     // ONE shared typed environment for the whole sheet: named values
     // (unitless AND money) declared above a token line are visible to
-    // it, exactly like in `evaluateSheet`.
+    // it, exactly like in `evaluateSheet`. r33: global constants are
+    // seeded first and are IMMUTABLE on every assignment route.
     var env = TypedEnv()
+    env.seedConstants(constants)
     var memo: [Int: LineResult] = [:]
     var tokenStates: [Int: TokenResolution.State] = [:]
 
@@ -119,6 +127,14 @@ public func resolveSheet(
     }
 
     func evalTokenLine(_ line: String, _ index: Int, _ docStart: Int) -> LineResult {
+        // r33: constant-assignment guard on the token route too — the
+        // token lines bypass `evalLineTyped` entirely.
+        if let eq = line.firstIndex(of: "=") {
+            let lhs = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+            if env.isConstant(display: lhs) {
+                return .error(message: "Cannot assign to constant")
+            }
+        }
         let ns = line as NSString
         // Collect marker positions (UTF-16 within the line).
         var markerPos: [Int] = []
@@ -237,6 +253,11 @@ public func resolveSheet(
             let lhs = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
             let rhs = String(line[line.index(after: eq)...])
             if isValidReferenceIdentifier(lhs) {
+                // r33: token-expression assignment to an active global
+                // constant is blocked exactly like the other routes.
+                if env.isConstant(display: lhs) {
+                    return .error(message: "Cannot assign to constant")
+                }
                 let eqUTF16 = (line as NSString).range(of: "=").location
                 var rhsMap: [Int: Qty] = [:]
                 for (pos, q) in qtyByPos where pos > eqUTF16 {

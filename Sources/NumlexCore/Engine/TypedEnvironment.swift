@@ -26,6 +26,10 @@ public struct TypedEnv: Equatable {
     public struct Entry: Equatable {
         public let display: String
         public let qty: TypedQty
+        /// True for global user constants (r33): IMMUTABLE — every
+        /// assignment route guards on this and returns
+        /// `Cannot assign to constant` instead of shadowing or mutating.
+        public var isConstant: Bool = false
     }
 
     private var byKey: [String: Entry]
@@ -54,7 +58,27 @@ public struct TypedEnv: Equatable {
     public mutating func set(display: String, qty: TypedQty) {
         let k = canonicalNameKey(display)
         if byKey[k] == nil { order.append(k) }
-        byKey[k] = Entry(display: display, qty: qty)
+        // A plain set never demotes an immutable constant (the
+        // assignment guards make this path unreachable; the flag is
+        // the safety net that keeps it so).
+        let isConstant = byKey[k]?.isConstant ?? false
+        byKey[k] = Entry(display: display, qty: qty, isConstant: isConstant)
+    }
+
+    /// Records an IMMUTABLE global constant (r33). A later plain
+    /// `set` under the same canonical name keeps the constant flag —
+    /// the assignment guards make that path unreachable, and the flag
+    /// is the safety net that makes it so.
+    public mutating func setConstant(display: String, qty: TypedQty) {
+        let k = canonicalNameKey(display)
+        if byKey[k] == nil { order.append(k) }
+        byKey[k] = Entry(display: display, qty: qty, isConstant: true)
+    }
+
+    /// Whether a display name is an active global constant (case/
+    /// whitespace-insensitive). Used by EVERY assignment route.
+    public func isConstant(display: String) -> Bool {
+        byKey[canonicalNameKey(display)]?.isConstant == true
     }
 
     /// Scalar projection for the legacy `[String: Double]` plumbing.
@@ -182,9 +206,12 @@ public enum NamedValues {
     }
 
     /// The pipeline activation rule: a declared compound name anywhere
-    /// in the line, or a declared MONEY name used in an expression
-    /// (the line carries an operator or a digit — plain prose mentioning
-    /// a money name stays prose). Single unitless names keep the legacy
+    /// in the line, a declared MONEY name used in an expression (the
+    /// line carries an operator or a digit — plain prose mentioning a
+    /// money name stays prose), or ANY global constant (r33) —
+    /// constants always take the typed pipeline so a single-identifier
+    /// constant matches case/whitespace-insensitively and evaluates
+    /// strictly. Ordinary single unitless variables keep the legacy
     /// free-expression path untouched.
     public static func referencesTypedName(_ line: String, env: TypedEnv) -> Bool {
         guard !env.entries.isEmpty else { return false }
@@ -193,6 +220,7 @@ public enum NamedValues {
                 || $0 == "×" || $0 == "÷"
         }
         return matches(in: line, env: env).contains { m in
+            if m.entry.isConstant { return true }
             if !TypedEnv.isLegacyIdentifier(m.display) { return true }
             if case .money = m.entry.qty { return expressionLike }
             return false

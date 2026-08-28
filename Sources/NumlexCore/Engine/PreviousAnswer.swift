@@ -40,7 +40,8 @@ public enum PreviousAnswerPlan {
         op: Character,
         rates: Rates = Rates(),
         decimalPlaces: Int = 7,
-        references: [AnswerReference] = []
+        references: [AnswerReference] = [],
+        constants: [UserConstant] = []
     ) -> Plan? {
         guard operators.contains(op) else { return nil }
         let ns = content as NSString
@@ -49,9 +50,13 @@ public enum PreviousAnswerPlan {
         let caretLine = ns.substring(to: caret).components(separatedBy: "\n").count - 1
         guard lines.indices.contains(caretLine) else { return nil }
         guard lines[caretLine].allSatisfy({ $0 == " " || $0 == "\t" }) else { return nil }
+        // r33: eligibility evaluates with the global constants — a
+        // constant-driven first calculation (`100 × Sales Tax`) is a
+        // valid source line.
         let resolved = resolveSheet(
             content: content, lineIDs: lineIDs, references: references,
-            rates: rates, decimalPlaces: decimalPlaces
+            rates: rates, decimalPlaces: decimalPlaces,
+            constants: constants
         )
         for i in stride(from: caretLine - 1, through: 0, by: -1) {
             guard resolved.lines.indices.contains(i) else { continue }

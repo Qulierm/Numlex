@@ -118,11 +118,14 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     /// Derives a sheet title from the FIRST calculable nonblank logical line
     /// (expression, assignment or conversion). Skips blanks, `#` comments,
     /// `//` headings, plain notes and error lines. The line is trimmed,
-    /// whitespace-collapsed and safely truncated.
-    public static func autoTitle(from content: String, fallback: String) -> String {
+    /// whitespace-collapsed and safely truncated. r33: with `constants`
+    /// a first calculation USING a global constant is recognized.
+    public static func autoTitle(from content: String, fallback: String,
+                                 constants: [UserConstant] = []) -> String {
         // ONE shared typed environment (named unitless values AND money)
         // so natural lines evaluate the same way as in the sheet.
         var env = TypedEnv()
+        env.seedConstants(constants)
         for rawLine in content.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
@@ -146,10 +149,12 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
 
     /// Applies the automatic-title rule to a sheet whose content changed:
     /// re-derives the title unless the user renamed it explicitly.
-    public static func retitled(_ sheet: Sheet, content: String) -> Sheet {
+    public static func retitled(_ sheet: Sheet, content: String,
+                                constants: [UserConstant] = []) -> Sheet {
         var s = sheet
         guard !s.isTitleCustom else { return s }
-        let derived = autoTitle(from: content, fallback: s.titleSeed)
+        let derived = autoTitle(from: content, fallback: s.titleSeed,
+                                constants: constants)
         if derived != s.title { s.title = derived }
         return s
     }

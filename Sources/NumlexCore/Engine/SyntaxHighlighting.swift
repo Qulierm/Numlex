@@ -62,12 +62,16 @@ public enum SyntaxClassifier {
     /// are classified lexically (numbers and known variables only).
     public static func spans(for source: String,
                              rates: Rates,
-                             decimalPlaces: Int) -> [[SyntaxSpan]] {
+                             decimalPlaces: Int,
+                             constants: [UserConstant] = []) -> [[SyntaxSpan]] {
         var result: [[SyntaxSpan]] = []
         // ONE shared typed environment for the whole document — the same
         // flow `evaluateSheet` and the answer column use, so declared
         // money names stay visible to later lines on every edit tick.
+        // r33: global constants are seeded first and paint `.variable`
+        // (green) exactly like declared names.
         var env = TypedEnv()
+        env.seedConstants(constants)
         for line in source.components(separatedBy: "\n") {
             let lineLength = (line as NSString).length
             // Mirror evaluateSheet's line-kind handling: empty and `//`
@@ -159,8 +163,10 @@ public enum SyntaxClassifier {
 
     /// Activation rule for the intentional natural palette: the line
     /// carries a currency marker, is a grammar-valid natural assignment
-    /// (possibly incomplete while typing), or references a declared
-    /// compound name.
+    /// (possibly incomplete while typing), references a declared
+    /// compound name, or references a global constant (r33 — so a plain
+    /// `PI` or `pi × 2` paints the constant name green through the
+    /// same shared matcher).
     private static func lineIsNatural(_ line: String, env: TypedEnv) -> Bool {
         if !NaturalCalculation.markerOccurrences(in: line).isEmpty { return true }
         if line.contains("=") {
@@ -179,7 +185,7 @@ public enum SyntaxClassifier {
             return false
         }
         return NamedValues.matches(in: line, env: env).contains {
-            !TypedEnv.isLegacyIdentifier($0.display)
+            $0.entry.isConstant || !TypedEnv.isLegacyIdentifier($0.display)
         }
     }
 

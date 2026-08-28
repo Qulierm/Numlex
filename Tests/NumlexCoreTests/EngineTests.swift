@@ -164,4 +164,9 @@ struct EngineTests {
     func r32ExpandedCurrenciesAndConversions(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r33Cases)
+    func r33CustomConstants(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

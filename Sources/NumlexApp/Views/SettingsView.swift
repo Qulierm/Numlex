@@ -2,14 +2,15 @@ import AppKit
 import SwiftUI
 import NumlexCore
 
-/// The Settings scene content (r21): one native macOS `TabView` with
-/// exactly two tabs — General (all non-style settings, six input
-/// helpers, language/line numbers, sheet title, rate attribution) and
-/// Styling (font size/family plus one finite color picker per notebook
-/// role, with a live preview). One restrained outer Liquid Glass surface
-/// per tab with native GroupBox sections; no in-content "Settings"
-/// heading (the system titlebar carries the single localized window
-/// title), no nested cards, no fake tabs.
+/// The Settings scene content (r21, r33): one native macOS `TabView`
+/// with exactly three tabs — General (all non-style settings, six input
+/// helpers, language/line numbers, sheet title, rate attribution),
+/// Constants (the GLOBAL user-defined constants, one scrollable row
+/// table) and Styling (font size/family plus one finite color picker
+/// per notebook role, with a live preview). One restrained outer Liquid
+/// Glass surface per tab with native GroupBox sections; no in-content
+/// "Settings" heading (the system titlebar carries the single localized
+/// window title), no nested cards, no fake tabs.
 struct SettingsView: View {
     @Bindable var model: AppModel
 
@@ -19,6 +20,11 @@ struct SettingsView: View {
                 .tabItem {
                     Label(L10n.t("settings.general", language: model.settings.language),
                           systemImage: "gear")
+                }
+            ConstantsSettingsTab(model: model)
+                .tabItem {
+                    Label(L10n.t("settings.constants", language: model.settings.language),
+                          systemImage: "function")
                 }
             StylingSettingsTab(model: model)
                 .tabItem {
@@ -240,6 +246,187 @@ private struct SettingToggle: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Constants tab (r33)
+
+/// The r33 Constants tab: a concise localized intro, ONE glass card
+/// holding a vertically scrollable row table (Name, Value, per-row
+/// status, borderless destructive trash) and a bottom toolbar with the
+/// Add Constant button and the count/limit. Every row binds by STABLE
+/// UUID through the focused AppModel methods; each committed change
+/// persists and re-evaluates every sheet live. `.nlx` exports never
+/// embed constants — that is stated in the intro, never in the rows.
+private struct ConstantsSettingsTab: View {
+    @Bindable var model: AppModel
+    /// Focus target for the fresh row's name field (Add and
+    /// Enter-in-Value land here for immediate overwrite).
+    @FocusState private var focusedName: UUID?
+
+    private var language: AppLanguage { model.settings.language }
+
+    /// One deterministic resolution for the whole tab: the stable status
+    /// per row ID (the shared pure resolver, never per-row state).
+    private var resolution: [UUID: ConstantResolver.ResolvedRow] {
+        Dictionary(uniqueKeysWithValues:
+            ConstantResolver.resolve(model.settings.customConstants)
+                .rows.map { ($0.id, $0) })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.t("constants.intro", language: language))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 8)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // The single card: column captions + the scrollable rows.
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text(L10n.t("constants.name", language: language))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 132, alignment: .leading)
+                    Text(L10n.t("constants.value", language: language))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                Divider()
+
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach($model.settings.customConstants) { $row in
+                            constantRow($row)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .settingsCard()
+
+            // Bottom toolbar: Add Constant + count/limit.
+            HStack(spacing: 10) {
+                Button {
+                    if let id = model.addConstant() { focusedName = id }
+                } label: {
+                    Label(L10n.t("constants.add", language: language),
+                          systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.settings.customConstants.count >= ConstantResolver.maxRows)
+                Spacer()
+                Text("\(model.settings.customConstants.count) / \(ConstantResolver.maxRows)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.leading, 4)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// One row: Name + Value fields (capped by the model on commit),
+    /// the per-row status, and the borderless destructive trash.
+    /// Enter in Value adds the next row when under the limit — a plain
+    /// field edit never creates rows.
+    @ViewBuilder
+    private func constantRow(_ row: Binding<UserConstant>) -> some View {
+        HStack(spacing: 8) {
+            TextField(L10n.t("constants.name", language: language),
+                      text: row.name)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .frame(width: 132)
+                .focused($focusedName, equals: row.id)
+            TextField(L10n.t("constants.value", language: language),
+                      text: row.expression)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .onSubmit {
+                    if model.settings.customConstants.count < ConstantResolver.maxRows {
+                        if let id = model.addConstant(after: row.id) {
+                            focusedName = id
+                        }
+                    }
+                }
+            if let resolved = resolution[row.id] {
+                statusView(resolved)
+            }
+            Button {
+                model.deleteConstant(id: row.id)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help(L10n.t("constants.delete", language: language))
+            .accessibilityLabel(L10n.t("constants.delete", language: language))
+        }
+    }
+
+    /// The per-row status: a green check plus the RESOLVED preview for
+    /// valid rows (scalar display honors the Settings decimal
+    /// preference; money through the shared `formatMoney`), a red
+    /// warning plus the localized reason otherwise. The source
+    /// expression itself is never rewritten.
+    @ViewBuilder
+    private func statusView(_ resolved: ConstantResolver.ResolvedRow) -> some View {
+        HStack(spacing: 5) {
+            switch resolved.status {
+            case .valid(let qty):
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                Text(preview(qty))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            case .empty:
+                EmptyView()
+            case .incomplete, .invalidName, .duplicate, .reserved,
+                 .invalidExpression, .invalidDependency, .cycle, .exceedsLimit:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                Text(statusText(resolved.status))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+        }
+        .frame(minWidth: 0)
+    }
+
+    private func statusText(_ s: ConstantResolver.RowStatus) -> String {
+        switch s {
+        case .empty, .valid: return ""
+        case .incomplete: return L10n.t("constants.incomplete", language: language)
+        case .invalidName: return L10n.t("constants.invalidName", language: language)
+        case .duplicate: return L10n.t("constants.duplicate", language: language)
+        case .reserved: return L10n.t("constants.reserved", language: language)
+        case .invalidExpression: return L10n.t("constants.invalidExpression", language: language)
+        case .invalidDependency: return L10n.t("constants.invalidDependency", language: language)
+        case .cycle: return L10n.t("constants.cycle", language: language)
+        case .exceedsLimit: return L10n.t("constants.exceedsLimit", language: language)
+        }
+    }
+
+    /// The resolved preview: scalars respect the Settings decimal
+    /// preference for DISPLAY only; money uses the shared presentation.
+    private func preview(_ qty: TypedQty) -> String {
+        switch qty {
+        case .scalar(let v):
+            return formatDisplayValue(v, decimalPlaces: model.settings.decimalPlaces)
+        case .money(let v, let code):
+            return formatMoney(v, code: code)
+        }
     }
 }
 

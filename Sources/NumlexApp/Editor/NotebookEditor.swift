@@ -25,6 +25,10 @@ struct NotebookEditor: NSViewRepresentable {
     /// through `NotebookPalette` — the same resolver the settings
     /// preview uses.
     var styling: StylingPreferences
+    /// r33: the GLOBAL user constants, seeded into the syntax
+    /// classifier so constant names paint green exactly like declared
+    /// names (and constant-driven lines evaluate the same way).
+    var constants: [UserConstant]
     var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// Editor scroll offset, top-down points in editor-content coordinates
     /// (0 = top of the document).
@@ -95,6 +99,7 @@ struct NotebookEditor: NSViewRepresentable {
             decimalPlaces: decimalPlaces,
             inputPrefs: inputPrefs,
             styling: styling,
+            constants: constants,
             onPreviousAnswerTrigger: onPreviousAnswerTrigger,
             onScroll: onScroll,
             onLayout: onLayout,
@@ -166,6 +171,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// r21: notebook styling; the palette is derived from it on every
     /// use (cheap struct), so a setting change re-renders immediately.
     private var styling: StylingPreferences = .defaults
+    /// r33: global constants for the highlight pipeline (cheap struct
+    /// copy; a settings edit changes this and re-highlights in place).
+    private var constants: [UserConstant] = []
     private var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// The exact UTF-16 map of the format pass applied by the LAST
     /// `applyAutoFormat` call (attached to the edit that follows it).
@@ -400,6 +408,7 @@ final class NotebookEditorCoordinator: NSObject {
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
                 inputPrefs: InputPreferences,
                 styling: StylingPreferences,
+                constants: [UserConstant],
                 onPreviousAnswerTrigger: ((Character, Int) -> Bool)?,
                 onScroll: @escaping (CGFloat) -> Void,
                 onLayout: @escaping (LineMetrics) -> Void,
@@ -447,6 +456,11 @@ final class NotebookEditorCoordinator: NSObject {
         if rates != self.rates { self.rates = rates; appearanceChanged = true }
         if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; appearanceChanged = true }
         if styling != self.styling { self.styling = styling; appearanceChanged = true }
+        // r33: a settings edit changes the constants under an UNCHANGED
+        // document: the re-highlight must run here (nothing else re-runs
+        // the pipeline), without touching content, selection or caret.
+        let constantsChanged = constants != self.constants
+        if constantsChanged { self.constants = constants }
         if appearanceChanged {
             textView.lineNumbers = lineNumbers
             applyTypography()
@@ -486,6 +500,11 @@ final class NotebookEditorCoordinator: NSObject {
             // not re-entered, so this can only run once per commit.
             highlight()
             refreshLayoutAndMetrics()
+        } else if constantsChanged {
+            // Content identical, constants changed: re-classify every
+            // line in place (constant names turn green, constant-driven
+            // lines re-evaluate) — string, selection and caret stay.
+            highlight()
         }
     }
 
@@ -567,7 +586,9 @@ final class NotebookEditorCoordinator: NSObject {
         // shape (indexed SheetLine), but styling is driven purely from
         // the classifier's spans plus the line-kind prefixes the
         // evaluator uses (hash heading, title).
-        let spans = SyntaxClassifier.spans(for: text, rates: rates, decimalPlaces: decimalPlaces)
+        let spans = SyntaxClassifier.spans(for: text, rates: rates,
+                                           decimalPlaces: decimalPlaces,
+                                           constants: constants)
 
         let font = palette.editorFont(size: fontSize)
         let base: [NSAttributedString.Key: Any] = [

@@ -83,6 +83,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// r21: notebook styling (font design + role colors). The fontSizeKey
     /// above stays the single size source; this section owns its UI.
     public var styling: StylingPreferences
+    /// r33: GLOBAL user-defined constants, available live in every
+    /// sheet (never embedded in `.nlx` exports). Source expressions
+    /// only — no computed snapshots.
+    public var customConstants: [UserConstant]
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -93,7 +97,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = []) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -102,6 +106,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.fontColor = fontColor
         self.input = input
         self.styling = styling
+        self.customConstants = customConstants
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -118,6 +123,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor = try c.decode(String.self, forKey: .fontColor)
         input = try c.decodeIfPresent(InputPreferences.self, forKey: .input) ?? .defaults
         styling = (try? c.decodeIfPresent(StylingPreferences.self, forKey: .styling)) ?? .defaults
+        // r33: additive — pre-r33 stores carry no `customConstants` key
+        // at all and fall back to the empty list (StorePayload.version
+        // is NOT bumped).
+        customConstants = (try? c.decodeIfPresent([UserConstant].self, forKey: .customConstants)) ?? []
     }
 
     public var fontSize: Double {

@@ -88,8 +88,10 @@ final class AppModel {
         sheet.lineIDs = reconciled.lineIDs
         sheet.references = reconciled.references
         sheet.modifiedAt = Date()
-        // Title follows the first calculation until the user renames it.
-        sheets[selectedIndex] = Sheet.retitled(sheet, content: content)
+        // Title follows the first calculation until the user renames it
+        // (r33: a first calculation may USE a global constant).
+        sheets[selectedIndex] = Sheet.retitled(sheet, content: content,
+                                               constants: settings.customConstants)
         persist()
     }
 
@@ -136,7 +138,8 @@ final class AppModel {
         sheet.lineIDs = lineIDs
         sheet.references = Sheet.sanitizeReferences(refs, in: newContent)
         sheet.modifiedAt = Date()
-        sheets[selectedIndex] = Sheet.retitled(sheet, content: newContent)
+        sheets[selectedIndex] = Sheet.retitled(sheet, content: newContent,
+                                               constants: settings.customConstants)
         persist()
         focusSheetID = sheet.id
         focusCaret = location + 1
@@ -154,10 +157,13 @@ final class AppModel {
         // The sheet's CURRENT sidecar must take part in eligibility:
         // an active token chain (`token + 1`) is answerable, a broken
         // token line never is.
+        // r33: eligibility evaluates with the global constants, so a
+        // constant-driven line is a valid previous answer.
         guard let plan = PreviousAnswerPlan.plan(
             content: sheet.content, lineIDs: sheet.lineIDs, caret: caret,
             op: key, rates: rates, decimalPlaces: settings.decimalPlaces,
-            references: sheet.references
+            references: sheet.references,
+            constants: settings.customConstants
         ) else { return false }
         // Honor the operator settings in the inserted text, and apply
         // the pure insertion: marker + separator + operator lands at
@@ -174,7 +180,8 @@ final class AppModel {
         s.lineIDs = applied.lineIDs
         s.references = applied.references
         s.modifiedAt = Date()
-        sheets[selectedIndex] = Sheet.retitled(s, content: s.content)
+        sheets[selectedIndex] = Sheet.retitled(s, content: s.content,
+                                               constants: settings.customConstants)
         persist()
         focusSheetID = s.id
         focusCaret = applied.caret
@@ -214,9 +221,12 @@ final class AppModel {
         guard let idx = sheets.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            // Empty rename falls back to the automatic title.
+            // Empty rename falls back to the automatic title (r33: with
+            // the global constants in scope).
             sheets[idx].isTitleCustom = false
-            sheets[idx].title = Sheet.autoTitle(from: sheets[idx].content, fallback: sheets[idx].titleSeed)
+            sheets[idx].title = Sheet.autoTitle(
+                from: sheets[idx].content, fallback: sheets[idx].titleSeed,
+                constants: settings.customConstants)
         } else {
             sheets[idx].title = trimmed
             sheets[idx].isTitleCustom = true
@@ -252,6 +262,56 @@ final class AppModel {
     func select(index: Int) {
         guard sheets.indices.contains(index) else { return }
         selectedIndex = index
+        persist()
+    }
+
+    // MARK: Global constants (r33)
+
+    /// Appends a fresh default row (`constant`, `constant 2`, … with
+    /// expression `0`) when under the 100-row limit; returns the new
+    /// row's ID so the view can focus its name field.
+    @discardableResult
+    func addConstant(after rowID: UUID? = nil) -> UUID? {
+        guard settings.customConstants.count < ConstantResolver.maxRows else {
+            return nil
+        }
+        let taken = Set(settings.customConstants.map { canonicalNameKey($0.name) })
+        var n = 2
+        var name = "constant"
+        while taken.contains(canonicalNameKey(name)) {
+            name = "constant \(n)"
+            n += 1
+        }
+        let row = UserConstant(name: name, expression: "0")
+        if let rowID, let i = settings.customConstants.firstIndex(where: { $0.id == rowID }) {
+            settings.customConstants.insert(row, at: i + 1)
+        } else {
+            settings.customConstants.append(row)
+        }
+        persist()
+        return row.id
+    }
+
+    /// Live edit of one row by STABLE ID (never a fragile index): the
+    /// name/expression are capped by the resolver's grammar limits and
+    /// the change persists immediately — every sheet re-evaluates from
+    /// the observable settings mutation.
+    func updateConstant(id: UUID, name: String, expression: String) {
+        guard let i = settings.customConstants.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        settings.customConstants[i].name =
+            String(name.prefix(ConstantResolver.maxNameLength))
+        settings.customConstants[i].expression =
+            String(expression.prefix(ConstantResolver.maxExpressionLength))
+        persist()
+    }
+
+    /// Immediate delete by stable ID; dependent sheets re-evaluate on
+    /// the same tick (the name becomes unreserved at once).
+    func deleteConstant(id: UUID) {
+        guard settings.customConstants.contains(where: { $0.id == id }) else { return }
+        settings.customConstants.removeAll { $0.id == id }
         persist()
     }
 

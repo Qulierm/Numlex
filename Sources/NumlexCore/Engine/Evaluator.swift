@@ -50,12 +50,28 @@ private func tryEvaluateCleaned(_ line: String, variables: [String: Double]) -> 
     } catch { return nil }
 }
 
+/// The assignment LHS name of a line: a natural multiword LHS when
+/// that grammar accepts it, otherwise the legacy single identifier.
+func assignmentLHSName(_ line: String) -> String? {
+    guard let eq = line.firstIndex(of: "=") else { return nil }
+    let lhs = String(line[..<eq])
+    if let natural = NaturalCalculation.naturalLHS(lhs) {
+        return natural
+    }
+    let trimmed = lhs.trimmingCharacters(in: .whitespaces)
+    return isValidIdentifier(trimmed) ? trimmed : nil
+}
+
 private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: Int) -> LineResult? {
     guard let idx = line.firstIndex(of: "=") else { return nil }
     let left = String(line[..<idx]).trimmingCharacters(in: .whitespaces)
     let rightRaw = String(line[line.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
     let right = normalizeExprCorrect(rightRaw)
     if !isValidIdentifier(left) { return .error(message: "Invalid assignment") }
+    // r33: global constants are IMMUTABLE in a sheet.
+    if env.isConstant(display: left) {
+        return .error(message: "Cannot assign to constant")
+    }
     if right.isEmpty { return .error(message: "Missing expression") }
     do {
         let raw = try evaluateExpression(right, variables: env.scalarDict())
@@ -97,14 +113,15 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
 
 // MARK: - Typed named-value expressions
 
-/// Evaluates an expression that may reference DECLARED named values:
-/// every compound (multiword) name occurrence is substituted with a
-/// tokenizer placeholder, the residual text must contain nothing but
-/// numbers, operators, parentheses, `of` and placeholders (NO word
-/// stripping, NO fallback), and the shared expression engine evaluates
-/// the result. Returns the value plus the set of money codes the
+/// The SHARED strict core for named expressions (r33): every compound
+/// (multiword) name occurrence is substituted with a tokenizer
+/// placeholder, the residual text must contain nothing but numbers,
+/// operators, parentheses, `of` and placeholders (NO word stripping, NO
+/// fallback), and the shared expression engine evaluates the result.
+/// Returns the FULL-precision value plus the set of money codes the
 /// referenced names carry (more than one ⇒ hidden error upstream).
-func evaluateNamedExpr(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
+/// No rounding happens here — display rounding is the caller's choice.
+func namedExprCore(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
     let matches = NamedValues.matches(in: line, env: env)
     var expr = line
     var vars: [String: Double] = [:]
@@ -148,10 +165,17 @@ func evaluateNamedExpr(_ line: String, env: TypedEnv) -> (value: Double, codes: 
         }
         let raw = try evaluateExpression(normalized, variables: vars)
         guard raw.isFinite else { return nil }
-        return (value: roundResult(raw, decimalPlaces: 10), codes: codes)
+        return (raw, codes)
     } catch {
         return nil
     }
+}
+
+/// Evaluates an expression that may reference DECLARED named values,
+/// with the line-pipeline's display rounding (10 decimals) applied.
+func evaluateNamedExpr(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
+    guard let r = namedExprCore(line, env: env) else { return nil }
+    return (roundResult(r.value, decimalPlaces: 10), r.codes)
 }
 
 /// `<name> to|in <unit>` conversion shape: the line starts with ONE
@@ -238,6 +262,14 @@ func evalLineTyped(_ line: String,
                    decimalPlaces: Int,
                    now: Date,
                    calendar: Calendar) -> LineResult? {
+    // r33: assignment to an ACTIVE global constant is a visible error on
+    // EVERY route (single identifier, multiword natural, money RHS) —
+    // no fallback, no partial mutation. Constants never shadow or get
+    // shadowed: an invalid/inactive constant row reserves no name.
+    if line.contains("="), let lhs = assignmentLHSName(line),
+       env.isConstant(display: lhs) {
+        return .error(message: "Cannot assign to constant")
+    }
     if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces) {
         return conv
     }
@@ -283,20 +315,25 @@ func evalLineTyped(_ line: String,
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = []) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
-             now: Date(), calendar: Calendar.current)
+             now: Date(), calendar: Calendar.current, constants: constants)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
 /// from the caller's variables, runs the shared typed pipeline, and
 /// writes back the scalar entries (money names never leak into the
 /// untyped dictionary).
+/// Legacy single-line evaluation with GLOBAL constants (r33): the
+/// constants are seeded AFTER the caller's variables so an immutable
+/// constant always wins over a stale seed entry.
 public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates,
-                     decimalPlaces: Int, now: Date, calendar: Calendar) -> LineResult? {
+                     decimalPlaces: Int, now: Date, calendar: Calendar,
+                     constants: [UserConstant] = []) -> LineResult? {
     var env = TypedEnv(seed: variables)
+    env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
                                now: now, calendar: calendar)
@@ -317,9 +354,9 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = []) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
-                  now: Date(), calendar: Calendar.current)
+                  now: Date(), calendar: Calendar.current, constants: constants)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -327,8 +364,12 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
 /// years and named values (unitless and money) are consistent across
 /// the whole sheet.
 public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates,
-                          decimalPlaces: Int, now: Date, calendar: Calendar) -> [SheetLine] {
+                          decimalPlaces: Int, now: Date, calendar: Calendar,
+                          constants: [UserConstant] = []) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
+    // r33: global constants are available BEFORE logical line 1; local
+    // values still accumulate strictly top-down.
+    env.seedConstants(constants)
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {

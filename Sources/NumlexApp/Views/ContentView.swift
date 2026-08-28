@@ -54,7 +54,8 @@ struct ContentView: View {
                         lineIDs: sheet?.lineIDs ?? [],
                         references: sheet?.references ?? [],
                         rates: model.rates,
-                        decimalPlaces: settings.decimalPlaces
+                        decimalPlaces: settings.decimalPlaces,
+                        constants: settings.customConstants
                     )
                     NotebookEditor(
                         text: binding,
@@ -65,6 +66,7 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         inputPrefs: settings.input,
                         styling: settings.styling,
+                        constants: settings.customConstants,
                         onPreviousAnswerTrigger: { key, caret in
                             model.insertPreviousAnswer(key: key, at: caret)
                         },
@@ -103,7 +105,8 @@ struct ContentView: View {
                         lineIDs: sheet?.lineIDs ?? [],
                         references: sheet?.references ?? [],
                         rates: model.rates,
-                        decimalPlaces: settings.decimalPlaces
+                        decimalPlaces: settings.decimalPlaces,
+                        constants: settings.customConstants
                     ).lines
                 }()
                 AnswerColumnView(
