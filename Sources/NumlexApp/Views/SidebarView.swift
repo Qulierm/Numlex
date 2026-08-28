@@ -83,15 +83,17 @@ struct SidebarView: View {
                 VStack(spacing: 5) {
                     ForEach(Array(model.sheets.enumerated()), id: \.element.id) { idx, sheet in
                         sheetRow(idx: idx, sheet: sheet)
-                            // Asymmetric: insertion is a calm opacity-only
-                            // fade in place (no offset — the parent layout
-                            // animation already moves the list), removal is
-                            // a short opacity fade plus a slight leading
-                            // nudge. reduceMotion gets identity (no
-                            // transition at all).
+                            // Asymmetric: insertion is the standard top
+                            // entry — the new row slides down from under
+                            // the divider while fading in (no x motion,
+                            // no scale), so creation is clearly visible
+                            // against the list reflow; removal is a short
+                            // opacity fade plus a slight leading nudge.
+                            // reduceMotion gets identity (no transition at
+                            // all).
                             .transition(reduceMotion
                                         ? .identity
-                                        : .asymmetric(insertion: .opacity,
+                                        : .asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
                                                       removal: .opacity.combined(with: .offset(x: -12))))
                     }
                 }
@@ -100,8 +102,10 @@ struct SidebarView: View {
                 // changes, and the transaction is scoped here, so the
                 // editor and answer column (which also observe the model)
                 // never pick up an animated transaction on add/delete.
-                // reduceMotion gets no decorative animation at all.
-                .animation(reduceMotion ? nil : .snappy(duration: 0.22),
+                // 0.34 s keeps the top-entry visibly progressive at 60fps
+                // without extra bounce. reduceMotion gets no decorative
+                // animation at all.
+                .animation(reduceMotion ? nil : .snappy(duration: 0.34),
                            value: model.sheets.map(\.id))
                 .padding(.vertical, 2)
             }
@@ -233,33 +237,34 @@ struct SidebarView: View {
 }
 
 /// Selection glass: the regular interactive liquid glass pill appears
-/// ONLY on the selected row (applied conditionally, so the unselected
-/// rows render no material at all — both `Glass.clear` and `.identity`
-/// draw a visible frosted panel on macOS 26, which would light up every
-/// row like a button instead of staying calm like the system sidebar).
+/// ONLY on the selected row, as a dedicated BACKGROUND layer — the
+/// unselected rows render no material at all (both `Glass.clear` and
+/// `.identity` draw a visible frosted panel on macOS 26, which would
+/// light up every row like a button instead of staying calm like the
+/// system sidebar), and the row content itself stays structurally
+/// stable in both states.
 ///
-/// The selected/unselected branch is wrapped in a LOCAL no-animation
-/// transaction: the branch is a structural change, and without this it
-/// would inherit the list's sheet-ID transaction, fading the glass out
-/// of the old row and into the new one over the reflow duration (the
-/// highlight appeared to travel between rows). With `animation = nil`
-/// here, the glass switches instantly at the correct row while the row
-/// frame itself is still repositioned by the parent layout animation,
-/// which is applied by the list outside this modifier — so the row
-/// transitions and reflow set by the caller are untouched.
+/// The LOCAL no-animation transaction is attached to the glass layer
+/// ONLY, never to `content`: the glass appearing/disappearing is a
+/// structural change that would otherwise inherit the list's sheet-ID
+/// transaction and crossfade over the reflow duration (the highlight
+/// appeared to travel between rows). With `animation = nil` on the
+/// layer, the glass material switches instantly at the correct row,
+/// while the row frame — and, for a freshly inserted selected row, the
+/// whole composited row including this background — still moves and
+/// fades with the caller's insertion transition and layout animation.
+/// The layer is pure background: it never intercepts row hit-testing.
 private struct RowGlassModifier: ViewModifier {
     var isSelected: Bool
-    @ViewBuilder
     func body(content: Content) -> some View {
-        Group {
+        content.background {
             if isSelected {
-                content.glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
-                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-            } else {
-                content
+                Color.clear
+                    .glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
+                                 in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .transaction { $0.animation = nil }
             }
         }
-        .transaction { $0.animation = nil }
     }
 }
 
