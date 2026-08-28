@@ -128,7 +128,8 @@ public let conversionCases: [EngineCase] = [
 
     EngineCase("conversion-unknown-units-error") {
         try expectConversion("5 parsecs to m", 5 * 3.0856775814913673e16, "m", tolerance: 1e14)
-        try expectConversionError("5 furlongs to m")
+        try expectConversion("5 furlongs to m", 5 * 201.168, "m", tolerance: 1e-9)
+        try expectConversionError("5 flings to m")
         // A currency word in the measurement slot is an unknown unit.
         try expectConversionError("5 usd to m")
     },

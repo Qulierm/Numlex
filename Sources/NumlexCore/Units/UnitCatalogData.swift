@@ -28,6 +28,10 @@ private extension DimensionVector {
     static let ML2T2A1 = DimensionVector(l: 2, m: 1, t: -2, a: -1)
     static let MT2A1 = DimensionVector(m: 1, t: -2, a: -1)
     static let IPerL2 = DimensionVector(l: -2, i: 1)
+    /// Dynamic viscosity M/(L·T) — Pa·s base (no existing owner).
+    static let MPerLT1 = DimensionVector(l: -1, m: 1, t: -1)
+    /// Kinematic viscosity L²/T — m²/s base (no existing owner).
+    static let L2T1 = DimensionVector(l: 2, t: -1)
 }
 
 extension UnitCatalog {
@@ -68,6 +72,23 @@ extension UnitCatalog {
             ["ly", "light year", "light-year"], [])
         lin("parsec", .L, 3.0856775814913673e16, "pc",
             ["pc", "parsec", "parsecs"], [])
+        lin("angstrom", .L, 1e-10, "Å",
+            ["Å", "angstrom", "angstroms"], [])
+        lin("micron", .L, 1e-6, "µm",
+            ["µm", "micron", "microns"], [])
+        lin("hand", .L, 0.1016, "hand", ["hand", "hands"], [])
+        // US survey foot: the legal foot 1200/3937 m (NOT 0.3048).
+        lin("us-survey-foot", .L, 1200.0 / 3937.0, "US ft",
+            ["US ft", "us survey foot", "survey foot"], [])
+        lin("fathom", .L, 1.8288, "fathom", ["fathom", "fathoms"], [])
+        lin("rod", .L, 5.0292, "rod", ["rod", "rods", "pole", "poles"], [])
+        lin("chain", .L, 20.1168, "chain", ["chain", "chains"], [])
+        lin("furlong", .L, 201.168, "furlong", ["furlong", "furlongs", "fur"], [])
+        // Typographic point — the label is qualified so it never
+        // collides with the US pint `pt`.
+        lin("type-point", .L, 0.0254 / 72.0, "pt (type)",
+            ["pt (type)", "typographic point", "type point"], [])
+        lin("pica", .L, 0.0254 / 6.0, "pica", ["pica", "picas", "type pica"], [])
 
         // MARK: Area (base m²)
         lin("sq-meter", .L2, 1, "m²",
@@ -83,6 +104,11 @@ extension UnitCatalog {
             ["yd²", "yd2", "square yard"], [])
         lin("sq-mile", .L2, 2_589_988.110336, "mi²",
             ["mi²", "mi2", "square mile"], [])
+        lin("are", .L2, 100, "are", ["are"], [])
+        lin("rood", .L2, 1011.7141056, "rood", ["rood", "roods"], [])
+        lin("barn", .L2, 1e-28, "barn", ["barn", "barns"], [])
+        lin("section", .L2, 2_589_988.110336, "section",
+            ["section", "sections"], [])
 
         // MARK: Volume (base m³)
         lin("liter", .L3, 0.001, "L",
@@ -123,6 +149,22 @@ extension UnitCatalog {
             ["uk qt", "imperial quart", "uk quart"], [])
         lin("uk-gallon", .L3, 0.00454609, "uk gal",
             ["uk gal", "uk_gal", "imperial gallon", "imperial gallons", "uk gallon"], [])
+        lin("metric-cup", .L3, 0.00025, "metric cup",
+            ["metric cup", "metric cups"], [])
+        lin("metric-tablespoon", .L3, 15e-6, "metric tbsp",
+            ["metric tablespoon", "metric tablespoons"], [])
+        lin("imperial-tablespoon", .L3, 17.7581640625e-6, "imp tbsp",
+            ["imperial tablespoon", "imperial tablespoons", "uk tablespoon"], [])
+        lin("dessertspoon", .L3, 10e-6, "dessertspoon",
+            ["dessertspoon", "dessertspoons", "dsp"], [])
+        lin("us-fluid-dram", .L3, 3.6966911953125e-6, "US fl dr",
+            ["us fluid dram", "fluid dram"], [])
+        lin("us-oil-barrel", .L3, 0.158987294928, "bbl",
+            ["bbl", "barrel", "barrels", "us oil barrel", "oil barrel", "petroleum barrel"], [])
+        lin("us-bushel", .L3, 0.03523907016688, "bushel",
+            ["bushel", "bushels", "us bushel"], [])
+        lin("us-peck", .L3, 0.00880976754172, "peck",
+            ["peck", "pecks", "us peck"], [])
 
         // MARK: Mass (base kg)
         lin("gram", .M, 0.001, "g",
@@ -143,6 +185,21 @@ extension UnitCatalog {
             ["short ton", "us ton", "short tons", "shortton"], [])
         lin("long-ton", .M, 1016.0469088, "long ton",
             ["long ton", "uk ton", "long tons", "longton", "british ton"], [])
+        // Bare `oz`/`pound` stay avoirdupois; troy is qualified only.
+        lin("dalton", .M, 1.66053906660e-27, "Da",
+            ["Da", "dalton", "daltons", "amu", "atomic mass unit",
+             "unified atomic mass unit"], [])
+        lin("slug", .M, 14.59390293720636, "slug", ["slug", "slugs"], [])
+        lin("quintal", .M, 100, "quintal", ["quintal", "quintals"], [])
+        lin("us-hundredweight", .M, 45.359237, "cwt (US)",
+            ["us hundredweight", "us cwt", "short hundredweight"], [])
+        lin("uk-hundredweight", .M, 50.80234544, "cwt (UK)",
+            ["uk hundredweight", "uk cwt", "long hundredweight",
+             "imperial hundredweight"], [])
+        lin("troy-ounce", .M, 0.0311034768, "oz t",
+            ["oz t", "ozt", "troy ounce", "troy ounces"], [])
+        lin("pennyweight", .M, 0.00155517384, "dwt",
+            ["dwt", "pennyweight", "pennyweights"], [])
 
         // MARK: Temperature (affine; base kelvin)
         special("celsius", .temperature(.celsius), "C°",
@@ -168,6 +225,19 @@ extension UnitCatalog {
             ["fortnight", "fortnights", "fn"], [])
         lin("julian-year", .T, 31_557_600, "jyear",
             ["jyear", "julian year", "jy"], [])
+        // Calendar AVERAGES (documented): the Gregorian average year is
+        // 365.2425 days, the average Gregorian month a quarter of it.
+        // The Julian year stays a distinct unit.
+        lin("gregorian-year", .T, 31_556_952, "yr",
+            ["yr", "year", "years", "gregorian year", "average year",
+             "average gregorian year"], [])
+        lin("average-month", .T, 2_629_746, "mo",
+            ["mo", "month", "months", "average month",
+             "average gregorian month"], [])
+        lin("common-year", .T, 31_536_000, "common year",
+            ["common year", "common year (365 days)"], [])
+        lin("average-quarter", .T, 7_889_238, "quarter (time)",
+            ["quarter (time)", "average quarter"], [])
 
         // MARK: Speed (base m/s)
         lin("m-per-s", .LT, 1, "m/s",
@@ -179,6 +249,12 @@ extension UnitCatalog {
         lin("ft-per-s", .LT, 0.3048, "ft/s",
             ["ft/s", "feet per second"], [])
         lin("knot", .LT, 1852.0 / 3600, "kn", ["kn", "knot", "knots"], [])
+        // Exact SI: 299 792 458 m/s.
+        lin("speed-of-light", .LT, 299_792_458, "c₀",
+            ["c₀", "c0", "speed of light"], [])
+        // Standard Mach: 340.29 m/s (sea level, 15 °C ISA assumption).
+        lin("mach", .LT, 340.29, "Mach",
+            ["Mach", "standard mach", "mach number"], [])
 
         // MARK: Acceleration (base m/s²)
         lin("m-per-s2", .L2T2, 1, "m/s²",
@@ -220,6 +296,17 @@ extension UnitCatalog {
             ["ksi", "kip per square inch"], [])
         lin("inhg", .MPerLT2, 3386.389, "inHg",
             ["inHg", "in hg", "inches of mercury"], [])
+        // Technical atmosphere (at): 1 kgf/cm² exactly 98 066.5 Pa.
+        lin("techn-atm", .MPerLT2, 98_066.5, "at",
+            ["at", "technical atmosphere", "techn atm"], [])
+        lin("kgf-per-cm2", .MPerLT2, 98_066.5, "kgf/cm²",
+            ["kgf/cm²", "kgf/cm2", "kilogram force per square centimeter"], [])
+        lin("mm-h2o", .MPerLT2, 9.80665, "mmH2O",
+            ["mmH2O", "mm h2o", "millimeter of water"], [])
+        lin("cm-h2o", .MPerLT2, 98.0665, "cmH2O",
+            ["cmH2O", "cm h2o", "centimeter of water"], [])
+        lin("psf", .MPerLT2, 47.88025898033584, "psf",
+            ["psf", "pound per square foot"], [])
 
         // MARK: Force (base N)
         lin("newton", .MLT2, 1, "N",
@@ -230,6 +317,15 @@ extension UnitCatalog {
             ["lbf", "pound force", "pound-force", "lb force"], [])
         lin("kgf", .MLT2, 9.80665, "kgf",
             ["kgf", "kilogram force", "kilogram-force", "kp"], [])
+        lin("ounce-force", .MLT2, 0.27801385095378125, "ozf",
+            ["ozf", "ounce force", "ounce-force"], [])
+        lin("kip", .MLT2, 4448.2216152605, "kip", ["kip", "kips", "kilopound"], [])
+        lin("poundal", .MLT2, 0.138254954376, "poundal",
+            ["poundal", "poundals", "pdl"], [])
+        lin("us-ton-force", .MLT2, 8896.443230521, "tonf (US)",
+            ["us ton force", "us ton-force", "short ton force"], [])
+        lin("tonne-force", .MLT2, 9806.65, "tonf (t)",
+            ["tonne force", "tonne-force", "tf", "metric ton force"], [])
 
         // MARK: Torque (base N·m; family torque — never joules)
         lin("newton-meter", .ML2T2, 1, "N·m",
@@ -240,6 +336,14 @@ extension UnitCatalog {
             ["lbf·in", "lbf in", "lb-in"], [], family: .torque)
         lin("kgf-meter", .ML2T2, 9.80665, "kgf·m",
             ["kgf·m", "kgf m", "kgf*m"], [], family: .torque)
+        lin("newton-centimeter", .ML2T2, 0.01, "N·cm",
+            ["N·cm", "N cm", "N*cm", "newton centimeter"], [], family: .torque)
+        lin("newton-millimeter", .ML2T2, 0.001, "N·mm",
+            ["N·mm", "N mm", "N*mm", "newton millimeter"], [], family: .torque)
+        // ozf·in = ounce-force × inch, exact product of the declared
+        // factors (kept in step with `ounce-force` and `inch`).
+        lin("ozf-inch", .ML2T2, 0.27801385095378125 * 0.0254, "ozf·in",
+            ["ozf·in", "ozf in", "oz-in", "ounce force inch"], [], family: .torque)
 
         // MARK: Energy (base J; family energy — never N·m)
         lin("joule", .ML2T2, 1, "J",
@@ -266,6 +370,18 @@ extension UnitCatalog {
         lin("electronvolt", .ML2T2, 1.602176634e-19, "eV",
             ["eV", "electronvolt", "electron volt"],
             ["M", "G", "T"], family: .energy)
+        lin("erg", .ML2T2, 1e-7, "erg", ["erg", "ergs"], [], family: .energy)
+        lin("ton-tnt", .ML2T2, 4.184e9, "t TNT",
+            ["t TNT", "ton TNT", "tonne TNT", "ton of TNT"], [], family: .energy)
+        lin("quad", .ML2T2, 1.05505585262e18, "quad",
+            ["quad", "quads", "quadrillion BTU"], [], family: .energy)
+        // Mechanical horsepower-hour = 745.6998715822702 W × 3600 s.
+        lin("horsepower-hour", .ML2T2, 745.6998715822702 * 3600.0, "hph",
+            ["hph", "horsepower hour", "mechanical horsepower hour"],
+            [], family: .energy)
+        lin("tonne-oil-equivalent", .ML2T2, 41.868e9, "toe",
+            ["toe", "tonne of oil equivalent", "ton oil equivalent"],
+            [], family: .energy)
 
         // MARK: Power (base W)
         lin("watt", .ML2T3, 1, "W",
@@ -277,6 +393,12 @@ extension UnitCatalog {
             ["metric hp", "metric horsepower", "cv", "ps", "pferd"], [])
         lin("btu-per-h", .ML2T3, 0.29307107017, "BTU/h",
             ["BTU/h", "btu/h", "btuh", "btu per hour"], [])
+        lin("electric-horsepower", .ML2T3, 746, "hp (electric)",
+            ["electric horsepower", "electric hp", "US horsepower"], [])
+        lin("boiler-horsepower", .ML2T3, 9809.5, "hp (boiler)",
+            ["boiler horsepower", "boiler hp"], [])
+        lin("ton-refrigeration", .ML2T3, 3516.8528420667, "TR",
+            ["TR", "ton refrigeration", "ton of refrigeration"], [])
 
         // MARK: Frequency (base Hz; plain 1/T — not activity)
         lin("hertz", .T1, 1, "Hz", ["Hz", "hertz"],
@@ -337,6 +459,14 @@ extension UnitCatalog {
             ["gpm", "us gpm", "us gallons per minute"], [])
         lin("cfs", .L3T1, 0.028316846592, "cfs",
             ["cfs", "cubic feet per second"], [])
+        lin("uk-gpm", .L3T1, 0.00454609 / 60.0, "UK gpm",
+            ["uk gpm", "imperial gpm", "imperial gallons per minute"], [])
+        lin("cfm", .L3T1, 0.028316846592 / 60.0, "cfm",
+            ["cfm", "cubic feet per minute", "ft³/min"], [])
+        lin("us-mgd", .L3T1, 0.003785411784 * 1e6 / 86400.0, "US mgd",
+            ["us mgd", "million gallons per day"], [])
+        lin("bbl-per-d", .L3T1, 0.158987294928 / 86400.0, "bbl/d",
+            ["bbl/d", "barrels per day", "oil barrel per day"], [])
 
         // MARK: Fuel economy (pseudo-dimension L/m base)
         // reciprocal=false: consumption form (value × factor = L/m).
@@ -354,10 +484,44 @@ extension UnitCatalog {
         special("mpg-us", .fuel(factor: 425.143707430272, reciprocal: true),
                 "US mpg",
                 ["mpg", "us mpg", "mpg (us)", "us_mpg", "mpg_us", "usmpg"], .fuel)
+        // Fuel crossing convention: economy factors = meters per liter
+        // (km/L = 1000, US mpg = 425.1437…), consumption factors =
+        // liters per meter (L/km = 0.001, L/100km = 1e-5).
+        // UK mpg = 1609.344/4.54609 m/L.
         special("mpg-uk", .fuel(factor: 354.0061899346471, reciprocal: true),
                 "UK mpg",
                 ["uk mpg", "mpg (uk)", "uk_mpg", "mpg_uk", "ukmpg",
                  "imperial mpg", "miles per imperial gallon"], .fuel)
+        // miles/L economy (1 mile = 1609.344 m per liter).
+        special("miles-per-liter", .fuel(factor: 1609.344, reciprocal: true),
+                "mi/L", ["mi/l", "miles per liter", "miles per litre"], .fuel)
+        // Consumption forms (L/m). Crossings are exact by construction:
+        // 1 US mpg = exactly 100 US gal/100mi, and the UK analogue
+        // (100 miles = 160 934.4 m is the shared base).
+        special("us-gal100mi", .fuel(
+            factor: 3.785411784 / (100.0 * 1609.344), reciprocal: false),
+            "US gal/100mi",
+            ["us gal/100mi", "us gallons per 100 miles"], .fuel)
+        special("uk-gal100mi", .fuel(
+            factor: 4.54609 / (100.0 * 1609.344), reciprocal: false),
+            "UK gal/100mi",
+            ["uk gal/100mi", "uk gallons per 100 miles"], .fuel)
+
+        // MARK: Viscosity (vectors are collision-free; no family needed)
+        // Dynamic viscosity M/(L·T), base Pa·s.
+        lin("pascal-second", .MPerLT1, 1, "Pa·s",
+            ["Pa·s", "Pa s", "Pa*s", "pascal second"], [])
+        lin("poise", .MPerLT1, 0.1, "P", ["P", "poise", "poises"], [])
+        lin("centipoise", .MPerLT1, 0.001, "cP",
+            ["cP", "centipoise", "centipoises"], [])
+        lin("reyn", .MPerLT1, 6894.757293168, "reyn", ["reyn", "reyns"], [])
+        // Kinematic viscosity L²/T, base m²/s.
+        lin("m2-per-s", .L2T1, 1, "m²/s",
+            ["m²/s", "m2/s", "square meters per second"], [])
+        lin("stokes", .L2T1, 1e-4, "St", ["St", "stokes", "stoke"], [])
+        lin("centistokes", .L2T1, 1e-6, "cSt", ["cSt", "centistokes"], [])
+        lin("ft2-per-s", .L2T1, 0.09290304, "ft²/s",
+            ["ft²/s", "ft2/s", "square feet per second"], [])
 
         // MARK: Electric current (base A)
         lin("ampere", .A, 1, "A",
@@ -439,11 +603,14 @@ extension UnitCatalog {
         lin("rem", .ML2T2, 0.001, "rem",
             ["rem", "rems"], [], family: .doseEquivalent)
 
-        // MARK: Currency (fiat codes; live rates)
+        // MARK: Currency (fiat codes; live rates). The code stays the
+        // canonical label/id; user-facing English names ride along as
+        // input aliases (`10 Indian rupees to Japanese yen`).
         for code in FiatCurrencies.codes {
             u.append(UnitDef(id: "cur-\(code)", kind: .currency(code),
                              label: code, family: .none,
-                             aliases: [code], prefixes: []))
+                             aliases: [code] + (FiatCurrencies.aliases[code] ?? []),
+                             prefixes: []))
         }
 
         return u

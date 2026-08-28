@@ -437,10 +437,10 @@ enum TokenExpr {
                 i += 1
                 return v
             }
-            // A currency literal: a marker (bare `$`/`€`/`£`/`¥`/`₽` or
-            // letter-prefixed `CA$`/`NZ$`/`HK$`/`A$`/`S$`) glued in FRONT
-            // of the amount — the same shared marker/amount grammar the
-            // money pipeline uses.
+            // A currency literal: ANY shared-table marker (bare symbols
+            // `$`/`€`/`₹`/…, letter forms `CA$`/`R$`/`Rp`/`zł`/`Kč`)
+            // glued in FRONT of the amount — the same shared
+            // marker/amount grammar the money pipeline uses.
             if prefixMarkerStarts(at: i) {
                 let code = try parsePrefixMarker()
                 let value = try parseAmount()
@@ -456,9 +456,10 @@ enum TokenExpr {
                     pct += 1
                 }
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
-                // Postfix marker: `240$`, `2.5k$` — a symbol glued right
-                // after the amount (no digit after it, `45$5` is not a
-                // marker) carries the currency unit.
+                // Postfix marker: `240$`, `2.5K$`, `100zł` — a
+                // shared-table marker glued right after the amount (no
+                // digit after it, `45$5` is not a marker) carries the
+                // currency unit.
                 if pct == 0, let code = parsePostfixMarker() {
                     return PE(q: Qty(v: v, unit: code), purePercent: false)
                 }
@@ -486,63 +487,74 @@ enum TokenExpr {
             throw ExprError.invalid
         }
 
-        /// Whether `i` starts a PREFIX currency marker: a bare symbol
-        /// (`$` `€` `£` `¥` `₽`) followed by a number/decimal point, or a
-        /// letter-prefixed dollar (`CA$`, `NZ$`, `HK$`, `A$`, `S$`) with
-        /// the symbol followed by a number/decimal point.
-        func prefixMarkerStarts(at idx: Int) -> Bool {
-            let c = ns.character(at: idx)
-            func numAfter(_ p: Int) -> Bool {
-                guard p < ns.length else { return false }
-                let d = ns.character(at: p)
-                return (0x30...0x39).contains(d) || d == 0x2E
+        /// The marker starting exactly at `idx` — a lookup against
+        /// CurrencyPresentation's shared marker metadata at the current
+        /// UTF-16 position (longest-first, so `CN¥` never degrades to
+        /// `¥` and `Rp` never to a bare letter).
+        func markerAt(_ idx: Int) -> String? {
+            for m in tokenMarkerTable {
+                let len = (m as NSString).length
+                if idx + len <= ns.length,
+                   ns.substring(with: NSRange(location: idx, length: len)) == m {
+                    return m
+                }
             }
-            if c == 0x24 || c == 0x20AC || c == 0x00A3 || c == 0x00A5 || c == 0x20BD {
-                return numAfter(idx + 1)
-            }
-            if isLetter16(c) {
-                var j = idx
-                while j < ns.length, isLetter16(ns.character(at: j)) { j += 1 }
-                return j > idx && j < ns.length
-                    && ns.character(at: j) == 0x24 && numAfter(j + 1)
-            }
-            return false
+            return nil
         }
 
-        /// Consumes a prefix marker at `i` and returns its ISO code.
+        /// Whether `i` starts a PREFIX currency marker: a shared-table
+        /// marker glued in front of a number/decimal point, preceded by
+        /// a non-alphanumeric (a doubled `$$` is never a marker).
+        func prefixMarkerStarts(at idx: Int) -> Bool {
+            guard let marker = markerAt(idx) else { return false }
+            let end = idx + (marker as NSString).length
+            guard end < ns.length else { return false }
+            let after = ns.character(at: end)
+            guard (0x30...0x39).contains(after) || after == 0x2E else { return false }
+            guard idx > 0 else { return true }
+            let before = ns.character(at: idx - 1)
+            guard !(0x30...0x39).contains(before), before != 0x24,
+                  !(0x41...0x5A).contains(before), !(0x61...0x7A).contains(before)
+            else { return false }
+            return true
+        }
+
+        /// Consumes the prefix marker at `i` and returns its ISO code.
         /// Throws when the shape is not a real marker.
         func parsePrefixMarker() throws -> String {
-            let c = ns.character(at: i)
-            let marker: String
-            if isLetter16(c) {
-                var j = i
-                while j < ns.length, isLetter16(ns.character(at: j)) { j += 1 }
-                guard j < ns.length, j > i, ns.character(at: j) == 0x24 else {
-                    throw ExprError.invalid
-                }
-                marker = ns.substring(with: NSRange(location: i, length: j - i + 1))
-                i = j + 1
-            } else {
-                marker = String(utf16CodeUnits: [c], count: 1)
-                i += 1
-            }
+            guard let marker = markerAt(i) else { throw ExprError.invalid }
             guard let code = CurrencyPresentation.code(forMarker: marker) else {
                 throw ExprError.invalid
             }
+            i += (marker as NSString).length
             return code
         }
 
-        /// Postfix marker at `i`: a bare symbol glued right after an
-        /// amount (a digit after the symbol is NOT a marker).
+        /// Postfix marker at `i`: a shared-table marker glued right
+        /// after an amount — preceded by a digit or a compact
+        /// `k`/`m`/`K`/`M` suffix (itself preceded by a digit/`.`), and
+        /// NOT followed by a digit (`45$5` is not a marker); letter
+        /// markers additionally never end an alphanumeric run
+        /// (`100Rpm` is not a marker).
         func parsePostfixMarker() -> String? {
-            guard i < ns.length else { return nil }
-            let c = ns.character(at: i)
-            guard c == 0x24 || c == 0x20AC || c == 0x00A3 || c == 0x00A5 || c == 0x20BD
-            else { return nil }
-            let after = i + 1 < ns.length ? ns.character(at: i + 1) : 0
+            guard let marker = markerAt(i), i > 0 else { return nil }
+            let len = (marker as NSString).length
+            let before = ns.character(at: i - 1)
+            let beforeIsDigit = (0x30...0x39).contains(before)
+            var beforeIsSuffix = false
+            if before == 0x6B || before == 0x6D || before == 0x4B || before == 0x4D, i >= 2 {
+                let b = ns.character(at: i - 2)
+                beforeIsSuffix = (0x30...0x39).contains(b) || b == 0x2E
+            }
+            guard beforeIsDigit || beforeIsSuffix else { return nil }
+            let after = i + len < ns.length ? ns.character(at: i + len) : 0
             guard !(0x30...0x39).contains(after) else { return nil }
-            let code = CurrencyPresentation.code(forMarker: String(utf16CodeUnits: [c], count: 1))
-            i += 1
+            if marker.first!.isLetter,
+               (0x41...0x5A).contains(after) || (0x61...0x7A).contains(after) {
+                return nil
+            }
+            guard let code = CurrencyPresentation.code(forMarker: marker) else { return nil }
+            i += len
             return code
         }
 
@@ -683,3 +695,7 @@ enum TokenExpr {
         (0x41...0x5A).contains(c) || (0x61...0x7A).contains(c)
     }
 }
+
+/// The shared currency marker table (one file-scope copy,
+/// longest-first) used by the token expression parser.
+private let tokenMarkerTable = CurrencyPresentation.orderedMarkers

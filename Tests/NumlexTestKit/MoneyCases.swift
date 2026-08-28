@@ -158,7 +158,7 @@ public let moneyCases: [EngineCase] = [
 
     EngineCase("money-presentation-minor-digits") {
         try expectEqual(formatMoney(500, code: "JPY"), "¥500", "JPY 0 digits")
-        try expectEqual(formatMoney(500, code: "KRW"), "500 KRW", "KRW 0 digits + fallback")
+        try expectEqual(formatMoney(500, code: "KRW"), "₩500", "KRW 0 digits + safe symbol")
         try expectEqual(formatMoney(10, code: "BHD"), "10.000 BHD", "BHD 3 digits")
         try expectEqual(formatMoney(1234.5, code: "USD"), "$1,234.50", "default 2 + grouping")
         try expectEqual(formatMoney(600, code: "CHF"), "600.00 CHF", "ISO suffix fallback")

@@ -226,12 +226,12 @@ public enum SyntaxClassifier {
             in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
-        // Currency markers: symbols and ISO annotation codes.
-        if let re = try? NSRegularExpression(pattern: CurrencyPresentation.inputMarkerPattern) {
-            let full = NSRange(location: 0, length: ns.length)
-            for m in re.matches(in: line, range: full) {
-                spans.append(SyntaxSpan(role: .moneyMarker, range: m.range))
-            }
+        // Currency markers: the SHARED boundary grammar (prefix and
+        // postfix, doubled/malformed rejected) — letter markers like
+        // `Rp`/`RM`/`zł`/`Kč` only tint at real marker positions,
+        // never inside prose words.
+        for r in CurrencyPresentation.markerOccurrences(in: line) {
+            spans.append(SyntaxSpan(role: .moneyMarker, range: r))
         }
         for m in matches(#"\b[A-Z]{3}\b"#, in: ns) where isCurrencyCode(ns.substring(with: m)) {
             spans.append(SyntaxSpan(role: .moneyMarker, range: m))

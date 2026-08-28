@@ -159,4 +159,9 @@ struct EngineTests {
     func syntaxRoleClassification(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r32Cases)
+    func r32ExpandedCurrenciesAndConversions(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

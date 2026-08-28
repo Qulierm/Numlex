@@ -9,9 +9,12 @@ import Foundation
 /// never fall through to a leading-number result.
 ///
 /// Grammar (English natural words only):
-/// - currency markers: `CA$` `NZ$` `HK$` `A$` `S$` `$` (→ USD by
-///   default), `€` `£` `¥` `₽` — PREFIX (`$45`) or POSTFIX (`45$`,
-///   `2.5k$`); a doubled/malformed marker is never a marker;
+/// - currency markers: the SHARED CurrencyPresentation table —
+///   `CA$`/`NZ$`/`HK$`/`MX$`/`NT$`/`A$`/`S$`/`R$`, bare `$` (→ USD),
+///   `€` `£` `¥` `₽` `CN¥` `₩` `₹` `₺` `₴` `₫` `₱` `฿` `₪` `₦` `₾`
+///   `₸` `₮` `₯` `៛` `₡` `₲` `₵`, letter markers `Rp` `RM` `zł`
+///   `Kč` — PREFIX (`$45`, `Rp25000`, `zł100`) or POSTFIX (`45$`,
+///   `2.5K$`, `100zł`); a doubled/malformed marker is never a marker;
 /// - amounts: grouping (`$3,400`), decimals, and the shared compact
 ///   suffixes (`$3k`);
 /// - time rates: `per <time>` and `/ <time>` open a money/time rate
@@ -60,8 +63,6 @@ public enum NaturalCalculation {
         "w", "wk", "wks", "week", "weeks",
     ]
 
-    private static let markerRe = try? NSRegularExpression(
-        pattern: CurrencyPresentation.inputMarkerPattern)
     private static let wordRe = try? NSRegularExpression(
         pattern: #"(?<![0-9])[A-Za-z_]\w*"#)
     private static let isoAnnotationRe = try? NSRegularExpression(
@@ -84,38 +85,13 @@ public enum NaturalCalculation {
 
     // MARK: - Marker detection
 
-    /// Every valid currency marker occurrence: PREFIX symbols glued
-    /// before a number (preceded by a non-alphanumeric or line start)
-    /// and POSTFIX symbols glued after a number (preceded by a digit or
-    /// a compact `k`/`m`/`M` suffix, followed by a non-digit). Doubled
-    /// or arithmetic `$` are never markers.
+    /// Every valid currency marker occurrence — the SHARED boundary
+    /// grammar in `CurrencyPresentation` (prefix `Rp25000`/`$45`,
+    /// postfix `240$`/`2.5K$`/`100zł`, doubled/malformed markers
+    /// rejected, uppercase `K`/`M` compact suffixes included, `km$5`
+    /// never a marker).
     static func markerOccurrences(in line: String) -> [NSRange] {
-        guard let re = markerRe else { return [] }
-        let ns = line as NSString
-        var out: [NSRange] = []
-        for m in re.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
-            let r = m.range
-            let before = r.location > 0 ? ns.character(at: r.location - 1) : 0
-            let after = r.location + r.length < ns.length
-                ? ns.character(at: r.location + r.length) : 0
-            let afterIsDigit = (0x30...0x39).contains(after)
-            let beforeIsDigit = (0x30...0x39).contains(before)
-            let beforeIsSuffix = before == 0x6B || before == 0x6D  // k / m
-            // Postfix: a number (or `2.5k`) right before, no digit after.
-            if (beforeIsDigit || beforeIsSuffix), !afterIsDigit {
-                out.append(r)
-                continue
-            }
-            // Prefix: a number (or decimal point) right after, nothing
-            // alphanumeric before.
-            if (0x30...0x39).contains(after) || after == 0x2E,
-                !beforeIsDigit,
-                before != 0x24,  // a doubled `$$` is never a marker
-                !(0x41...0x5A).contains(before), !(0x61...0x7A).contains(before) {
-                out.append(r)
-            }
-        }
-        return out
+        CurrencyPresentation.markerOccurrences(in: line)
     }
 
     // MARK: - Named money assignment
