@@ -52,7 +52,7 @@ swift build -c release # release
 
 ## Tests
 
-The engine test suite is registered with Swift Testing (`Tests/NumlexCoreTests`) and shares all 436 cases with a standalone runner (`Tests/NumlexTestKit`).
+The engine test suite is registered with Swift Testing (`Tests/NumlexCoreTests`) and shares all 444 cases with a standalone runner (`Tests/NumlexTestKit`).
 
 ```sh
 swift test             # Swift Testing suite (full Xcode toolchain)
