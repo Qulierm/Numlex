@@ -1,12 +1,30 @@
 import SwiftUI
 
+/// r36: the ONE app-level native appearance source. Numlex is a
+/// permanent light (Aqua) app: every window, menu, popover, the
+/// Settings tab chrome, the liquid-glass surfaces and every AppKit
+/// NSTextView resolve light system colors regardless of the host
+/// system's Light/Dark setting. Setting `NSApp.appearance` once covers
+/// the whole process (AppKit windows, context menus, file panels);
+/// there are no per-view background overrides for appearance.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .aqua)
+    }
+}
+
 @main
 struct NumlexApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // Single shared model instance injected into both the main window
     // and the Settings scene so they always stay in sync.
     @State private var model = AppModel()
 
     init() {
+        // The Aqua pin lives in the AppDelegate hook, not here: at this
+        // point NSApplication does not exist yet (NSApp would be nil),
+        // and applicationDidFinishLaunching is the earliest guaranteed
+        // moment for the one app-level appearance source.
         // r34: the Settings window's NSWindow FRAME AUTOSAVE persists its
         // frame from the previous session, and AppKit restores it at
         // window creation — BEFORE the SwiftUI restoration behavior and
@@ -20,9 +38,18 @@ struct NumlexApp: App {
             forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
     }
 
+    // The SwiftUI environment color scheme follows the window's effective
+    // appearance, which the app-level Aqua override above makes light;
+    // declaring it on both scene roots keeps SwiftUI-resolved styles
+    // (materials, dynamic text styles) in parity from the very first
+    // frame instead of relying on the live re-resolution alone.
+    private func lightRoot<Content: View>(_ content: Content) -> some View {
+        content.preferredColorScheme(.light)
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model)
+            lightRoot(ContentView(model: model))
                 // The SwiftUI content minimum must allow the COLLAPSED
                 // window size; the expanded 820pt minimum is enforced
                 // dynamically by WindowConfigurator's window.minSize so the
@@ -71,7 +98,7 @@ struct NumlexApp: App {
         }
 
         Settings {
-            NativeSettingsView(model: model)
+            lightRoot(NativeSettingsView(model: model))
         }
         // r34: the Settings scene used to resurrect its persisted frame
         // from an older (taller) build after every relaunch; with state

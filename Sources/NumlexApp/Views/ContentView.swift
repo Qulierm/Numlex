@@ -88,7 +88,9 @@ struct ContentView: View {
                     )
                     .id(sheet?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(nsColor: .textBackgroundColor))
+                    // r36: the ONE centralized editor surface token —
+                    // the SwiftUI host matches the NSTextView exactly.
+                    .background(Color(nsColor: Design.editorBackground))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 

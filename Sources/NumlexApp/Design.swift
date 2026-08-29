@@ -21,9 +21,9 @@ enum Design {
     static var gutterColorActive: NSColor { .secondaryLabelColor }
 
     /// Hash-heading `#` marker: a deterministic adaptive neutral gray —
-    /// clearly lighter than secondaryLabelColor in dark mode (around
-    /// sRGB 185 on the editor's near-black background) and a readable
-    /// medium gray in light mode. Explicit sRGB per appearance, full
+    /// a readable medium gray on the light editor (the app's permanent
+    /// Aqua appearance resolves the light branch; the dark value stays
+    /// for any future dark surface). Explicit sRGB per appearance, full
     /// alpha; no system dynamic colors.
     static let headingMarkerColor = NSColor(name: nil) { appearance in
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -34,33 +34,42 @@ enum Design {
 
     // MARK: Notebook syntax palette (deterministic sRGB values)
     //
-    // Every chromatic token is an explicit sRGB value. The three role
-    // colors are the user-specified palette: #99CEFF cyan (numbers),
-    // #6CDA76 green (variables) and #BE89EC pink-purple (units), each
-    // reading clearly on both the editor's dark background and the
-    // raised answer panel, with the four role hues clearly distinct.
-    // The fixed white base, operators, `to` and answer values are
-    // untouched. No opacity layering is used.
+    // r36 light theme: every chromatic token is an explicit full-alpha
+    // sRGB value on the app's PERMANENT light surfaces (white editor,
+    // quiet gray answer panel). The three role colors are the exact
+    // user-specified palette: #0070F3 blue (numbers), #46A758 green
+    // (variables/constants) and #8E4EC6 purple (units/conversions),
+    // each reading clearly on white. The comment titles reuse the
+    // requested blue and the currency markers the requested purple,
+    // where semantically coherent. No Display P3, no opacity overlays,
+    // no accent or dynamic variants for these three.
 
-    /// Numeric literals: #99CEFF — sRGB(153, 206, 255).
-    static let numberColor = NSColor(srgbRed: 153.0 / 255.0, green: 206.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
-    /// Variable identifiers: #6CDA76 — sRGB(108, 218, 118).
-    static let variableColor = NSColor(srgbRed: 108.0 / 255.0, green: 218.0 / 255.0, blue: 118.0 / 255.0, alpha: 1)
-    /// Unit words in conversions: #BE89EC — sRGB(190, 137, 236).
-    static let conversionColor = NSColor(srgbRed: 190.0 / 255.0, green: 137.0 / 255.0, blue: 236.0 / 255.0, alpha: 1)
-    /// Comment titles: sRGB(101, 188, 246) — saturated matte blue (H204 S89 L68).
-    static let titleColor = NSColor(srgbRed: 101.0 / 255.0, green: 188.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)
+    /// Numeric literals: #0070F3 — sRGB(0, 112, 243), full alpha.
+    static let numberColor = NSColor(srgbRed: 0.0 / 255.0, green: 112.0 / 255.0, blue: 243.0 / 255.0, alpha: 1)
+    /// Variable identifiers: #46A758 — sRGB(70, 167, 88), full alpha.
+    static let variableColor = NSColor(srgbRed: 70.0 / 255.0, green: 167.0 / 255.0, blue: 88.0 / 255.0, alpha: 1)
+    /// Unit words in conversions: #8E4EC6 — sRGB(142, 78, 198), full alpha.
+    static let conversionColor = NSColor(srgbRed: 142.0 / 255.0, green: 78.0 / 255.0, blue: 198.0 / 255.0, alpha: 1)
+    /// Comment titles: the requested blue #0070F3 — sRGB(0, 112, 243),
+    /// reused for semantic coherence with the number role.
+    static let titleColor = NSColor(srgbRed: 0.0 / 255.0, green: 112.0 / 255.0, blue: 243.0 / 255.0, alpha: 1)
 
-    /// Currency markers on money lines (`$`, `€`, ISO codes).
-    static let moneyMarkerColor = NSColor(srgbRed: 199.0 / 255.0, green: 128.0 / 255.0, blue: 255.0 / 255.0, alpha: 1)
+    /// Currency markers on money lines (`$`, `€`, ISO codes): the
+    /// requested purple #8E4EC6 — sRGB(142, 78, 198), reused where
+    /// semantically coherent with the unit role.
+    static let moneyMarkerColor = NSColor(srgbRed: 142.0 / 255.0, green: 78.0 / 255.0, blue: 198.0 / 255.0, alpha: 1)
 
     /// Editor caret: sRGB(52, 120, 247) — fixed accent blue matched to
     /// the Soulver reference. Constant across appearances; the caret's
     /// geometry, size, row-box centering and blink are owned by
     /// NotebookTextView, this token only colors the rect.
     static let caretColor = NSColor(srgbRed: 52.0 / 255.0, green: 120.0 / 255.0, blue: 247.0 / 255.0, alpha: 1)
-    /// Fixed white base for prose, operators, equals, parentheses, `to` and any other plain text.
-    static let baseText = NSColor.white
+    /// r36 light theme: fixed near-black base for prose, operators,
+    /// equals, parentheses, `to`, ANY other plain editor text AND every
+    /// answer/result glyph in the answer column and the settings
+    /// preview. One centralized token — never raw white/NSColor.white
+    /// at a render site. Full alpha, deterministic sRGB.
+    static let baseText = NSColor(srgbRed: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0, alpha: 1)
 
     // MARK: Answer reference tokens (r23 premium bubble)
 
@@ -137,13 +146,20 @@ enum Design {
 
     // MARK: Panel surfaces
 
-    /// Answer panel background: a darker, calm gray that still separates
-    /// the results from the editor, explicit sRGB per appearance so the
-    /// value is deterministic instead of a dynamic system catalog color.
-    /// Dark: sRGB(38, 38, 40) — quiet elevated gray (L 0.155) just above
-    /// the editor's sRGB(30, 30, 30) (L 0.118): clearly a raised panel,
-    /// never light. Light: sRGB(236, 236, 238) — quiet gray against the
-    /// editor's white. Applied ONLY to the answer column.
+    /// r36 light theme: the notebook editor background — deterministic
+    /// native white (full-alpha sRGB 1,1,1). Applied to the NSTextView,
+    /// the SwiftUI editor host and the settings preview from this ONE
+    /// token; no dynamic catalog color, so it can never resolve to the
+    /// dark surface.
+    static let editorBackground = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: 1)
+
+    /// Answer panel background: a quiet light gray visibly distinct from
+    /// the editor's white — explicit sRGB per appearance so the value is
+    /// deterministic instead of a dynamic system catalog color. The app
+    /// runs on the forced Aqua appearance, so this always resolves to
+    /// the light value. Dark: sRGB(38, 38, 40) — quiet elevated gray,
+    /// just above a dark editor. Light: sRGB(236, 236, 238) — quiet gray
+    /// against the editor's white. Applied ONLY to the answer column.
     static let answerPanelBackground = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(srgbRed: 38.0 / 255.0, green: 38.0 / 255.0, blue: 40.0 / 255.0, alpha: 1)

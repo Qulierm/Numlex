@@ -26,8 +26,9 @@ struct AnswerColumnView: View {
     var fontSize: Double
     var lineHeight: Double
     var decimalPlaces: Int
-    /// r21: the selected font design — answers stay fixed white but the
-    /// face must match the editor exactly (same resolver).
+    /// r21: the selected font design — answers use the centralized dark
+    /// base token (Design.baseText) on the light panel, but the face must
+    /// match the editor exactly (same resolver).
     var fontDesign: StylingFontDesign = .system
     var totalLabel: String
 
@@ -57,7 +58,7 @@ struct AnswerColumnView: View {
     }
 
     /// The r21 palette resolver (only the font side is used here:
-    /// answers are fixed white by design).
+    /// answers are the fixed dark base (Design.baseText) by design).
     private var palette: NotebookPalette {
         NotebookPalette(styling: StylingPreferences(fontDesign: fontDesign))
     }
@@ -191,7 +192,7 @@ struct AnswerColumnView: View {
                     Spacer()
                     Text(s.value)
                         .font(palette.swiftUIFont(fontSize))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(nsColor: Design.baseText))
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 12)
@@ -215,8 +216,8 @@ struct AnswerColumnView: View {
         // Left-aligned content of one answer. Vertical placement is owned
         // by the BaselineAnswerRow layout (measured first-text baseline on
         // the editor's TextKit target baseline); this view only provides
-        // the horizontal padding, the fixed-white regular typography and
-        // the single-line clipping.
+        // the horizontal padding, the fixed dark-base (Design.baseText)
+        // regular typography and the single-line clipping.
         Group {
             switch row {
             case .blank, .skip, .title(_):
@@ -225,49 +226,50 @@ struct AnswerColumnView: View {
                 if let u = unit, isCurrencyCode(u) {
                     // Currency results render as ONE money string
                     // (`$600.00`, `€107.64`) — symbol and value share
-                    // the same white regular glyphs, no unit suffix.
+                    // the same dark-base regular glyphs, no unit suffix.
                     Text(formatMoney(v, code: u))
                         .font(palette.swiftUIFont(fontSize))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(nsColor: Design.baseText))
                         .lineLimit(1)
                 } else {
                     HStack(spacing: 5) {
                         Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
                             .font(palette.swiftUIFont(fontSize))
-                            // Every answer/result glyph is fixed white
-                            // regular, per the design request.
-                            .foregroundStyle(.white)
+                            // Every answer/result glyph is the fixed dark
+                            // base (Design.baseText) regular on the light
+                            // panel, per the r36 light theme.
+                            .foregroundStyle(Color(nsColor: Design.baseText))
                             .lineLimit(1)
                         if let u = unit {
                             // Units are full answer content: exactly the
                             // same size, weight and baseline as the value.
                             Text(u)
                                 .font(palette.swiftUIFont(fontSize))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color(nsColor: Design.baseText))
                         }
                     }
                 }
             case .money(let v, let code):
                 // Natural money: shared presentation (`$600.00`),
-                // white regular, never enters the numeric Total.
+                // dark-base regular, never enters the numeric Total.
                 Text(formatMoney(v, code: code))
                     .font(palette.swiftUIFont(fontSize))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
             case .date(let y, let m, let d, let showYear):
-                // Date answers: compact English, baseline-aligned white
-                // regular, never tokenized as a number.
+                // Date answers: compact English, baseline-aligned dark
+                // base regular, never tokenized as a number.
                 Text(DateArithmetic.display(
                     year: y, month: m, day: d, showYear: showYear))
                     .font(palette.swiftUIFont(fontSize))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
             case .variable(_, let v):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
                 Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
                     .font(palette.swiftUIFont(fontSize))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
             case .brokenToken(let line):
                 // An inactive token on its own line: the remembered
@@ -278,14 +280,14 @@ struct AnswerColumnView: View {
             case .error(let msg):
                 if msg == "Rates unavailable" {
                     // The explicit no-rate state is preserved and
-                    // rendered fixed white.
+                    // rendered in the fixed dark base.
                     Text("Rates unavailable")
                         .font(Design.labelSmall)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(nsColor: Design.baseText))
                 } else {
                     // Generic calculation errors render nothing at all
-                    // (no "Error" label), leaving the row quiet white-on-
-                    // background while the expression above carries its
+                    // (no "Error" label), leaving the row quiet on the
+                    // panel while the expression above carries its
                     // lexical spans.
                     Color.clear
                 }

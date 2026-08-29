@@ -636,7 +636,7 @@ private struct StylingSettingsTab: View {
 
 // MARK: - Live preview
 
-/// The notebook preview: a dark editor area (the app's real editor
+/// The notebook preview: a white editor area (the app's real editor
 /// background) next to the calm gray answer strip, with the same row
 /// rhythm as the app (fixed line height derived from the selected size).
 /// Every line is painted by the REAL classifier + the SAME palette
@@ -699,7 +699,9 @@ private struct StylingPreview: View {
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
-            .background(Color(nsColor: .textBackgroundColor))
+            // r36: the ONE centralized editor surface token — the
+            // preview editor side matches the real NSTextView exactly.
+            .background(Color(nsColor: Design.editorBackground))
 
             // Answer strip.
             VStack(alignment: .leading, spacing: 0) {
@@ -708,7 +710,7 @@ private struct StylingPreview: View {
                         if let answer = row.answer {
                             Text(answer)
                                 .font(palette.swiftUIFont(fontSize))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color(nsColor: Design.baseText))
                                 .lineLimit(1)
                         } else {
                             Color.clear
@@ -733,7 +735,8 @@ private struct StylingPreview: View {
     }
 
     /// Paints one preview line through the real classifier (plus the
-    /// row's illustrative overrides): base white regular on the selected
+    /// row's illustrative overrides): the dark base (Design.baseText)
+    /// regular on the selected
     /// size/design; `// ` comments semibold in the comments color; hash
     /// headings heavy (gray marker, headings-color body); every
     /// classified span via the palette resolver.

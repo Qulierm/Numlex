@@ -239,7 +239,10 @@ final class NotebookEditorCoordinator: NSObject {
         // container (gutter included) stays inside the drawable area — the
         // text view clips drawing to the text container.
         tv.textContainerInset = NSSize(width: 0, height: Design.editorTopInset)
-        tv.backgroundColor = .textBackgroundColor
+        // r36: the centralized deterministic white editor surface (the
+        // app is permanently Aqua; a dynamic catalog color is avoided so
+        // the surface can never resolve to the dark value).
+        tv.backgroundColor = Design.editorBackground
         tv.drawsBackground = true
         tv.isRichText = false
         // Undo is off: every edit rewrites the full attributed string for
@@ -534,7 +537,8 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     /// Attributes every new character/paragraph starts with: the chosen
-    /// font design, the fixed white base color and the indented
+    /// font design, the fixed dark base color (Design.baseText on the
+    /// white light theme) and the indented
     /// fixed-line-height paragraph style. A first char or a newline can
     /// never land left of the gutter; highlight() recolors semantic
     /// spans on the same tick.
