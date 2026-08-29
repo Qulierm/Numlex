@@ -144,6 +144,19 @@ enum Design {
         return medium
     }
 
+    // MARK: Source-answer hover outline (r37)
+
+    /// Hovering an ACTIVE answer-token capsule strokes a rounded
+    /// rectangle around the SOURCE answer in the answer column (no
+    /// fill, stroke only). The color is the reference/caret blue
+    /// (Design.caretColor, #3478F7) — one centralized accent, readable
+    /// on the light answer panel. The geometry constants below are the
+    /// ONLY tuning knobs (tuned against the reference screenshot in QA).
+    static let answerHoverLineWidth: CGFloat = 3
+    static let answerHoverCornerRadius: CGFloat = 10
+    /// Horizontal inset from the panel edge: near-full-width stroke.
+    static let answerHoverEdgeInset: CGFloat = 2
+
     // MARK: Panel surfaces
 
     /// r36 light theme: the notebook editor background — deterministic

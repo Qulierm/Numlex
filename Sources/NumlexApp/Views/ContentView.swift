@@ -12,6 +12,12 @@ struct ContentView: View {
     @State private var editorBridge: NotebookEditorCoordinator?
     @State private var showImport = false
     @State private var showExport = false
+    /// r37: the STABLE source line ID of the token the pointer is
+    /// hovering (ephemeral UI state — never persisted). Mapped against
+    /// the CURRENT sheet's lineIDs at render time, so insertions and
+    /// deletions above the source keep the highlight on the same line
+    /// and a missing source maps to nil.
+    @State private var hoveredSourceID: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     /// Live measured width of the sidebar column (tracks user resizes
     /// within 180...220). The window resize response uses this value, not
@@ -84,7 +90,8 @@ struct ContentView: View {
                         focusRequestID: model.focusSheetID,
                         focusPosition: model.focusCaret,
                         onFocusConsumed: { model.focusSheetID = nil; model.focusCaret = nil },
-                        onReady: { bridge in editorBridge = bridge }
+                        onReady: { bridge in editorBridge = bridge },
+                        onTokenHoverChanged: { id in hoveredSourceID = id }
                     )
                     .id(sheet?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -97,6 +104,14 @@ struct ContentView: View {
                 Divider()
 
                 let settings = model.settings
+                // r37: the hovered token's source line in the CURRENT
+                // content (stable ID → current index; nil when the
+                // source no longer exists).
+                let highlightedSourceLineIndex: Int? = {
+                    guard let id = hoveredSourceID,
+                          let sheet = model.selectedSheet else { return nil }
+                    return sheet.lineIDs.firstIndex(of: id)
+                }()
                 // Reference-aware rows (same strict 1:1 contract as
                 // evaluateSheet, with token lines resolved to their
                 // current linked values).
@@ -129,7 +144,8 @@ struct ContentView: View {
                     lineHeight: settings.lineHeight,
                     decimalPlaces: settings.decimalPlaces,
                     fontDesign: settings.styling.fontDesign,
-                    totalLabel: L10n.t("total", language: settings.language)
+                    totalLabel: L10n.t("total", language: settings.language),
+                    highlightedSourceLineIndex: highlightedSourceLineIndex
                 )
             }
             .toolbar(removing: .title)
@@ -150,6 +166,9 @@ struct ContentView: View {
             topOffset = 0
             metrics = LineMetrics(lines: [])
             editorBridge = nil
+            // r37: a stale hover from the previous sheet can never
+            // highlight the new one.
+            hoveredSourceID = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .newSheet)) { _ in model.newSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .importSheet)) { _ in showImport = true }

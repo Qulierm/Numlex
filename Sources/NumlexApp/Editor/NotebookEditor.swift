@@ -63,6 +63,10 @@ struct NotebookEditor: NSViewRepresentable {
     var onFocusConsumed: () -> Void
     /// Lets the owner publish the coordinator (for answer→editor sync).
     var onReady: (NotebookEditorCoordinator) -> Void
+    /// r37: the STABLE source line ID of the token capsule the pointer
+    /// is hovering (nil = no hover). Ephemeral UI state only — dedup
+    /// happens in the coordinator, nothing is ever persisted.
+    var onTokenHoverChanged: ((UUID?) -> Void)? = nil
 
     func makeCoordinator() -> NotebookEditorCoordinator {
         NotebookEditorCoordinator(
@@ -81,7 +85,8 @@ struct NotebookEditor: NSViewRepresentable {
             focusRequestID: focusRequestID,
             focusPosition: focusPosition,
             onFocusConsumed: onFocusConsumed,
-            onReady: onReady
+            onReady: onReady,
+            onTokenHoverChanged: onTokenHoverChanged
         )
     }
 
@@ -109,7 +114,8 @@ struct NotebookEditor: NSViewRepresentable {
             onPasteReferences: onPasteReferences,
             focusRequestID: focusRequestID,
             focusPosition: focusPosition,
-            onFocusConsumed: onFocusConsumed
+            onFocusConsumed: onFocusConsumed,
+            onTokenHoverChanged: onTokenHoverChanged
         )
     }
 }
@@ -183,8 +189,17 @@ final class NotebookEditorCoordinator: NSObject {
     private var pendingFocusID: Sheet.ID?
     private var pendingFocusPosition: Int?
     var onFocusConsumed: () -> Void = {}
+    /// r37: the owner's hover sink (stable source line ID, nil = none).
+    var onTokenHoverChanged: ((UUID?) -> Void)?
+    /// The last PUBLISHED hover source: callbacks are deduplicated, so
+    /// the owner only hears about actual changes.
+    private var lastPublishedHover: UUID?
     private var observer: NSObjectProtocol?
     private var frameObserver: NSObjectProtocol?
+    /// r37: window key-state observation (resign clears a stuck hover,
+    /// re-key re-hits a stationary pointer).
+    private var keyResignObserver: NSObjectProtocol?
+    private var keyBecomeObserver: NSObjectProtocol?
 
     init(fontSize: Double, lineHeight: Double, lineNumbers: Bool,
          rates: Rates, decimalPlaces: Int,
@@ -198,7 +213,8 @@ final class NotebookEditorCoordinator: NSObject {
          focusRequestID: Sheet.ID?,
          focusPosition: Int?,
          onFocusConsumed: @escaping () -> Void,
-         onReady: (NotebookEditorCoordinator) -> Void) {
+         onReady: (NotebookEditorCoordinator) -> Void,
+         onTokenHoverChanged: ((UUID?) -> Void)? = nil) {
         self.fontSize = fontSize
         self.lineHeight = lineHeight
         self.lineNumbers = lineNumbers
@@ -208,6 +224,7 @@ final class NotebookEditorCoordinator: NSObject {
         self.pendingFocusID = focusRequestID
         self.pendingFocusPosition = focusPosition
         self.onFocusConsumed = onFocusConsumed
+        self.onTokenHoverChanged = onTokenHoverChanged
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
@@ -272,6 +289,12 @@ final class NotebookEditorCoordinator: NSObject {
 
         applyTypography()
         textView.typingAttributes = typingAttrs
+        // r37: the text view reports hit marker LOCATIONS; the
+        // coordinator joins them to the sidecar and publishes the
+        // stable source line ID.
+        textView.onHoverLocationChanged = { [weak self] location in
+            self?.publishTokenHover(location: location)
+        }
         onReady(self)
 
         // The flipped document view makes the clip bounds' y origin the
@@ -285,6 +308,10 @@ final class NotebookEditorCoordinator: NSObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.onScroll(self.scrollView.contentView.bounds.origin.y)
+                // r37: content scrolled beneath a stationary pointer —
+                // re-hit (or clear) so a stale outline can never outlive
+                // its capsule. Bounded: O(active tokens) contains checks.
+                self.textView.refreshHoverHit()
             }
         }
         // Wrapping changes when the width changes.
@@ -326,14 +353,67 @@ final class NotebookEditorCoordinator: NSObject {
     /// fire late on a different sheet; a detach also cancels any
     /// in-flight appearance pass.
     private func handleWindowChanged() {
-        if scrollView.window != nil {
+        if let window = scrollView.window {
             tryConsumeFocus()
+            observeWindowKey(window)
         } else {
+            stopWindowKeyObservation()
             stopAppearanceTick()
+            // Detach (sheet switch / window close): drop tracking and
+            // clear the hover so a stale callback can never outlive the
+            // editor (the only post-detach publish is a nil clear).
+            textView.resetHoverForDetach()
             if pendingFocusID != nil {
                 pendingFocusID = nil
                 notifyConsumed()
             }
+        }
+    }
+
+    // MARK: - Token hover (r37)
+
+    /// Joins the hit marker location to the `AnswerReference` sidecar
+    /// BY LOCATION (the exact marker identity) and publishes the stable
+    /// source line ID — never display text or line numbers. Broken and
+    /// orphan markers are not hoverable in the first place (they never
+    /// enter the text view's hit cache), so a nil location always means
+    /// "no active token under the pointer".
+    private func publishTokenHover(location: Int?) {
+        var source: UUID? = nil
+        if let location {
+            source = tokenRefs.first { $0.location == location }?.sourceLineID
+        }
+        guard source != lastPublishedHover else { return }
+        lastPublishedHover = source
+        onTokenHoverChanged?(source)
+    }
+
+    /// The editor window's key state drives the hover lifecycle: while
+    /// the window is not key the tracking area is inactive, so a
+    /// stationary pointer over a token would otherwise leave a stuck
+    /// outline until the next move; resign clears, re-key re-hits.
+    private func observeWindowKey(_ window: NSWindow) {
+        stopWindowKeyObservation()
+        keyResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.textView.clearHover() }
+        }
+        keyBecomeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.textView.refreshHoverHit() }
+        }
+    }
+
+    private func stopWindowKeyObservation() {
+        if let o = keyResignObserver {
+            NotificationCenter.default.removeObserver(o)
+            keyResignObserver = nil
+        }
+        if let o = keyBecomeObserver {
+            NotificationCenter.default.removeObserver(o)
+            keyBecomeObserver = nil
         }
     }
 
@@ -421,7 +501,8 @@ final class NotebookEditorCoordinator: NSObject {
                 onPasteReferences: @escaping ([AnswerReference]) -> Void,
                 focusRequestID: Sheet.ID?,
                 focusPosition: Int?,
-                onFocusConsumed: @escaping () -> Void) {
+                onFocusConsumed: @escaping () -> Void,
+                onTokenHoverChanged: ((UUID?) -> Void)?) {
         self.inputPrefs = inputPrefs
         self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
         self.onScroll = onScroll
@@ -452,6 +533,7 @@ final class NotebookEditorCoordinator: NSObject {
             startAppearanceTick()
         }
         self.onFocusConsumed = onFocusConsumed
+        self.onTokenHoverChanged = onTokenHoverChanged
         var appearanceChanged = false
         if fontSize != self.fontSize { self.fontSize = fontSize; appearanceChanged = true }
         if lineHeight != self.lineHeight { self.lineHeight = lineHeight; appearanceChanged = true }
@@ -653,6 +735,9 @@ final class NotebookEditorCoordinator: NSObject {
         storage.endEditing()
         textView.typingAttributes = typingAttrs
         textView.needsDisplay = true
+        // r37: token states/labels can change here (recovery, break,
+        // constant edits) — refresh the hover hit cache immediately.
+        textView.rebuildTokenHitRegions()
     }
 
     /// Rebuilds every U+FFFC marker's capsule attachment from the LIVE
@@ -777,6 +862,9 @@ final class NotebookEditorCoordinator: NSObject {
         let metrics = computeMetrics()
         onLayout(metrics)
         textView.needsDisplay = true
+        // r37: geometry moved (edit, settings, width) — rebuild the
+        // hover hit cache from the shared capsule geometry.
+        textView.rebuildTokenHitRegions()
     }
 
     /// One metric per LOGICAL source line — the same split the evaluator
@@ -1117,6 +1205,128 @@ final class NotebookTextView: NSTextView {
     /// opacity and center scale of the capsule change.
     var tokenAnimProgress: [Int: Double] = [:]
 
+    // MARK: - Token hover (r37)
+
+    /// r37: the hover publisher — the hit marker's LOCATION (nil = no
+    /// hover). The coordinator joins the location to the sidecar and
+    /// publishes the stable source line ID. Set once by the
+    /// coordinator; never touches layout or editing state.
+    var onHoverLocationChanged: ((Int?) -> Void)?
+    /// The FINAL capsule hit regions of every hoverable (ACTIVE) token,
+    /// in view coordinates, keyed by marker location. Broken/inactive
+    /// markers and the shadow/invalidation halo are excluded — only the
+    /// drawn capsule rect counts. Rebuilt after every layout/state
+    /// change (document coordinates: scroll never invalidates it); a
+    /// mouse move only reads this cache (O(active tokens) contains
+    /// checks — bounded, no glyph work on pointer motion).
+    private(set) var tokenHitRects: [Int: NSRect] = [:]
+    private var hoveredLocation: Int?
+    private var hoverTracking: NSTrackingArea?
+
+    /// Rebuilds the hover hit cache from the SHARED capsule geometry
+    /// (the exact rects the drawing and invalidation use — the three
+    /// can never drift). Idempotent; a hover that no longer lands on a
+    /// live active token (deleted, broke, label change) clears itself.
+    func rebuildTokenHitRegions() {
+        var rects: [Int: NSRect] = [:]
+        for t in tokenDrawStates where t.active {
+            if let g = tokenCapsuleGeometry(location: t.location) {
+                rects[t.location] = g.rect
+            }
+        }
+        tokenHitRects = rects
+        if let h = hoveredLocation, !rects.keys.contains(h) {
+            setHoveredLocation(nil)
+        }
+    }
+
+    /// Re-hits the current system pointer: content scrolled beneath a
+    /// stationary pointer, or the window regained key. Clears when the
+    /// pointer is not over the editor's visible document or the window
+    /// is not key.
+    func refreshHoverHit() {
+        guard let window, window.isKeyWindow else {
+            setHoveredLocation(nil)
+            return
+        }
+        let mouseWindow = window.convertPoint(
+            fromScreen: window.mouseLocationOutsideOfEventStream)
+        guard convert(bounds, to: nil).contains(mouseWindow) else {
+            setHoveredLocation(nil)
+            return
+        }
+        setHoveredLocation(hitLocation(at: convert(mouseWindow, from: nil)))
+    }
+
+    /// Key lost: tracking is inactive while the window is not key, so a
+    /// stationary pointer over a token would otherwise leave a stuck
+    /// outline until the next move.
+    func clearHover() {
+        setHoveredLocation(nil)
+    }
+
+    /// Detach (sheet switch / window close): drop the tracking area and
+    /// clear the hover so no stale callback can outlive the editor —
+    /// the only post-detach publish is this nil clear.
+    func resetHoverForDetach() {
+        if let t = hoverTracking {
+            removeTrackingArea(t)
+            hoverTracking = nil
+        }
+        setHoveredLocation(nil)
+    }
+
+    private func hitLocation(at p: NSPoint) -> Int? {
+        for (loc, r) in tokenHitRects where r.contains(p) {
+            return loc
+        }
+        return nil
+    }
+
+    private func setHoveredLocation(_ location: Int?) {
+        guard location != hoveredLocation else { return }
+        hoveredLocation = location
+        onHoverLocationChanged?(location)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        setHoveredLocation(hitLocation(at: convert(event.locationInWindow, from: nil)))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredLocation(nil)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = hoverTracking {
+            removeTrackingArea(t)
+            hoverTracking = nil
+        }
+        guard window != nil else { return }
+        // Observation ONLY: mouse-moved/entered/exited over the visible
+        // document while the window is key. This area never intercepts
+        // mouseDown, drags, selection, double-clicks, text editing or
+        // scroll (NSTextView's own I-beam/selection tracking is
+        // separate and untouched).
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited,
+                      .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            resetHoverForDetach()
+        }
+    }
+
     // MARK: - Clipboard (answer reference tokens)
 
     /// Copy: the plain string representation replaces every token marker
@@ -1231,63 +1441,81 @@ final class NotebookTextView: NSTextView {
         drawCaret(dirtyRect)
     }
 
+    /// The FINAL capsule geometry of one marker in VIEW coordinates —
+    /// the single geometry source the capsule drawing, the invalidation
+    /// union and the r37 hover hit cache all share (they can never
+    /// drift). The row is the SAME actual row box the caret centers on:
+    /// the marker's fragment plus the measured advance to the next
+    /// fragment (wrapped lines included), fixed line height as fallback;
+    /// the container inset is added exactly once. nil when the location
+    /// is not a live U+FFFC marker glyph.
+    private func tokenCapsuleGeometry(location: Int)
+        -> (rect: NSRect, labelBaseline: CGFloat, radius: CGFloat)? {
+        guard let lm = layoutManager, let tc = textContainer else { return nil }
+        lm.ensureLayout(for: tc)
+        let content = string as NSString
+        guard location >= 0, location < content.length,
+              content.character(at: location) == answerTokenMarkerUTF16 else {
+            return nil
+        }
+        let glyph = lm.glyphIndexForCharacter(at: location)
+        guard glyph != NSNotFound else { return nil }
+        let font = Design.tokenFont(size: (self.font ?? NSFont.systemFont(ofSize: 14)).pointSize)
+        let naturalHeight = font.ascender - font.descender + font.leading
+        let insetY = textContainerInset.height
+        // The reserved glyph advance gives the capsule's x range.
+        let glyphRect = lm.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 1), in: tc
+        )
+        let frag = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        var next: CGRect?
+        var found = false
+        lm.enumerateLineFragments(
+            forGlyphRange: NSMakeRange(0, lm.numberOfGlyphs)
+        ) { rect, _, _, _, stop in
+            if !found, rect.minY > frag.minY + 0.5 {
+                next = rect
+                found = true
+                stop.pointee = true
+            }
+        }
+        let row = CaretGeometry.rowBox(
+            fragment: frag,
+            nextFragment: next,
+            fixedLineHeight: CGFloat(lineHeight)
+        )
+        let g = CaretGeometry.tokenCapsule(
+            rowTop: insetY + row.minY,
+            rowHeight: row.height,
+            ascender: font.ascender,
+            naturalHeight: naturalHeight,
+            capHeight: font.capHeight,
+            x: textContainerOrigin.x + glyphRect.minX,
+            width: glyphRect.width
+        )
+        return (rect: g.rect, labelBaseline: g.labelBaseline, radius: g.cornerRadius)
+    }
+
     /// Paints every token capsule over its marker glyph. The geometry is
-    /// the fixed-row rule shared with the caret and the gutter: the
-    /// capsule is vertically centered in the marker's row and its text
-    /// sits on exactly that row's baseline — so a capsule reads as text
-    /// on the line at every font size and line height.
+    /// the fixed-row rule shared with the caret and the gutter (see
+    /// `tokenCapsuleGeometry`): the capsule is vertically centered in
+    /// the marker's row and its text sits on exactly that row's
+    /// baseline — so a capsule reads as text on the line at every font
+    /// size and line height.
     private func drawTokenCapsules(_ dirtyRect: NSRect) {
         guard !tokenDrawStates.isEmpty,
               let lm = layoutManager, let tc = textContainer else { return }
         lm.ensureLayout(for: tc)
-        let content = string as NSString
         // The SAME label face applyTokenAttachments sized the reserved
         // advance with — width and ink can never disagree.
         let font = Design.tokenFont(size: (self.font ?? NSFont.systemFont(ofSize: 14)).pointSize)
-        let naturalHeight = font.ascender - font.descender + font.leading
-        // The ONE transform the gutter and caret use: the container
-        // inset added exactly ONCE. textContainerOrigin already carries
-        // the container's x position; the y inset is added here and
-        // nowhere else (adding origin AND inset would double-count it).
-        let insetY = textContainerInset.height
         for t in tokenDrawStates {
-            guard t.location >= 0, t.location < content.length,
-                  content.character(at: t.location) == answerTokenMarkerUTF16 else { continue }
-            let glyph = lm.glyphIndexForCharacter(at: t.location)
-            guard glyph != NSNotFound else { continue }
-            // The reserved glyph advance gives the capsule's x range.
-            let glyphRect = lm.boundingRect(
-                forGlyphRange: NSRange(location: glyph, length: 1), in: tc
-            )
-            // The SAME actual row box the caret centers on: the marker's
-            // fragment plus the measured advance to the next fragment
-            // (wrapped lines included), fixed line height as fallback.
-            let frag = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            var next: CGRect?
-            var found = false
-            lm.enumerateLineFragments(
-                forGlyphRange: NSMakeRange(0, lm.numberOfGlyphs)
-            ) { rect, _, _, _, stop in
-                if !found, rect.minY > frag.minY + 0.5 {
-                    next = rect
-                    found = true
-                    stop.pointee = true
-                }
-            }
-            let row = CaretGeometry.rowBox(
-                fragment: frag,
-                nextFragment: next,
-                fixedLineHeight: CGFloat(lineHeight)
-            )
-            let (capRect, labelBaseline, radius) = CaretGeometry.tokenCapsule(
-                rowTop: insetY + row.minY,
-                rowHeight: row.height,
-                ascender: font.ascender,
-                naturalHeight: naturalHeight,
-                capHeight: font.capHeight,
-                x: textContainerOrigin.x + glyphRect.minX,
-                width: glyphRect.width
-            )
+            // The ONE shared geometry: drawing, invalidation and the r37
+            // hover hit cache all resolve through it.
+            guard let g = tokenCapsuleGeometry(location: t.location) else { continue }
+            let capRect = g.rect
+            let labelBaseline = g.labelBaseline
+            let radius = g.radius
             // The invalidation union covers the shadow extent (blur +
             // offset), the border and the sheen.
             guard capRect.insetBy(
@@ -1401,50 +1629,15 @@ final class NotebookTextView: NSTextView {
     /// The union rect (view coordinates) of the capsule geometry of the
     /// given marker locations — the minimal invalidation target of the
     /// appearance tick. Returns nil when no location resolves to a
-    /// drawable capsule.
+    /// drawable capsule. Uses the SAME shared geometry as the drawing.
     func tokenCapsuleUnionRect(locations: Set<Int>) -> NSRect? {
         guard !locations.isEmpty,
               let lm = layoutManager, let tc = textContainer else { return nil }
         lm.ensureLayout(for: tc)
-        let content = string as NSString
-        let font = self.font ?? NSFont.systemFont(ofSize: 14)
-        let naturalHeight = font.ascender - font.descender + font.leading
-        let insetY = textContainerInset.height
         var union: NSRect?
         for loc in locations {
-            guard loc >= 0, loc < content.length,
-                  content.character(at: loc) == answerTokenMarkerUTF16 else { continue }
-            let glyph = lm.glyphIndexForCharacter(at: loc)
-            guard glyph != NSNotFound else { continue }
-            let glyphRect = lm.boundingRect(
-                forGlyphRange: NSRange(location: glyph, length: 1), in: tc)
-            let frag = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            var next: CGRect?
-            var found = false
-            lm.enumerateLineFragments(
-                forGlyphRange: NSMakeRange(0, lm.numberOfGlyphs)
-            ) { rect, _, _, _, stop in
-                if !found, rect.minY > frag.minY + 0.5 {
-                    next = rect
-                    found = true
-                    stop.pointee = true
-                }
-            }
-            let row = CaretGeometry.rowBox(
-                fragment: frag,
-                nextFragment: next,
-                fixedLineHeight: CGFloat(lineHeight)
-            )
-            let (capRect, _, _) = CaretGeometry.tokenCapsule(
-                rowTop: insetY + row.minY,
-                rowHeight: row.height,
-                ascender: font.ascender,
-                naturalHeight: naturalHeight,
-                capHeight: font.capHeight,
-                x: textContainerOrigin.x + glyphRect.minX,
-                width: glyphRect.width
-            )
-            let r = capRect.insetBy(dx: -Design.tokenInvalidationInset, dy: -Design.tokenInvalidationInset)
+            guard let g = tokenCapsuleGeometry(location: loc) else { continue }
+            let r = g.rect.insetBy(dx: -Design.tokenInvalidationInset, dy: -Design.tokenInvalidationInset)
             union = union.map { $0.union(r) } ?? r
         }
         return union

@@ -75,6 +75,28 @@ public enum AnswerBaseline {
             naturalHeight: naturalHeight
         )
     }
+
+    /// r37: the source-answer hover outline geometry for one answer row.
+    /// When a token capsule is hovered, the answer column strokes a
+    /// rounded rectangle around the SOURCE answer. The outline wraps the
+    /// answer's INK: vertically centered on the answer's ink centerline
+    /// (its measured baseline minus half a cap height — the SAME rule the
+    /// editor's caret and gutter share, so the outline and the answer
+    /// text can never disagree about the center), with ONE natural
+    /// line-box height (clamped to the row): a normal single line gets a
+    /// one-line-height outline, and a wrapped source line gets the same
+    /// single-line-height outline aligned to the centered answer — never
+    /// a giant full-block rect and never an empirical y offset.
+    public static func hoverOutline(
+        baseline: CGFloat,
+        rowHeight: CGFloat,
+        naturalHeight: CGFloat,
+        capHeight: CGFloat
+    ) -> (centerY: CGFloat, height: CGFloat) {
+        let center = CaretGeometry.inkCenter(baseline: baseline, capHeight: capHeight)
+        let height = Swift.min(Swift.max(naturalHeight, 1), Swift.max(rowHeight, 1))
+        return (center, height)
+    }
 }
 
 /// Pure mapping between editor line metrics and answer-column row frames.

@@ -31,6 +31,25 @@ struct AnswerColumnView: View {
     /// match the editor exactly (same resolver).
     var fontDesign: StylingFontDesign = .system
     var totalLabel: String
+    /// r37: the source line whose answer is highlighted (a token
+    /// capsule referencing it is hovered). Ephemeral; the outline is a
+    /// pure stroke overlay — it never alters layout, row frames,
+    /// baselines, hit testing or clipping.
+    var highlightedSourceLineIndex: Int? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The result kinds a hovered token may highlight: exactly the
+    /// answerable results the token-active semantics resolve to.
+    /// Blank/title/skip/error/broken/date never outline.
+    private func isHighlightable(_ result: LineResult) -> Bool {
+        switch result {
+        case .number, .variable, .money:
+            return true
+        case .blank, .skip, .title, .date, .brokenToken, .error:
+            return false
+        }
+    }
 
     /// The answer row whose block contains content y `y` (the same
     /// coordinate space the wheel-catcher overlay lives in: row top
@@ -138,17 +157,46 @@ struct AnswerColumnView: View {
                     )
                     ForEach(rows, id: \.sourceLineIndex) { line in
                         let geo2 = rowGeometry(line)
+                        let baseline = baselineOffset(
+                            for: line,
+                            metric: metricByIndex[line.sourceLineIndex],
+                            height: geo2.height
+                        )
                         BaselineAnswerRow(
                             width: geo.size.width,
                             height: geo2.height,
-                            baselineOffset: baselineOffset(
-                                for: line,
-                                metric: metricByIndex[line.sourceLineIndex],
-                                height: geo2.height
-                            )
+                            baselineOffset: baseline
                         ) {
                             AnyView(rowView(line.result))
                         }
+                        // r37: the source-answer hover outline — a
+                        // stroke-only rounded rect centered on the
+                        // SAME measured answer baseline the text sits
+                        // on (AnswerBaseline.hoverOutline), fading in
+                        // over ~0.12 s (immediate under Reduce Motion).
+                        .overlay {
+                            if line.sourceLineIndex == highlightedSourceLineIndex
+                                && isHighlightable(line.result) {
+                                let font = palette.editorFont(size: fontSize)
+                                let o = AnswerBaseline.hoverOutline(
+                                    baseline: baseline,
+                                    rowHeight: geo2.height,
+                                    naturalHeight: font.ascender - font.descender + font.leading,
+                                    capHeight: font.capHeight
+                                )
+                                AnswerHoverOutline(
+                                    width: geo.size.width,
+                                    centerY: o.centerY,
+                                    height: o.height
+                                )
+                                .transition(.opacity)
+                            }
+                        }
+                        .animation(
+                            reduceMotion ? nil : .easeInOut(duration: 0.12),
+                            value: line.sourceLineIndex == highlightedSourceLineIndex
+                                && isHighlightable(line.result)
+                        )
                         .offset(y: geo2.top - topOffset)
                     }
                 }
@@ -356,6 +404,35 @@ extension VerticalAlignment {
     /// Vertical alignment on a view's MEASURED first-text baseline
     /// (falls back to the platform default for views without text).
     static let answerBaseline = VerticalAlignment(AnswerBaseline.self)
+}
+
+/// r37: the source-answer hover outline — a near-full-width rounded
+/// STROKE (no fill) centered on the answer's ink centerline. Pure
+/// overlay: `allowsHitTesting(false)` keeps the wheel bridge and
+/// double-tap path untouched; the geometry (center, one-line height)
+/// comes from `AnswerBaseline.hoverOutline` — the same measured
+/// baseline the answer text is placed on.
+private struct AnswerHoverOutline: View {
+    var width: CGFloat
+    var centerY: CGFloat
+    var height: CGFloat
+
+    var body: some View {
+        RoundedRectangle(
+            cornerRadius: Design.answerHoverCornerRadius,
+            style: .continuous
+        )
+        .stroke(
+            Color(nsColor: Design.caretColor),
+            lineWidth: Design.answerHoverLineWidth
+        )
+        .frame(
+            width: width - Design.answerHoverEdgeInset * 2,
+            height: height
+        )
+        .position(x: width / 2, y: centerY)
+        .allowsHitTesting(false)
+    }
 }
 
 private struct ScrollWheelCatcher: NSViewRepresentable {
