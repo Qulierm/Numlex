@@ -60,6 +60,16 @@ final class AppModel {
         // initialized (calling persist mid-init would touch a half-built
         // model); unchanged stores are never rewritten.
         if migrated { persist() }
+        // r38: re-apply the persisted appearance through the one
+        // controller. The AppDelegate already applied the same value
+        // (the guard makes this a no-op when it did); NSApp exists by
+        // the time the scene builds this model, so the first visible
+        // frame always matches the persisted choice (this init runs on
+        // the main actor — the App struct creates the model there).
+        let appearance = settings.appearance
+        MainActor.assumeIsolated {
+            AppAppearanceController.apply(appearance)
+        }
         // rates loaded on appear
         // Task { await loadRates() } moved to view onAppear
         _ = 0
@@ -371,6 +381,20 @@ final class AppModel {
                                   settings: settings,
                                   version: StorePayload.currentVersion)
         Persistence.save(payload)
+    }
+
+    /// r38: THE one appearance-change path: one settings write, one
+    /// persist, one process-wide application. The SwiftUI scene roots
+    /// and the editor pick the change up from the observable settings
+    /// mutation; the controller handles the NSApp projection.
+    func setAppearance(_ appearance: AppAppearance) {
+        guard appearance != settings.appearance else { return }
+        settings.appearance = appearance
+        persist()
+        // Called from the SwiftUI settings binding — main actor.
+        MainActor.assumeIsolated {
+            AppAppearanceController.apply(appearance)
+        }
     }
 
     /// Loads (and, when stale, refreshes) the currency table through

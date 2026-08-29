@@ -25,6 +25,10 @@ struct NotebookEditor: NSViewRepresentable {
     /// through `NotebookPalette` — the same resolver the settings
     /// preview uses.
     var styling: StylingPreferences
+    /// r38: the app-wide Light/Dark choice (the persisted
+    /// AppSettings.appearance). Drives the deterministic in-place
+    /// re-resolution of the dynamic Design tokens in the TextKit view.
+    var appAppearance: AppAppearance
     /// r33: the GLOBAL user constants, seeded into the syntax
     /// classifier so constant names paint green exactly like declared
     /// names (and constant-driven lines evaluate the same way).
@@ -104,6 +108,7 @@ struct NotebookEditor: NSViewRepresentable {
             decimalPlaces: decimalPlaces,
             inputPrefs: inputPrefs,
             styling: styling,
+            appAppearance: appAppearance,
             constants: constants,
             onPreviousAnswerTrigger: onPreviousAnswerTrigger,
             onScroll: onScroll,
@@ -177,6 +182,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// r21: notebook styling; the palette is derived from it on every
     /// use (cheap struct), so a setting change re-renders immediately.
     private var styling: StylingPreferences = .defaults
+    /// r38: the app-wide Light/Dark choice; a change triggers the
+    /// color-only in-place refresh (no re-layout, no reflow).
+    private var appAppearance: AppAppearance = .light
     /// r33: global constants for the highlight pipeline (cheap struct
     /// copy; a settings edit changes this and re-highlights in place).
     private var constants: [UserConstant] = []
@@ -256,9 +264,11 @@ final class NotebookEditorCoordinator: NSObject {
         // container (gutter included) stays inside the drawable area — the
         // text view clips drawing to the text container.
         tv.textContainerInset = NSSize(width: 0, height: Design.editorTopInset)
-        // r36: the centralized deterministic white editor surface (the
-        // app is permanently Aqua; a dynamic catalog color is avoided so
-        // the surface can never resolve to the dark value).
+        // r38: the centralized deterministic editor surface — explicit
+        // per-appearance sRGB (white in light, the historical near-black
+        // #1E1E1E in dark), resolved through the pinned process
+        // appearance; a system catalog color is avoided so the value is
+        // exactly the palette's.
         tv.backgroundColor = Design.editorBackground
         tv.drawsBackground = true
         tv.isRichText = false
@@ -491,6 +501,7 @@ final class NotebookEditorCoordinator: NSObject {
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
                 inputPrefs: InputPreferences,
                 styling: StylingPreferences,
+                appAppearance: AppAppearance,
                 constants: [UserConstant],
                 onPreviousAnswerTrigger: ((Character, Int) -> Bool)?,
                 onScroll: @escaping (CGFloat) -> Void,
@@ -546,6 +557,12 @@ final class NotebookEditorCoordinator: NSObject {
         // the pipeline), without touching content, selection or caret.
         let constantsChanged = constants != self.constants
         if constantsChanged { self.constants = constants }
+        // r38: a theme switch is a COLOR-ONLY change: the geometry is
+        // untouched (no re-layout, no reflow), but the dynamic Design
+        // tokens must be re-resolved under the new effective appearance
+        // and repainted in place — deterministically, not by hope.
+        let appAppearanceChanged = appAppearance != self.appAppearance
+        if appAppearanceChanged { self.appAppearance = appAppearance }
         if appearanceChanged {
             textView.lineNumbers = lineNumbers
             applyTypography()
@@ -553,6 +570,9 @@ final class NotebookEditorCoordinator: NSObject {
             // document so the answer column's metrics (baselines,
             // row heights, wrapping) follow the new font immediately.
             refreshLayoutAndMetrics()
+        }
+        if appAppearanceChanged {
+            refreshAppearance()
         }
         // The owner may arm a one-shot focus request after the view was
         // created; re-arm and retry while we are (or are about to be)
@@ -616,6 +636,25 @@ final class NotebookEditorCoordinator: NSObject {
         textView.typingAttributes = typingAttrs
         textView.needsDisplay = true
         if !textView.string.isEmpty { highlight() }
+    }
+
+    /// r38: the deterministic theme switch for the TextKit view. The
+    /// process appearance (NSApp.appearance) already changed — this
+    /// re-resolves the dynamic Design tokens under it and repaints IN
+    /// PLACE: the background, the typing attributes and a full
+    /// in-place re-highlight (the storage is restyled, the string is
+    /// never replaced) plus a display invalidation so the gutter,
+    /// caret and token capsule drawing pick up the new colors. The
+    /// string, selection, caret/blink, IME marked text, references,
+    /// token attachments/animation state, hover hit cache, layout
+    /// metrics and scroll offset are all untouched — a color-only
+    /// change causes no geometry change or reflow.
+    private func refreshAppearance() {
+        textView.backgroundColor = Design.editorBackground
+        textView.typingAttributes = typingAttrs
+        highlight()
+        textView.needsDisplay = true
+        scrollView.needsDisplay = true
     }
 
     /// Attributes every new character/paragraph starts with: the chosen

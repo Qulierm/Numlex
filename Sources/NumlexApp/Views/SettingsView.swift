@@ -86,7 +86,7 @@ private struct GeneralSettingsTab: View {
         // two-column layout that shows every control at once in the
         // 720x460 window (and at the 690x460 minimum). Left: rounding
         // + operators. Right: automatic insertions, line numbers +
-        // language, currency attribution. Every surface is exactly one
+        // language + appearance, currency attribution. Every surface is exactly one
         // glass card; section titles sit outside their cards. (The
         // Sheet title control was removed from the UI in r23;
         // AppSettings.sheetName stays in the model for decoding and
@@ -157,7 +157,11 @@ private struct GeneralSettingsTab: View {
                     }
                 }
 
-                // Line numbers + interface language: one card.
+                // Line numbers + interface language + appearance: one
+                // card. The appearance picker is the ONE write path
+                // (model.setAppearance: one settings write, one persist,
+                // one process-wide NSApp.appearance application) — a
+                // direct settings write would skip the live switch.
                 VStack(alignment: .leading, spacing: 10) {
                     SettingToggle(
                         title: L10n.t("linenumber", language: language),
@@ -179,6 +183,23 @@ private struct GeneralSettingsTab: View {
                         .labelsHidden()
                         .pickerStyle(.menu)
                         .frame(width: 84)
+                    }
+                    HStack(spacing: 8) {
+                        Text(L10n.t("appearance", language: language))
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer(minLength: 8)
+                        Picker("", selection: Binding(
+                            get: { model.settings.appearance },
+                            set: { model.setAppearance($0) }
+                        )) {
+                            ForEach(AppAppearance.allCases, id: \.self) { a in
+                                Text(L10n.t(
+                                    a == .light ? "appearanceLight" : "appearanceDark",
+                                    language: language)).tag(a)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
                     }
                 }
                 .settingsCard()

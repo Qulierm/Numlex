@@ -4,6 +4,15 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     case en, ru, de, fr, it, zh
 }
 
+/// r38: the app-wide native appearance. Persisted in the store (the
+/// single source of truth — no separate UserDefaults key). Raw values
+/// are stable (`light`, `dark`); legacy stores without the key decode
+/// to `.light` (the r36 permanent-light behavior), so existing stores
+/// keep behaving exactly as before.
+public enum AppAppearance: String, Codable, CaseIterable, Sendable, Equatable {
+    case light, dark
+}
+
 
 /// The six configurable input behaviors (r19). Nested inside
 /// `AppSettings`; every key is optional on decode, so stores written by
@@ -87,6 +96,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// sheet (never embedded in `.nlx` exports). Source expressions
     /// only — no computed snapshots.
     public var customConstants: [UserConstant]
+    /// r38: the app-wide Light/Dark appearance (persisted; the
+    /// authoritative source for the one NSApp.appearance application).
+    public var appearance: AppAppearance
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -97,7 +109,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = []) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -107,6 +119,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.input = input
         self.styling = styling
         self.customConstants = customConstants
+        self.appearance = appearance
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -127,6 +140,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // at all and fall back to the empty list (StorePayload.version
         // is NOT bumped).
         customConstants = (try? c.decodeIfPresent([UserConstant].self, forKey: .customConstants)) ?? []
+        // r38: additive, key-by-key and failure-proof — a missing key
+        // (legacy store), an invalid raw value or a wrong JSON type all
+        // fall back to `.light` instead of failing the whole store
+        // (StorePayload.version is NOT bumped; nothing is migrated).
+        appearance = (try? c.decodeIfPresent(AppAppearance.self, forKey: .appearance)) ?? .light
     }
 
     public var fontSize: Double {

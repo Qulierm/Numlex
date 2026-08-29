@@ -72,6 +72,7 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         inputPrefs: settings.input,
                         styling: settings.styling,
+                        appAppearance: settings.appearance,
                         constants: settings.customConstants,
                         onPreviousAnswerTrigger: { key, caret in
                             model.insertPreviousAnswer(key: key, at: caret)

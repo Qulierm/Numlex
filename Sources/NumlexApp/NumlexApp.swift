@@ -1,15 +1,18 @@
 import SwiftUI
 
-/// r36: the ONE app-level native appearance source. Numlex is a
-/// permanent light (Aqua) app: every window, menu, popover, the
-/// Settings tab chrome, the liquid-glass surfaces and every AppKit
-/// NSTextView resolve light system colors regardless of the host
-/// system's Light/Dark setting. Setting `NSApp.appearance` once covers
-/// the whole process (AppKit windows, context menus, file panels);
-/// there are no per-view background overrides for appearance.
+/// r38: the app-wide appearance follows the PERSISTED Light/Dark
+/// choice (AppSettings.appearance — the single source of truth, no
+/// duplicate UserDefaults key). The AppDelegate applies the
+/// authoritative persisted value once, before the first visible frame,
+/// through the one AppAppearanceController; user changes re-apply it
+/// live from the model. Every AppKit surface (windows, title bars,
+/// native menus, context menus, popovers, file panels) and every
+/// Liquid Glass surface follows the process appearance; there are no
+/// per-view background overrides for appearance.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.appearance = NSAppearance(named: .aqua)
+        AppAppearanceController.apply(
+            AppAppearanceController.persistedAppearance())
     }
 }
 
@@ -21,10 +24,10 @@ struct NumlexApp: App {
     @State private var model = AppModel()
 
     init() {
-        // The Aqua pin lives in the AppDelegate hook, not here: at this
-        // point NSApplication does not exist yet (NSApp would be nil),
-        // and applicationDidFinishLaunching is the earliest guaranteed
-        // moment for the one app-level appearance source.
+        // The appearance pin lives in the AppDelegate hook, not here: at
+        // this point NSApplication does not exist yet (NSApp would be
+        // nil), and applicationDidFinishLaunching is the earliest
+        // guaranteed moment for the one app-level appearance source.
         // r34: the Settings window's NSWindow FRAME AUTOSAVE persists its
         // frame from the previous session, and AppKit restores it at
         // window creation — BEFORE the SwiftUI restoration behavior and
@@ -38,18 +41,20 @@ struct NumlexApp: App {
             forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
     }
 
-    // The SwiftUI environment color scheme follows the window's effective
-    // appearance, which the app-level Aqua override above makes light;
-    // declaring it on both scene roots keeps SwiftUI-resolved styles
-    // (materials, dynamic text styles) in parity from the very first
-    // frame instead of relying on the live re-resolution alone.
-    private func lightRoot<Content: View>(_ content: Content) -> some View {
-        content.preferredColorScheme(.light)
+    // r38: the SwiftUI side of the one appearance mechanism. Both scene
+    // roots follow the PERSISTED choice (never the host system), and
+    // because the body reads the observable model setting, a user change
+    // re-applies it here live — keeping SwiftUI-resolved styles
+    // (materials, dynamic text styles, glass) in parity with the AppKit
+    // surfaces from the very first frame.
+    private func themedRoot<Content: View>(_ content: Content) -> some View {
+        content.preferredColorScheme(
+            model.settings.appearance == .light ? .light : .dark)
     }
 
     var body: some Scene {
         WindowGroup {
-            lightRoot(ContentView(model: model))
+            themedRoot(ContentView(model: model))
                 // The SwiftUI content minimum must allow the COLLAPSED
                 // window size; the expanded 820pt minimum is enforced
                 // dynamically by WindowConfigurator's window.minSize so the
@@ -98,7 +103,7 @@ struct NumlexApp: App {
         }
 
         Settings {
-            lightRoot(NativeSettingsView(model: model))
+            themedRoot(NativeSettingsView(model: model))
         }
         // r34: the Settings scene used to resurrect its persisted frame
         // from an older (taller) build after every relaunch; with state
