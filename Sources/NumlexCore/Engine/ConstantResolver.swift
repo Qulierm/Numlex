@@ -28,6 +28,25 @@ public enum ConstantResolver {
     public static let maxNameLength = 40
     public static let maxExpressionLength = 256
 
+    // MARK: Generated names
+
+    /// Deterministic name for a fresh constant row: `constant`, then
+    /// `constant_2`, `constant_3`, … — the first candidate whose
+    /// CANONICAL key (case/whitespace-insensitive) is not in `taken`.
+    /// Every generated name satisfies the shared name grammar
+    /// (`NaturalCalculation.naturalLHS`); the r33 `constant 2` scheme
+    /// violated it (a digit-first word), so such rows were born
+    /// invalid. Existing rows are never rewritten by this.
+    public static func generatedConstantName(taken: Set<String>) -> String {
+        if !taken.contains(canonicalNameKey("constant")) { return "constant" }
+        var n = 2
+        while true {
+            let candidate = "constant_\(n)"
+            if !taken.contains(canonicalNameKey(candidate)) { return candidate }
+            n += 1
+        }
+    }
+
     // MARK: Status
 
     /// The stable per-row status. `valid` carries the resolved

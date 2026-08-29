@@ -267,22 +267,19 @@ final class AppModel {
 
     // MARK: Global constants (r33)
 
-    /// Appends a fresh default row (`constant`, `constant 2`, … with
-    /// expression `0`) when under the 100-row limit; returns the new
-    /// row's ID so the view can focus its name field.
+    /// Appends a fresh default row (a grammar-valid generated name —
+    /// `constant`, `constant_2`, … — with expression `0`) when under
+    /// the 100-row limit; returns the new row's ID so the view can
+    /// focus its name field.
     @discardableResult
     func addConstant(after rowID: UUID? = nil) -> UUID? {
         guard settings.customConstants.count < ConstantResolver.maxRows else {
             return nil
         }
         let taken = Set(settings.customConstants.map { canonicalNameKey($0.name) })
-        var n = 2
-        var name = "constant"
-        while taken.contains(canonicalNameKey(name)) {
-            name = "constant \(n)"
-            n += 1
-        }
-        let row = UserConstant(name: name, expression: "0")
+        let row = UserConstant(
+            name: ConstantResolver.generatedConstantName(taken: taken),
+            expression: "0")
         if let rowID, let i = settings.customConstants.firstIndex(where: { $0.id == rowID }) {
             settings.customConstants.insert(row, at: i + 1)
         } else {

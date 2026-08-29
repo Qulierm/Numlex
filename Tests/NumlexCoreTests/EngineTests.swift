@@ -169,4 +169,9 @@ struct EngineTests {
     func r33CustomConstants(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r35Cases)
+    func r35GeneratedConstantNames(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
