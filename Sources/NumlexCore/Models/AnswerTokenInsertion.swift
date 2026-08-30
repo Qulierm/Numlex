@@ -155,3 +155,20 @@ public enum AnswerTokenInsertion {
         )
     }
 }
+
+/// r44: click-count semantics for the answer surface's double-tap.
+///
+/// A rapid stationary multi-click run is delivered by AppKit as a
+/// SINGLE mouse-down sequence with clickCounts 1, 2, 3, 4, 5, ...:
+/// every POSITIVE EVEN count (2, 4, 6, ...) completes exactly one
+/// double-click PAIR and must mint exactly one token; odd counts
+/// (1, 3, 5, ...) are pair STARTS and must never fire. Firing only on
+/// `clickCount == 2` (the r43 behavior) makes the second, third, ...
+/// pair of an unbroken run silently inert, so one answer row appeared
+/// usable only once during the run.
+public enum AnswerDoubleClick {
+    /// True exactly when this clickCount completes a double-click pair.
+    public static func completesPair(at clickCount: Int) -> Bool {
+        clickCount > 0 && clickCount.isMultiple(of: 2)
+    }
+}

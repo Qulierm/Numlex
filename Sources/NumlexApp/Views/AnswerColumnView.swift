@@ -471,10 +471,16 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2, let cb = onDoubleTap {
-                let p = convert(event.locationInWindow, from: nil)
-                cb(bounds.height - p.y)
-            }
+            // Invariant (AnswerDoubleClick.completesPair): a stationary
+            // multi-click run counts 1, 2, 3, 4, ... — every positive
+            // EVEN count completes one double-click pair, so an unbroken
+            // run mints one token per pair (2, 4, 6, ...); odd counts
+            // are pair starts and never fire. No per-pair double fire,
+            // no timers racing the system doubleClickInterval.
+            guard AnswerDoubleClick.completesPair(at: event.clickCount),
+                  let cb = onDoubleTap else { return }
+            let p = convert(event.locationInWindow, from: nil)
+            cb(bounds.height - p.y)
         }
     }
 }

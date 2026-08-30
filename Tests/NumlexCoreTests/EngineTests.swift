@@ -194,4 +194,9 @@ struct EngineTests {
     func r43AnswerTokenAtCaret(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r44Cases)
+    func r44RepeatedSameSourceBubbles(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
