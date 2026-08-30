@@ -18,14 +18,27 @@ import UniformTypeIdentifiers
 /// r39 — Settings is reachable through the system Settings… menu item
 /// and ⌘, only.
 ///
-/// r41: geometry and hover parity. The active/drop tab glass uses the
-/// EXACT `sidebarButtonShape` (rounded-10 continuous) of the sidebar
-/// action controls — no drifting radius literal. A short tab list is
-/// NOT inside any ScrollView (no scroll state, wheel passes through);
-/// only beyond the visible cap does a bounded ScrollView appear. The
-/// hover `+` is driven by per-surface hover tracking with a short
-/// cancellable exit, so crossing label→plus→plus on macOS 26 can never
-/// produce a visible-off frame or a disabled control.
+/// r41: geometry and hover parity. A short tab list is NOT inside any
+/// ScrollView (no scroll state, wheel passes through); only beyond the
+/// visible cap does a bounded ScrollView appear. The hover `+` is driven
+/// by per-surface hover tracking with a short cancellable exit, so
+/// crossing label→plus→plus on macOS 26 can never produce a visible-off
+/// frame or a disabled control.
+///
+/// r42: (a) the active/drop tab glass uses `folderTabShape` — a
+/// radius-7 continuous corner PROPORTIONAL to the compact 26 pt row
+/// (≈0.27 of the row height, matching the reference capture), instead
+/// of the radius-10 `sidebarButtonShape` that made the small row read
+/// as a pill. The action controls (New Sheet / Import / Export) keep
+/// `sidebarButtonShape`, sheet rows keep radius 11. (b) a
+/// zero-footprint `NativeScrollerSuppressor` is attached to both
+/// sidebar ScrollViews: SwiftUI's `.scrollIndicators(.hidden)` is
+/// declarative, but under the system "Always show scroll bars"
+/// preference the backing NSScrollView can still materialize a legacy
+/// scroller with a visible gutter, so the native scroll view is
+/// located (by window-space containment — never the editor's)
+/// and forced scroller-free on mount, every SwiftUI update, and every
+/// layout pass. Scrolling itself is untouched.
 ///
 /// Sheet import/export live in the File menu (NumlexApp commands); the
 /// sidebar carries no file-action row. The background is the native
@@ -88,12 +101,21 @@ struct SidebarView: View {
     private var language: AppLanguage { model.settings.language }
 
     /// The shared top action shape: the rounded-10 continuous rect of
-    /// the original r38 New Sheet button. Folder tabs pass this SAME
-    /// value to their glass, so the active/drop tab pill is mechanically
-    /// identical to the sidebar action controls (r41: no second radius
-    /// literal that could drift).
+    /// the original r38 New Sheet button. Used by the sidebar ACTION
+    /// controls (New Sheet / Import / Export) only.
     private var sidebarButtonShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
+    }
+
+    /// The folder-TAB shape: radius-7 continuous, proportional to the
+    /// compact 26 pt tab row (≈0.27 of the height — the corner/height
+    /// ratio of the reference selection pill). The radius-10 action
+    /// shape on a 26 pt row overshoots that ratio and reads as a pill;
+    /// a radius proportional to the row height keeps the selected tab
+    /// clearly lifted but not capsule. Active and drop-target glass
+    /// both pass this exact value, so hit/content/drop geometry match.
+    private var folderTabShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
     }
 
     /// r40: the VISIBLE-list signature — the sheet ids of the ACTIVE
@@ -171,6 +193,7 @@ struct SidebarView: View {
                 .padding(.vertical, 2)
             }
             .scrollIndicators(.hidden)
+            .background(NativeScrollerSuppressor())
             .frame(maxHeight: .infinity)
             // Any deletion path that removes the row currently being
             // renamed clears the stale rename state.
@@ -292,6 +315,7 @@ struct SidebarView: View {
             }
             .frame(height: Self.tabStripHeight(rows: SheetOrganization.tabVisibleCap))
             .scrollIndicators(.hidden)
+            .background(NativeScrollerSuppressor())
         } else {
             tabRows
                 .frame(height: Self.tabStripHeight(rows: model.folders.count + 1))
@@ -473,15 +497,15 @@ struct SidebarView: View {
             .frame(width: 26, height: 26)
         }
         .frame(height: 26)
-        // The ONE glass layer. r41: the tab glass is the SAME
-        // `sidebarButtonShape` (rounded-10 continuous) as the sidebar
-        // action controls — passed in, not re-literalized. The stronger
-        // tint appears while a sheet drag hovers the tab (drop feedback,
-        // no geometry shift), the regular pill when this tab is the
-        // active filter, no material otherwise.
+        // The ONE glass layer. r42: the tab glass uses `folderTabShape`
+        // (rounded-7 continuous — proportional to the 26 pt row, per
+        // the reference corner ratio; passed in, not re-literalized).
+        // The stronger tint appears while a sheet drag hovers the tab
+        // (drop feedback, no geometry shift), the regular pill when
+        // this tab is the active filter, no material otherwise.
         .modifier(RowGlassModifier(isSelected: model.activeGroup == thisGroup,
                                    isDropTarget: dropTargetGroup == thisGroup,
-                                   shape: sidebarButtonShape))
+                                   shape: folderTabShape))
         // Sheet drags land on tabs (General and folders). The plus stays
         // hidden and non-actionable during a drag (armed requires no
         // drop target), the drop target remains the full row.
@@ -642,10 +666,12 @@ extension UTType {
 
 /// Selection/drop glass. The shape is EXPLICIT so each caller controls
 /// its own corner radius from a single source of truth: sheet rows keep
-/// the radius-11 sidebar-row look, folder tabs pass `sidebarButtonShape`
-/// (radius-10 continuous — the exact shape of the sidebar action
-/// controls), and the drop/selected layers always share the SAME shape
-/// as the hit/content row (r41: no duplicated drifting radius literal).
+/// the radius-11 sidebar-row look, folder tabs pass `folderTabShape`
+/// (radius-7 continuous — proportional to the compact 26 pt row, per
+/// the reference corner ratio; the radius-10 `sidebarButtonShape`
+/// would read as a pill at this height), and the drop/selected layers
+/// always share the SAME shape as the hit/content row (no duplicated
+/// drifting radius literal).
 ///
 /// The LOCAL no-animation transaction is attached to the glass layer
 /// ONLY, never to `content`: the glass appearing/disappearing is a
@@ -775,5 +801,110 @@ private struct RenameField: NSViewRepresentable {
             }
             alreadyHandled = false
         }
+    }
+}
+
+/// r42: zero-footprint native scroller suppression for the two sidebar
+/// ScrollViews.
+///
+/// SwiftUI's `.scrollIndicators(.hidden)` is declarative, but on
+/// macOS 26 with the system "Show scroll bars: Always" preference the
+/// backing NSScrollView can still materialize a legacy scroller and a
+/// visible gutter. This representable attaches behind the scroll view,
+/// locates the NSScrollView that actually owns it, and forces the
+/// scrollers off. It is re-applied on mount (viewDidMoveToWindow +
+/// first layout), on EVERY SwiftUI update (updateNSView), and on every
+/// layout pass (layout) so a later SwiftUI reconfiguration cannot
+/// restore them. There is no polling timer and no private API.
+///
+/// Ownership is resolved by WINDOW-SPACE CONTAINMENT (the scroller whose
+/// frame contains this view), not by ancestry: SwiftUI may place the
+/// representable as a sibling of the NSScrollView, and the window also
+/// hosts the editor's own scroll views, which must never be touched.
+/// The view draws nothing, claims no hits (hitTest → nil), adds no
+/// insets, and has no layout footprint (it is a background layer).
+private struct NativeScrollerSuppressor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        return ScrollerSuppressView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? ScrollerSuppressView)?.suppress()
+    }
+}
+
+private final class ScrollerSuppressView: NSView {
+    private var scroll: NSScrollView?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// Inert by contract: never claim a pointer hit, draw nothing.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // The hierarchy (and thus the owning NSScrollView) may not be
+        // complete at attach time — defer one runloop turn.
+        DispatchQueue.main.async { [weak self] in self?.suppress() }
+    }
+
+    override func layout() {
+        super.layout()
+        suppress()
+    }
+
+    func suppress() {
+        // A cached owner that left the hierarchy (SwiftUI tearing the
+        // scroll view down and rebuilding it) is re-resolved.
+        let cached = scroll
+        let target = (cached != nil && cached!.window == window)
+            ? cached
+            : Self.findOwningScrollView(from: self)
+        guard let target else {
+            // Not attached in a window yet — try again on the next
+            // layout/update pass (no busy loop: this only fires on
+            // real layout or SwiftUI update events).
+            return
+        }
+        scroll = target
+        guard target.hasVerticalScroller || target.hasHorizontalScroller
+                || !target.autohidesScrollers
+                || target.scrollerStyle != .overlay else { return }
+        target.hasVerticalScroller = false
+        target.hasHorizontalScroller = false
+        target.autohidesScrollers = true
+        target.scrollerStyle = .overlay
+    }
+
+    /// Find the NSScrollView whose window-space frame contains the
+    /// given view. Containment (not ancestry) keeps this correct
+    /// whether SwiftUI nests the representable inside the scroll view
+    /// or places it beside it, and it can never select the editor's
+    /// scroll views, which do not spatially contain a sidebar view.
+    private static func findOwningScrollView(from view: NSView) -> NSScrollView? {
+        guard let window = view.window,
+              let content = window.contentView else { return nil }
+        let frameInWindow = view.convert(view.bounds, to: nil)
+        for scroller in collectScrollViews(content) {
+            let f = scroller.convert(scroller.bounds, to: nil)
+            if f.contains(frameInWindow) { return scroller }
+        }
+        return nil
+    }
+
+    private static func collectScrollViews(_ view: NSView) -> [NSScrollView] {
+        var found: [NSScrollView] = []
+        if let scroller = view as? NSScrollView { found.append(scroller) }
+        for sub in view.subviews {
+            found.append(contentsOf: collectScrollViews(sub))
+        }
+        return found
     }
 }
