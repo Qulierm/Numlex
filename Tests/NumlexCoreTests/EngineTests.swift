@@ -184,4 +184,9 @@ struct EngineTests {
     func r40FolderTabs(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r41Cases)
+    func r41TabStripThreshold(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

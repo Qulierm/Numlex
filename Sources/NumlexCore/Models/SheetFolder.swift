@@ -134,4 +134,22 @@ public enum SheetOrganization {
         }
         return folderID == nil ? 0 : folders.count
     }
+
+    // MARK: r41 tab-strip threshold helpers
+
+    /// The number of tab rows the strip renders without any ScrollView:
+    /// General counts as one row, so 5 custom folders fill the cap
+    /// (1 + 5 = 6 total rows) exactly.
+    public static let tabVisibleCap = 6
+
+    /// Whether the bottom tab strip must use its bounded scrolling
+    /// presentation: only when the TOTAL rows (custom folders + 1 for
+    /// General) EXCEED `tabVisibleCap`. At the cap itself the strip is
+    /// still a plain fixed stack — no scroll state, wheel passes
+    /// through. Negative custom counts are rejected safely (treated as
+    /// General-only).
+    public static func tabStripScrolls(customFolderCount: Int) -> Bool {
+        guard customFolderCount >= 0 else { return false }
+        return (customFolderCount + 1) > tabVisibleCap
+    }
 }
