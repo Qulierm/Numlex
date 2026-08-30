@@ -98,8 +98,9 @@ struct NumlexApp: App {
             // The system registers the single Settings… item (⌘,) from the
             // Settings scene automatically; replacing the group here makes
             // macOS 26 render a SECOND item with the same shortcut, which
-            // also makes ⌘, ambiguous. The gear button in the sidebar uses
-            // the environment openSettings action instead.
+            // also makes ⌘, ambiguous. r39: the sidebar gear row is gone
+            // entirely — the system Settings… menu item and ⌘, are the
+            // one entry point to the (single) Settings window.
         }
 
         Settings {

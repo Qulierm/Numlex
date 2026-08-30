@@ -174,4 +174,9 @@ struct EngineTests {
     func r35GeneratedConstantNames(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r39Cases)
+    func r39SidebarFolders(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

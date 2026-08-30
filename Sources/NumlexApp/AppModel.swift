@@ -12,6 +12,15 @@ final class AppModel {
     var sheets: [Sheet] = []
     var selectedIndex: Int = 0
     var settings: AppSettings = .defaults
+    /// r39: one-level sidebar folders (array order = sidebar order).
+    /// Membership lives on Sheet.folderID (nil = General). App-local
+    /// only: never part of `.nlx` exports.
+    var folders: [SheetFolder] = []
+    /// r39: the sidebar container the user last clicked (presentation-
+    /// only, never persisted). It drives the explicit New Sheet
+    /// destination and the reference-style active-container highlight;
+    /// selecting a sheet or deleting the container clears it.
+    var activeGroup: SidebarGroup = .none
     var rates: Rates = Rates()
     var isRatesLoaded = false
 
@@ -46,6 +55,20 @@ final class AppModel {
                 if s.lineIDs.count != s.logicalLineCount || !s.references.isEmpty { migrated = true }
                 return s
             }
+            // r39: additive — pre-r39 payloads carry no folders key
+            // (it decodes []). Corrupt relationships (orphaned
+            // memberships, duplicate folder UUIDs) are repaired ONCE
+            // here, on the way into the model: members are unfiled to
+            // General, content and order untouched; a repair persists
+            // exactly
+            // once through the existing one-shot flag.
+            let (repairedFolders, repairedSheets) = SheetOrganization.sanitize(
+                folders: payload.folders, sheets: sheets)
+            if repairedFolders != payload.folders || repairedSheets != sheets {
+                migrated = true
+            }
+            folders = repairedFolders
+            sheets = repairedSheets
             selectedIndex = min(payload.selectedIndex, max(sheets.count - 1, 0))
         }
         if sheets.isEmpty {
@@ -218,11 +241,25 @@ final class AppModel {
     /// token insertion lands the caret right after the fresh marker.
     var focusCaret: Int?
 
-    func newSheet() {
+    /// Creates a fresh sheet at the TOP of its rendered group. The
+    /// destination is the EXPLICIT group (e.g. the active sidebar
+    /// container from a folder context menu) or, for `.none`, the
+    /// selected sheet's folder (the Cmd-N and default-button path).
+    /// A destination folder that no longer exists unfiles the new sheet
+    /// to General.
+    func newSheet(in group: SidebarGroup = .none) {
+        let dest: UUID?
+        switch group {
+        case .none: dest = selectedSheet?.folderID
+        case .general: dest = nil
+        case .folder(let id): dest = folders.contains { $0.id == id } ? id : nil
+        }
         let seed = "\(settings.sheetName) \(sheets.count + 1)"
-        let sheet = Sheet(title: seed, content: "", createdAt: Date(), modifiedAt: Date())
-        sheets.insert(sheet, at: 0)
-        selectedIndex = 0
+        let sheet = Sheet(title: seed, content: "", createdAt: Date(), modifiedAt: Date(),
+                          folderID: dest)
+        let idx = SheetOrganization.insertionIndex(forGroup: dest, in: sheets)
+        sheets.insert(sheet, at: idx)
+        selectedIndex = idx
         focusSheetID = sheet.id
         persist()
     }
@@ -253,8 +290,12 @@ final class AppModel {
                                            deleteIndex: index,
                                            selectedIndex: selectedIndex) else { return }
         if plan.replacesSoleSheet {
+            // r39: the replacement keeps the deleted sheet's group,
+            // so deleting the sole sheet of a folder leaves a fresh
+            // empty sheet inside that same folder.
+            let folder = sheets[0].folderID
             sheets[0] = Sheet(title: "\(settings.sheetName) 1", content: "",
-                              createdAt: Date(), modifiedAt: Date())
+                              createdAt: Date(), modifiedAt: Date(), folderID: folder)
             selectedIndex = 0
         } else {
             sheets.remove(at: index)
@@ -271,8 +312,68 @@ final class AppModel {
 
     func select(index: Int) {
         guard sheets.indices.contains(index) else { return }
+        // r39: a sheet click returns the visual selection to that sheet
+        // (the active-container highlight clears).
+        if activeGroup != .none { activeGroup = .none }
         selectedIndex = index
         persist()
+    }
+
+    // MARK: Sidebar folders (r39)
+
+    /// The sheets of one rendered group (nil == General) in GLOBAL
+    /// order: the stable (global index, sheet) pairs the sidebar uses.
+    func sheets(in groupID: UUID?) -> [(index: Int, sheet: Sheet)] {
+        Array(sheets.enumerated()).compactMap { idx, sheet in
+            sheet.folderID == groupID ? (idx, sheet) : nil
+        }
+    }
+
+    /// Creates a folder with the generated localized unique name and
+    /// makes it the active container (the view opens its inline rename).
+    @discardableResult
+    func createFolder() -> UUID {
+        let title = SheetOrganization.generatedFolderName(
+            existing: folders.map(\.title), language: settings.language)
+        let folder = SheetFolder(id: UUID(), title: title)
+        folders.append(folder)
+        activeGroup = .folder(folder.id)
+        persist()
+        return folder.id
+    }
+
+    /// Renames a folder by stable ID: whitespace is trimmed and an empty
+    /// result keeps the current title (a folder has no automatic title
+    /// to fall back to). Manual title duplicates are allowed.
+    func renameFolder(id: UUID, to newTitle: String) {
+        guard let i = folders.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != folders[i].title else { return }
+        folders[i].title = trimmed
+        persist()
+    }
+
+    /// Moves one sheet by stable ID into a folder (nil = General). The
+    /// global array order, the selection index/ID and all content are
+    /// untouched — the sheet just re-groups in the sidebar.
+    func moveSheet(id: UUID, to groupID: UUID?) {
+        guard SheetOrganization.moveSheet(&sheets, id: id, to: groupID) else { return }
+        persist()
+    }
+
+    /// Deletes a folder by id and safely unfiles its members to General:
+    /// no sheet is ever deleted, and the selected sheet/editor stay put.
+    func deleteFolder(id: UUID) {
+        guard SheetOrganization.removeFolder(&folders, id: id, sheets: &sheets) else { return }
+        if case .folder(let active) = activeGroup, active == id { activeGroup = .none }
+        persist()
+    }
+
+    /// Marks one container as the active sidebar selection WITHOUT
+    /// touching the editor: selected sheet, index, caret and focus all
+    /// stay exactly where they are.
+    func activate(group: SidebarGroup) {
+        activeGroup = group
     }
 
     // MARK: Global constants (r33)
@@ -379,7 +480,8 @@ final class AppModel {
     func persist() {
         let payload = StorePayload(sheets: sheets, selectedIndex: selectedIndex,
                                   settings: settings,
-                                  version: StorePayload.currentVersion)
+                                  version: StorePayload.currentVersion,
+                                  folders: folders)
         Persistence.save(payload)
     }
 

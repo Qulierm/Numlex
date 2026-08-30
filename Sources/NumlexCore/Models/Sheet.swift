@@ -20,6 +20,10 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     /// Live answer reference tokens (U+FFFC markers + sidecar metadata),
     /// sorted by marker location.
     public var references: [AnswerReference]
+    /// r39: the folder this sheet is filed in (nil = the built-in
+    /// localized General group). App-local only: never part of `.nlx`
+    /// exports (SheetExport deliberately has no folder key).
+    public var folderID: UUID?
 
     public init(id: UUID = UUID(),
                 title: String,
@@ -29,7 +33,8 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
                 isTitleCustom: Bool = false,
                 titleSeed: String? = nil,
                 lineIDs: [UUID] = [],
-                references: [AnswerReference] = []) {
+                references: [AnswerReference] = [],
+                folderID: UUID? = nil) {
         self.id = id
         self.title = title
         self.content = content
@@ -43,11 +48,13 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
             ? lineIDs
             : content.components(separatedBy: "\n").map { _ in UUID() }
         self.references = Sheet.sanitizeReferences(references, in: content)
+        self.folderID = folderID
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, content, createdAt, modifiedAt
         case isTitleCustom, titleSeed, lineIDs, references
+        case folderID
     }
 
     /// Backward-compatible decoding: stores saved before the naming feature
@@ -78,6 +85,10 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
             : content.components(separatedBy: "\n").map { _ in UUID() }
         let storedRefs = try c.decodeIfPresent([AnswerReference].self, forKey: .references) ?? []
         references = Sheet.sanitizeReferences(storedRefs, in: content)
+        // r39: additive and failure-proof — pre-r39 stores carry no
+        // `folderID` key (decode nil = General), and a wrong-typed value
+        // must fall back to General instead of failing the sheet.
+        folderID = (try? c.decodeIfPresent(UUID.self, forKey: .folderID)) ?? nil
     }
 
     /// One entry per logical line (the evaluator's split), including the
