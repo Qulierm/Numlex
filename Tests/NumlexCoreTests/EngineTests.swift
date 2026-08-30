@@ -179,4 +179,9 @@ struct EngineTests {
     func r39SidebarFolders(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r40Cases)
+    func r40FolderTabs(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

@@ -16,10 +16,12 @@ public struct SheetFolder: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-/// r39: the sidebar container the user last clicked (presentation-only,
-/// never persisted): nothing active, the built-in General group or one
-/// custom folder. It drives the explicit New Sheet destination and the
-/// reference-style active-container highlight.
+/// r39 (r40 semantics): the sidebar's ONE active folder filter
+/// (presentation-only, never persisted): the built-in General group or
+/// one custom folder. During normal UI it is always `.general` or
+/// `.folder(validID)` — the upper sheet list shows exactly the sheets
+/// of the active tab. `.none` remains only as a compatibility fallback
+/// (it maps to General everywhere it matters).
 public enum SidebarGroup: Equatable, Sendable {
     case none
     case general
@@ -98,5 +100,38 @@ public enum SheetOrganization {
         }
         folders.removeAll { $0.id == id }
         return true
+    }
+
+    // MARK: r40 tab-filter helpers
+
+    /// The folder ID a sidebar group filters on: the custom folder's id,
+    /// or nil for General (the `.none` fallback maps to General).
+    public static func folderID(of group: SidebarGroup) -> UUID? {
+        if case .folder(let id) = group { return id }
+        return nil
+    }
+
+    /// The global-order sheets of one tab (nil = General): membership
+    /// filtered, order NEVER reordered — the upper list renders exactly
+    /// these pairs (global index + sheet) so selection and deletion keep
+    /// the global guarantees.
+    public static func visibleSheets(_ sheets: [Sheet], folderID: UUID?) -> [Sheet] {
+        sheets.filter { $0.folderID == folderID }
+    }
+
+    /// The index a NEW folder is inserted at when it is created "after"
+    /// a reference tab (the hover-plus insertion order):
+    /// - after General (nil) => 0 — the new folder becomes the FIRST
+    ///   custom folder,
+    /// - after an existing custom folder => immediately after it,
+    /// - after a stale/unknown id => appended at the end (safe fallback;
+    ///   with an empty list that is also 0).
+    public static func folderInsertionIndex(afterID folderID: UUID?,
+                                            in folders: [SheetFolder]) -> Int {
+        if let id = folderID,
+           let i = folders.firstIndex(where: { $0.id == id }) {
+            return i + 1
+        }
+        return folderID == nil ? 0 : folders.count
     }
 }

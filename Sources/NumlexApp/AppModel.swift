@@ -16,11 +16,27 @@ final class AppModel {
     /// Membership lives on Sheet.folderID (nil = General). App-local
     /// only: never part of `.nlx` exports.
     var folders: [SheetFolder] = []
-    /// r39: the sidebar container the user last clicked (presentation-
-    /// only, never persisted). It drives the explicit New Sheet
-    /// destination and the reference-style active-container highlight;
-    /// selecting a sheet or deleting the container clears it.
-    var activeGroup: SidebarGroup = .none
+    /// r40: the sidebar's ONE active folder filter (presentation-only,
+    /// never persisted). During normal UI it is always `.general` or
+    /// `.folder(validID)`; the upper sheet list shows exactly the
+    /// sheets of this tab. It initializes from the restored selection,
+    /// follows sheet selection, is set by tab clicks and New Sheet /
+    /// Import destinations, and repairs to `.general` when its folder
+    /// goes away. `.none` is only a compatibility fallback.
+    var activeGroup: SidebarGroup = .general
+
+    /// The folder ID the active tab filters on (nil = General).
+    var activeGroupID: UUID? { SheetOrganization.folderID(of: activeGroup) }
+
+    /// The tab a sheet membership belongs to: its folder while it still
+    /// exists, General for unfiled or orphaned membership — the filter
+    /// always points at a real, visible tab.
+    func activeGroup(for folderID: UUID?) -> SidebarGroup {
+        if let id = folderID, folders.contains(where: { $0.id == id }) {
+            return .folder(id)
+        }
+        return .general
+    }
     var rates: Rates = Rates()
     var isRatesLoaded = false
 
@@ -83,6 +99,10 @@ final class AppModel {
         // initialized (calling persist mid-init would touch a half-built
         // model); unchanged stores are never rewritten.
         if migrated { persist() }
+        // r40: derive the initial active tab from the restored
+        // selection (General for nil/orphan). Pure presentation state —
+        // no store rewrite for an unchanged store.
+        activeGroup = activeGroup(for: selectedSheet?.folderID)
         // r38: re-apply the persisted appearance through the one
         // controller. The AppDelegate already applied the same value
         // (the guard makes this a no-op when it did); NSApp exists by
@@ -241,16 +261,18 @@ final class AppModel {
     /// token insertion lands the caret right after the fresh marker.
     var focusCaret: Int?
 
-    /// Creates a fresh sheet at the TOP of its rendered group. The
-    /// destination is the EXPLICIT group (e.g. the active sidebar
-    /// container from a folder context menu) or, for `.none`, the
-    /// selected sheet's folder (the Cmd-N and default-button path).
-    /// A destination folder that no longer exists unfiles the new sheet
-    /// to General.
+    /// Creates a fresh sheet at the TOP of its tab. The destination is
+    /// the EXPLICIT group (the folder context menu passes its folder)
+    /// or, by default, the ACTIVE sidebar tab — the top New Sheet
+    /// button and Cmd-N always create where the user is looking, never
+    /// in some stale selected sheet's old group. A destination folder
+    /// that no longer exists unfiles the new sheet to General; the
+    /// created sheet becomes selected and focused and the active tab
+    /// stays the destination.
     func newSheet(in group: SidebarGroup = .none) {
         let dest: UUID?
         switch group {
-        case .none: dest = selectedSheet?.folderID
+        case .none: dest = activeGroupID
         case .general: dest = nil
         case .folder(let id): dest = folders.contains { $0.id == id } ? id : nil
         }
@@ -312,31 +334,37 @@ final class AppModel {
 
     func select(index: Int) {
         guard sheets.indices.contains(index) else { return }
-        // r39: a sheet click returns the visual selection to that sheet
-        // (the active-container highlight clears).
-        if activeGroup != .none { activeGroup = .none }
+        // r40: selecting a visible sheet keeps/sets the matching active
+        // tab — it never clears the filter.
+        activeGroup = activeGroup(for: sheets[index].folderID)
         selectedIndex = index
         persist()
     }
 
-    // MARK: Sidebar folders (r39)
+    // MARK: Sidebar folders (r39, tab-filtered in r40)
 
-    /// The sheets of one rendered group (nil == General) in GLOBAL
-    /// order: the stable (global index, sheet) pairs the sidebar uses.
+    /// The sheets of one tab (nil == General) in GLOBAL order: the
+    /// stable (global index, sheet) pairs the upper list renders, so
+    /// selection and deletion keep their global-index semantics.
     func sheets(in groupID: UUID?) -> [(index: Int, sheet: Sheet)] {
         Array(sheets.enumerated()).compactMap { idx, sheet in
             sheet.folderID == groupID ? (idx, sheet) : nil
         }
     }
 
-    /// Creates a folder with the generated localized unique name and
-    /// makes it the active container (the view opens its inline rename).
+    /// Creates a folder with the generated localized unique name, inserts
+    /// it AFTER the reference tab (General => first custom folder; a
+    /// custom folder => immediately after it; a stale reference =>
+    /// appended), makes the new tab active and returns its id (the view
+    /// opens its inline rename).
     @discardableResult
-    func createFolder() -> UUID {
+    func createFolder(after reference: SidebarGroup = .general) -> UUID {
         let title = SheetOrganization.generatedFolderName(
             existing: folders.map(\.title), language: settings.language)
         let folder = SheetFolder(id: UUID(), title: title)
-        folders.append(folder)
+        let idx = SheetOrganization.folderInsertionIndex(
+            afterID: SheetOrganization.folderID(of: reference), in: folders)
+        folders.insert(folder, at: idx)
         activeGroup = .folder(folder.id)
         persist()
         return folder.id
@@ -363,17 +391,27 @@ final class AppModel {
 
     /// Deletes a folder by id and safely unfiles its members to General:
     /// no sheet is ever deleted, and the selected sheet/editor stay put.
+    /// Deleting the ACTIVE tab switches the filter to General.
     func deleteFolder(id: UUID) {
         guard SheetOrganization.removeFolder(&folders, id: id, sheets: &sheets) else { return }
-        if case .folder(let active) = activeGroup, active == id { activeGroup = .none }
+        if case .folder(let active) = activeGroup, active == id { activeGroup = .general }
         persist()
     }
 
-    /// Marks one container as the active sidebar selection WITHOUT
-    /// touching the editor: selected sheet, index, caret and focus all
-    /// stay exactly where they are.
+    /// Switches the active folder filter WITHOUT touching the editor:
+    /// selected sheet, index, caret, scroll and content all stay exactly
+    /// where they are — only the upper list re-filters.
     func activate(group: SidebarGroup) {
         activeGroup = group
+    }
+
+    /// Repairs the active filter when its folder is gone (e.g. after an
+    /// external store repair): an invalid folder always falls back to
+    /// General.
+    func repairActiveGroup() {
+        if case .folder(let id) = activeGroup, !folders.contains(where: { $0.id == id }) {
+            activeGroup = .general
+        }
     }
 
     // MARK: Global constants (r33)
@@ -463,17 +501,18 @@ final class AppModel {
     }
 
     func importSheet(from url: URL) {
-        guard let data = try? Data(contentsOf: url),
-              let obj = try? JSONDecoder().decode(SheetExport.self, from: data) else { return }
-        sheets.append(makeImportedSheet(obj))
-        selectedIndex = sheets.count - 1
-        persist()
+        guard let data = try? Data(contentsOf: url) else { return }
+        importSheet(data: data)
     }
 
     func importSheet(data: Data) {
         guard let obj = try? JSONDecoder().decode(SheetExport.self, from: data) else { return }
-        sheets.append(makeImportedSheet(obj))
+        let sheet = makeImportedSheet(obj)
+        sheets.append(sheet)
         selectedIndex = sheets.count - 1
+        // r40: imports always land in General and the imported sheet
+        // becomes selected — follow it to the General tab.
+        activeGroup = activeGroup(for: sheet.folderID)
         persist()
     }
 
