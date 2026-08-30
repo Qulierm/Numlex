@@ -1,68 +1,141 @@
 <p align="center">
-  <img src="Assets/AppIcon.iconset/icon_512x512@2x.png?v=20260828-0042" alt="Numlex" width="150px" height="150px"/>
+  <img src="Assets/AppIcon.iconset/icon_512x512.png" alt="Numlex app icon" width="132" height="132"/>
 </p>
 
 <h1 align="center">Numlex</h1>
+
 <p align="center">
-  <img src="Assets/NumlexScreenshot.png" alt="Numlex calculator notebook"/>
+  <img src="https://img.shields.io/github/v/release/Qulierm/Numlex" alt="Latest release"/>
+  <img src="https://img.shields.io/badge/macOS-26%2B-111111" alt="macOS 26 or later"/>
+  <img src="https://img.shields.io/badge/Platform-Apple%20Silicon%20(arm64)-111111" alt="Apple Silicon, arm64"/>
+  <img src="https://img.shields.io/badge/Swift-6.2-F05138" alt="Swift 6.2"/>
 </p>
 
-A simple and elegant notepad-based calculator to create and manage sheets with real-time evaluation of mathematical expressions.
+<p align="center">
+  A notepad calculator: type plain lines, get live, checked results — natural math,
+  variables, percentages, dates, unit and currency conversions, and reusable
+  live answer tokens.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Qulierm/Numlex/releases/latest">Download the latest release</a>
+</p>
+
+<p align="center">
+  <img src="Assets/NumlexScreenshot.png" alt="Numlex in dark mode: a notebook sheet with live results, two answer-token bubbles referencing the same earlier line, and bottom folder tabs for General and a custom Travel folder" width="800"/>
+</p>
+
+## Natural calculations
+
+Numlex reads ordinary notebook text — no formula syntax, no cell references. Each line
+is evaluated strictly; anything it cannot parse stays quiet instead of guessing.
+
+```text
+hotel = 1240      1,240
+hotel + 10%       1,364
+$240 + 10% tip    $264.00
+20 km to meter    20,000 m
+100 C to F        212 F°
+Jan 10 + 12 days  Jan 22
+```
+
+Every line above runs through the real engine — these are its exact, deterministic
+outputs, with no live rates involved. Declare values with `name = expression`, use
+percentages and money with the same grammar (`$240 + 10% tip`), and do date arithmetic
+on plain month names (`Jan 10 + 12 days`).
+
+## Conversions
+
+Write `10 km to meter` — `in` works just as well (`10 km in meter`).
+
+- Around 290 measurement units across length, area, volume, mass, time, speed,
+  pressure, force, torque, energy, power, flow and viscosity, plus temperature and
+  fuel economy.
+- 166 fiat currencies with live rates: codes (`10 EUR to USD`), symbol forms
+  (`$100 in EUR`) and English names (`10 Indian rupees to Japanese yen`).
+- Rates are cached locally for an hour; if the network is unavailable, Numlex keeps
+  serving the last good table.
+
+## Answer tokens
+
+Double-click any answer — or type an operator on a new line — and Numlex inserts a
+live token at the caret or selection. A token is a small bubble that always displays
+the current value of its source line: change the source and the bubble updates
+immediately. Several distinct bubbles may reuse the same earlier line — each keeps its
+own identity and follows the live value, as in the screenshot above. If a source line
+stops evaluating, its tokens stay in place and show the remembered `Line N` label
+instead of a stale number.
+
+## Sheets and folders
+
+Work in named sheets with line numbers, syntax tinting and a live results column.
+Sheets are grouped by the one-level folder tabs pinned to the bottom of the sidebar:
+the built-in **General** tab plus any custom folders you create. Selecting a tab
+filters the sheet list only — your editor and cursor never jump.
+
+## Styling and constants
+
+Choose Light or Dark for the whole app, then tune font size, font design and role
+colors, decimal places, input helpers, line numbers, interface language and the
+currency display. Define up to 100 app-wide constants (`PI = 3.141592653589793`,
+`Sales Tax = 20%`) that are available in every sheet and resolved live through the
+same strict engine.
+
+## Files and storage
+
+Sheets persist locally in Application Support, and the only network traffic is the
+background rates refresh. Import and export any sheet as a `.nlx` file from the File
+menu, and drag a sheet onto a folder tab to re-file it.
 
 ## Download
 
-Get the latest release from the [GitHub releases page](https://github.com/Qulierm/Numlex/releases/latest).
-
 - macOS 26 or later, Apple Silicon (arm64).
-- The current release is ad-hoc signed and not notarized. On the first launch, Control-click (or right-click) `Numlex.app` and choose **Open** to bypass the Gatekeeper warning.
-
-## Architecture
-
-Numlex is a native **Swift 6 / SwiftUI** macOS app (macOS 26, Liquid Glass). The calculation engine is a pure, evaluation-free domain parser in `Sources/NumlexCore` — no scripting, no web view.
-
-- `Sources/NumlexCore/Engine/` — tokenizer, parser and evaluator. Grammar: parentheses, decimal numbers, unary `+`/`-`, `+ - * / ^ %` (postfix percent), variables and `name = expression` assignments, headings (`// Title`), `#` notes. Strict errors instead of silent coercion; rounding respects settings.
-- `Sources/NumlexCore/Engine/Conversions.swift` — unit conversions (`10 km to meter`, `100 C to F`, …) and fiat-currency conversion (166 live codes, `10 EUR in USD`, `$100 to EUR`, `10 rupees in yen`) via `Rates`.
-- `Sources/NumlexCore/Engine/CurrencyPresentation.swift` — the ONE currency marker table: input markers (`$`, `€`, `Rp`, `zł`, `Kč`, `CN¥`, …), output symbols and ISO-4217 minor digits, shared by every parser path.
-- `Sources/NumlexCore/Engine/ConstantResolver.swift` — the pure resolver for user constants: name validation, reserved names, case/whitespace duplicates, topological dependency resolution with cycle detection and strict expression evaluation (money values keep their single ISO code; no unit stripping, no word fallback).
-- `Sources/NumlexCore/Services/` — JSON persistence in Application Support, live rates from the open.er-api.com endpoint (cached 1 h, 8 s timeout, offline-safe).
-- `Sources/NumlexCore/Localization.swift` — interface translations (en/ru/de/it/fr/ch).
-- `Sources/NumlexApp/` — SwiftUI app: sidebar with sheet management (create, rename, delete, import/export `.nlx`), native `NSTextView` notebook editor with line numbers and syntax tinting, live results column with row alignment, settings scene (language, font size, line spacing, decimal places, rates).
-
-## Supported conversions
-
-`<number> <unit> to <unit>` (or `in`): temperature, fuel economy (`km/L`, `US mpg`, `L/100km`, `mi/L`, `gal/100mi` — reciprocal crossings are exact), and ~290 measurement units across length (incl. hand, furlong, US survey foot, angstrom, pica), area, volume (incl. bbl, bushel, metric cup), mass (incl. slug, troy oz, cwt), time (Gregorian average `yr`/`mo`, common/Julian year), speed (knot, Mach, `c₀`), pressure (at, psf, mmH2O), force (ozf, kip, poundal), torque (N·cm, ozf·in), energy (erg, t TNT, quad, hph), power (TR, boiler/electric hp), flow (cfm, UK gpm, US mgd) and viscosity (Pa·s, cP, St, reyn).
-
-Currency: 166 fiat codes with live rates (crypto and precious metals are out of scope). Codes (`10 EUR to USD`), safe output symbols (`Rp25000`, `zł100`, `2.5K$`, `₩500`) and English names for the major currencies (`10 Indian rupees to Japanese yen`) all work in the conversion grammar; display uses the shared presentation (`$600.00`, ISO-code fallback, ISO-4217 minor digits — 0 for JPY/KRW/VND/CLP/…, 3 for BHD/KWD/…, 4 for CLF).
-
-## Custom constants
-
-Settings → **Constants**: up to 100 user-defined named values (`PI = 3.141592653589793`, `Sales Tax = 20%`, `Monthly Rent = $2,500`) available in EVERY sheet. Names are 1–6 words (case/whitespace-insensitive), may reference each other in any order (cycles are detected per row), and evaluate with the strict engine — no unit stripping, no word fallback. Constants are immutable: `PI = 3` shows a `Cannot assign to constant` error in every sheet, token route included. They persist with the app settings (never embedded in `.nlx` exports), paint green in the editor, and feed the live-result pipeline: sheet evaluation, answer tokens, previous-answer insertion, auto-titling and syntax highlighting all resolve them through the same pure resolver.
-
-## Prerequisites
-
-- macOS 26 with Xcode Command Line Tools (`xcode-select --install`)
-- Swift 6 toolchain
-
-## Build
+- Download the `.dmg` from the [latest release](https://github.com/Qulierm/Numlex/releases/latest),
+  open it, and drag **Numlex.app** into Applications.
+- Numlex is ad-hoc signed and **not notarized**. On first launch, Control-click (or
+  right-click) **Numlex.app**, choose **Open**, and confirm the prompt.
+- Verify your download with the checksums file from the same release:
 
 ```sh
-swift build            # debug
-swift build -c release # release
+shasum -a 256 -c SHA256SUMS
 ```
 
-## Tests
+## Build from source
 
-The engine test suite is registered with Swift Testing (`Tests/NumlexCoreTests`) and shares all 489 cases with a standalone runner (`Tests/NumlexTestKit`).
+Requires macOS 26 with the Swift 6.2 toolchain; Xcode Command Line Tools are enough
+(`xcode-select --install`).
 
 ```sh
-swift test             # Swift Testing suite (full Xcode toolchain)
-swift run NumlexTests  # standalone runner — works with Command Line Tools only
+swift build               # debug
+swift build -c release    # release
 ```
 
-## Package a .app bundle
+The engine suite covers 489 shared cases, runnable two ways:
 
 ```sh
-Scripts/build-app.sh [debug|release]
+swift test                # Swift Testing suite (full Xcode toolchain)
+swift run NumlexTests     # standalone runner (Command Line Tools only)
 ```
 
-Produces `.build/Numlex.app` (signed with an ad-hoc identity) and prints its path.
+Package a signed app bundle:
+
+```sh
+Scripts/build-app.sh [debug|release]   # produces .build/Numlex.app
+```
+
+<details>
+<summary>Architecture</summary>
+
+- **Native UI** — SwiftUI on top of TextKit (`NSTextView`) with line numbers, syntax
+  tinting and per-line answer alignment. No web view and no scripting engine —
+  expressions run through the pure Swift parser.
+- **`Sources/NumlexCore`** — a pure, deterministic parser: tokenizer,
+  recursive-descent expression parser, unit catalog, currency presentation, date
+  arithmetic and the live reference-token resolver. Strict errors instead of silent
+  coercion.
+- **Persistence** — one JSON store in `~/Library/Application Support/Numlex`; `.nlx`
+  import/export per sheet.
+- **Rates** — fetched from `open.er-api.com`, cached for one hour with an 8-second
+  timeout; the last good table keeps serving when offline.
+
+</details>
