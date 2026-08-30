@@ -160,42 +160,39 @@ final class AppModel {
         persist()
     }
 
-    /// Double-click on a successful answer: append ONE token on its own
-    /// new final logical line — occupying an existing trailing blank
-    /// line when present, otherwise adding a newline first. The token
-    /// references the source line by STABLE ID; `labelLine` remembers
-    /// the 1-based line number for the inactive `Line N` label. The caret
-    /// lands right after the token.
-    func insertToken(sourceLineIndex: Int) {
+    /// Double-click on a successful answer: insert ONE token at the
+    /// editor's CURRENT caret/selection — exactly like typing at the
+    /// caret. A collapsed caret inserts the marker in place; a non-empty
+    /// selection is replaced by the single marker; NO newline is ever
+    /// added. The token references the clicked source line by STABLE ID;
+    /// `labelLine` remembers the 1-based line number for the inactive
+    /// `Line N` label. The caret lands right after the token.
+    ///
+    /// `selection` is the live NSTextView selection (UTF-16) snapshotted
+    /// from the current editor bridge. `nil` (no live editor) or an
+    /// invalid/stale range is a deterministic no-op: nothing is
+    /// persisted, retitled, focused, or animated.
+    func insertToken(sourceLineIndex: Int, selection: NSRange?) {
+        guard let selection else { return }
         guard sheets.indices.contains(selectedIndex) else { return }
-        var sheet = sheets[selectedIndex]
-        guard sheet.lineIDs.indices.contains(sourceLineIndex) else { return }
-        let content = sheet.content
-        var newContent: String
-        var lineIDs = sheet.lineIDs
-        if content.isEmpty || content.hasSuffix("\n") {
-            // The final logical line is blank: it becomes the token line.
-            newContent = content + String(answerTokenMarker)
-        } else {
-            newContent = content + "\n" + String(answerTokenMarker)
-            lineIDs.append(UUID())
-        }
-        let location = (newContent as NSString).length - 1
-        var refs = sheet.references
-        refs.append(AnswerReference(
-            sourceLineID: sheet.lineIDs[sourceLineIndex],
-            labelLine: sourceLineIndex + 1,
-            location: location
-        ))
-        sheet.content = newContent
-        sheet.lineIDs = lineIDs
-        sheet.references = Sheet.sanitizeReferences(refs, in: newContent)
-        sheet.modifiedAt = Date()
-        sheets[selectedIndex] = Sheet.retitled(sheet, content: newContent,
+        let sheet = sheets[selectedIndex]
+        guard let plan = AnswerTokenInsertion.plan(
+            content: sheet.content,
+            lineIDs: sheet.lineIDs,
+            references: sheet.references,
+            sourceLineIndex: sourceLineIndex,
+            selection: selection
+        ) else { return }
+        var s = sheet
+        s.content = plan.content
+        s.lineIDs = plan.lineIDs
+        s.references = plan.references
+        s.modifiedAt = Date()
+        sheets[selectedIndex] = Sheet.retitled(s, content: plan.content,
                                                constants: settings.customConstants)
         persist()
-        focusSheetID = sheet.id
-        focusCaret = location + 1
+        focusSheetID = s.id
+        focusCaret = plan.caret
     }
 
     /// The "insert previous answer" input helper (r19): when the user

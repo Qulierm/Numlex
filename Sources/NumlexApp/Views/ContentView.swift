@@ -25,6 +25,72 @@ struct ContentView: View {
     @State private var sidebarWidth: CGFloat = 190
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// r43: mint an answer token at the editor's CURRENT caret/selection.
+    /// The live selection is snapshotted from the bridge IMMEDIATELY (the
+    /// double-tap must never move it first) and tagged with the sheet the
+    /// bridge is bound to: a stale bridge (sheet switch), a missing one
+    /// (not attached yet), or IME marked text is a no-op — a late or
+    /// cross-sheet event can never mint a token on the wrong sheet, and
+    /// nothing is ever appended as a fallback. A method (not an inline
+    /// multi-statement closure) keeps `body` inside the type-checker's
+    /// budget without changing the view tree.
+    private func answerDoubleTap(lineIndex: Int,
+                                 sheetID: Sheet.ID?,
+                                 bridge: NotebookEditorCoordinator?) {
+        guard let sheetID,
+              let range = bridge?.selectionSnapshot(sheetID: sheetID) else { return }
+        model.insertToken(sourceLineIndex: lineIndex, selection: range)
+    }
+
+    /// r43: the editor construction for the detail pane, extracted as a
+    /// method ONLY to keep `body` inside the type-checker's budget — the
+    /// emitted view tree is identical to the inline initializer.
+    private func editorView(sheet: Sheet?,
+                            settings: AppSettings,
+                            resolved: (lines: [SheetLine], tokens: [TokenResolution])) -> some View {
+        let binding = Binding<String>(
+            get: { sheet?.content ?? "" },
+            set: { model.updateContent($0, edit: nil) }
+        )
+        return NotebookEditor(
+            text: binding,
+            sheetID: sheet?.id,
+            fontSize: settings.fontSize,
+            lineHeight: settings.lineHeight,
+            lineNumbers: settings.lineNumbers,
+            rates: model.rates,
+            decimalPlaces: settings.decimalPlaces,
+            inputPrefs: settings.input,
+            styling: settings.styling,
+            appAppearance: settings.appearance,
+            constants: settings.customConstants,
+            onPreviousAnswerTrigger: { key, caret in
+                model.insertPreviousAnswer(key: key, at: caret)
+            },
+            onScroll: { offset in
+                // Raw native offset: negative values are the
+                // elastic overscroll at the top and must show
+                // through on the answer column while they last.
+                topOffset = offset
+            },
+            onLayout: { m in metrics = m },
+            onTextChange: { text, edit in model.updateContent(text, edit: edit) },
+            tokenStates: resolved.tokens,
+            tokenRefs: sheet?.references ?? [],
+            onPasteReferences: { refs in model.addReferences(refs) },
+            focusRequestID: model.focusSheetID,
+            focusPosition: model.focusCaret,
+            onFocusConsumed: { model.focusSheetID = nil; model.focusCaret = nil },
+            onReady: { bridge in editorBridge = bridge },
+            onTokenHoverChanged: { id in hoveredSourceID = id }
+        )
+        .id(sheet?.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // r36: the ONE centralized editor surface token —
+        // the SwiftUI host matches the NSTextView exactly.
+        .background(Color(nsColor: Design.editorBackground))
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
@@ -48,10 +114,6 @@ struct ContentView: View {
                 GeometryReader { _ in
                     let settings = model.settings
                     let sheet = model.selectedSheet
-                    let binding = Binding<String>(
-                        get: { sheet?.content ?? "" },
-                        set: { model.updateContent($0, edit: nil) }
-                    )
                     // Reference-aware evaluation: the SAME one-row-per-
                     // logical-line result as before, plus the live state
                     // of every token marker the editor renders.
@@ -63,42 +125,10 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants
                     )
-                    NotebookEditor(
-                        text: binding,
-                        fontSize: settings.fontSize,
-                        lineHeight: settings.lineHeight,
-                        lineNumbers: settings.lineNumbers,
-                        rates: model.rates,
-                        decimalPlaces: settings.decimalPlaces,
-                        inputPrefs: settings.input,
-                        styling: settings.styling,
-                        appAppearance: settings.appearance,
-                        constants: settings.customConstants,
-                        onPreviousAnswerTrigger: { key, caret in
-                            model.insertPreviousAnswer(key: key, at: caret)
-                        },
-                        onScroll: { offset in
-                            // Raw native offset: negative values are the
-                            // elastic overscroll at the top and must show
-                            // through on the answer column while they last.
-                            topOffset = offset
-                        },
-                        onLayout: { m in metrics = m },
-                        onTextChange: { text, edit in model.updateContent(text, edit: edit) },
-                        tokenStates: resolved.tokens,
-                        tokenRefs: sheet?.references ?? [],
-                        onPasteReferences: { refs in model.addReferences(refs) },
-                        focusRequestID: model.focusSheetID,
-                        focusPosition: model.focusCaret,
-                        onFocusConsumed: { model.focusSheetID = nil; model.focusCaret = nil },
-                        onReady: { bridge in editorBridge = bridge },
-                        onTokenHoverChanged: { id in hoveredSourceID = id }
-                    )
-                    .id(sheet?.id)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // r36: the ONE centralized editor surface token —
-                    // the SwiftUI host matches the NSTextView exactly.
-                    .background(Color(nsColor: Design.editorBackground))
+                    // r43: the editor view (identical tree; the
+                    // initializer is a method for the type-checker's
+                    // budget).
+                    editorView(sheet: sheet, settings: settings, resolved: resolved)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -139,7 +169,9 @@ struct ContentView: View {
                         editorBridge?.forwardScrollWheel(event)
                     },
                     onAnswerDoubleTap: { lineIndex in
-                        model.insertToken(sourceLineIndex: lineIndex)
+                        answerDoubleTap(lineIndex: lineIndex,
+                                        sheetID: model.selectedSheet?.id,
+                                        bridge: editorBridge)
                     },
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,

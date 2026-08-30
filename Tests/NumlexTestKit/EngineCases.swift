@@ -11,6 +11,12 @@ public struct CaseFailure: Error, CustomStringConvertible {
         self.message = message
         self.location = location
     }
+
+    /// Convenience for case bodies that throw a failure directly.
+    public init(message: String,
+                file: String = #fileID, line: Int = #line) {
+        self.init(message: message, location: "\(file):\(line)")
+    }
     public var description: String { "\(message) at \(location)" }
 }
 

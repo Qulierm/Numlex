@@ -12,6 +12,11 @@ import SwiftUI
 /// so the gutter shares the editor's background and has no divider.
 struct NotebookEditor: NSViewRepresentable {
     var text: Binding<String>
+    /// r43: the sheet this editor instance is bound to. The representable
+    /// is recreated per sheet (`.id(sheet.id)`), so the coordinator can
+    /// tag live snapshots (selections) with this identity and callers can
+    /// reject a stale bridge from a previous sheet.
+    var sheetID: Sheet.ID?
     var fontSize: Double
     var lineHeight: Double
     var lineNumbers: Bool
@@ -74,6 +79,7 @@ struct NotebookEditor: NSViewRepresentable {
 
     func makeCoordinator() -> NotebookEditorCoordinator {
         NotebookEditorCoordinator(
+            sheetID: sheetID,
             fontSize: fontSize,
             lineHeight: lineHeight,
             lineNumbers: lineNumbers,
@@ -101,6 +107,7 @@ struct NotebookEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.update(
             text: text.wrappedValue,
+            sheetID: sheetID,
             fontSize: fontSize,
             lineHeight: lineHeight,
             lineNumbers: lineNumbers,
@@ -130,6 +137,15 @@ struct NotebookEditor: NSViewRepresentable {
 final class NotebookEditorCoordinator: NSObject {
     let scrollView: NSScrollView
     let textView: NotebookTextView
+    /// r43: the sheet ID this coordinator instance is bound to (set on
+    /// every update; the coordinator is recreated per sheet via
+    /// `.id(sheet.id)`).
+    private(set) var sheetID: Sheet.ID?
+    /// r43: true after the FIRST text sync in this coordinator's
+    /// lifetime. The first sync is the sheet LOAD (a fresh coordinator
+    /// starts with an empty text view); every later sync is a same-sheet
+    /// programmatic edit and must preserve the scroll position.
+    private var hasSyncedContent = false
     var onScroll: (CGFloat) -> Void
     var onLayout: (LineMetrics) -> Void
     var onTextChange: (String, NotebookEdit?) -> Void
@@ -209,7 +225,8 @@ final class NotebookEditorCoordinator: NSObject {
     private var keyResignObserver: NSObjectProtocol?
     private var keyBecomeObserver: NSObjectProtocol?
 
-    init(fontSize: Double, lineHeight: Double, lineNumbers: Bool,
+    init(sheetID: Sheet.ID?,
+         fontSize: Double, lineHeight: Double, lineNumbers: Bool,
          rates: Rates, decimalPlaces: Int,
          styling: StylingPreferences,
          onScroll: @escaping (CGFloat) -> Void,
@@ -223,6 +240,7 @@ final class NotebookEditorCoordinator: NSObject {
          onFocusConsumed: @escaping () -> Void,
          onReady: (NotebookEditorCoordinator) -> Void,
          onTokenHoverChanged: ((UUID?) -> Void)? = nil) {
+        self.sheetID = sheetID
         self.fontSize = fontSize
         self.lineHeight = lineHeight
         self.lineNumbers = lineNumbers
@@ -497,7 +515,25 @@ final class NotebookEditorCoordinator: NSObject {
         }
     }
 
-    func update(text: String, fontSize: Double, lineHeight: Double,
+    /// r43: a bounds-validated snapshot of the LIVE selection in UTF-16,
+    /// or `nil` when this coordinator is not bound to `sheetID` (stale
+    /// bridge after a sheet switch), when the text view has no window,
+    /// or while IME marked text is active (minting a token inside a
+    /// live composition would corrupt it — the deterministic safe
+    /// behavior is a no-op, never a mid-composition insertion).
+    func selectionSnapshot(sheetID: Sheet.ID) -> NSRange? {
+        guard self.sheetID == sheetID, textView.window != nil else { return nil }
+        if textView.hasMarkedText() { return nil }
+        let sel = textView.selectedRange()
+        let len = (textView.string as NSString).length
+        guard sel.location >= 0, sel.length >= 0,
+              sel.location <= len,
+              sel.length <= len - sel.location else { return nil }
+        return sel
+    }
+
+    func update(text: String, sheetID: Sheet.ID?,
+                fontSize: Double, lineHeight: Double,
                 lineNumbers: Bool, rates: Rates, decimalPlaces: Int,
                 inputPrefs: InputPreferences,
                 styling: StylingPreferences,
@@ -514,6 +550,7 @@ final class NotebookEditorCoordinator: NSObject {
                 focusPosition: Int?,
                 onFocusConsumed: @escaping () -> Void,
                 onTokenHoverChanged: ((UUID?) -> Void)?) {
+        self.sheetID = sheetID
         self.inputPrefs = inputPrefs
         self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
         self.onScroll = onScroll
@@ -575,26 +612,69 @@ final class NotebookEditorCoordinator: NSObject {
             refreshAppearance()
         }
         // The owner may arm a one-shot focus request after the view was
-        // created; re-arm and retry while we are (or are about to be)
-        // attached to a window.
+        // created; re-arm here — the ACTUAL caret placement happens in
+        // the post-sync consume below, so it is always validated against
+        // the FINAL content (consuming before the text sync would clamp
+        // a post-insertion caret to the OLD length).
         if let id = focusRequestID {
             pendingFocusID = id
             pendingFocusPosition = focusPosition
-            if scrollView.window != nil { tryConsumeFocus() }
         }
         if text != textView.string {
-            let selection = textView.selectedRanges
+            // The FIRST text sync in this coordinator's lifetime is the
+            // sheet LOAD (a fresh coordinator per sheet via
+            // `.id(sheet.id)`, starting with an empty text view): new
+            // content, empty selection, and the document starts at the
+            // top. Every LATER sync is a same-sheet programmatic edit
+            // (answer-token insertion, previous answer): install the
+            // final content, PRESERVE the scroll position, and let the
+            // pending focus request (consumed below) own the caret — a
+            // bubble minted at a scrolled caret must never jump the
+            // document to the top.
+            let isLoad = !hasSyncedContent
+            hasSyncedContent = true
+            let previousSelection = textView.selectedRanges
             textView.string = text
-            textView.selectedRanges = selection
-            // Sheet switches load pre-migrated content. This bypasses
-            // shouldChangeTextIn, so no insertion flag is armed and the
-            // load is never treated as a user edit.
+            // AppKit contract: NSTextView.selectedRanges must NEVER be
+            // empty (an empty assignment throws
+            // "+[NSSelectionArray newWithArray:]: no ranges") — a "no
+            // selection" is ONE zero-length range at a valid position.
+            if isLoad {
+                textView.selectedRanges = [NSValue(range: NSRange(location: 0, length: 0))]
+            } else if pendingFocusID == nil {
+                // No focus request supersedes: keep the pre-edit
+                // selection ONLY while it is still fully in bounds — a
+                // programmatic replacement can shorten the text, and
+                // restoring an out-of-bounds range would corrupt the
+                // editor state (AppKit exception territory). Out of
+                // bounds: collapse to the nearest valid caret.
+                let len = (text as NSString).length
+                if let r = previousSelection.first?.rangeValue {
+                    if r.location <= len, r.location + r.length <= len {
+                        textView.selectedRanges = [NSValue(range: r)]
+                    } else {
+                        textView.selectedRanges = [NSValue(
+                            range: NSRange(location: min(max(r.location, 0), len), length: 0))]
+                    }
+                } else {
+                    // No prior selection at all: caret at the top.
+                    textView.selectedRanges = [NSValue(
+                        range: NSRange(location: 0, length: 0))]
+                }
+            }
+            // This sync bypasses shouldChangeTextIn, so no insertion flag
+            // is armed and it is never treated as a user edit.
             highlight()
             refreshLayoutAndMetrics()
-            // Sheet switches carry new content back to the top.
-            let clip = scrollView.contentView
-            let delta = -clip.bounds.origin.y
-            if abs(delta) > 0.5 { clip.scroll(NSPoint(x: 0, y: delta)) }
+            if isLoad {
+                // Sheet switches load into a FRESH coordinator: every
+                // new sheet starts at the top. Same-sheet edits keep the
+                // clip where the user scrolled (the caret stays visible,
+                // and the focus request below lands it exactly).
+                let clip = scrollView.contentView
+                let delta = -clip.bounds.origin.y
+                if abs(delta) > 0.5 { clip.scroll(NSPoint(x: 0, y: delta)) }
+            }
             lastText = text
         } else if statesChanged {
             // Content identical, token states fresh: rebuild the capsule
@@ -610,6 +690,14 @@ final class NotebookEditorCoordinator: NSObject {
             // line in place (constant names turn green, constant-driven
             // lines re-evaluate) — string, selection and caret stay.
             highlight()
+        }
+        // r43: consume the one-shot focus request AFTER the text sync,
+        // so the caret position is validated against the FINAL content
+        // length and supersedes whatever stale selection the sync set
+        // above. Consumed exactly once (pendingFocusID clears inside),
+        // and the text view becomes first responder exactly once.
+        if pendingFocusID != nil, scrollView.window != nil {
+            tryConsumeFocus()
         }
     }
 

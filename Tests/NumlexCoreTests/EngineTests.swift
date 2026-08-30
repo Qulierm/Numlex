@@ -189,4 +189,9 @@ struct EngineTests {
     func r41TabStripThreshold(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r43Cases)
+    func r43AnswerTokenAtCaret(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
