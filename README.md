@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="Assets/NumlexScreenshot.png" alt="Numlex in dark mode: a notebook sheet with live results, two answer-token bubbles referencing the same earlier line, and bottom folder tabs for General and a custom Travel folder" width="800"/>
+  <img src="Assets/NumlexScreenshot.png" alt="Numlex in dark mode: a Lisbon trip budget with variable assignments and live results, two answer-token bubbles reusing the same earlier line, a live currency conversion, and General, Travel and Personal folder tabs at the bottom of the sidebar" width="800"/>
 </p>
 
 ## Natural calculations
