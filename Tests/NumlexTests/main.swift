@@ -7,7 +7,7 @@ import NumlexTestKit
 //
 //     swift run NumlexTests
 
-let allCases = engineCases + sheetCases + syntaxCases + formatCases + settingsCases + caretCases + baselineCases + spaceTypingCases + conversionCases + deletionCases + overflowCases + answerReferenceCases + unitCatalogCases + richConversionCases + rateTableCases + rateServiceCases + moneyCases + dateCases + moneyAssignmentCases + r18Cases + r18FormatCases + r18AnimationCases + r19OperatorCases + r19GroupCases + r19PrevAnswerCases + r19IdentityCases + r19SettingsCases + r19RefFixCases + windowGeometryCases + stylingCases + syntaxRoleCases + r32Cases + r33Cases + r35Cases + r37Cases + r38Cases + r39Cases + r40Cases + r41Cases + r43Cases + r44Cases + r47Cases
+let allCases = engineCases + sheetCases + syntaxCases + formatCases + settingsCases + caretCases + baselineCases + spaceTypingCases + conversionCases + deletionCases + overflowCases + answerReferenceCases + unitCatalogCases + richConversionCases + rateTableCases + rateServiceCases + moneyCases + dateCases + moneyAssignmentCases + r18Cases + r18FormatCases + r18AnimationCases + r19OperatorCases + r19GroupCases + r19PrevAnswerCases + r19IdentityCases + r19SettingsCases + r19RefFixCases + windowGeometryCases + stylingCases + syntaxRoleCases + r32Cases + r33Cases + r35Cases + r37Cases + r38Cases + r39Cases + r40Cases + r41Cases + r43Cases + r44Cases + r47Cases + r48Cases
 var failures = 0
 for testCase in allCases {
     do {

@@ -373,6 +373,9 @@ final class NotebookEditorCoordinator: NSObject {
         let pos = min(pendingFocusPosition ?? 0, (textView.string as NSString).length)
         textView.setSelectedRange(NSRange(location: max(0, pos), length: 0))
         window.makeFirstResponder(textView)
+        // r48: the focus-request caret placement re-resolves the pair
+        // (token insertion lands the caret right after the marker).
+        textView.refreshBracketHighlight()
         notifyConsumed()
     }
 
@@ -389,8 +392,11 @@ final class NotebookEditorCoordinator: NSObject {
             stopAppearanceTick()
             // Detach (sheet switch / window close): drop tracking and
             // clear the hover so a stale callback can never outlive the
-            // editor (the only post-detach publish is a nil clear).
+            // editor (the only post-detach publish is a nil clear), and
+            // clear the bracket highlight the same way (its pulse tick
+            // is cancelled inside).
             textView.resetHoverForDetach()
+            textView.clearBracketHighlight()
             if pendingFocusID != nil {
                 pendingFocusID = nil
                 notifyConsumed()
@@ -666,6 +672,11 @@ final class NotebookEditorCoordinator: NSObject {
             // is armed and it is never treated as a user edit.
             highlight()
             refreshLayoutAndMetrics()
+            // r48: programmatic text sync and selectedRanges restoration
+            // re-resolve the pair against the FINAL content and the
+            // restored selection (a text shortening that kills the
+            // previous pair clears it here, synchronously).
+            textView.refreshBracketHighlight()
             if isLoad {
                 // Sheet switches load into a FRESH coordinator: every
                 // new sheet starts at the top. Same-sheet edits keep the
@@ -685,11 +696,18 @@ final class NotebookEditorCoordinator: NSObject {
             // not re-entered, so this can only run once per commit.
             highlight()
             refreshLayoutAndMetrics()
+            // r48: capsule label width shifts following glyphs and
+            // wrapping — re-resolve (usually a same-pair no-op) so the
+            // overlay geometry tracks the relayout.
+            textView.refreshBracketHighlight()
         } else if constantsChanged {
             // Content identical, constants changed: re-classify every
             // line in place (constant names turn green, constant-driven
             // lines re-evaluate) — string, selection and caret stay.
             highlight()
+            // r48: no geometry change, but re-resolving is a cheap
+            // same-pair no-op that keeps the pair consistent.
+            textView.refreshBracketHighlight()
         }
         // r43: consume the one-shot focus request AFTER the text sync,
         // so the caret position is validated against the FINAL content
@@ -1117,6 +1135,10 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
                 self.textView.caretLine = Self.caretLineIndex(of: self.textView)
                 self.highlight()
                 self.refreshLayoutAndMetrics()
+                // r48: re-resolve on the FINAL post-autoformat content
+                // (a typed closing bracket lands after the canonical
+                // format pass — the pair must follow the caret there).
+                self.textView.refreshBracketHighlight()
                 self.lastText = canonical
                 self.onTextChange(canonical, edit)
                 self.handlePasteReferences(edit: edit, oldText: oldText, final: canonical)
@@ -1127,6 +1149,7 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.highlight()
             self.refreshLayoutAndMetrics()
+            self.textView.refreshBracketHighlight()
             self.lastText = new
             self.onTextChange(new, edit)
             self.handlePasteReferences(edit: edit, oldText: oldText, final: new)
@@ -1280,6 +1303,11 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
             guard let sender, self.textView === sender else { return }
             self.textView.caretLine = Self.caretLineIndex(of: self.textView)
             self.textView.needsDisplay = true
+            // r48: caret/selection changes re-resolve the pair
+            // synchronously (arrows, clicks, drags, keyboard
+            // selection). A nonempty drag selection or an out-of-caret
+            // state falls through to a clear inside the refresh.
+            self.textView.refreshBracketHighlight()
         }
     }
 
@@ -1451,6 +1479,231 @@ final class NotebookTextView: NSTextView {
         super.viewDidMoveToWindow()
         if window == nil {
             resetHoverForDetach()
+            clearBracketHighlight()
+        }
+    }
+
+    // MARK: - Matching-bracket highlight (r48)
+
+    /// The current matching-bracket pair (UTF-16 document offsets), or
+    /// nil. Presentation-only: computed from the live text + collapsed
+    /// selection, never persisted, and never fed back to the model.
+    var bracketPair: BracketPair?
+    /// Pure clock-injected pulse state (one bounded ~0.33 s pass per
+    /// PAIR CHANGE; same-pair notifications never replay; nil clears).
+    var bracketPulse = BracketPulseState()
+    /// One-shot chained 1/60 s tick while a pulse is in flight (common
+    /// run-loop mode). The chain self-terminates on settle, clear, or
+    /// detach — no perpetual timer survives.
+    private var bracketTick: Timer?
+
+    /// Synchronous, presentation-only refresh of the matching-bracket
+    /// highlight. Active only while THIS view is the first responder
+    /// with exactly one collapsed, valid selection and no marked text;
+    /// any drag/nonempty selection, IME start, focus loss, sheet switch
+    /// or text change falls through to a clear. The match is resolved
+    /// O(current line) from the shared pure model; a pair CHANGE starts
+    /// (or, under Reduce Motion, immediately settles) one bounded pulse
+    /// and invalidates exactly the union of the old and new overlay
+    /// rects (plus the pulse inset) — never the whole document. The
+    /// same pair (incidental redraw, theme switch, caret blink, repeated
+    /// selection notification) is a no-op: no replay, no repaint.
+    func refreshBracketHighlight() {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        var newPair: BracketPair? = nil
+        if window?.firstResponder === self,
+           !hasMarkedText(),
+           selectedRange().length == 0 {
+            newPair = BracketHighlight.pair(document: string, selection: selectedRange())
+        }
+        let oldRects = bracketOverlayRects()
+        let event = bracketPulse.notify(
+            newPair,
+            now: ProcessInfo.processInfo.systemUptime,
+            reduceMotion: reduceMotion
+        )
+        bracketPair = newPair
+        guard event != .unchanged else {
+            stopBracketTickIfNeeded(settled: newPair != nil)
+            return
+        }
+        bracketInvalidate(oldRects + bracketOverlayRects())
+        if event == .started {
+            startBracketTick()
+        } else {
+            stopBracketTick()
+        }
+    }
+
+    /// Explicit clear (resign first responder, detach, window loss):
+    /// drop the pair and the pulse state, cancel the tick, and erase
+    /// exactly the overlay rects that were painted.
+    func clearBracketHighlight() {
+        guard bracketPair != nil else {
+            stopBracketTick()
+            return
+        }
+        let rects = bracketOverlayRects()
+        bracketPair = nil
+        bracketPulse = BracketPulseState()
+        stopBracketTick()
+        bracketInvalidate(rects)
+    }
+
+    /// The ONE shared glyph-local geometry source for the bracket
+    /// overlay: drawing, pulse scale and invalidation all resolve the
+    /// exact bracket glyph rect (view coordinates) through here, so
+    /// they can never drift. Container coordinates (the bounding rect
+    /// includes the line-fragment padding and the paragraph indent) are
+    /// translated by the text-container origin and inset exactly once;
+    /// wrapped fragments fall out for free because the rect is per
+    /// glyph. nil for out-of-bounds locations or unmapped glyphs — the
+    /// U+FFFC attachment geometry is never touched (a marker can never
+    /// be a bracket).
+    func bracketGlyphRect(_ loc: Int) -> NSRect? {
+        guard let lm = layoutManager, let tc = textContainer else { return nil }
+        lm.ensureLayout(for: tc)
+        let content = string as NSString
+        guard loc >= 0, loc < content.length else { return nil }
+        let glyph = lm.glyphIndexForCharacter(at: loc)
+        guard glyph != NSNotFound, glyph < lm.numberOfGlyphs else { return nil }
+        let r = lm.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 1), in: tc
+        )
+        guard r.width > 0, r.height > 0 else { return nil }
+        return NSRect(
+            x: textContainerOrigin.x + r.minX,
+            y: textContainerInset.height + r.minY,
+            width: r.width,
+            height: r.height
+        )
+    }
+
+    /// The pulse-inset overlay rects of the CURRENT pair in view
+    /// coordinates (empty when there is no pair) — the exact minimal
+    /// invalidation target.
+    func bracketOverlayRects() -> [NSRect] {
+        guard let pair = bracketPair else { return [] }
+        var rects: [NSRect] = []
+        for loc in [pair.opening, pair.closing] {
+            guard let r = bracketGlyphRect(loc) else { continue }
+            rects.append(r.insetBy(
+                dx: -Design.bracketInvalidationInset,
+                dy: -Design.bracketInvalidationInset
+            ))
+        }
+        return rects
+    }
+
+    private func bracketInvalidate(_ rects: [NSRect]) {
+        for r in rects { setNeedsDisplay(r) }
+    }
+
+    /// The pulse tick: one 1/60 s chain, common run-loop mode. Each
+    /// frame expires the pure state and repaints EXACTLY the current
+    /// pair's overlay rects; when the pass settles the chain stops with
+    /// one final static-state repaint of those same rects. A stale tick
+    /// can never repaint a prior pair: the closure always reads the
+    /// LATEST state, and a pair change/clear re-arms or cancels the
+    /// chain synchronously inside refresh/clear.
+    private func startBracketTick() {
+        stopBracketTick()
+        scheduleBracketTick()
+    }
+
+    private func scheduleBracketTick() {
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.bracketTickFrame() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        bracketTick = timer
+    }
+
+    private func bracketTickFrame() {
+        bracketPulse.expire(now: ProcessInfo.processInfo.systemUptime)
+        let rects = bracketOverlayRects()
+        if bracketPulse.isAnimating {
+            bracketInvalidate(rects)
+            scheduleBracketTick()
+        } else {
+            stopBracketTick()
+            bracketInvalidate(rects)   // final settled repaint, exact rects
+        }
+    }
+
+    private func stopBracketTick() {
+        bracketTick?.invalidate()
+        bracketTick = nil
+    }
+
+    /// Defensive settle: when a same-pair notification arrives while a
+    /// pass already finished on a previous frame (progress nil but the
+    /// tick not yet expired), cancel any stray timer without touching
+    /// the highlighted pair.
+    private func stopBracketTickIfNeeded(settled: Bool) {
+        if !bracketPulse.isAnimating { stopBracketTick() }
+    }
+
+    /// Paints the two matching-bracket overlays. Draw order stays
+    /// background/text (super), bracket overlay, token capsules, gutter,
+    /// custom caret. Each overlay is a rounded, pixel-aligned
+    /// glyph-local rect (the shared `bracketGlyphRect` geometry, padded
+    /// by the Design constants, scaled about its own center by the pure
+    /// pulse curve) filled with the centralized caret/reference accent
+    /// plus a 1 pt even-odd ring. The opening mate composes a slightly
+    /// stronger alpha than the closing/anchor in both the pulse peak and
+    /// the settled state. The fill never repaints the glyph ink: the
+    /// chosen alphas (peak ≤ 0.58) keep the base-text bracket clearly
+    /// readable on both the white and the near-black surfaces — no
+    /// ink wash-out, no attribute or layout change.
+    private func drawBracketHighlights(_ dirtyRect: NSRect) {
+        guard let pair = bracketPair,
+              let lm = layoutManager, let tc = textContainer else { return }
+        lm.ensureLayout(for: tc)
+        let progress = bracketPulse.progress(at: ProcessInfo.processInfo.systemUptime)
+        let scale = BracketHighlight.scale(progress: progress)
+        let weight = BracketHighlight.pulseWeight(progress: progress)
+        let accent = Design.bracketAccent
+        for (loc, role) in [(pair.opening, BracketPair.Role.opening),
+                            (pair.closing, BracketPair.Role.closing)] {
+            guard let base = bracketGlyphRect(loc) else { continue }
+            var r = base.insetBy(dx: -Design.bracketHPadding, dy: -Design.bracketVPadding)
+            if scale != 1 {
+                r = CGRect(
+                    x: r.midX - r.width * scale / 2,
+                    y: r.midY - r.height * scale / 2,
+                    width: r.width * scale,
+                    height: r.height * scale
+                )
+            }
+            // Pixel-align the painted rect so the 1 pt ring lands on the
+            // pixel grid (the fill is even-odd, so no stroke phase).
+            let w = max(r.width.rounded(), 2)
+            let h = max(r.height.rounded(), 2)
+            let rect = NSRect(x: r.minX.rounded(), y: r.minY.rounded(), width: w, height: h)
+            guard rect.insetBy(
+                dx: -Design.bracketInvalidationInset,
+                dy: -Design.bracketInvalidationInset
+            ).intersects(dirtyRect) else { continue }
+            let radius = min(w, h) * Design.bracketRadiusFactor
+            let staticA = role == .opening
+                ? Design.bracketOpeningFillAlpha : Design.bracketClosingFillAlpha
+            let peakA = role == .opening
+                ? Design.bracketOpeningPeakFillAlpha : Design.bracketClosingPeakFillAlpha
+            let ringA = role == .opening
+                ? Design.bracketOpeningRingAlpha : Design.bracketClosingRingAlpha
+            accent.withAlphaComponent(staticA + (peakA - staticA) * weight).setFill()
+            let outer = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            outer.fill()
+            let inner = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 1, dy: 1),
+                xRadius: max(0, radius - 1), yRadius: max(0, radius - 1)
+            )
+            let ring = outer.copy() as! NSBezierPath
+            ring.append(inner)
+            ring.windingRule = .evenOdd
+            accent.withAlphaComponent(ringA).setFill()
+            ring.fill()
         }
     }
 
@@ -1558,6 +1811,10 @@ final class NotebookTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        // r48: the bracket overlay sits between the text and the token
+        // capsules (background/text → bracket overlay → capsules →
+        // gutter → caret).
+        drawBracketHighlights(dirtyRect)
         drawTokenCapsules(dirtyRect)
         // v2: the empty new sheet already has a line, so the gutter draws
         // for every document — drawLineNumbers handles the empty case
@@ -1834,6 +2091,9 @@ final class NotebookTextView: NSTextView {
                 }
             }
             startCaretBlink()
+            // r48: regaining focus with a caret on a bracket re-resolves
+            // the pair (a focus loss cleared it).
+            refreshBracketHighlight()
         }
         return ok
     }
@@ -1846,6 +2106,9 @@ final class NotebookTextView: NSTextView {
                 NotificationCenter.default.removeObserver(observer)
                 selectionObserver = nil
             }
+            // r48: focus loss clears the highlight immediately (no
+            // bracket pair is shown while the editor is not focused).
+            clearBracketHighlight()
             // Erase a drawn caret now that the view has lost focus.
             setNeedsDisplay(bounds)
         }

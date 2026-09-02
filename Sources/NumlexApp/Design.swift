@@ -158,6 +158,52 @@ enum Design {
         return medium
     }
 
+    // MARK: Matching-bracket highlight (r48)
+
+    /// The ONE accent for matching brackets: the existing caret/reference
+    /// blue #3478F7 (Design.caretColor) — constant across appearances, no
+    /// new color introduced. The per-appearance alphas below are the only
+    /// tuning knobs, resolved at draw time through the pinned process
+    /// appearance (the app sets NSApp.appearance centrally, so the branch
+    /// is deterministic).
+    static var bracketAccent: NSColor { caretColor }
+
+    /// Resolves a scalar design value for the CURRENT effective appearance
+    /// (the same pinned-appearance rule every adaptive token uses).
+    static func resolve(light: CGFloat, dark: CGFloat) -> CGFloat {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? dark : light
+    }
+
+    /// Settled (static) fill alpha of the bracket overlay while the caret
+    /// stays adjacent — quiet, Xcode-like. The OPENING mate reads
+    /// slightly stronger than the closing/anchor, which must still read
+    /// clearly on both surfaces.
+    static var bracketOpeningFillAlpha: CGFloat { resolve(light: 0.30, dark: 0.34) }
+    static var bracketClosingFillAlpha: CGFloat { resolve(light: 0.24, dark: 0.28) }
+    /// Peak fill alpha at the START of the one ~0.33 s pulse (the pure
+    /// curve in NumlexCore decays this back to the static level).
+    static var bracketOpeningPeakFillAlpha: CGFloat { resolve(light: 0.52, dark: 0.58) }
+    static var bracketClosingPeakFillAlpha: CGFloat { resolve(light: 0.42, dark: 0.48) }
+    /// Settled 1 pt ring (even-odd annulus fill) alpha — a quiet outline
+    /// that stays legible on white and near-black alike.
+    static var bracketOpeningRingAlpha: CGFloat { resolve(light: 0.50, dark: 0.60) }
+    static var bracketClosingRingAlpha: CGFloat { resolve(light: 0.40, dark: 0.50) }
+    /// Glyph-local overlay padding (pt) — a tight halo around the bracket
+    /// glyph itself, never a whole-line bar.
+    static let bracketHPadding: CGFloat = 1.5
+    static let bracketVPadding: CGFloat = 1.0
+    /// Corner radius as a fraction of the overlay's smaller dimension:
+    /// proportional and continuous at every font size (a 3 pt overlay
+    /// reads as ~0.7 pt rounding, a 20 pt one as ~4.8 pt) — clearly a
+    /// rounded rect, never a pill.
+    static let bracketRadiusFactor: CGFloat = 0.24
+    /// Invalidation inset around an overlay: covers the pulse's maximum
+    /// scale excursion (0.86 start → 1.015 overshoot → 1) plus the
+    /// padding and ring, so the tick's minimal invalidation can never
+    /// clip the painted shape.
+    static let bracketInvalidationInset: CGFloat = 4
+
     // MARK: Source-answer hover outline (r37)
 
     /// Hovering an ACTIVE answer-token capsule strokes a rounded
