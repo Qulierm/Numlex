@@ -359,7 +359,8 @@ public enum SyntaxClassifier {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         for m in matches(#"[A-Za-z_]\w*"#, in: ns)
-        where variables[ns.substring(with: m)] != nil && (lhsRange == nil || m != lhsRange) {
+        where variables[ns.substring(with: m)] != nil && (lhsRange == nil || m != lhsRange)
+        && !isBuiltinCallHead(at: m, in: ns) {
             spans.append(SyntaxSpan(role: .variable, range: m))
         }
         return spans
@@ -376,7 +377,8 @@ public enum SyntaxClassifier {
         for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
-        for m in matches(#"[A-Za-z_]\w*"#, in: ns) where variables[ns.substring(with: m)] != nil {
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns)
+        where variables[ns.substring(with: m)] != nil && !isBuiltinCallHead(at: m, in: ns) {
             spans.append(SyntaxSpan(role: .variable, range: m))
         }
         return spans
@@ -402,10 +404,23 @@ public enum SyntaxClassifier {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         for m in matches(#"[A-Za-z_]\w*"#, in: ns)
-        where m.location > eqRange.location && variables[ns.substring(with: m)] != nil {
+        where m.location > eqRange.location && variables[ns.substring(with: m)] != nil
+        && !isBuiltinCallHead(at: m, in: ns) {
             spans.append(SyntaxSpan(role: .variable, range: m))
         }
         return spans
+    }
+
+    /// r47: whether the identifier at `range` is a KNOWN builtin in
+    /// call position (optional whitespace then `(`). Such a name is
+    /// grammar, not a variable reference — it stays base text even
+    /// when a same-named variable or constant exists (the builtin wins
+    /// at the call head, so painting it green would mislead).
+    private static func isBuiltinCallHead(at range: NSRange, in ns: NSString) -> Bool {
+        guard MathFunctions.isKnown(ns.substring(with: range)) else { return false }
+        var k = NSMaxRange(range)
+        while k < ns.length, ns.character(at: k) == 0x20 { k += 1 }
+        return k < ns.length && ns.character(at: k) == 0x28
     }
 
     // MARK: - r21 grammar spans (operators, specifiers, labels)

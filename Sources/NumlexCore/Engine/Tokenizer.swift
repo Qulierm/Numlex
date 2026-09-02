@@ -5,6 +5,8 @@ public enum Token: Equatable, Sendable {
     case identifier(String)
     case op(String)       // + - * / ^ % (× canonicalizes to *, ÷ to /)
     case paren(String)    // ( )
+    case comma            // r47: argument separator (grouping commas are
+                          // stripped by the function-aware normalization)
 }
 
 public enum TokenizeError: Error, LocalizedError {
@@ -48,6 +50,15 @@ public func tokenize(_ expr: String) throws -> [Token] {
         }
         if "+-*/^%".contains(ch) {
             tokens.append(.op(String(ch)))
+            i = expr.index(after: i)
+            continue
+        }
+        if ch == "," {
+            // r47: commas survive tokenization only inside function
+            // argument lists (the function-aware normalization strips
+            // grouping commas and drops every comma outside a call,
+            // exactly like the legacy behavior).
+            tokens.append(.comma)
             i = expr.index(after: i)
             continue
         }

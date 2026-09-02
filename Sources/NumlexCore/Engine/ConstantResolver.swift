@@ -9,8 +9,9 @@ import Foundation
 ///
 /// Accepted values (the existing strict expression/money grammar, NO
 /// blind word stripping):
-/// - finite unitless scalars: `3.141592653589793`, `(1 + sqrt-like)`
-///   anything the shared expression engine evaluates;
+/// - finite unitless scalars: `3.141592653589793`, `(1 + 2) × 4`,
+///   `sqrt(2) × PI` — anything the shared expression engine evaluates
+///   (r47: the built-in math functions are available as arguments);
 /// - percentages: `20%` (postfix percent, a plain scalar 0.2);
 /// - single-fiat-code money: `$2,500`, `CA$100`, `Rp25000`, `€50 + 5`;
 /// - references to other (eventually valid) constants, in ANY row
@@ -334,6 +335,17 @@ public enum ConstantResolver {
                 || NaturalCalculation.neutralWords.contains(lower)
                 || NaturalCalculation.timeWords.contains(lower) {
                 continue
+            }
+            // r47: a builtin call head is grammar, never a free word:
+            // `R = sqrt(4)` must not read `sqrt` as an unknown reference,
+            // and a same-named constant used in call position is the
+            // builtin (the constant still works in non-call positions).
+            if MathFunctions.isKnown(lower) {
+                var k = NSMaxRange(m.range)
+                while k < full.length, ns.character(at: k) == 0x20 || ns.character(at: k) == 0x09 {
+                    k += 1
+                }
+                if k < full.length, ns.character(at: k) == 0x28 { continue }
             }
             return (pending, true)
         }

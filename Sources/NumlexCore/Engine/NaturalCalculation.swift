@@ -199,6 +199,11 @@ public enum NaturalCalculation {
         guard !codes.isEmpty else { return .none }
         // Two different currencies are never silently combined.
         guard codes.count == 1, let code = codes.first else { return .malformed }
+        // r47: a money line carrying a function call is REJECTED — a
+        // currency must never be preserved through sqrt/log/... (no
+        // implicit stripping, no currency conversion). Hidden generic
+        // error, exactly like the other malformed money shapes.
+        if FunctionCalls.hasCallHead(line) { return .malformed }
 
         // --- Clean the expression ---------------------------------------
         var cleaned = line

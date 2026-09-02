@@ -11,6 +11,17 @@ public enum ParseError: Error, LocalizedError {
     case unexpectedToken(String)
     case unexpectedCharacter(String)
     case invalidNumber(String)
+    // r47: function-call syntax failures (deterministic, strict — a
+    // function-shaped input never falls back to a parenthesized operand).
+    case unknownFunction(String)
+    case functionArity(name: String, got: Int, min: Int, max: Int)
+    case functionEmptyArgs(String)
+    case functionTrailingComma
+    case functionDoubleComma
+    case functionMissingComma
+    /// A deterministic function DOMAIN/non-finite failure carried with
+    /// its stable message (the registry's `MathFunctionError`).
+    case functionError(String)
     public var errorDescription: String? {
         switch self {
         case .emptyExpression: return "Empty expression"
@@ -23,6 +34,16 @@ public enum ParseError: Error, LocalizedError {
         case .unexpectedToken(let s): return "Unexpected token '\(s)'"
         case .unexpectedCharacter(let s): return "Unexpected character '\(s)'"
         case .invalidNumber(let s): return "Invalid number '\(s)'"
+        case .unknownFunction(let n): return "Unknown function '\(n)'"
+        case .functionArity(let n, let got, let min, let max):
+            if min == max { return "\(n) expects exactly \(min) \(min == 1 ? "argument" : "arguments") (got \(got))" }
+            if max == .max { return "\(n) expects at least \(min) arguments (got \(got))" }
+            return "\(n) expects \(min) ... \(max) arguments (got \(got))"
+        case .functionEmptyArgs(let n): return "\(n)() takes at least 1 argument"
+        case .functionTrailingComma: return "Trailing comma in function arguments"
+        case .functionDoubleComma: return "Unexpected comma in function arguments"
+        case .functionMissingComma: return "Missing comma between function arguments"
+        case .functionError(let s): return s
         }
     }
 }
@@ -48,6 +69,10 @@ indirect enum Expr: Sendable {
     case percent(Expr)
     /// The bounded percent infix: `15% of 490` = 0.15 × 490.
     case of(Expr, Expr)
+    /// r47: a builtin math function call. `name` is the LOWER-CASED
+    /// registry name; arguments are full expressions (comma-separated,
+    /// parsed with the shared precedence rules).
+    case funcall(String, [Expr])
 }
 
 /// A parsed value plus its contextual-percentage flag. Only a postfix
@@ -61,7 +86,12 @@ struct EvalValue: Sendable {
 public func evaluateExpression(_ expr: String, variables: [String: Double]) throws -> Double {
     let trimmed = expr.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty { throw ParseError.emptyExpression }
-    let tokens = try tokenize(trimmed)
+    // r47: normalize FIRST (idempotent — the line routes normalize
+    // before calling, and re-normalizing a normalized string is a
+    // no-op): commas outside calls are grouping artifacts and are
+    // stripped, commas inside calls keep the shared separator rule.
+    // The direct API and the line routes therefore always agree.
+    let tokens = try tokenize(normalizeExprCorrect(trimmed))
     var pos = 0
     func peek() -> Token? { pos < tokens.count ? tokens[pos] : nil }
     func consume() -> Token { let t = tokens[pos]; pos += 1; return t }
@@ -126,7 +156,24 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
             node = .num(v)
         case .identifier(let name):
             _ = consume()
-            node = .variable(name)
+            // r47: call position. The tokenizer already skips
+            // whitespace, so an identifier token directly followed by a
+            // `(` token is `name(` or `name (` — a call head. A KNOWN
+            // builtin takes precedence over any same-named variable or
+            // constant ONLY here; in every non-call position the
+            // identifier stays an ordinary variable lookup. An UNKNOWN
+            // name in call position is strict — a deterministic
+            // "unknown function" error, never a parenthesized operand.
+            if let next = peek(), case .paren("(") = next {
+                if MathFunctions.isKnown(name) {
+                    node = try parseFunctionCall(name)
+                } else {
+                    _ = consume()
+                    throw ParseError.unknownFunction(name)
+                }
+            } else {
+                node = .variable(name)
+            }
         case .paren("("):
             _ = consume()
             node = try parseExpression()
@@ -144,6 +191,55 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
             node = .percent(node)
         }
         return node
+    }
+
+    /// r47: parses the argument list of a known builtin opened at the
+    /// current position (the `(` is consumed here). Comma discipline is
+    /// strict and deterministic: empty args, trailing commas, doubled
+    /// commas and missing separators are distinct syntax failures; a
+    /// missing close reuses `missingClosingParen`.
+    func parseFunctionCall(_ name: String) throws -> Expr {
+        let key = name.lowercased()
+        let (minArgs, maxArgs) = MathFunctions.arity(key)!
+        _ = consume() // "("
+        var args: [Expr] = []
+        while true {
+            guard let t = peek() else { throw ParseError.missingClosingParen }
+            if case .paren(")") = t {
+                if args.isEmpty {
+                    _ = consume()
+                    throw ParseError.functionEmptyArgs(key)
+                }
+                _ = consume()
+                break
+            }
+            if case .comma = t, args.isEmpty {
+                // Leading comma: `sum(, 1)`.
+                throw ParseError.functionDoubleComma
+            }
+            let arg = try parseExpression()
+            args.append(arg)
+            if maxArgs < .max, args.count > maxArgs {
+                throw ParseError.functionArity(name: key, got: args.count, min: minArgs, max: maxArgs)
+            }
+            guard let t2 = peek() else { throw ParseError.missingClosingParen }
+            if case .comma = t2 {
+                _ = consume()
+                guard let t3 = peek() else { throw ParseError.missingClosingParen }
+                if case .comma = t3 { throw ParseError.functionDoubleComma }
+                if case .paren(")") = t3 { throw ParseError.functionTrailingComma }
+                continue
+            }
+            if case .paren(")") = t2 {
+                _ = consume()
+                break
+            }
+            throw ParseError.functionMissingComma
+        }
+        if args.count < minArgs {
+            throw ParseError.functionArity(name: key, got: args.count, min: minArgs, max: maxArgs)
+        }
+        return .funcall(key, args)
     }
 
     func isPurePercent(_ node: Expr) -> Bool {
@@ -233,6 +329,19 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
             guard eligible else { throw ParseError.unexpectedToken("of") }
             let b = try eval(r)
             let v = a.value * b.value
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return EvalValue(value: v, purePercent: false)
+        case .funcall(let key, let args):
+            // r47: arguments are plain scalars — a percent argument is
+            // its non-additive value (`10%` = 0.1). Domain and
+            // non-finite failures carry the registry's stable message.
+            let values = try args.map { try eval($0).value }
+            let v: Double
+            do {
+                v = try MathFunctions.evaluate(key, args: values)
+            } catch let e as MathFunctions.MathFunctionError {
+                throw ParseError.functionError(e.errorDescription ?? "Invalid function")
+            }
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         }

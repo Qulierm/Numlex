@@ -31,18 +31,47 @@ Numlex reads ordinary notebook text — no formula syntax, no cell references. E
 is evaluated strictly; anything it cannot parse stays quiet instead of guessing.
 
 ```text
-hotel = 1240      1,240
-hotel + 10%       1,364
-$240 + 10% tip    $264.00
-20 km to meter    20,000 m
-100 C to F        212 F°
-Jan 10 + 12 days  Jan 22
+hotel = 1240          1,240
+hotel + 10%           1,364
+$240 + 10% tip        $264.00
+sqrt(144)             12
+room = 180 × 4        720
+round(room / 3, 2)    240
+sum(1, 2, 3)          6
+20 km to meter        20,000 m
+100 C to F            212 F°
+Jan 10 + 12 days      Jan 22
 ```
 
 Every line above runs through the real engine — these are its exact, deterministic
 outputs, with no live rates involved. Declare values with `name = expression`, use
 percentages and money with the same grammar (`$240 + 10% tip`), and do date arithmetic
 on plain month names (`Jan 10 + 12 days`).
+
+### Built-in math functions
+
+The engine shares one pure function registry across every scalar path — free
+expressions, assignments, constants and unitless answer tokens. Names are
+case-insensitive, arguments are full expressions (nesting included), and a
+function-shaped line is strict: an unknown name, a bad arity, a bad comma or a
+domain failure is a precise error, never a guess.
+
+- `sqrt`, `abs`, `round(x)` / `round(x, d)` (ties round away from zero)
+- `min`, `max`, `sum`, `average` — variadic, one or more arguments
+- `pow(b, e)` — same finite contract as the `^` operator
+- `ln(x)`, `log(x)` (base 10), `log(x, b)`, `log10(x)`
+- `sin`, `cos`, `tan` — radians; `asin`, `acos`, `atan`
+- `radians(d)` and `degrees(r)` — explicit unit helpers
+
+Inside argument lists a comma separates arguments; a comma directly before exactly
+three digits is still a thousand separator, so `sum(1, 234)` is two arguments while
+`sum(1,234)` is one grouped literal — and `1,234,567` outside a call is one number,
+exactly as before. Built-ins activate only in call position: a variable or constant
+named `sum` still works in `sum + 1`, and `sum(1, 2)` calls the function.
+Answer tokens join the same engine when they are unitless: `sqrt(<token>)` and
+`<token> ^ 2` evaluate with the token as a live argument, while unit-bearing and
+money tokens passed to a function or to `^` fail safely instead of losing their
+unit.
 
 ## Conversions
 
@@ -78,8 +107,8 @@ filters the sheet list only — your editor and cursor never jump.
 Choose Light or Dark for the whole app, then tune font size, font design and role
 colors, decimal places, input helpers, line numbers, interface language and the
 currency display. Define up to 100 app-wide constants (`PI = 3.141592653589793`,
-`Sales Tax = 20%`) that are available in every sheet and resolved live through the
-same strict engine.
+`Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
+live through the same strict engine — function arguments included.
 
 ## Files and storage
 
@@ -110,7 +139,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 489 shared cases, runnable two ways:
+The engine suite covers 518 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

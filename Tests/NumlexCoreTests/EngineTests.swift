@@ -199,4 +199,9 @@ struct EngineTests {
     func r44RepeatedSameSourceBubbles(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r47Cases)
+    func r47MathematicalFunctions(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

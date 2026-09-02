@@ -178,9 +178,25 @@ public enum NamedValues {
                 }
             }
             if let b = best {
+                // r47: a recognized BUILTIN call head is grammar, never
+                // a name reference: when a variable or constant is named
+                // `sum`, the call `sum(...)` must not be substituted —
+                // the builtin wins at the call head and the argument
+                // list stays matchable by the names it contains.
+                let end = b.range.location + b.range.length
+                if MathFunctions.isKnown(b.entry.display.lowercased()) {
+                    var k = end
+                    while k < len, ns.character(at: k) == 0x20 || ns.character(at: k) == 0x09 {
+                        k += 1
+                    }
+                    if k < len, ns.character(at: k) == 0x28 {
+                        pos += 1
+                        continue
+                    }
+                }
                 result.append(Match(display: displayName(for: b.entry, in: line, range: b.range),
                                     range: b.range, entry: b.entry))
-                pos = b.range.location + b.range.length
+                pos = end
             } else {
                 pos += 1
             }

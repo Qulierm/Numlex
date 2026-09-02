@@ -1,7 +1,27 @@
 import Foundation
 
 func normalizeExprCorrect(_ expr: String) -> String {
-    var s = expr.replacingOccurrences(of: ",", with: "")
+    // r47: FUNCTION-AWARE comma normalization (the shared
+    // FunctionCalls convention, see MathFunctions.swift):
+    // - outside any call: every comma is stripped (legacy byte-for-byte:
+    //   `1,234` -> `1234`, `1,234,567` -> `1234567`);
+    // - inside a call: a comma stays an ARGUMENT SEPARATOR unless it is
+    //   a grouping comma by the shared rule (`sum(1,234)` -> `sum(1234)`,
+    //   `sum(1, 234)` and `sum(1,2,3)` keep their separators).
+    let chars = Array(expr)
+    let ctx = FunctionCalls.context(expr)
+    var out: [Character] = []
+    out.reserveCapacity(chars.count)
+    for (i, ch) in chars.enumerated() {
+        if ch == "," {
+            if ctx.depth[i] > 0, !FunctionCalls.isGroupingComma(chars, at: i) {
+                out.append(ch)
+            }
+            continue
+        }
+        out.append(ch)
+    }
+    var s = String(out)
     func expand(_ input: String, suffix: String, mult: String) -> String {
         let pattern = "(\\d+(?:\\.\\d+)?)\\s*\(suffix)\\b"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return input }
@@ -79,6 +99,14 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
         env.set(display: left, qty: .scalar(v))
         return .variable(name: left, value: v)
     } catch {
+        // r47: a function-shaped RHS is STRICT — it never degrades to a
+        // word-stripped parenthesized operand (no `(9)` from `sqr(9)`)
+        // and the environment is left untouched. The route already
+        // surfaces LocalizedError messages, so the precise syntax/domain
+        // failure stays visible here.
+        if FunctionCalls.hasCallHead(rightRaw) {
+            return .error(message: (error as? LocalizedError)?.errorDescription ?? "Invalid expression")
+        }
         if let cleaned = tryEvaluateCleaned(right, variables: env.scalarDict()) {
             let v = roundResult(cleaned, decimalPlaces: decimalPlaces)
             env.set(display: left, qty: .scalar(v))
@@ -104,6 +132,15 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
         let raw = try evaluateExpression(trimmed, variables: variables)
         return .number(value: roundResult(raw, decimalPlaces: decimalPlaces), unit: nil)
     } catch {
+        // r47: a function-shaped line is STRICT on the free-expression
+        // route too: unknown, malformed or domain-failing calls never
+        // fall back to a word-stripped parenthesized operand and never
+        // mutate the environment. The free-line presentation stays the
+        // generic message (the precise failure is visible on the
+        // assignment route, which surfaces LocalizedError).
+        if FunctionCalls.hasCallHead(line) {
+            return .error(message: "Invalid expression")
+        }
         if let cleaned = tryEvaluateCleaned(trimmed, variables: variables) {
             return .number(value: roundResult(cleaned, decimalPlaces: decimalPlaces), unit: nil)
         }
@@ -122,9 +159,21 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
 /// referenced names carry (more than one ⇒ hidden error upstream).
 /// No rounding happens here — display rounding is the caller's choice.
 func namedExprCore(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
+    strictExprCore(line, env: env, extraVars: [:])
+}
+
+/// The SHARED strict named-expression core with OPTIONAL extra scalar
+/// variables (r47: the unitless token route feeds its marker
+/// placeholders through here, so function semantics are never
+/// duplicated outside the one shared engine). `extraVars` win over env
+/// entries on key collision (the placeholders are collision-proof).
+func strictExprCore(_ line: String,
+                    env: TypedEnv,
+                    extraVars: [String: Double]) -> (value: Double, codes: Set<String>)? {
     let matches = NamedValues.matches(in: line, env: env)
     var expr = line
     var vars: [String: Double] = [:]
+    vars.merge(extraVars) { _, new in new }
     var codes: Set<String> = []
     for e in env.entries {
         switch e.qty {
@@ -148,6 +197,12 @@ func namedExprCore(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<
         }
     }
     guard codes.count <= 1 else { return nil }
+    // r47: a function call NEVER carries money — a same-currency named
+    // money argument would otherwise silently keep its currency through
+    // sqrt/log/.... Hidden generic error, nothing is stripped.
+    if FunctionCalls.hasCallHead(line), !codes.isEmpty {
+        return nil
+    }
     for (idx, m) in matches.enumerated().reversed() {
         expr = (expr as NSString).replacingCharacters(in: m.range,
                                                       with: namePlaceholder(idx))
@@ -157,9 +212,12 @@ func namedExprCore(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<
     do {
         let normalized = normalizeExprCorrect(trimmed)
         // Residual guard: every identifier must be a placeholder (or a
-        // value the environment knows) or the `of` infix.
+        // value the environment knows), the `of` infix, or a KNOWN
+        // builtin in call position — a builtin call head is grammar,
+        // never an unknown word, while its arguments stay guarded.
         for t in try tokenize(normalized) {
-            if case .identifier(let n) = t, n != "of", vars[n] == nil {
+            if case .identifier(let n) = t,
+               n != "of", vars[n] == nil, !MathFunctions.isKnown(n) {
                 return nil
             }
         }

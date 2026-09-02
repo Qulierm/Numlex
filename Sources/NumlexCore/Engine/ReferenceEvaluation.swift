@@ -259,6 +259,32 @@ public func resolveSheet(
                     return .error(message: "Cannot assign to constant")
                 }
                 let eqUTF16 = (line as NSString).range(of: "=").location
+                let rhsQuantities: [Qty] = qtyByPos
+                    .filter { $0.key > eqUTF16 }
+                    .sorted(by: { $0.key < $1.key })
+                    .map { $0.value }
+                // r47: a UNITLESS function/power right-hand side goes
+                // through the ONE shared strict engine (markers become
+                // collision-proof placeholders) — `x = sqrt(<M>)`,
+                // `x = sum(<M>, <M>, 2)`, `x = <M> ^ 2`. The env is
+                // updated ONLY on success; unit-bearing or money
+                // arguments fail safely (no implicit stripping).
+                let rhsAllUnitless = !rhsQuantities.isEmpty
+                    && rhsQuantities.allSatisfy { $0.unit == nil }
+                if rhsAllUnitless,
+                   FunctionCalls.hasCallHead(rhs) || rhs.contains("^") {
+                    let exprRhs = replacingTokenMarkers(rhs)
+                    var extra: [String: Double] = [:]
+                    for (k, q) in rhsQuantities.enumerated() where q.v.isFinite {
+                        extra[namePlaceholder(k)] = q.v
+                    }
+                    if let (v, codes) = strictExprCore(exprRhs, env: env, extraVars: extra),
+                       codes.isEmpty, v.isFinite {
+                        env.set(display: lhs, qty: .scalar(v))
+                        return .variable(name: lhs, value: roundResult(v, decimalPlaces: decimalPlaces))
+                    }
+                    return .error(message: "Invalid expression")
+                }
                 var rhsMap: [Int: Qty] = [:]
                 for (pos, q) in qtyByPos where pos > eqUTF16 {
                     // Re-key markers relative to the right-hand side.
@@ -274,6 +300,34 @@ public func resolveSheet(
                 }
             }
             return .error(message: "Invalid assignment")
+        }
+
+        // r47: UNITLESS function/power token lines route through the
+        // ONE shared strict engine (markers become collision-proof
+        // placeholders — parser semantics are never duplicated in
+        // TokenExpr): `sqrt(<M>)`, `sum(<M>, <M>, 2)`, `round(<M>/3, 2)`,
+        // `<M> ^ 2`, nested with numbers, variables and constants. Each
+        // marker keeps its own identity/location/state (the states were
+        // already resolved above). A unit-bearing or currency-token
+        // argument to any function or power fails safely below in the
+        // quantity parser; unitless lines WITHOUT a call shape or `^`
+        // keep the legacy route byte-for-byte.
+        let allUnitless = quantities.allSatisfy { q in
+            q.map { $0.unit == nil } ?? false
+        }
+        if allUnitless,
+           NaturalCalculation.markerOccurrences(in: line).isEmpty,
+           FunctionCalls.hasCallHead(line) || line.contains("^") {
+            let exprLine = replacingTokenMarkers(line)
+            var extra: [String: Double] = [:]
+            for (k, q) in quantities.enumerated() {
+                if let q, q.v.isFinite { extra[namePlaceholder(k)] = q.v }
+            }
+            if let (v, codes) = strictExprCore(exprLine, env: env, extraVars: extra),
+               codes.isEmpty, v.isFinite {
+                return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: nil)
+            }
+            return .error(message: "Invalid expression")
         }
 
         // General quantity expression. Money-context lines (a currency
@@ -343,6 +397,25 @@ private func tokenConversionShape(line: String, markerAt: Int) -> String? {
 private func isValidReferenceIdentifier(_ name: String) -> Bool {
     guard let regex = try? NSRegularExpression(pattern: #"^[A-Za-z_]\w*$"#) else { return false }
     return regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
+}
+
+/// r47: replaces the k-th U+FFFC marker (line order) with the
+/// collision-proof placeholder `namePlaceholder(k)` so a unitless
+/// token line can route through the ONE shared strict engine. Markers
+/// are never rewritten in place — the sheet content, lineIDs and
+/// reference geometry stay untouched; this is an evaluation-copy only.
+private func replacingTokenMarkers(_ line: String) -> String {
+    var out = ""
+    var k = 0
+    for ch in line {
+        if ch == answerTokenMarker {
+            out += namePlaceholder(k)
+            k += 1
+        } else {
+            out.append(ch)
+        }
+    }
+    return out
 }
 
 // MARK: - Quantity expression parser
