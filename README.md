@@ -98,12 +98,9 @@ instead of a stale number.
 ## Sheets and folders
 
 Work in named sheets with line numbers, syntax tinting and a live results column.
-The native editor highlights matching parentheses, square and curly brackets with a
-short Xcode-style pulse whenever the caret sits next to one — nested and mixed
-call shapes included. Sheets are grouped by the one-level folder tabs pinned to the
-bottom of the sidebar: the built-in **General** tab plus any custom folders you
-create. Selecting a tab filters the sheet list only — your editor and cursor never
-jump.
+Sheets are grouped by the one-level folder tabs pinned to the bottom of the sidebar:
+the built-in **General** tab plus any custom folders you create. Selecting a tab
+filters the sheet list only — your editor and cursor never jump.
 
 ## Styling and constants
 

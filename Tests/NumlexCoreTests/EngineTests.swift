@@ -204,9 +204,4 @@ struct EngineTests {
     func r47MathematicalFunctions(`case`: EngineCase) throws {
         try `case`.body()
     }
-
-    @Test(arguments: r48Cases)
-    func r48MatchingBracketHighlight(`case`: EngineCase) throws {
-        try `case`.body()
-    }
 }
