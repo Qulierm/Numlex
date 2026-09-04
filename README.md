@@ -46,7 +46,8 @@ Jan 10 + 12 days      Jan 22
 Every line above runs through the real engine — these are its exact, deterministic
 outputs, with no live rates involved. Declare values with `name = expression`, use
 percentages and money with the same grammar (`$240 + 10% tip`), and do date arithmetic
-on plain month names (`Jan 10 + 12 days`).
+on plain month names (`Jan 10 + 12 days`). Named money reads naturally too:
+`apple = 5$` prices one apple, and `2 apples + 3 apples` totals in dollars.
 
 ### Built-in math functions
 
@@ -85,6 +86,13 @@ Write `10 km to meter` — `in` works just as well (`10 km in meter`).
 - Rates are cached locally for an hour; if the network is unavailable, Numlex keeps
   serving the last good table.
 
+Type `weather in London` for the current 2 m temperature in Celsius degrees
+(shown `C°`). The lookup goes to Open-Meteo with no key and no location
+permission — only the city you typed is ever sent. Readings are cached for ten
+minutes, and the last good value keeps showing if the next refresh fails, so a
+flaky connection never blanks your sheet. The city name is tinted exactly like
+any other unit, in Light, Dark and custom styling alike.
+
 ## Answer tokens
 
 Double-click any answer — or type an operator on a new line — and Numlex inserts a
@@ -94,6 +102,14 @@ immediately. Several distinct bubbles may reuse the same earlier line — each k
 own identity and follows the live value, as in the screenshot above. If a source line
 stops evaluating, its tokens stay in place and show the remembered `Line N` label
 instead of a stale number.
+
+## Answer menu
+
+Right-click (or Control-click) any answer for its native menu: **Copy Answer** puts
+the exact displayed value on the clipboard; the discrete **0…10 dp** slider
+re-rounds just that answer without touching the source line; **Delete Line**
+removes the source line. The menu is fully native, so it follows the system
+appearance in Light and Dark.
 
 ## Sheets and folders
 
@@ -112,9 +128,10 @@ live through the same strict engine — function arguments included.
 
 ## Files and storage
 
-Sheets persist locally in Application Support, and the only network traffic is the
-background rates refresh. Import and export any sheet as a `.nlx` file from the File
-menu, and drag a sheet onto a folder tab to re-file it.
+Sheets persist locally in Application Support. The only network traffic is the
+background rates refresh plus Open-Meteo lookups for `weather in …` lines you
+type yourself — never GPS or location data. Import and export any sheet as a `.nlx`
+file from the File menu, and drag a sheet onto a folder tab to re-file it.
 
 ## Download
 
@@ -139,7 +156,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 518 shared cases, runnable two ways:
+The engine suite covers 663 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)
