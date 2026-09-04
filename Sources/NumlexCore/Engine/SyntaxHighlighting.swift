@@ -99,6 +99,26 @@ public enum SyntaxClassifier {
                 result.append(heading)
                 continue
             }
+            // r55 amendment: a strict weather query paints ONLY the
+            // city/place span with the existing unit role
+            // (`.conversion` — the same palette custom Styling drives
+            // for measurement units, never a new role or color).
+            // The range comes from the shared parser (`placeRange` is
+            // nil exactly when `parse` is nil), so highlight and eval
+            // cannot drift; `in` takes the normal `.specifier` path
+            // below and `weather` stays base text. Anything the parser
+            // rejects (prose, incomplete, operators, emoji, comments,
+            // token lines) falls through to the ordinary pipeline with
+            // no unit paint. Weather never mutates the environment, so
+            // skipping the evaluator call here changes no later line.
+            if let cityRange = WeatherQuery.placeRange(in: line) {
+                var weatherSpans: [SyntaxSpan] = [
+                    SyntaxSpan(role: .conversion, range: cityRange)
+                ]
+                weatherSpans += specifierSpans(line)
+                result.append(sanitize(weatherSpans, lineLength: lineLength))
+                continue
+            }
             let evaluation = evalLineTyped(line, env: &env,
                                            rates: rates, decimalPlaces: decimalPlaces,
                                            now: Date(), calendar: Calendar.current)

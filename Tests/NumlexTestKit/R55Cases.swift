@@ -21,7 +21,11 @@ import NumlexCore
 ///    exclusion, determinism under snapshot change);
 /// 5. Copy/menu eligibility of the weather unit result;
 /// 6. Source guards (HTTPS only, no GPS, no weather in the persisted
-///    payload, weather stage before conversion, localization keys).
+///    payload, weather stage before conversion, localization keys);
+/// 7. City syntax amendment: the place span paints ONLY with the
+///    existing `.conversion` unit role (exact UTF-16 ranges from the
+///    shared parser, multiword/comma/apostrophe/non-ASCII, hyphen
+///    never an operator, emoji/surrogate and invalid lines unpainted).
 
 private let WM = "\u{FFFC}"
 
@@ -754,6 +758,132 @@ public let r55Cases: [EngineCase] = [
             throw CaseFailure(message: "both stages must exist", location: "R55Cases")
         }
         try expect(w.lowerBound < c.lowerBound, "weather stage runs first", "order")
+    },
+
+    // MARK: 7. City syntax (amendment: place span uses `.conversion`)
+
+    EngineCase("r55-syntax-city-exact-range") {
+        // ONLY the city carries the unit role; `in` is a specifier,
+        // `weather` stays base text.
+        let s = SyntaxClassifier.spans(for: "weather in London",
+                                       rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(s.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 11, length: 6)], "city is the unit span")
+        try expectEqual(s.filter { $0.role == .specifier }.map { $0.range },
+                        [NSRange(location: 8, length: 2)], "`in` is a specifier")
+        try expect(s.filter { $0.role == .variable }.isEmpty, "no variable paint")
+        try expect(s.filter { $0.role == .number }.isEmpty, "no number paint")
+        // The shared parser is the single source of truth for the span.
+        try expectEqual(WeatherQuery.placeRange(in: "weather in London"),
+                        NSRange(location: 11, length: 6), "range from parser")
+    },
+
+    EngineCase("r55-syntax-city-whitespace") {
+        // Leading/trailing whitespace is excluded; inner runs included.
+        let lead = SyntaxClassifier.spans(for: "  weather in London  ",
+                                          rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(lead.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 13, length: 6)], "edges trimmed")
+        let inner = SyntaxClassifier.spans(for: "weather in  New   York",
+                                           rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(inner.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 12, length: 10)], "inner spaces inside")
+        let tabs = SyntaxClassifier.spans(for: "weather\tin\tTokyo",
+                                          rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(tabs.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 11, length: 5)], "tab separators")
+        try expectEqual(WeatherQuery.placeRange(in: "WEATHER IN Paris"),
+                        NSRange(location: 11, length: 5), "case-insensitive range")
+    },
+
+    EngineCase("r55-syntax-city-multiword-punctuation") {
+        // Full meaningful place: multiword, comma, period, apostrophe.
+        let cases: [(String, NSRange)] = [
+            ("weather in New York", NSRange(location: 11, length: 8)),
+            ("weather in Paris, France", NSRange(location: 11, length: 13)),
+            ("weather in St. Louis", NSRange(location: 11, length: 9)),
+            ("weather in C\u{00F4}te d'Ivoire", NSRange(location: 11, length: 13)),
+            ("weather in C\u{00F4}te d\u{2019}Ivoire", NSRange(location: 11, length: 13)),
+        ]
+        for (line, want) in cases {
+            let s = SyntaxClassifier.spans(for: line, rates: Rates(), decimalPlaces: 7)[0]
+            try expectEqual(s.filter { $0.role == .conversion }.map { $0.range },
+                            [want], "unit span for \(line)")
+        }
+    },
+
+    EngineCase("r55-syntax-city-non-ascii") {
+        // Non-ASCII letters share the unit paint with exact UTF-16 ranges.
+        let umlaut = SyntaxClassifier.spans(for: "weather in M\u{00FC}nchen",
+                                            rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(umlaut.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 11, length: 7)], "latin-1 range")
+        let cjk = SyntaxClassifier.spans(for: "weather in \u{5317}\u{4EAC}",
+                                         rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(cjk.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 11, length: 2)], "CJK range")
+    },
+
+    EngineCase("r55-syntax-city-hyphen-stays-unit") {
+        // A glued hyphen is a name: the whole city stays ONE conversion
+        // span, never split by an operator color.
+        let s = SyntaxClassifier.spans(for: "weather in Aix-en-Provence",
+                                       rates: Rates(), decimalPlaces: 7)[0]
+        try expectEqual(s.filter { $0.role == .conversion }.map { $0.range },
+                        [NSRange(location: 11, length: 15)], "hyphenated city whole")
+        try expect(s.filter { $0.role == .operatorGlyph }.isEmpty,
+                   "hyphen never an operator", "hyphen")
+    },
+
+    EngineCase("r55-syntax-emoji-surrogate-rejection") {
+        // Emoji/symbols are rejected: no unit paint anywhere on the line.
+        for line in ["weather in London\u{1F600}",
+                     "weather in Tokyo\u{1F6A9}",
+                     "weather in London + 5",
+                     "weather in London - 5",
+                     "weather in Paris = 3"] {
+            try expect(WeatherQuery.parse(line) == nil, "rejected: \(line)", "parse")
+            try expect(WeatherQuery.placeRange(in: line) == nil, "no range", "range")
+            let s = SyntaxClassifier.spans(for: line, rates: Rates(), decimalPlaces: 7)[0]
+            try expect(s.filter { $0.role == .conversion }.isEmpty,
+                       "no unit paint: \(line)", "paint")
+        }
+    },
+
+    EngineCase("r55-syntax-invalid-lines-unpainted") {
+        // Invalid/incomplete/prose/comment/token lines never paint
+        // arbitrary tails as units.
+        for line in ["weather in",
+                     "weather in   ",
+                     "weather",
+                     "weather today",
+                     "the weather in London is nice",
+                     "London is nice"] {
+            let s = SyntaxClassifier.spans(for: line, rates: Rates(), decimalPlaces: 7)[0]
+            try expect(s.filter { $0.role == .conversion }.isEmpty,
+                       "no unit paint: '\(line)'", "paint")
+        }
+        let heading = SyntaxClassifier.spans(for: "# weather in London",
+                                             rates: Rates(), decimalPlaces: 7)[0]
+        try expect(heading.filter { $0.role == .conversion }.isEmpty, "heading clean")
+        let comment = SyntaxClassifier.spans(for: "// weather in London",
+                                             rates: Rates(), decimalPlaces: 7)[0]
+        try expect(comment.filter { $0.role == .conversion }.isEmpty, "comment clean")
+        let token = SyntaxClassifier.spans(for: "weather in Lon\u{FFFC}don",
+                                           rates: Rates(), decimalPlaces: 7)[0]
+        try expect(token.filter { $0.role == .conversion }.isEmpty, "token line clean")
+    },
+
+    EngineCase("r55-source-city-uses-unit-role") {
+        // The classifier paints the place with the EXISTING unit role —
+        // no new role, no hardcoded color on the weather path.
+        guard let syn = r55Source("Sources/NumlexCore/Engine/SyntaxHighlighting.swift") else {
+            throw CaseFailure(message: "syntax source must exist", location: "R55Cases")
+        }
+        try expect(syn.contains("WeatherQuery.placeRange(in: line)"),
+                   "range from shared parser", "shared")
+        try expect(syn.contains("SyntaxSpan(role: .conversion, range: cityRange)"),
+                   "city uses .conversion", "role")
     },
 
     EngineCase("r55-localization-keys") {

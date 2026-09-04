@@ -90,6 +90,40 @@ public struct WeatherQuery: Equatable, Sendable, Hashable {
         return WeatherQuery(key: display.lowercased(), display: display)
     }
 
+    /// The exact UTF-16 range of the city/place span inside the
+    /// ORIGINAL line, derived from the same strict grammar as
+    /// `parse` (nil exactly when `parse` is nil, so highlighting and
+    /// evaluation cannot drift). Covers the full meaningful place —
+    /// leading whitespace, the `weather`/`in` keywords and trailing
+    /// whitespace are excluded; internal whitespace of a multiword
+    /// place (`New York`, `Paris, France`) is included. The syntax
+    /// classifier paints exactly this range with the existing unit
+    /// role (`.conversion`); `weather` stays base text and `in` takes
+    /// the normal `.specifier` path.
+    public static func placeRange(in line: String) -> NSRange? {
+        guard parse(line) != nil else { return nil }
+        var idx = line.startIndex
+        while idx < line.endIndex, line[idx].isWhitespace { idx = line.index(after: idx) }
+        guard line[idx...].lowercased().hasPrefix("weather") else { return nil }
+        idx = line.index(idx, offsetBy: 7)
+        guard idx < line.endIndex, line[idx].isWhitespace else { return nil }
+        while idx < line.endIndex, line[idx].isWhitespace { idx = line.index(after: idx) }
+        guard line[idx...].lowercased().hasPrefix("in") else { return nil }
+        idx = line.index(idx, offsetBy: 2)
+        guard idx < line.endIndex, line[idx].isWhitespace else { return nil }
+        while idx < line.endIndex, line[idx].isWhitespace { idx = line.index(after: idx) }
+        let start = idx
+        var end = line.endIndex
+        while end > start, line[line.index(before: end)].isWhitespace {
+            end = line.index(before: end)
+        }
+        guard end > start else { return nil }
+        let loc = start.utf16Offset(in: line)
+        let len = end.utf16Offset(in: line) - loc
+        guard len > 0 else { return nil }
+        return NSRange(location: loc, length: len)
+    }
+
     /// Pure scan of logical source lines returning the UNIQUE valid
     /// weather queries in first-seen order. Comments, headings,
     /// token-containing and malformed lines never produce requests.
