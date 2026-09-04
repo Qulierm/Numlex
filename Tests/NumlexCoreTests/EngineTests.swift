@@ -229,4 +229,9 @@ struct EngineTests {
     func r55WeatherQueries(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r56Cases)
+    func r56CityHighlight(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
