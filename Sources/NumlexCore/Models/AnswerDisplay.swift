@@ -39,6 +39,31 @@ public enum AnswerDisplay {
         override.map(clamped) ?? defaultPlaces
     }
 
+    // MARK: - r54: slider menu presentation (pure)
+
+    /// The slider's INITIAL value for one row: the effective per-answer
+    /// precision (override ?? global) clamped to 0...10. Moving the
+    /// slider writes an explicit per-line override; there is NO reset
+    /// control, so an untouched row keeps inheriting the global
+    /// precision until its slider is first moved.
+    public static func sliderValue(defaultPlaces: Int, override: Int?) -> Int {
+        clamped(effective(defaultPlaces: defaultPlaces, override: override))
+    }
+
+    /// The compact visible label next to the slider (`0 dp` ... `10 dp`):
+    /// always an integer tick value — a fractional value is never
+    /// exposed (the slider is discrete by construction).
+    public static func sliderLabel(_ places: Int) -> String {
+        "\(clamped(places)) dp"
+    }
+
+    /// The localized accessibility/spoken value — the count of decimal
+    /// places in the active language (the visible label keeps the
+    /// conventional compact `dp` suffix).
+    public static func sliderAccessibilityValue(_ places: Int, language: AppLanguage) -> String {
+        "\(clamped(places)) \(L10n.t("decimalPlaces", language: language))"
+    }
+
     /// Keeps only preferences whose line still exists, clamps every
     /// value to 0...10, drops duplicates (first wins) and returns the
     /// survivors in CURRENT line order — deterministic, index-free.

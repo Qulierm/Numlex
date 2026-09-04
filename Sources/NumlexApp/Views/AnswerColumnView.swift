@@ -76,18 +76,26 @@ struct AnswerColumnView: View {
                                 override: override(for: sourceLineIndex))
     }
 
-    /// r51: the native right-click menu for one answer row (nil = hidden
-    /// row, no menu). Copy uses `AnswerDisplay.text` — byte-identical to
-    /// the rendered string. Rounding offers Default + 0...10 with the
-    /// current choice checkmarked; money keeps its fixed presentation
-    /// (no rounding item). Delete has no AppKit destructive role (menus
-    /// offer none); the model confirms nothing — it deletes one line.
+    /// r51/r54: the native right-click menu for one answer row (nil =
+    /// hidden row, no menu). Copy uses `AnswerDisplay.text` —
+    /// byte-identical to the rendered string. Rounding-eligible rows
+    /// get an inline discrete SLIDER (0...10, native tick marks, live
+    /// `N dp` label) plus the centered disabled `Edit answer formatting`
+    /// caption; money/currency, date, broken-token and rates rows keep
+    /// the compact Copy / separator / Delete shape (no slider, no empty
+    /// gaps). There is deliberately NO reset/default control and no
+    /// speak/formatting buttons. Delete has no AppKit destructive role
+    /// (menus offer none); the model confirms nothing — it deletes one
+    /// line.
     private func contextMenu(for line: SheetLine) -> NSMenu? {
         guard let kind = AnswerDisplay.menu(for: line.result) else { return nil }
         let idx = line.sourceLineIndex
         let places = places(for: idx)
         guard let text = AnswerDisplay.text(for: line.result, decimalPlaces: places) else { return nil }
         let menu = NSMenu()
+        menu.autoenablesItems = false  // r54: the custom slider item and
+                                       // the disabled caption are enabled
+                                       // states we own explicitly.
         func item(_ title: String, checked: Bool = false, run: @escaping () -> Void) -> NSMenuItem {
             let h = MenuAction(run)
             let mi = NSMenuItem(title: title, action: #selector(MenuAction.fire),
@@ -104,29 +112,21 @@ struct AnswerColumnView: View {
             pb.clearContents()
             pb.setString(text, forType: .string)
         })
+        menu.addItem(.separator())
         if kind.showsRounding {
-            let current = override(for: idx)
-            let sub = NSMenu()
-            func subItem(_ title: String, checked: Bool, run: @escaping () -> Void) {
-                let h = MenuAction(run)
-                let mi = NSMenuItem(title: title, action: #selector(MenuAction.fire),
-                                    keyEquivalent: "")
-                mi.target = h
-                mi.representedObject = h
-                mi.state = checked ? .on : .off
-                sub.addItem(mi)
-            }
-            subItem(L10n.t("roundingDefault", language: language), checked: current == nil) {
-                onSetRounding(idx, nil)
-            }
-            for p in AnswerDisplay.minPlaces...AnswerDisplay.maxPlaces {
-                let v = p
-                subItem("\(v)", checked: current == v) { onSetRounding(idx, v) }
-            }
-            let ri = NSMenuItem(title: L10n.t("rounding", language: language),
-                                action: nil, keyEquivalent: "")
-            ri.submenu = sub
-            menu.addItem(ri)
+            // r54: inline slider — initial value is the row's effective
+            // precision (override ?? global); moving it writes that
+            // row's explicit override through the existing onSetRounding
+            // (persist-only repaint; the model revalidates index + line
+            // ID at fire time, so a stale open menu can never retarget).
+            menu.addItem(AnswerSliderMenuItem.menuItem(
+                initial: AnswerDisplay.sliderValue(
+                    defaultPlaces: decimalPlaces,
+                    override: override(for: idx)),
+                language: language,
+                onChange: { v in onSetRounding(idx, v) }))
+            menu.addItem(AnswerSliderMenuItem.caption(language: language))
+            menu.addItem(.separator())
         }
         menu.addItem(item(L10n.t("deleteLine", language: language)) {
             onDeleteLine(idx)

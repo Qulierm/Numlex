@@ -219,4 +219,9 @@ struct EngineTests {
     func r53NamedMoneyProse(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r54Cases)
+    func r54AnswerSliderMenu(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
