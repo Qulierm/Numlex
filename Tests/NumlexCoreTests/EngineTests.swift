@@ -209,4 +209,9 @@ struct EngineTests {
     func r51AnswerContextMenu(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: glassToneCases)
+    func r52SidebarGlassTones(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

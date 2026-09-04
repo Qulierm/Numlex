@@ -147,8 +147,15 @@ struct SidebarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive().tint(.white.opacity(0.10)),
+            .glassEffect(.regular.interactive().tint(Design.sidebarGlassTint),
                         in: sidebarButtonShape)
+            // r52: one theme-aware hairline following the button's own
+            // shape — Light reads a subtle dark boundary against the
+            // white sidebar, Dark resolves clear. Stroke only: no
+            // second material, no hit-testing, no layout change.
+            .overlay(sidebarButtonShape
+                .strokeBorder(Design.sidebarGlassBoundary, lineWidth: 1)
+                .allowsHitTesting(false))
             .help(L10n.t("newSheet", language: language))
 
             // A hairline between the action row and the list: the
@@ -712,15 +719,26 @@ private struct RowGlassModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background {
-            if isDropTarget {
-                Color.clear
-                    .glassEffect(.regular.interactive().tint(.white.opacity(0.22)), in: shape)
-                    .transaction { $0.animation = nil }
-            } else if isSelected {
-                Color.clear
-                    .glassEffect(.regular.interactive().tint(.white.opacity(0.10)), in: shape)
-                    .transaction { $0.animation = nil }
+            ZStack {
+                if isDropTarget {
+                    Color.clear
+                        .glassEffect(.regular.interactive().tint(Design.sidebarDropTint), in: shape)
+                } else if isSelected {
+                    Color.clear
+                        .glassEffect(.regular.interactive().tint(Design.sidebarGlassTint), in: shape)
+                }
+                // r52: one theme-aware hairline following the row's own
+                // shape (same shape the hit/content row uses) — Light
+                // gets a subtle dark boundary against the white
+                // sidebar, Dark resolves clear. Stroke only: no second
+                // glass/material, no hit-testing.
+                if isDropTarget || isSelected {
+                    shape
+                        .strokeBorder(Design.sidebarGlassBoundary, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
             }
+            .transaction { $0.animation = nil }
         }
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import NumlexCore
 
 /// Shared design tokens so typography stays coherent across sidebar,
 /// notebook editor and answer column. The editor base size is driven
@@ -206,6 +207,43 @@ enum Design {
     /// token so both hairlines match; resolved via Color(nsColor:)
     /// so they repaint live on Light/Dark switch.
     static var panelSeparator: NSColor { .separatorColor }
+
+    // MARK: Sidebar glass tones (r52)
+    //
+    /// Bridge from the pure core resolver (SidebarGlassTone) into a
+    /// live NSColor: re-resolves through the EFFECTIVE pinned
+    /// appearance (NSApp.appearance) on every Light/Dark switch, the
+    /// same mechanism as the r38/r50 adaptive tokens above. The RGBA
+    /// VALUES live in NumlexCore so the semantics are unit tested;
+    /// this file only wraps them for SwiftUI.
+    private static func sidebarGlassNSColor(_ role: SidebarGlassTone.Role) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let t = SidebarGlassTone.tint(
+                role, isDark: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+            return NSColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: t.alpha)
+        }
+    }
+
+    /// Glass tint for the selected/action surfaces: the full-width New
+    /// Sheet button, selected sheet rows and the active General/folder
+    /// tab. Light: neutral graphite 4% (visible against the white
+    /// sidebar) / Dark: the historical white 10% glass.
+    static let sidebarGlassTint: Color = Color(nsColor: sidebarGlassNSColor(.selected))
+
+    /// Glass tint for the sheet-drop highlight on rows and tabs:
+    /// Light: calm accent blue 12% (clearly stronger than selected)
+    /// / Dark: the historical white 22% glass.
+    static let sidebarDropTint: Color = Color(nsColor: sidebarGlassNSColor(.dropTarget))
+
+    /// Hairline that follows each existing glass shape (stroke only —
+    /// never a second material). Light: 10% dark 1 pt boundary so the
+    /// 4% tint reads against pure white; Dark: clear, leaving the
+    /// historical white glass visually unchanged.
+    static let sidebarGlassBoundary: Color = Color(nsColor: NSColor(name: nil) { appearance in
+        let t = SidebarGlassTone.boundary(
+            isDark: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+        return NSColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: t.alpha)
+    })
 
     // MARK: Editor geometry
 
