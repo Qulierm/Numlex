@@ -41,9 +41,11 @@ import UniformTypeIdentifiers
 /// layout pass. Scrolling itself is untouched.
 ///
 /// Sheet import/export live in the File menu (NumlexApp commands); the
-/// sidebar carries no file-action row. The background is the native
-/// window background; there is no fake titlebar, traffic-light row or
-/// sidebar toggle.
+/// sidebar carries no file-action row. The base column surface is the
+/// explicit `Design.sidebarBackground` (exactly the editor surface —
+/// Golden Gate fix, never the native window material), filling the full
+/// column including the traffic-light/titlebar strip; there is no fake
+/// titlebar, traffic-light row or sidebar toggle.
 struct SidebarView: View {
     @Bindable var model: AppModel
     @State private var renamingID: UUID?
@@ -223,6 +225,23 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .frame(idealWidth: 235, maxWidth: 260)
+        // Golden Gate explicit surface: the outer column fill (safe-area
+        // expanded so it covers the traffic-light/titlebar strip where
+        // the NavigationSplitView sidebar extends), never an interior
+        // padded-layer fill. Glass pills/tabs float above unchanged.
+        .background {
+            Color(nsColor: Design.sidebarBackground).ignoresSafeArea()
+        }
+        // Sidebar|editor hairline: trailing overlay (zero layout
+        // footprint, so the measured sidebar width and collapse math
+        // stay exact), full column height including the titlebar strip.
+        .overlay(alignment: .trailing) {
+            Color(nsColor: Design.panelSeparator)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .ignoresSafeArea(edges: .vertical)
+                .allowsHitTesting(false)
+        }
     }
 
     /// The shared row transition: insertion is the standard top entry

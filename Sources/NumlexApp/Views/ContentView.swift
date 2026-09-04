@@ -87,8 +87,26 @@ struct ContentView: View {
         .id(sheet?.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // r36: the ONE centralized editor surface token —
-        // the SwiftUI host matches the NSTextView exactly.
-        .background(Color(nsColor: Design.editorBackground))
+        // the SwiftUI host matches the NSTextView exactly. The layer
+        // expands vertically into the titlebar safe-area gap so the
+        // top strip behind the editor matches the editor (no window
+        // tint), while the text layout itself stays inset.
+        .background {
+            Color(nsColor: Design.editorBackground).ignoresSafeArea(edges: .vertical)
+        }
+    }
+
+    /// Editor|answers hairline (extracted as a property ONLY to keep
+    /// `body` inside the type-checker's budget — the emitted view is
+    /// the centralized panel separator, 1 pt in-flow like the old
+    /// Divider, stretched through the titlebar safe-area gap to the
+    /// very top and bottom.
+    private var editorAnswerDivider: some View {
+        Color(nsColor: Design.panelSeparator)
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .ignoresSafeArea(edges: .vertical)
+            .allowsHitTesting(false)
     }
 
     var body: some View {
@@ -132,7 +150,10 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                Divider()
+                // Editor|answers hairline: 1 pt in-flow (same footprint
+                // as the old Divider, so editor/answer widths stay
+                // stable), full height to the very top and bottom.
+                editorAnswerDivider
 
                 let settings = model.settings
                 // r37: the hovered token's source line in the CURRENT

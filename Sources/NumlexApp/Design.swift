@@ -190,6 +190,23 @@ enum Design {
     /// against the editor's white. Applied ONLY to the answer column.
     static let answerPanelBackground = adaptive(light: (236, 236, 238), dark: (38, 38, 40))
 
+    /// Sidebar column surface (Golden Gate fix): EXACTLY the editor
+    /// surface in both appearances — never `.windowBackground`, a
+    /// material, or a translucent fill, so the OS sidebar tint cannot
+    /// show through. Applied as the outer column background (with
+    /// safe-area expansion so it fills the traffic-light/titlebar
+    /// strip where the NavigationSplitView sidebar extends), never as
+    /// an interior padded-layer fill. The glass pills/tabs float above
+    /// this base unchanged.
+    static var sidebarBackground: NSColor { editorBackground }
+
+    /// Thin vertical panel separators (sidebar|editor and
+    /// editor|answers): the system separator, subtle on both
+    /// `editorBackground` and `answerPanelBackground`. A centralized
+    /// token so both hairlines match; resolved via Color(nsColor:)
+    /// so they repaint live on Light/Dark switch.
+    static var panelSeparator: NSColor { .separatorColor }
+
     // MARK: Editor geometry
 
     /// Top inset of the notebook text (matches the answer column's

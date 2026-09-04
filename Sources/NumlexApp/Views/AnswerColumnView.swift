@@ -255,8 +255,13 @@ struct AnswerColumnView: View {
         // quiet elevated gray in dark, quiet gray in light), so the
         // result surface reads as its own matte panel without looking
         // light. Editor background and every text token stay untouched.
-        .background(Color(nsColor: Design.answerPanelBackground))
-        .overlay(Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.3)).frame(width: 1), alignment: .leading)
+        // The layer expands vertically so the titlebar-gap strip above
+        // the column matches the panel; the editor|answers hairline
+        // itself lives once in ContentView (full-height), never here —
+        // no double line, no width drift.
+        .background {
+            Color(nsColor: Design.answerPanelBackground).ignoresSafeArea(edges: .vertical)
+        }
     }
 
     @ViewBuilder
