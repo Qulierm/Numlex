@@ -214,4 +214,9 @@ struct EngineTests {
     func r52SidebarGlassTones(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r53Cases)
+    func r53NamedMoneyProse(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

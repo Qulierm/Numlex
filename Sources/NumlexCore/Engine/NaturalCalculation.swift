@@ -94,6 +94,18 @@ public enum NaturalCalculation {
         CurrencyPresentation.markerOccurrences(in: line)
     }
 
+    /// r53: an arithmetic expression shape — a digit or an operator.
+    /// A line that references a money name is money-context only when
+    /// it carries this shape; plain prose mentioning the name is not.
+    /// MUST stay in sync with the `expressionLike` guard in
+    /// `NamedValues.referencesTypedName` (the pipeline activation rule).
+    static func isExpressionLike(_ line: String) -> Bool {
+        line.unicodeScalars.contains {
+            ("0123456789+-*/^%(".unicodeScalars.contains($0))
+                || $0 == "×" || $0 == "÷"
+        }
+    }
+
     // MARK: - Named money assignment
 
     /// Validates a natural assignment LHS: bounded English words
@@ -196,6 +208,29 @@ public enum NaturalCalculation {
             }
         }
 
+        // r53: a line can be money-context SOLELY because it references
+        // a declared typed money name — even when no explicit marker/ISO
+        // occurs on the line (`5 people × apple` after `apple = 5$`).
+        // The derivation is expression-shaped (a digit or operator):
+        // plain prose mentioning a money name stays prose, and the full
+        // grammar below still has to complete for anything to evaluate.
+        // Multiple names with DIFFERENT codes are malformed; one code
+        // (or several names agreeing on it) opens the context. An
+        // explicit marker/ISO plus a named money still must agree —
+        // the same-currency checks below apply to both sources.
+        if codes.isEmpty {
+            guard isExpressionLike(line) else { return .none }
+            var nameCodes: Set<String> = []
+            for m in NamedValues.matches(in: line, env: env) {
+                if case .money(_, let c) = m.entry.qty {
+                    nameCodes.insert(c.uppercased())
+                }
+            }
+            guard nameCodes.count == 1 else {
+                return nameCodes.isEmpty ? .none : .malformed
+            }
+            codes = nameCodes
+        }
         guard !codes.isEmpty else { return .none }
         // Two different currencies are never silently combined.
         guard codes.count == 1, let code = codes.first else { return .malformed }
@@ -242,11 +277,16 @@ public enum NaturalCalculation {
         let matches = NamedValues.matches(in: cleaned, env: env)
         for (idx, m) in matches.enumerated() {
             switch m.entry.qty {
-            case .scalar:
-                break  // usable under its display name
+            case .scalar(let v) where v.isFinite:
+                // r53: every match (scalar AND money) is substituted
+                // with a placeholder below, so the placeholder itself
+                // must carry the value — exactly like `strictExprCore`.
+                placeholderVars[namePlaceholder(idx)] = v
             case .money(let v, let c):
                 guard c.caseInsensitiveCompare(code) == .orderedSame else { return .malformed }
                 placeholderVars[namePlaceholder(idx)] = v
+            default:
+                break
             }
         }
         if !matches.isEmpty {

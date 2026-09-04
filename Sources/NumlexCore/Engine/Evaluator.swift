@@ -298,6 +298,19 @@ private func evalNamedLine(_ line: String,
         }
         return .number(value: v, unit: nil)
     }
+    // r53: the strict core above rejects bounded neutral prose (a line
+    // like `5 people × apple` after `apple = 5$`), so before failing,
+    // hand the line to the natural money core: the currency comes from
+    // an explicit marker/ISO or from a referenced typed money name. A
+    // line that is neither strict nor natural (unknown prose, mixed
+    // currencies, function calls on money) stays a hidden generic
+    // error — no word-stripping fallback is introduced.
+    switch NaturalCalculation.moneyOutcome(line, env: env) {
+    case .money(let v, let c):
+        return .money(value: v, code: c)
+    case .malformed, .none:
+        break
+    }
     return .error(message: "Invalid expression")
 }
 
