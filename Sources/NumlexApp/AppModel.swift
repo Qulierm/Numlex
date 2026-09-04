@@ -262,7 +262,8 @@ final class AppModel {
             content: sheet.content, lineIDs: sheet.lineIDs, caret: caret,
             op: key, rates: rates, decimalPlaces: settings.decimalPlaces,
             references: sheet.references,
-            constants: settings.customConstants
+            constants: settings.customConstants,
+            weather: weatherContext
         ) else { return false }
         // Honor the operator settings in the inserted text, and apply
         // the pure insertion: marker + separator + operator lands at
@@ -602,5 +603,93 @@ final class AppModel {
     func setRates(_ r: Rates) async {
         await RateRefresher.shared.set(r)
         rates = r
+    }
+
+    // MARK: - Weather (r55)
+
+    /// Last-good weather snapshots by canonical query, published for
+    /// the current sheet. Never persisted in the store payload — the
+    /// durable cache is the separate `weather.json` owned by
+    /// `WeatherRefresher.shared`.
+    var weatherSnapshots: [String: WeatherSnapshot] = [:]
+    /// Requested queries with no cache yet (render quiet, never a
+    /// spinner or an error).
+    var weatherPending: Set<String> = []
+    /// Queries with a terminal failure AND no cached snapshot (render
+    /// the localized `Weather unavailable` status).
+    var weatherFailed: Set<String> = []
+
+    /// The pure evaluation context for the current render: snapshots
+    /// plus failure marks. ContentView reads this ONCE per body pass
+    /// and feeds the same context to both resolveSheet calls, so the
+    /// editor and the answers can never disagree.
+    var weatherContext: WeatherContext {
+        WeatherContext(snapshots: weatherSnapshots,
+                       pendingKeys: weatherPending,
+                       failedKeys: weatherFailed)
+    }
+
+    /// Refreshes weather for the given sheet content (r55): publishes
+    /// last-good cache immediately, marks only uncached queries
+    /// pending, debounces rapid typing, then refreshes stale/missing
+    /// queries in the background and publishes ready/unavailable on
+    /// the MainActor. All state is keyed by canonical query — never by
+    /// line — so rapid typing, sheet switches, query removal,
+    /// duplicate lines, late responses and cancellation can never
+    /// redirect a result to another query or rewrite source (source is
+    /// never written here at all). Switching back to a fresh cached
+    /// query performs no network. Not coupled to rates loading.
+    @MainActor
+    func refreshWeather(content: String, sheetID: UUID) async {
+        let queries = WeatherQuery.scanQueries(in: content)
+        let keys = Set(queries.map(\.key))
+        // Prune published state for removed queries; a returning query
+        // repopulates from the global cache without network.
+        for k in weatherSnapshots.keys where !keys.contains(k) {
+            weatherSnapshots.removeValue(forKey: k)
+        }
+        weatherPending = weatherPending.intersection(keys)
+        weatherFailed = weatherFailed.intersection(keys)
+        guard !queries.isEmpty else { return }
+        guard selectedSheet?.id == sheetID else { return }
+        for q in queries {
+            if let s = await WeatherRefresher.shared.cachedSnapshot(for: q) {
+                guard selectedSheet?.id == sheetID else { return }
+                weatherSnapshots[q.key] = s
+                weatherPending.remove(q.key)
+                weatherFailed.remove(q.key)
+            } else if weatherSnapshots[q.key] == nil {
+                weatherPending.insert(q.key)
+            }
+        }
+        // Debounce: each keystroke changes the .task(id:) signature
+        // and cancels this run before any fetch starts, so partial
+        // input never triggers a geocode.
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled, selectedSheet?.id == sheetID else { return }
+        await withTaskGroup(of: (String, WeatherSnapshot?).self) { group in
+            for q in queries {
+                let stale = await WeatherRefresher.shared.isStale(q.key)
+                if !stale, weatherSnapshots[q.key] != nil { continue }
+                group.addTask { [query = q] in
+                    let s = await WeatherRefresher.shared.refresh(query)
+                    return (query.key, s)
+                }
+            }
+            for await (key, snap) in group {
+                guard !Task.isCancelled, self.selectedSheet?.id == sheetID else { continue }
+                self.weatherPending.remove(key)
+                if let s = snap {
+                    self.weatherSnapshots[key] = s
+                    self.weatherFailed.remove(key)
+                } else if self.weatherSnapshots[key] == nil {
+                    // Terminal failure with no cache: visible status
+                    // until the query/signature changes. A failed
+                    // refresh WITH a stale snapshot keeps showing the
+                    // stale value (last-good wins over failure).
+                    self.weatherFailed.insert(key)
+                }
+            }
+        }
     }
 }

@@ -428,7 +428,15 @@ struct AnswerColumnView: View {
                     .font(Design.labelSmall)
                     .foregroundStyle(.secondary)
             case .error(let msg):
-                if msg == "Rates unavailable" {
+                if WeatherQuery.isUnavailableMessage(msg) {
+                    // r55: terminal weather failure with no cache — a
+                    // quiet secondary status (localized at render
+                    // time), never an answer: no copy, no rounding, no
+                    // token, never in the Total.
+                    Text(L10n.t("weatherUnavailable", language: language))
+                        .font(Design.labelSmall)
+                        .foregroundStyle(.secondary)
+                } else if msg == "Rates unavailable" {
                     // The explicit no-rate state is preserved and
                     // rendered in the fixed dark base.
                     Text("Rates unavailable")

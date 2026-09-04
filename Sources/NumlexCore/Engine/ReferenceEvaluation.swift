@@ -48,12 +48,13 @@ public func resolveSheet(
     references: [AnswerReference],
     rates: Rates,
     decimalPlaces: Int,
-    constants: [UserConstant] = []
+    constants: [UserConstant] = [],
+    weather: WeatherContext = .empty
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
-                 constants: constants)
+                 constants: constants, weather: weather)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -69,7 +70,8 @@ public func resolveSheet(
     decimalPlaces: Int,
     now: Date,
     calendar: Calendar,
-    constants: [UserConstant] = []
+    constants: [UserConstant] = [],
+    weather: WeatherContext = .empty
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -120,7 +122,7 @@ public func resolveSheet(
         }
         if line.hasPrefix("//") { return .blank }
         if let eval = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
-                                    now: now, calendar: calendar) {
+                                    now: now, calendar: calendar, weather: weather) {
             return eval
         }
         return .skip

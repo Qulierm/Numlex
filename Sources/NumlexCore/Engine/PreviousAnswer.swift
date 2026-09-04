@@ -32,7 +32,10 @@ public enum PreviousAnswerPlan {
     /// `references` is the sheet's CURRENT sidecar: without it every
     /// token line resolves broken and token chains can never be the
     /// source line. Defaults to `[]` for callers that only deal in
-    /// token-free content (tests, paste paths).
+    /// token-free content (tests, paste paths). `weather` is the
+    /// current weather context (r55): a ready weather result is an
+    /// ordinary finite number and qualifies as a previous answer;
+    /// loading/unavailable lines stay quiet and never qualify.
     public static func plan(
         content: String,
         lineIDs: [UUID],
@@ -41,7 +44,8 @@ public enum PreviousAnswerPlan {
         rates: Rates = Rates(),
         decimalPlaces: Int = 7,
         references: [AnswerReference] = [],
-        constants: [UserConstant] = []
+        constants: [UserConstant] = [],
+        weather: WeatherContext = .empty
     ) -> Plan? {
         guard operators.contains(op) else { return nil }
         let ns = content as NSString
@@ -56,7 +60,7 @@ public enum PreviousAnswerPlan {
         let resolved = resolveSheet(
             content: content, lineIDs: lineIDs, references: references,
             rates: rates, decimalPlaces: decimalPlaces,
-            constants: constants
+            constants: constants, weather: weather
         )
         for i in stride(from: caretLine - 1, through: 0, by: -1) {
             guard resolved.lines.indices.contains(i) else { continue }

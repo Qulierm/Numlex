@@ -112,6 +112,10 @@ public enum AnswerDisplay {
         case .brokenToken(let line):
             return "Line \(line)"
         case .error(let msg):
+            // r55: `Weather unavailable` renders in the view (localized)
+            // but is never copied — like other quiet errors it has no
+            // clipboard text.
+            if WeatherQuery.isUnavailableMessage(msg) { return nil }
             return msg == "Rates unavailable" ? "Rates unavailable" : nil
         }
     }
@@ -139,6 +143,9 @@ public enum AnswerDisplay {
         case .blank, .skip, .title:
             return nil
         case .error(let msg):
+            // r55: weather-unavailable rows offer no menu at all (no
+            // Copy, no rounding) — quiet and secondary by design.
+            if WeatherQuery.isUnavailableMessage(msg) { return nil }
             return msg == "Rates unavailable"
                 ? Menu(showsActions: true, showsRounding: false)
                 : nil

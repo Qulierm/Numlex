@@ -42,6 +42,15 @@ struct ContentView: View {
         model.insertToken(sourceLineIndex: lineIndex, selection: range)
     }
 
+    /// r55: the weather refresh identity — selected sheet ID plus the
+    /// sorted canonical query signature of its content.
+    private var weatherTaskID: String {
+        let sheet = model.selectedSheet
+        let sig = WeatherQuery.signature(
+            for: WeatherQuery.scanQueries(in: sheet?.content ?? ""))
+        return (sheet?.id.uuidString ?? "none") + "\n" + sig
+    }
+
     /// r43: the editor construction for the detail pane, extracted as a
     /// method ONLY to keep `body` inside the type-checker's budget — the
     /// emitted view tree is identical to the inline initializer.
@@ -129,6 +138,10 @@ struct ContentView: View {
             // editor-content y equals its answer-content y (modulo the fixed
             // editor top inset) and scroll offsets are directly comparable.
             HStack(spacing: 0) {
+                // r55: ONE weather context per body pass, shared by the
+                // editor and answer evaluations below — the two can
+                // never render different snapshots in one frame.
+                let weatherContext = model.weatherContext
                 GeometryReader { _ in
                     let settings = model.settings
                     let sheet = model.selectedSheet
@@ -141,7 +154,8 @@ struct ContentView: View {
                         references: sheet?.references ?? [],
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
-                        constants: settings.customConstants
+                        constants: settings.customConstants,
+                        weather: weatherContext
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's
@@ -184,7 +198,8 @@ struct ContentView: View {
                         references: sheet?.references ?? [],
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
-                        constants: settings.customConstants
+                        constants: settings.customConstants,
+                        weather: weatherContext
                     ).lines
                 }()
                 AnswerColumnView(
@@ -257,6 +272,17 @@ struct ContentView: View {
         }
         .fileExporter(isPresented: $showExport, document: NLXDocument(model: model), contentType: .nlx, defaultFilename: "\(model.selectedSheet?.title ?? "Sheet").nlx") { result in
             if case .failure(let err) = result { print("export failed \(err)") }
+        }
+        // r55: weather refresh trigger — selected sheet ID plus the
+        // deterministic unique-query signature. Body re-renders
+        // (rounding, theme, hover) keep the same ID and refetch
+        // nothing; any query change re-runs exactly once (the previous
+        // run is cancelled), debounced inside the model so partial
+        // keystrokes never geocode.
+        .task(id: weatherTaskID) {
+            let content = model.selectedSheet?.content ?? ""
+            guard let sheetID = model.selectedSheet?.id else { return }
+            await model.refreshWeather(content: content, sheetID: sheetID)
         }
         .onAppear {
             Task { @MainActor in

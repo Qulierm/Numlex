@@ -148,10 +148,13 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// Derives a sheet title from the FIRST calculable nonblank logical line
-    /// (expression, assignment or conversion). Skips blanks, `#` comments,
-    /// `//` headings, plain notes and error lines. The line is trimmed,
-    /// whitespace-collapsed and safely truncated. r33: with `constants`
-    /// a first calculation USING a global constant is recognized.
+    /// (expression, assignment, conversion or valid weather query).
+    /// Skips blanks, `#` comments, `//` headings, plain notes and error
+    /// lines. The line is trimmed, whitespace-collapsed and safely
+    /// truncated. r33: with `constants` a first calculation USING a
+    /// global constant is recognized. r55: a valid `weather in <place>`
+    /// query titles the sheet even before any network completes (pure
+    /// parse, never a fetch).
     public static func autoTitle(from content: String, fallback: String,
                                  constants: [UserConstant] = []) -> String {
         // ONE shared typed environment (named unitless values AND money)
@@ -162,6 +165,13 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
             if line.hasPrefix("#") || line.hasPrefix("//") { continue }
+            if WeatherQuery.parse(line) != nil {
+                let collapsed = line
+                    .split(whereSeparator: { $0.isWhitespace })
+                    .joined(separator: " ")
+                if collapsed.count <= 28 { return collapsed }
+                return String(collapsed.prefix(27)) + "…"
+            }
             guard let result = evalLineTyped(line, env: &env, rates: Rates(),
                                              decimalPlaces: 7, now: Date(),
                                              calendar: Calendar.current) else { continue }

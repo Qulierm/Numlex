@@ -224,4 +224,9 @@ struct EngineTests {
     func r54AnswerSliderMenu(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r55Cases)
+    func r55WeatherQueries(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

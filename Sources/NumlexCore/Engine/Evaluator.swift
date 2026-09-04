@@ -314,10 +314,34 @@ private func evalNamedLine(_ line: String,
     return .error(message: "Invalid expression")
 }
 
+// MARK: - Weather lines (r55)
+
+/// Resolves a strict `weather in <place>` query against the pure
+/// weather context (no network, no mutation): a ready snapshot
+/// becomes an ordinary temperature number (`C°`, full precision up to
+/// 10 decimals like conversions); loading stays quiet (`.skip`, never
+/// a false error); a terminal failure with no cache is the stable
+/// `Weather unavailable` sentinel the view localizes at render time.
+private func evalWeatherLine(_ query: WeatherQuery,
+                              weather: WeatherContext,
+                              decimalPlaces: Int) -> LineResult {
+    switch weather.lookup(query) {
+    case .ready(let snap):
+        return .number(value: roundResult(snap.temperatureCelsius,
+                                          decimalPlaces: max(decimalPlaces, 10)),
+                       unit: WeatherQuery.celsiusUnitLabel)
+    case .loading:
+        return .skip
+    case .unavailable:
+        return .error(message: WeatherQuery.unavailableMessage)
+    }
+}
+
 // MARK: - The shared line pipeline
 
 /// The full line pipeline in strict order, over the SHARED typed
 /// environment (named unitless values AND money):
+/// 0. weather queries (`weather in <place>`, strict grammar only);
 /// 1. conversion shape (`<number> <unit> to|in <unit>`, symbol sources);
 /// 2. named-value stage (compound-name references, named money
 ///    assignments, `<name> in <unit>` conversions);
@@ -332,7 +356,16 @@ func evalLineTyped(_ line: String,
                    rates: Rates,
                    decimalPlaces: Int,
                    now: Date,
-                   calendar: Calendar) -> LineResult? {
+                   calendar: Calendar,
+                   weather: WeatherContext = .empty) -> LineResult? {
+    // r55: weather detection runs FIRST so `weather in London` can
+    // never be misclassified as conversion or prose — but ONLY the
+    // strict grammar activates it, the environment is never mutated,
+    // and variables/constants named `weather` keep working outside
+    // this exact shape.
+    if let query = WeatherQuery.parse(line) {
+        return evalWeatherLine(query, weather: weather, decimalPlaces: decimalPlaces)
+    }
     // r33: assignment to an ACTIVE global constant is a visible error on
     // EVERY route (single identifier, multiword natural, money RHS) —
     // no fallback, no partial mutation. Constants never shadow or get
@@ -386,11 +419,11 @@ func evalLineTyped(_ line: String,
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = []) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
-             now: Date(), calendar: Calendar.current, constants: constants)
+             now: Date(), calendar: Calendar.current, constants: constants, weather: weather)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
@@ -402,12 +435,12 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// constant always wins over a stale seed entry.
 public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates,
                      decimalPlaces: Int, now: Date, calendar: Calendar,
-                     constants: [UserConstant] = []) -> LineResult? {
+                     constants: [UserConstant] = [], weather: WeatherContext = .empty) -> LineResult? {
     var env = TypedEnv(seed: variables)
     env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
-                               now: now, calendar: calendar)
+                               now: now, calendar: calendar, weather: weather)
     if result != nil {
         for (k, v) in env.scalarDict() { variables[k] = v }
     }
@@ -425,9 +458,9 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = []) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
-                  now: Date(), calendar: Calendar.current, constants: constants)
+                  now: Date(), calendar: Calendar.current, constants: constants, weather: weather)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -436,7 +469,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
 /// the whole sheet.
 public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates,
                           decimalPlaces: Int, now: Date, calendar: Calendar,
-                          constants: [UserConstant] = []) -> [SheetLine] {
+                          constants: [UserConstant] = [], weather: WeatherContext = .empty) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
@@ -453,7 +486,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             result = .blank
         } else if let eval = evalLineTyped(line, env: &env, rates: rates,
                                            decimalPlaces: decimalPlaces,
-                                           now: now, calendar: calendar) {
+                                           now: now, calendar: calendar, weather: weather) {
             result = eval
         } else {
             result = .skip
