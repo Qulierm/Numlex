@@ -204,4 +204,9 @@ struct EngineTests {
     func r47MathematicalFunctions(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r51Cases)
+    func r51AnswerContextMenu(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

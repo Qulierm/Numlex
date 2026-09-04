@@ -26,6 +26,19 @@ struct AnswerColumnView: View {
     var fontSize: Double
     var lineHeight: Double
     var decimalPlaces: Int
+    /// r51: stable line IDs parallel to `rows` (the selected sheet's
+    /// table) plus the sheet's rounding overrides by line ID. A row's
+    /// effective decimals = override ?? global; tokens and Total always
+    /// use the global value (no source-display side effects).
+    var lineIDs: [UUID] = []
+    var roundingOverrides: [UUID: Int] = [:]
+    var language: AppLanguage = .en
+    /// r51: answer context menu actions, by EXPLICIT source line index.
+    /// The model re-validates index + line ID at fire time, so a menu
+    /// opened before an evaluation update can never act on a stale row.
+    /// `places == nil` clears back to Default.
+    var onSetRounding: (Int, Int?) -> Void = { _, _ in }
+    var onDeleteLine: (Int) -> Void = { _ in }
     /// r21: the selected font design — answers use the centralized dark
     /// base token (Design.baseText) on the light panel, but the face must
     /// match the editor exactly (same resolver).
@@ -49,6 +62,76 @@ struct AnswerColumnView: View {
         case .blank, .skip, .title, .date, .brokenToken, .error:
             return false
         }
+    }
+
+    /// r51: the raw override for a row (nil = Default), clamped.
+    private func override(for sourceLineIndex: Int) -> Int? {
+        guard lineIDs.indices.contains(sourceLineIndex) else { return nil }
+        return roundingOverrides[lineIDs[sourceLineIndex]].map(AnswerDisplay.clamped)
+    }
+
+    /// r51: effective display decimals for one answer row.
+    private func places(for sourceLineIndex: Int) -> Int {
+        AnswerDisplay.effective(defaultPlaces: decimalPlaces,
+                                override: override(for: sourceLineIndex))
+    }
+
+    /// r51: the native right-click menu for one answer row (nil = hidden
+    /// row, no menu). Copy uses `AnswerDisplay.text` — byte-identical to
+    /// the rendered string. Rounding offers Default + 0...10 with the
+    /// current choice checkmarked; money keeps its fixed presentation
+    /// (no rounding item). Delete has no AppKit destructive role (menus
+    /// offer none); the model confirms nothing — it deletes one line.
+    private func contextMenu(for line: SheetLine) -> NSMenu? {
+        guard let kind = AnswerDisplay.menu(for: line.result) else { return nil }
+        let idx = line.sourceLineIndex
+        let places = places(for: idx)
+        guard let text = AnswerDisplay.text(for: line.result, decimalPlaces: places) else { return nil }
+        let menu = NSMenu()
+        func item(_ title: String, checked: Bool = false, run: @escaping () -> Void) -> NSMenuItem {
+            let h = MenuAction(run)
+            let mi = NSMenuItem(title: title, action: #selector(MenuAction.fire),
+                                keyEquivalent: "")
+            mi.target = h
+            // NSMenuItem retains representedObject (but NOT target):
+            // the handler rides along for exactly the item's lifetime.
+            mi.representedObject = h
+            mi.state = checked ? .on : .off
+            return mi
+        }
+        menu.addItem(item(L10n.t("copyAnswer", language: language)) {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(text, forType: .string)
+        })
+        if kind.showsRounding {
+            let current = override(for: idx)
+            let sub = NSMenu()
+            func subItem(_ title: String, checked: Bool, run: @escaping () -> Void) {
+                let h = MenuAction(run)
+                let mi = NSMenuItem(title: title, action: #selector(MenuAction.fire),
+                                    keyEquivalent: "")
+                mi.target = h
+                mi.representedObject = h
+                mi.state = checked ? .on : .off
+                sub.addItem(mi)
+            }
+            subItem(L10n.t("roundingDefault", language: language), checked: current == nil) {
+                onSetRounding(idx, nil)
+            }
+            for p in AnswerDisplay.minPlaces...AnswerDisplay.maxPlaces {
+                let v = p
+                subItem("\(v)", checked: current == v) { onSetRounding(idx, v) }
+            }
+            let ri = NSMenuItem(title: L10n.t("rounding", language: language),
+                                action: nil, keyEquivalent: "")
+            ri.submenu = sub
+            menu.addItem(ri)
+        }
+        menu.addItem(item(L10n.t("deleteLine", language: language)) {
+            onDeleteLine(idx)
+        })
+        return menu
     }
 
     /// The answer row whose block contains content y `y` (the same
@@ -167,7 +250,7 @@ struct AnswerColumnView: View {
                             height: geo2.height,
                             baselineOffset: baseline
                         ) {
-                            AnyView(rowView(line.result))
+                            AnyView(rowView(line))
                         }
                         // r37: the source-answer hover outline — a
                         // stroke-only rounded rect centered on the
@@ -209,6 +292,10 @@ struct AnswerColumnView: View {
                     // no scroller strip, no dead zone at the trailing
                     // edge. It also owns double-clicks over the surface:
                     // a hit on a successful answer row mints a token.
+                    // r51: it owns right-clicks too — the same `rowAt`
+                    // geometry maps the click to its source row and pops
+                    // the native answer menu (copy/rounding/delete).
+                    // Neither path touches selection, focus or scrolling.
                     ScrollWheelCatcher(
                         onScroll: onWheelScroll,
                         onDoubleTap: { y in
@@ -223,6 +310,11 @@ struct AnswerColumnView: View {
                                     break
                                 }
                             }
+                        },
+                        rowIndexAtY: { y in rowAt(y: y)?.sourceLineIndex },
+                        menuForRow: { idx in
+                            rows.first(where: { $0.sourceLineIndex == idx })
+                                .flatMap { contextMenu(for: $0) }
                         }
                     )
                         .allowsHitTesting(true)
@@ -265,7 +357,12 @@ struct AnswerColumnView: View {
     }
 
     @ViewBuilder
-    private func rowView(_ row: LineResult) -> some View {
+    private func rowView(_ line: SheetLine) -> some View {
+        // r51: scalar/variable/unit strings render at the row's EFFECTIVE
+        // decimals (override ?? global) — the same inputs Copy Answer
+        // feeds through `AnswerDisplay.text`, so clipboard == visible.
+        let row = line.result
+        let places = places(for: line.sourceLineIndex)
         // Left-aligned content of one answer. Vertical placement is owned
         // by the BaselineAnswerRow layout (measured first-text baseline on
         // the editor's TextKit target baseline); this view only provides
@@ -286,7 +383,7 @@ struct AnswerColumnView: View {
                         .lineLimit(1)
                 } else {
                     HStack(spacing: 5) {
-                        Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
+                        Text(formatDisplayValue(v, decimalPlaces: places))
                             .font(palette.swiftUIFont(fontSize))
                             // Every answer/result glyph is the fixed dark
                             // base (Design.baseText) regular on the light
@@ -320,7 +417,7 @@ struct AnswerColumnView: View {
             case .variable(_, let v):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
-                Text(formatDisplayValue(v, decimalPlaces: decimalPlaces))
+                Text(formatDisplayValue(v, decimalPlaces: places))
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
@@ -440,25 +537,48 @@ private struct AnswerHoverOutline: View {
     }
 }
 
+/// r51: one retained NSMenuItem target — NSMenu does not retain targets,
+/// so each built menu holds its holders on `representedObject`.
+private final class MenuAction: NSObject {
+    let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func fire() { run() }
+}
+
 private struct ScrollWheelCatcher: NSViewRepresentable {
     var onScroll: (NSEvent) -> Void
     var onDoubleTap: ((CGFloat) -> Void)?
+    /// r51: content y (from the TOP, the row-geometry space) to the
+    /// row's explicit source line index — the SAME mapping double-tap
+    /// uses, so right-click after scroll/bounce hits the same row.
+    var rowIndexAtY: ((CGFloat) -> Int?)?
+    /// r51: the native menu for a source row (nil = no menu).
+    var menuForRow: ((Int) -> NSMenu?)?
 
-    init(onScroll: @escaping (NSEvent) -> Void, onDoubleTap: ((CGFloat) -> Void)? = nil) {
+    init(onScroll: @escaping (NSEvent) -> Void,
+         onDoubleTap: ((CGFloat) -> Void)? = nil,
+         rowIndexAtY: ((CGFloat) -> Int?)? = nil,
+         menuForRow: ((Int) -> NSMenu?)? = nil) {
         self.onScroll = onScroll
         self.onDoubleTap = onDoubleTap
+        self.rowIndexAtY = rowIndexAtY
+        self.menuForRow = menuForRow
     }
 
     func makeNSView(context: Context) -> WheelView {
         let v = WheelView()
         v.onScroll = onScroll
         v.onDoubleTap = onDoubleTap
+        v.rowIndexAtY = rowIndexAtY ?? { _ in nil }
+        v.menuForRow = menuForRow
         return v
     }
 
     func updateNSView(_ v: WheelView, context: Context) {
         v.onScroll = onScroll
         v.onDoubleTap = onDoubleTap
+        v.rowIndexAtY = rowIndexAtY ?? { _ in nil }
+        v.menuForRow = menuForRow
     }
 
     final class WheelView: NSView {
@@ -466,6 +586,21 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
         /// Double-clicks over the surface, reported as y from the TOP of
         /// the view (the row geometry the owner maps through).
         var onDoubleTap: ((CGFloat) -> Void)?
+        var rowIndexAtY: ((CGFloat) -> Int?) = { _ in nil }
+        var menuForRow: ((Int) -> NSMenu?)?
+
+        /// r51: right/context click pops the answer menu for the row
+        /// under the cursor. No selection, focus, scrolling or token
+        /// side effects: the event is consumed here and never reaches
+        /// the editor. Clicks on hidden rows (or with no menu) fall
+        /// through silently.
+        override func rightMouseDown(with event: NSEvent) {
+            let p = convert(event.locationInWindow, from: nil)
+            let y = bounds.height - p.y
+            guard let idx = rowIndexAtY(y),
+                  let menu = menuForRow?(idx) else { return }
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+        }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             self

@@ -167,6 +167,15 @@ struct ContentView: View {
                 // Reference-aware rows (same strict 1:1 contract as
                 // evaluateSheet, with token lines resolved to their
                 // current linked values).
+                // r51: per-answer rounding overrides by stable line ID
+                // (sanitized here so the view only ever sees live IDs).
+                let answerSheet = model.selectedSheet
+                let answerLineIDs: [UUID] = answerSheet?.lineIDs ?? []
+                let answerRounding: [UUID: Int] = {
+                    guard let s = answerSheet else { return [:] }
+                    let clean = AnswerDisplay.sanitize(s.answerDisplay, lineIDs: s.lineIDs)
+                    return Dictionary(uniqueKeysWithValues: clean.map { ($0.lineID, $0.decimalPlaces) })
+                }()
                 let rows: [SheetLine] = {
                     let sheet = model.selectedSheet
                     return resolveSheet(
@@ -197,6 +206,11 @@ struct ContentView: View {
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
                     decimalPlaces: settings.decimalPlaces,
+                    lineIDs: answerLineIDs,
+                    roundingOverrides: answerRounding,
+                    language: settings.language,
+                    onSetRounding: { idx, places in model.setAnswerRounding(at: idx, places: places) },
+                    onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
                     fontDesign: settings.styling.fontDesign,
                     totalLabel: L10n.t("total", language: settings.language),
                     highlightedSourceLineIndex: highlightedSourceLineIndex

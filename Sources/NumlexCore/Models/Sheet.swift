@@ -24,6 +24,11 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     /// localized General group). App-local only: never part of `.nlx`
     /// exports (SheetExport deliberately has no folder key).
     public var folderID: UUID?
+    /// r51: per-answer display preferences (rounding overrides), keyed
+    /// by stable line UUID. Presentation-only document metadata like
+    /// lineIDs/references — preserved by `.nlx` export, never global
+    /// settings, never engine semantics.
+    public var answerDisplay: [AnswerDisplayPreference]
 
     public init(id: UUID = UUID(),
                 title: String,
@@ -34,7 +39,8 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
                 titleSeed: String? = nil,
                 lineIDs: [UUID] = [],
                 references: [AnswerReference] = [],
-                folderID: UUID? = nil) {
+                folderID: UUID? = nil,
+                answerDisplay: [AnswerDisplayPreference] = []) {
         self.id = id
         self.title = title
         self.content = content
@@ -49,12 +55,21 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
             : content.components(separatedBy: "\n").map { _ in UUID() }
         self.references = Sheet.sanitizeReferences(references, in: content)
         self.folderID = folderID
+        // r51: additive — overrides survive only for lines that exist.
+        self.answerDisplay = AnswerDisplay.sanitize(answerDisplay, lineIDs: self.lineIDs)
+    }
+
+    /// Drops rounding overrides whose line no longer exists (call after
+    /// any content/lineID mutation: edits, deletions, imports, loads).
+    public mutating func dropStaleAnswerDisplay() {
+        answerDisplay = AnswerDisplay.sanitize(answerDisplay, lineIDs: lineIDs)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, content, createdAt, modifiedAt
         case isTitleCustom, titleSeed, lineIDs, references
         case folderID
+        case answerDisplay
     }
 
     /// Backward-compatible decoding: stores saved before the naming feature
@@ -89,6 +104,12 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         // `folderID` key (decode nil = General), and a wrong-typed value
         // must fall back to General instead of failing the sheet.
         folderID = (try? c.decodeIfPresent(UUID.self, forKey: .folderID)) ?? nil
+        // r51: additive and failure-proof — pre-r51 stores carry no
+        // `answerDisplay` key (decode []), a wrong-typed value falls
+        // back to [] instead of failing the sheet, and stale/clamped
+        // entries are sanitized against the final line table.
+        let storedDisplay: [AnswerDisplayPreference] = (try? c.decodeIfPresent([AnswerDisplayPreference].self, forKey: .answerDisplay)) ?? []
+        answerDisplay = AnswerDisplay.sanitize(storedDisplay, lineIDs: lineIDs)
     }
 
     /// One entry per logical line (the evaluator's split), including the
@@ -221,16 +242,21 @@ public struct SheetExport: Codable, Sendable {
     /// before the reference-token feature still decode.
     public var lineIDs: [UUID]?
     public var references: [AnswerReference]?
+    /// r51: per-answer display preferences (optional so older files
+    /// decode with nil = no overrides). Folder metadata stays excluded.
+    public var answerDisplay: [AnswerDisplayPreference]?
 
     public init(title: String,
                 content: String,
                 isTitleCustom: Bool? = nil,
                 lineIDs: [UUID]? = nil,
-                references: [AnswerReference]? = nil) {
+                references: [AnswerReference]? = nil,
+                answerDisplay: [AnswerDisplayPreference]? = nil) {
         self.title = title
         self.content = content
         self.isTitleCustom = isTitleCustom
         self.lineIDs = lineIDs
         self.references = references
+        self.answerDisplay = answerDisplay
     }
 }

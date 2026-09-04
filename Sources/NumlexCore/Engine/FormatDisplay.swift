@@ -29,9 +29,14 @@ public func formatDisplayValue(_ value: Double, decimalPlaces: Int = 7) -> Strin
         fmt.locale = Locale(identifier: "en_US")
         return fmt.string(from: NSNumber(value: intVal)) ?? "\(intVal)"
     }
+    // r51: trim ONLY fractional trailing zeros — a whole value like
+    // "0" (%.0f of 0.33) or "-0" has no decimal point and must be
+    // kept verbatim (the old unconditional trim ate them to ""/"-").
     var s = String(format: "%.\(decimalPlaces)f", value)
-    while s.hasSuffix("0") { s.removeLast() }
-    if s.hasSuffix(".") { s.removeLast() }
+    if s.contains(".") {
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+    }
     return s
 }
 

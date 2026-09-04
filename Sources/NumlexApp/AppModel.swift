@@ -68,6 +68,8 @@ final class AppModel {
                 if s.lineIDs.count != s.logicalLineCount {
                     s.lineIDs = (0..<s.logicalLineCount).map { _ in UUID() }
                 }
+                // r51: rounding overrides survive only for live lines.
+                s.dropStaleAnswerDisplay()
                 if s.lineIDs.count != s.logicalLineCount || !s.references.isEmpty { migrated = true }
                 return s
             }
@@ -146,6 +148,53 @@ final class AppModel {
         sheets[selectedIndex] = Sheet.retitled(sheet, content: content,
                                                constants: settings.customConstants)
         persist()
+    }
+
+    /// r51: per-answer rounding override on the SELECTED sheet by
+    /// source line index. `places == nil` clears back to Default.
+    /// Presentation-only: persists immediately but touches nothing else
+    /// — no content/lineID/reference/folder/caret/scroll change, only
+    /// the answer column repaints.
+    func setAnswerRounding(at index: Int, places: Int?) {
+        guard sheets.indices.contains(selectedIndex) else { return }
+        var s = sheets[selectedIndex]
+        guard s.lineIDs.indices.contains(index) else { return }
+        let id = s.lineIDs[index]
+        if let p = places {
+            let clamped = AnswerDisplay.clamped(p)
+            if let i = s.answerDisplay.firstIndex(where: { $0.lineID == id }) {
+                s.answerDisplay[i].decimalPlaces = clamped
+            } else {
+                s.answerDisplay.append(AnswerDisplayPreference(lineID: id, decimalPlaces: clamped))
+            }
+        } else {
+            s.answerDisplay.removeAll { $0.lineID == id }
+        }
+        s.dropStaleAnswerDisplay()
+        s.modifiedAt = Date()
+        sheets[selectedIndex] = s
+        persist()
+    }
+
+    /// r51: deletes ONE logical source line of the selected sheet by
+    /// 0-based line index (the answer context menu's Delete Line). The
+    /// exact UTF-16 plan removes the line plus its newline, the shared
+    /// `LineIdentity.reconcile` remaps IDs/markers, stale rounding
+    /// overrides drop, and tokens on the deleted line break naturally.
+    /// Sole-line deletion leaves a valid empty sheet. Focus lands at
+    /// the deletion start, clamped to the final content.
+    func deleteSourceLine(at index: Int) {
+        guard sheets.indices.contains(selectedIndex) else { return }
+        let sheet = sheets[selectedIndex]
+        guard let plan = AnswerDisplay.deleteLinePlan(content: sheet.content,
+                                                      lineIndex: index) else { return }
+        updateContent(plan.content, edit: plan.edit)
+        var s = sheets[selectedIndex]
+        s.dropStaleAnswerDisplay()
+        sheets[selectedIndex] = s
+        persist()
+        focusSheetID = s.id
+        focusCaret = min(plan.caret, (s.content as NSString).length)
     }
 
     /// Registers references born from an internal paste; the editor has
@@ -462,7 +511,8 @@ final class AppModel {
         guard let s = selectedSheet else { return nil }
         return SheetExport(title: s.title, content: s.content,
                            isTitleCustom: s.isTitleCustom,
-                           lineIDs: s.lineIDs, references: s.references)
+                           lineIDs: s.lineIDs, references: s.references,
+                           answerDisplay: s.answerDisplay)
     }
 
     private func makeImportedSheet(_ obj: SheetExport) -> Sheet {
@@ -492,9 +542,11 @@ final class AppModel {
         if lineIDs.count != content.components(separatedBy: "\n").count {
             lineIDs = content.components(separatedBy: "\n").map { _ in UUID() }
         }
+        // r51: imported display preferences survive only for live lines.
+        let display = AnswerDisplay.sanitize(obj.answerDisplay ?? [], lineIDs: lineIDs)
         return Sheet(title: obj.title, content: content,
                      createdAt: Date(), modifiedAt: Date(), isTitleCustom: custom,
-                     lineIDs: lineIDs, references: refs)
+                     lineIDs: lineIDs, references: refs, answerDisplay: display)
     }
 
     func importSheet(from url: URL) {
