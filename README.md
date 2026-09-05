@@ -5,10 +5,10 @@
 <h1 align="center">Numlex</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/Qulierm/Numlex" alt="Latest release"/>
-  <img src="https://img.shields.io/badge/macOS-26%2B-111111" alt="macOS 26 or later"/>
-  <img src="https://img.shields.io/badge/Platform-Apple%20Silicon%20(arm64)-111111" alt="Apple Silicon, arm64"/>
-  <img src="https://img.shields.io/badge/Swift-6.2-F05138" alt="Swift 6.2"/>
+  <a href="https://www.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-26%2B-black?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="macOS 26 or later"/></a>
+  <a href="https://www.swift.org"><img src="https://img.shields.io/badge/Swift-6.2-orange?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Swift 6.2"/></a>
+  <a href="https://github.com/Qulierm/Numlex/releases/latest"><img src="https://img.shields.io/github/v/release/Qulierm/Numlex?style=flat-square&amp;logo=github&amp;label=Release" alt="Latest release"/></a>
+  <a href="https://www.producthunt.com/products/numlex"><img src="https://img.shields.io/badge/Product%20Hunt-Numlex-DA552F?style=flat-square&amp;logo=producthunt&amp;logoColor=white" alt="Numlex on Product Hunt"/></a>
 </p>
 
 <p align="center">
