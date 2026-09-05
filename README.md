@@ -9,6 +9,7 @@
   <a href="https://www.swift.org"><img src="https://img.shields.io/badge/Swift-6.2-orange?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Swift 6.2"/></a>
   <a href="https://github.com/Qulierm/Numlex/releases/latest"><img src="https://img.shields.io/github/v/release/Qulierm/Numlex?style=flat-square&amp;logo=github&amp;label=Release" alt="Latest release"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License"/></a>
+  <a href="https://github.com/Qulierm/homebrew-tap"><img src="https://img.shields.io/badge/Homebrew-Numlex-FFCC00?style=flat-square&amp;logo=homebrew&amp;logoColor=black" alt="Install Numlex with Homebrew"/></a>
   <a href="https://www.producthunt.com/products/numlex"><img src="https://img.shields.io/badge/Product%20Hunt-Numlex-DA552F?style=flat-square&amp;logo=producthunt&amp;logoColor=white" alt="Numlex on Product Hunt"/></a>
   <a href="https://alternativeto.net/software/numlex/about/"><img src="https://img.shields.io/badge/AlternativeTo-Numlex-0081C6?style=flat-square&amp;logo=alternativeto&amp;logoColor=white" alt="Numlex on AlternativeTo"/></a>
 </p>
@@ -159,6 +160,19 @@ file from the File menu, and drag a sheet onto a folder tab to re-file it.
 ```sh
 shasum -a 256 -c SHA256SUMS
 ```
+
+### Homebrew
+
+You can also install Numlex from the project's own custom tap:
+
+```sh
+brew install --cask Qulierm/tap/numlex
+```
+
+This uses the project's custom [Qulierm/tap](https://github.com/Qulierm/homebrew-tap),
+not the official Homebrew cask repo. Numlex is ad-hoc signed and **not notarized**,
+so on first launch you still have to Control-click (or right-click) **Numlex.app**,
+choose **Open**, and confirm the prompt.
 
 ## Build from source
 
