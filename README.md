@@ -8,6 +8,7 @@
   <a href="https://www.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-26%2B-black?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="macOS 26 or later"/></a>
   <a href="https://www.swift.org"><img src="https://img.shields.io/badge/Swift-6.2-orange?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Swift 6.2"/></a>
   <a href="https://github.com/Qulierm/Numlex/releases/latest"><img src="https://img.shields.io/github/v/release/Qulierm/Numlex?style=flat-square&amp;logo=github&amp;label=Release" alt="Latest release"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License"/></a>
   <a href="https://www.producthunt.com/products/numlex"><img src="https://img.shields.io/badge/Product%20Hunt-Numlex-DA552F?style=flat-square&amp;logo=producthunt&amp;logoColor=white" alt="Numlex on Product Hunt"/></a>
 </p>
 
@@ -168,7 +169,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 732 shared cases, runnable two ways:
+The engine suite covers 748 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)
@@ -197,3 +198,7 @@ Scripts/build-app.sh [debug|release]   # produces .build/Numlex.app
   timeout; the last good table keeps serving when offline.
 
 </details>
+
+## License
+
+Numlex is available under the [MIT License](LICENSE).
