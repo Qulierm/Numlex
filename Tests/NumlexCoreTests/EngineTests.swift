@@ -254,4 +254,9 @@ struct EngineTests {
     func r61SidebarButton(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r62Cases)
+    func r62BubbleTokens(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

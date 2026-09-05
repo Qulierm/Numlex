@@ -386,7 +386,16 @@ struct AnswerColumnView: View {
                         }
                     )
                         .allowsHitTesting(true)
-                        .frame(width: geo.size.width, alignment: .leading)
+                        // r62: explicit full-size frame — the catcher must
+                        // exactly match the GeometryReader's content
+                        // region (width AND height, top-anchored). Relying
+                        // on the representable's unspecified ideal size
+                        // lets the AppKit frame desync from the SwiftUI
+                        // layout after a window resize, leaving the
+                        // visible answers outside the hit surface.
+                        .frame(width: geo.size.width,
+                               height: geo.size.height,
+                               alignment: .topLeading)
                 }
             }
             .clipped()
@@ -660,9 +669,30 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
         v.onDoubleTap = onDoubleTap
         v.rowIndexAtY = rowIndexAtY ?? { _ in nil }
         v.menuForRow = menuForRow
+        // r62: keep the AppKit bounds in lockstep with the SwiftUI-
+        // proposed full-size frame (the view is hosted to fill it).
+        // A zero or stale size here would silently shrink the
+        // double-tap/right-click hit surface to the last layout,
+        // detaching it from the visible answers after any resize.
+        if v.bounds.size == .zero, let sup = v.superview {
+            v.frame = sup.bounds
+        }
     }
-
     final class WheelView: NSView {
+        /// r62: the hit surface must NEVER desync from the frame SwiftUI
+        /// allocates to this view's hosting wrapper. SwiftUI re-lays-out
+        /// the wrapper on window resizes, but an AppKit frame that was
+        /// only set at first layout silently stays put — detaching the
+        /// double-tap/right-click surface from the visible answers (the
+        /// r62 regression). Filling the wrapper's bounds on every layout
+        /// pass keeps them in lockstep for good.
+        override func layout() {
+            super.layout()
+            if let sup = superview, frame != sup.bounds {
+                frame = sup.bounds
+            }
+        }
+
         var onScroll: (NSEvent) -> Void = { _ in }
         /// Double-clicks over the surface, reported as y from the TOP of
         /// the view (the row geometry the owner maps through).
