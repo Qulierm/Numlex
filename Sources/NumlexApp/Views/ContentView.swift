@@ -233,7 +233,11 @@ struct ContentView: View {
             }
             .toolbar(removing: .title)
         }
-        .frame(minWidth: 600, minHeight: 260)
+        // r59: the compact content minimum (MainWindowGeometry — the
+        // same source of truth the scene root and the WindowConfigurator
+        // consume, so no drifting magic numbers).
+        .frame(minWidth: MainWindowGeometry.contentMinWidth,
+               minHeight: MainWindowGeometry.minContentHeight)
         // Window chrome + the sidebar-toggle window resize response.
         .background(WindowConfigurator(
             columnVisibility: columnVisibility,
@@ -294,16 +298,19 @@ struct ContentView: View {
                 for _ in 0..<15 {
                     if let window = NSApp.keyWindow
                         ?? NSApp.windows.first(where: { $0.isVisible }) {
-                        // window.center() is a no-op when the window is
-                        // fully off another display (its screen is nil),
-                        // so place the designed 800x600 frame explicitly
-                        // in the visible area of the PRIMARY display
-                        // (screens.first), never a secondary one a stale
-                        // autosaved frame may have pointed to.
-                        window.setContentSize(NSSize(width: 800, height: 600))
+                        // r59: the designed default CONTENT size
+                        // (MainWindowGeometry). window.center() is a no-op
+                        // when the window is fully off another display
+                        // (its screen is nil), so the frame is placed
+                        // explicitly in the visible area of the PRIMARY
+                        // display (screens.first), never a secondary one a
+                        // stale autosaved frame may have pointed to.
+                        window.setContentSize(NSSize(width: MainWindowGeometry.defaultContentWidth,
+                                                   height: MainWindowGeometry.defaultContentHeight))
                         let primary = NSScreen.screens.first
                         if let vf = (primary ?? NSScreen.main)?.visibleFrame,
-                           vf.width >= 800, vf.height >= 600 {
+                           vf.width >= MainWindowGeometry.defaultContentWidth,
+                           vf.height >= MainWindowGeometry.defaultContentHeight {
                             let x = vf.minX + (vf.width - window.frame.width) / 2
                             let y = vf.minY + (vf.height - window.frame.height) / 2
                             window.setFrame(
@@ -341,9 +348,24 @@ private struct WindowConfigurator: NSViewRepresentable {
     var sidebarWidth: CGFloat
     var reduceMotion: Bool
 
-    private let expandedMinWidth: CGFloat = 800
-    private let collapsedMinWidth: CGFloat = 600
-    private let minHeight: CGFloat = 560
+    /// r59: the exact FRAME floor enforcing the 260 pt CONTENT minimum.
+    /// `frameRect(forContentRect:)` is the AppKit style-based
+    /// content→frame conversion, so the titlebar/toolbar contribution
+    /// is measured, never guessed: setting a raw frame height of 260
+    /// would leave LESS than 260 pt of content. Widths stay the
+    /// long-standing frame floors (800 expanded / 600 collapsed).
+    @MainActor
+    private static func minFrameSize(for window: NSWindow,
+                                     sidebarVisible: Bool) -> NSSize {
+        let probe = window.frameRect(forContentRect: NSRect(
+            x: 0, y: 0, width: 100,
+            height: MainWindowGeometry.minContentHeight))
+        return NSSize(
+            width: sidebarVisible
+                ? MainWindowGeometry.expandedMinFrameWidth
+                : MainWindowGeometry.collapsedMinFrameWidth,
+            height: probe.height)
+    }
 
     @MainActor
     final class Coordinator {
@@ -358,7 +380,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         context.coordinator.lastVisibility = columnVisibility
         Task { @MainActor in
             guard let window = view.window else { return }
-            window.minSize = NSSize(width: expandedMinWidth, height: minHeight)
+            window.minSize = Self.minFrameSize(for: window, sidebarVisible: true)
             applyNoSeparatorChrome(to: window)
             // SwiftUI re-asserts the default chrome during later layout and
             // activation passes; hold the override. The token is removed in
@@ -379,8 +401,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         coord.lastVisibility = columnVisibility
         Task { @MainActor in
             guard let window = nsView.window else { return }
-            window.minSize = NSSize(width: nowVisible ? expandedMinWidth : collapsedMinWidth,
-                                    height: minHeight)
+            window.minSize = Self.minFrameSize(for: window, sidebarVisible: nowVisible)
             let frame = window.frame
             let edge = SidebarWindowGeometry.Edge(originX: frame.minX, width: frame.width)
             let screenVisible: ClosedRange<CGFloat>? = window.screen.map {
@@ -390,7 +411,7 @@ private struct WindowConfigurator: NSViewRepresentable {
                 ? SidebarWindowGeometry.expanded(from: edge, sidebarWidth: sidebarWidth,
                                                  screenVisible: screenVisible)
                 : SidebarWindowGeometry.collapsed(from: edge, sidebarWidth: sidebarWidth,
-                                                  minWidth: collapsedMinWidth,
+                                                  minWidth: MainWindowGeometry.collapsedMinFrameWidth,
                                                   screenVisible: screenVisible)
             guard abs(target.originX - frame.minX) > 0.5
                 || abs(target.width - frame.width) > 0.5 else { return }

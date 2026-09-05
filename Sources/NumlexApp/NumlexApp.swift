@@ -1,4 +1,5 @@
 import SwiftUI
+import NumlexCore
 
 /// r38: the app-wide appearance follows the PERSISTED Light/Dark
 /// choice (AppSettings.appearance — the single source of truth, no
@@ -55,11 +56,16 @@ struct NumlexApp: App {
     var body: some Scene {
         WindowGroup {
             themedRoot(ContentView(model: model))
-                // The SwiftUI content minimum must allow the COLLAPSED
-                // window size; the expanded 820pt minimum is enforced
-                // dynamically by WindowConfigurator's window.minSize so the
-                // system sidebar toggle can shrink the window.
-                .frame(minWidth: 600, minHeight: 560)
+                // r59: the SwiftUI content minimum allows the COLLAPSED
+                // window size AND the compact 260 pt content height
+                // (MainWindowGeometry.minContentHeight — the one source
+                // of truth, also consumed by ContentView and the
+                // WindowConfigurator's frame conversion). The expanded
+                // 800 pt minimum width is enforced dynamically by
+                // WindowConfigurator's window.minSize so the system
+                // sidebar toggle can shrink the window.
+                .frame(minWidth: MainWindowGeometry.contentMinWidth,
+                       minHeight: MainWindowGeometry.minContentHeight)
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentSize)
