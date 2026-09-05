@@ -118,24 +118,8 @@ struct ContentView: View {
             .allowsHitTesting(false)
     }
 
-    /// r60: hides ONLY the native `.sidebarToggle` toolbar item, and
-    /// only while the preference is ON and the sidebar is collapsed —
-    /// expanded keeps the native button (the collapse path), OFF keeps
-    /// fully automatic behavior. A same-tree conditional modifier, so
-    /// no view identity reset touches the editor bridge or sidebar
-    /// state; reopening is the native Toggle Sidebar responder
-    /// (Control-Command-S via SidebarCommands).
-    @ViewBuilder
-    private func sidebarToggleScope<Content: View>(_ content: Content) -> some View {
-        if model.settings.hideSidebarButtonWhenCollapsed && columnVisibility != .all {
-            content.toolbar(removing: .sidebarToggle)
-        } else {
-            content
-        }
-    }
-
     var body: some View {
-        sidebarToggleScope(NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
                 // Track the ACTUAL rendered column width (user resizes
                 // included) so the window resize response always uses the
@@ -248,7 +232,7 @@ struct ContentView: View {
                 )
             }
             .toolbar(removing: .title)
-        })
+        }
         // r59: the compact content minimum (MainWindowGeometry — the
         // same source of truth the scene root and the WindowConfigurator
         // consume, so no drifting magic numbers).
@@ -258,7 +242,8 @@ struct ContentView: View {
         .background(WindowConfigurator(
             columnVisibility: columnVisibility,
             sidebarWidth: sidebarWidth,
-            reduceMotion: reduceMotion
+            reduceMotion: reduceMotion,
+            hideSidebarButtonWhenCollapsed: model.settings.hideSidebarButtonWhenCollapsed
         ))
         // Reset the editor-bound state when the selected SHEET ID changes,
         // not only the numeric index: deleting the selected non-last row
@@ -363,6 +348,11 @@ private struct WindowConfigurator: NSViewRepresentable {
     var columnVisibility: NavigationSplitViewVisibility
     var sidebarWidth: CGFloat
     var reduceMotion: Bool
+    /// r61: keyboard-only sidebar reopening — hide the native toggle
+    /// button while the sidebar is collapsed. Applied via AppKit
+    /// `NSToolbarItem.isHidden` (identity-preserving, reclaims toolbar
+    /// space); never removed/reinserted.
+    var hideSidebarButtonWhenCollapsed: Bool
 
     /// r59: the exact FRAME floor enforcing the 260 pt CONTENT minimum.
     /// `frameRect(forContentRect:)` is the AppKit style-based
@@ -387,6 +377,10 @@ private struct WindowConfigurator: NSViewRepresentable {
     final class Coordinator {
         var lastVisibility: NavigationSplitViewVisibility = .all
         var chromeObserver: NSObjectProtocol?
+        /// r61: latest inputs for the key-reassertion observer (which
+        /// outlives any single representable struct value).
+        var hidePreference = false
+        var collapsed = false
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -394,17 +388,33 @@ private struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         context.coordinator.lastVisibility = columnVisibility
+        context.coordinator.hidePreference = hideSidebarButtonWhenCollapsed
+        context.coordinator.collapsed = columnVisibility != .all
         Task { @MainActor in
             guard let window = view.window else { return }
             window.minSize = Self.minFrameSize(for: window, sidebarVisible: true)
             applyNoSeparatorChrome(to: window)
+            // r61: the toolbar is installed after this make pass, so
+            // apply now (in case it already exists) plus one bounded
+            // next-run-loop retry; every key reassertion below
+            // re-applies idempotently. No polling, no timer.
+            let coord = context.coordinator
+            applySidebarButtonVisibility(to: window, hide: coord.hidePreference && coord.collapsed)
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            applySidebarButtonVisibility(to: window, hide: coord.hidePreference && coord.collapsed)
             // SwiftUI re-asserts the default chrome during later layout and
             // activation passes; hold the override. The token is removed in
             // dismantleNSView so no observer outlives the representable.
             context.coordinator.chromeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
             ) { _ in
-                Task { @MainActor in applyNoSeparatorChrome(to: window) }
+                Task { @MainActor in
+                    applyNoSeparatorChrome(to: window)
+                    // r61: re-assert the toggle visibility — the toolbar
+                    // can be rebuilt on activation, which would drop the
+                    // hidden flag. Coordinator holds the LATEST inputs.
+                    applySidebarButtonVisibility(to: window, hide: coord.hidePreference && coord.collapsed)
+                }
             }
         }
         return view
@@ -412,6 +422,17 @@ private struct WindowConfigurator: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let coord = context.coordinator
+        // r61: hidden-state first — a preference-only change must hide
+        // or restore the button immediately even when the visibility
+        // guard below suppresses the width resize. Idempotent. The
+        // coordinator keeps the latest inputs for key reassertion.
+        coord.hidePreference = hideSidebarButtonWhenCollapsed
+        coord.collapsed = columnVisibility != .all
+        let hideButton = coord.hidePreference && coord.collapsed
+        if let window = nsView.window {
+            let w = window
+            Task { @MainActor in applySidebarButtonVisibility(to: w, hide: hideButton) }
+        }
         guard coord.lastVisibility != columnVisibility else { return }
         let nowVisible = columnVisibility == .all
         coord.lastVisibility = columnVisibility
@@ -451,9 +472,22 @@ private struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
+/// r61: native sidebar toggle identifiers. SwiftUI's NavigationSplitView
+/// installs its toggle under its own namespaced identifier (observed at
+/// runtime: `com.apple.SwiftUI.navigationSplitView.toggleSidebar`), not
+/// the classic `NSToolbarToggleSidebarItemIdentifier` — match both so
+/// the lookup survives either host. `isHidden` keeps the item installed
+/// (identity, customization, responder wiring intact) while reclaiming
+/// its toolbar space; a missing toolbar/item is a silent no-op covered
+/// by the configurator's retry and key-reassertion paths.
 @MainActor
-private func applyNoSeparatorChrome(to window: NSWindow) {
-    // The horizontal strip at the top of the detail area is the window
+private func applySidebarButtonVisibility(to window: NSWindow, hide: Bool) {
+    guard let item = window.toolbar?.items.first(where: { $0.itemIdentifier == .toggleSidebar || $0.itemIdentifier.rawValue == "com.apple.SwiftUI.navigationSplitView.toggleSidebar" }) else { return }
+    if item.isHidden != hide { item.isHidden = hide }
+}
+
+@MainActor
+private func applyNoSeparatorChrome(to window: NSWindow) {    // The horizontal strip at the top of the detail area is the window
     // titlebar separator. In a NavigationSplitView window (whose sidebar
     // toggle installs an NSToolbar) the separator style is re-asserted to
     // .line after any assignment, so the titlebar itself is made

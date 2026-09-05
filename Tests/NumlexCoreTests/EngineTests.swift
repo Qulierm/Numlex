@@ -249,4 +249,9 @@ struct EngineTests {
     func r59CompactWindow(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r61Cases)
+    func r61SidebarButton(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
