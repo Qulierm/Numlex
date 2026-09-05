@@ -12,17 +12,30 @@
 //              high-quality interpolation, all vector art re-rendered at 2x.
 //
 // Layout (points, origin top-left of the 800x450 content area):
-//   background : near-black -> deep blue vertical gradient (#090B11 -> #111623)
+//   background : near-black hero (#090B11) fading at y~280-350 into a
+//                clean light shelf (#C9D1DD -> #B7BFCC) that carries the
+//                black Finder icon labels + dark footer with high contrast
+//                (this Finder renders icon labels black with any picture set;
+//                white-on-dark is not achievable — hence the shelf)
 //   glow app   : radial purple (#8B5CF6 @20%) centered at (220, 285), radius 200
 //   glow apps  : radial blue   (#3B82F6 @20%) centered at (580, 285), radius 200
-//   tagline    : numlex-tagline.png (506x122 px @1x) centered horizontally,
-//                top edge at y=56
+//   tagline    : numlex-tagline.png drawn 400 pt wide (aspect-kept 400x96.4)
+//                centered horizontally, top edge at y=42 (safe region)
 //   arrow      : thin (2.2 pt) purple->blue shaft x=312..452 at y=285,
 //                solid blue head tip at x=488
 //   footer     : "Drag Numlex to Applications to install"
-//                SF system 15 pt medium, #7C838E, centered, block top y=416
+//                SF system 15 pt medium, #39404B (dark slate for the light
+//                shelf), centered, block top y=395
 //
 // Usage: generate-dmg-background.swift <tagline-png> <out-1x.png> <out-2x.png>
+//
+// Retina mechanism (proven on macOS 26 Finder): the 1600x900 2x PNG is
+// tagged 144 dpi via `sips -s dpiWidth 144 -s dpiHeight 144` and set as
+// the Finder's background picture — Finder honors the dpi tag and renders
+// it at the correct 800x450 pt scale with Retina detail. A multirep TIFF
+// (tiffutil -cathidpicheck, even with correct 72/144 rep tags) is silently
+// ignored by this Finder, and a raw untagged @2x PNG renders 2x oversized
+// and cropped. The 1x PNG (72 dpi) ships alongside as fallback.
 
 import AppKit
 import CoreGraphics
@@ -52,15 +65,15 @@ let iconCenterY: CGFloat = 285      // top-down
 let appX: CGFloat = 220
 let appsX: CGFloat = 580
 let glowRadius: CGFloat = 200
-let taglineW: CGFloat = 506
-let taglineH: CGFloat = 122
-let taglineTop: CGFloat = 56        // top-down
+let taglineW: CGFloat = 400
+let taglineH: CGFloat = 400 * 122 / 506 // ~= 96.4, aspect kept
+let taglineTop: CGFloat = 42        // top-down (safe region)
 let arrowY: CGFloat = iconCenterY   // top-down
 let arrowX0: CGFloat = 312
 let arrowX1: CGFloat = 452
 let arrowHeadTip: CGFloat = 488
 let arrowHeadHalf: CGFloat = 7
-let footerBlockTop: CGFloat = 416   // top-down
+let footerBlockTop: CGFloat = 395   // top-down (fully visible)
 let footerText = "Drag Numlex to Applications to install"
 
 // sRGB colors.
@@ -71,7 +84,7 @@ let gradTop = rgb(9, 11, 17)
 let gradBottom = rgb(17, 22, 35)
 let glowPurple = rgb(139, 92, 246)   // numlex purple accent
 let glowBlue = rgb(59, 130, 246)     // numlex blue accent
-let footerGray = rgb(124, 131, 142)  // #7C838E
+let footerGray = rgb(57, 64, 75)       // #39404B (dark slate on the light shelf)
 
 // Top-down y -> bottom-up CG y.
 func cy(_ topDown: CGFloat) -> CGFloat { CH - topDown }
@@ -92,9 +105,17 @@ func render(scale: CGFloat) -> CGImage {
     let nsctx = NSGraphicsContext(cgContext: cg, flipped: false)
     NSGraphicsContext.current = nsctx
 
-    // 1) Background gradient (top -> bottom).
-    NSGradient(starting: gradTop, ending: gradBottom)?
-        .draw(in: CGRect(x: 0, y: 0, width: CW, height: CH), angle: -90)
+    // 1) Background: dark hero fading into a clean light shelf.
+    // Stops are top-down fractions of CH.
+    let shelfTop = rgb(16, 22, 37)
+    let shelfMid = rgb(90, 101, 121)
+    let shelfLight = rgb(201, 209, 221)
+    let shelfBottom = rgb(183, 191, 204)
+    if let hero = NSGradient(colorsAndLocations: (gradTop, 0.0), (shelfTop, 0.60),
+                                                  (shelfMid, 0.71), (shelfLight, 0.79),
+                                                  (shelfBottom, 1.0)) {
+        hero.draw(in: CGRect(x: 0, y: 0, width: CW, height: CH), angle: -90)
+    }
 
     // 2) Radial glows behind the two icon positions.
     func radialGlow(centerX x: CGFloat, color: NSColor) {

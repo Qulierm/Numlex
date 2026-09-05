@@ -3,22 +3,20 @@
 #
 # Usage: Scripts/generate-app-icon.sh [iconset-dir]
 #   iconset-dir defaults to <repo>/Assets/AppIcon.iconset: the tracked,
-#   PACKAGED (outer-rim-corrected) silver rasters with iconutil-standard
-#   filenames. Each slot is packed exactly as supplied — the script
+#   PACKAGED silver rasters with iconutil-standard filenames — kept
+#   BYTE-EXACT copies of the raw supplied exports (no RGB correction,
+#   no resizing). Each slot is packed exactly as supplied — the script
 #   never resizes or recompresses a slot (sips is used for metadata
 #   queries only).
 #
 # Provenance (see Assets/README.md):
 #   * Assets/AppIcon.exported.iconset: the RAW supplied silver exports
 #     (byte-exact, tracked, never modified by any script).
-#   * Assets/AppIcon.iconset: GENERATED corrected slots — deterministic
-#     outer-rim correction (Scripts/strip-icon-rim.py) removes the
-#     neutral specular bevel the export machinery bakes around the tile
-#     perimeter; geometry-local, alpha-preserving, everything outside
-#     the perimeter band bit-identical to the raw export.
+#   * Assets/AppIcon.iconset: PACKAGED slots, byte-exact copies of the
+#     raw exports. No rim correction is applied (former
+#     strip-icon-rim.py removed — it altered edge RGB).
 #   * No layered source is supplied or tracked: the per-size PNGs ARE
-#     the source of truth. If a layered Icon Composer package is ever
-#     added back, it must rasterize to the raw exported pixels.
+#     the source of truth and ship as-is.
 #
 # Produces Sources/NumlexApp/Resources/AppIcon.icns, replacing the
 # previous file atomically, then unpacks the result and validates all

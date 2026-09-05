@@ -1,18 +1,22 @@
 #!/bin/bash
 # Package .build/Numlex.app into a styled, compressed, read-only DMG.
 #
-# Output: dist/Numlex-<VERSION>-macOS-<arch>.dmg
+# Output: dist/Numlex-<VERSION>-macOS-<arch>.dmg (or $NUMLEX_DMG_DIR override)
 #   - volume name "Numlex <VERSION>"
 #   - contains ONLY Numlex.app plus an Applications symlink
-#   - styled: Retina .background/ (1x + 2x, tiffutil -cathidpicheck),
-#     volume icon from the app's AppIcon.icns, and a Finder .DS_Store
-#     layout applied via Finder Apple events (Scripts/configure-dmg-finder.sh)
+#   - styled: .background/ pair (800x450 @72dpi 1x + 1600x900 @144dpi-tagged
+#     2x; the 2x file is the pinned background picture — correct pt scale
+#     with Retina detail), dark icon-view color (white labels), exact icon
+#     positions, hidden+off-canvas support items, volume icon from the
+#     app's AppIcon.icns, and a strict Finder .DS_Store layout applied via
+#     Finder Apple events (Scripts/configure-dmg-finder.sh)
 #   - UDZO compressed, read-only
 #
 # Pipeline (styled): stage a read-write HFS+ image -> attach (default
 # /Volumes mount so Finder tracks it) -> copy app + symlink -> install
-# .background/ (1x + 2x PNG pair = native Retina) + .VolumeIcon.icns ->
-# Finder layout -> detach -> convert to UDZO.
+# .background/ (1x 72dpi + 144dpi-tagged 2x) + .VolumeIcon.icns ->
+# Finder-invisible flags -> strict Finder layout (verified by readback;
+# any mismatch FAILS the build) -> detach -> convert to UDZO.
 #
 # NUMLEX_PLAIN_DMG=1: skip all styling (no Finder session needed) and emit
 # dist/Numlex-<VERSION>-macOS-<arch>-plain.dmg via the classic
@@ -26,7 +30,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$ROOT/.build/Numlex.app"
-DIST_DIR="$ROOT/dist"
+DIST_DIR="${NUMLEX_DMG_DIR:-$ROOT/dist}"
 CONFIGURE="$ROOT/Scripts/configure-dmg-finder.sh"
 PLAIN="${NUMLEX_PLAIN_DMG:-0}"
 ARCH="$(uname -m)"
@@ -129,19 +133,22 @@ fi
 ditto "$STAGE/Numlex.app" "$MNT/Numlex.app"
 ln -s /Applications "$MNT/Applications"
 
-# --- 3) Retina background (1x + 2x PNG pair, native Finder hidpi) ----------
-# A PNG @2x pair is Finder's native Retina background mechanism; this
-# toolchain's tiffutil cannot convert PNG->TIFF, so no tiffutil step is used.
+# --- 3) Background pair (1x 72dpi + 144dpi-tagged 2x) -----------------------
+# Proven on macOS 26 Finder: the 1600x900 2x PNG tagged 144 dpi renders as
+# the background picture at the correct 800x450 pt scale WITH Retina
+# detail. A raw untagged @2x renders 2x oversized/cropped; a multirep TIFF
+# is silently ignored. No JPEG fallback (unreadable-alias risk).
 BG_DIR="$MNT/.background"
 mkdir -p "$BG_DIR"
-echo "Installing Retina background (1x + 2x PNG pair)..."
+echo "Installing background pair (1x + 144dpi-tagged 2x)..."
 cp "$ROOT/Assets/DMG/NumlexDMGBackground.png" "$BG_DIR/background.png"
 cp "$ROOT/Assets/DMG/NumlexDMGBackground@2x.png" "$BG_DIR/background@2x.png"
-# Lossless-quality JPEG of the 2x canvas: fallback for macOS versions whose
-# Finder cannot coerce the PNG into the background-picture alias.
-sips -s format jpeg -s formatOptions 100 \
-  "$ROOT/Assets/DMG/NumlexDMGBackground@2x.png" \
-  --out "$BG_DIR/background@2x.jpg" >/dev/null
+# Fail fast if the tagged asset lost its 144dpi tag.
+DPI2="$(sips -g dpiWidth "$BG_DIR/background@2x.png" 2>/dev/null | awk '/dpiWidth/{print int($2)}')"
+if [[ "$DPI2" != "144" ]]; then
+  echo "error: background@2x.png is not tagged 144dpi (got '${DPI2}'); regenerate assets." >&2
+  exit 1
+fi
 
 # --- 4) Volume icon (the app's icon; hidden via creator bit when available)
 ICNS_SRC="$ROOT/Sources/NumlexApp/Resources/AppIcon.icns"
@@ -150,6 +157,12 @@ if [[ -f "$ICNS_SRC" ]]; then
   if command -v SetFile >/dev/null 2>&1; then
     SetFile -a C "$MNT/.VolumeIcon.icns" 2>/dev/null || true
   fi
+fi
+# Support items must never appear in the window even with show-hidden on;
+# Finder-invisible now, off-canvas position enforced by the strict layout.
+chflags hidden "$BG_DIR" "$MNT/.VolumeIcon.icns" 2>/dev/null || true
+if command -v SetFile >/dev/null 2>&1; then
+  SetFile -a V "$BG_DIR" "$MNT/.VolumeIcon.icns" 2>/dev/null || true
 fi
 
 # --- 5) Finder layout (real Finder Apple events) ----------------------------
