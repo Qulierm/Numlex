@@ -165,6 +165,45 @@ struct AnswerColumnView: View {
         NotebookPalette(styling: StylingPreferences(fontDesign: fontDesign))
     }
 
+    /// Content-coordinate Y of every total divider (r58): the
+    /// pixel-snapped midpoint between the previous visible answer's
+    /// ink center and the total's ink center, or the nominal fallback
+    /// when the section has no previous visible answer. Each center
+    /// reuses the EXACT baseline offset its row renders with
+    /// (`baselineOffset(for:metric:height:)`) minus half the cap
+    /// height of the weight that row renders in (regular for ordinary
+    /// rows — the scan never crosses a total boundary — semibold for
+    /// totals), so the divider agrees with the drawn ink by
+    /// construction. Scrolling stays outside: callers subtract the
+    /// shared topOffset exactly like the rows do.
+    private func dividerModels(metricByIndex: [Int: LineMetrics.Line]) -> [CGFloat] {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let regularCap = palette.editorFont(size: fontSize).capHeight
+        let semiboldCap = palette.editorFont(size: fontSize, weight: .semibold).capHeight
+        var ys: [CGFloat] = []
+        for (ri, line) in rows.enumerated() where line.isTotal {
+            let g = rowGeometry(line)
+            let totalBaseline = baselineOffset(
+                for: line, metric: metricByIndex[line.sourceLineIndex], height: g.height)
+            let totalCenter = TotalDivider.answerInkCenter(
+                rowTop: g.top, baselineOffset: totalBaseline, capHeight: semiboldCap)
+            if let pi = TotalDivider.previousVisibleIndex(totalIndex: ri, lines: rows) {
+                let prev = rows[pi]
+                let pg = rowGeometry(prev)
+                let prevBaseline = baselineOffset(
+                    for: prev, metric: metricByIndex[prev.sourceLineIndex], height: pg.height)
+                let prevCenter = TotalDivider.answerInkCenter(
+                    rowTop: pg.top, baselineOffset: prevBaseline, capHeight: regularCap)
+                ys.append(TotalDivider.midpoint(
+                    previousCenter: prevCenter, totalCenter: totalCenter, displayScale: scale))
+            } else {
+                ys.append(TotalDivider.fallback(
+                    totalCenter: totalCenter, totalRowHeight: g.height))
+            }
+        }
+        return ys
+    }
+
     /// Y offset from the top of the row frame to the answer's target
     /// first-text baseline, in row-local coordinates. A measured metric
     /// line supplies it directly (its container-coordinate answer baseline
@@ -192,11 +231,13 @@ struct AnswerColumnView: View {
     }
 
     private var summary: (value: String, unit: String?)? {
-        // r57: the bottom Total sums ordinary unitless `.number` rows
-        // only — inline `total` command rows (`isTotal`) are EXCLUDED
-        // so the feature never double-counts them. (Assignment
-        // `.variable` rows were never included here and still aren't;
-        // that scope is deliberately unchanged.)
+        // r57/r58: the bottom Total is the OVERALL sheet total — it
+        // sums ordinary unitless `.number` rows of the whole sheet
+        // (never sectioned) and inline `total` command rows
+        // (`isTotal`) are EXCLUDED so the feature never
+        // double-counts them. (Assignment `.variable` rows were never
+        // included here and still aren't; that scope is deliberately
+        // unchanged.)
         let numeric = rows.compactMap { line -> Double? in
             guard !line.isTotal else { return nil }
             if case .number(let v, let u) = line.result, u == nil { return v } else { return nil }
@@ -244,6 +285,7 @@ struct AnswerColumnView: View {
                     let metricByIndex = Dictionary(
                         uniqueKeysWithValues: metrics.lines.map { ($0.index, $0) }
                     )
+                    let dividerModels = dividerModels(metricByIndex: metricByIndex)
                     ForEach(rows, id: \.sourceLineIndex) { line in
                         let geo2 = rowGeometry(line)
                         let baseline = baselineOffset(
@@ -286,23 +328,27 @@ struct AnswerColumnView: View {
                             value: line.sourceLineIndex == highlightedSourceLineIndex
                                 && isHighlightable(line.result)
                         )
-                        .overlay(alignment: .top) {
-                            // r57: the total rule — a 1pt adaptive neutral
-                            // hairline (`Design.panelSeparator`) pinned to
-                            // the row's top edge, inset to the answer
-                            // horizontal padding. A pure overlay: it adds
-                            // no height, moves no baseline, changes no
-                            // scroll extent, hit area, caret, IME or
-                            // selection, and never duplicates into the
-                            // editor or the bottom summary.
-                            if line.isTotal {
-                                Color(nsColor: Design.panelSeparator)
-                                    .frame(height: 1)
-                                    .padding(.horizontal, 20)
-                                    .allowsHitTesting(false)
-                            }
-                        }
                         .offset(y: geo2.top - topOffset)
+                    }
+                    // r58: centered total dividers — one 1pt adaptive
+                    // neutral hairline (`Design.panelSeparator`) per total
+                    // row, placed at the PIXEL-SNAPPED midpoint between
+                    // the previous visible answer's ink center and the
+                    // total's ink center (TotalDivider over evaluated
+                    // metadata + measured metrics, never source text).
+                    // A pure overlay layer in the same scrolling ZStack:
+                    // no height, no hit testing, no layout extent, no
+                    // scroll drift — rows keep their own offsets, clicks,
+                    // double-clicks and menus untouched.
+                    ForEach(dividerModels, id: \.self) { y in
+                        Color(nsColor: Design.panelSeparator)
+                            .frame(height: 1)
+                            .padding(.horizontal, 20)
+                            .allowsHitTesting(false)
+                            // The 1pt line centers on the midpoint: its
+                            // top sits half a point above it, so the
+                            // midpoint stays mathematically centered.
+                            .offset(y: y - topOffset - 0.5)
                     }
                 }
                 // Clamp to the visible content region first, so the overlay

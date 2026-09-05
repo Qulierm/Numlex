@@ -140,6 +140,92 @@ public enum NotebookLayout {
     }
 }
 
+/// Pure centered-divider geometry for inline `total` rows (r58).
+/// Kept framework-free (plain CGFloat metrics in, content-coordinate
+/// Y out) so the exact placement rule is unit-testable without
+/// AppKit. The divider sits EXACTLY halfway between the previous
+/// visible answer's ink center and the total's ink center — never
+/// pinned to the total row's top edge (a row-top pin sits closer to
+/// the upper row by half the ascender-to-top gap, a systematic
+/// upward bias). All inputs come from evaluated `SheetLine` metadata
+/// and measured `LineMetrics`, never from source text.
+public enum TotalDivider {
+    /// Whether the evaluated row renders answer ink in the answer
+    /// column. Blanks, skips and titles render `Color.clear`, and so
+    /// do quiet generic errors — only the two explicit status rows
+    /// (the terminal weather failure, localized at render time, and
+    /// the `Rates unavailable` state) render text. Every other result
+    /// — ordinary numbers (unit-bearing conversions and weather
+    /// included), variables, money, dates and inactive-token labels —
+    /// renders an answer. The divider anchors to actually rendered
+    /// answers only.
+    public static func isVisibleAnswer(_ result: LineResult) -> Bool {
+        switch result {
+        case .blank, .skip, .title:
+            return false
+        case .error(let message):
+            return WeatherQuery.isUnavailableMessage(message)
+                || message == "Rates unavailable"
+        default:
+            return true
+        }
+    }
+
+    /// Index of the nearest preceding visible answer before the total
+    /// at `totalIndex` (a position in `lines`), searching only inside
+    /// the just-finished section: the scan skips invisible rows
+    /// (blanks, prose, titles, quiet errors) and STOPS at a prior
+    /// total command (the section boundary) or at the sheet start.
+    /// nil means the fallback owns the divider — a leading total or
+    /// back-to-back totals with an empty section between them.
+    public static func previousVisibleIndex(totalIndex: Int, lines: [SheetLine]) -> Int? {
+        var j = totalIndex - 1
+        while j >= 0 {
+            if lines[j].isTotal { return nil }
+            if isVisibleAnswer(lines[j].result) { return j }
+            j -= 1
+        }
+        return nil
+    }
+
+    /// Ink centerline of one rendered answer in answer-content
+    /// coordinates: the row's measured answer baseline (the exact
+    /// offset the row's text sits on — the total's own
+    /// block-centered baseline for wrapped lines, the TextKit
+    /// baseline otherwise) minus half the cap height of the weight
+    /// that row renders in (regular for ordinary rows, semibold for
+    /// totals). The same centerline the hover outline uses, so
+    /// dividers and outlines can never disagree about a row.
+    public static func answerInkCenter(rowTop: CGFloat,
+                                       baselineOffset: CGFloat,
+                                       capHeight: CGFloat) -> CGFloat {
+        rowTop + baselineOffset - capHeight / 2
+    }
+
+    /// Snapped divider Y in answer-content coordinates: the exact
+    /// midpoint of the two ink centers, rounded (never floored or
+    /// ceiled) to the device pixel grid. Rounding keeps the snapped
+    /// line within half a physical pixel of the true midpoint —
+    /// mathematically centered, with no bias toward either row.
+    public static func midpoint(previousCenter: CGFloat,
+                                totalCenter: CGFloat,
+                                displayScale: CGFloat) -> CGFloat {
+        let exact = (previousCenter + totalCenter) / 2
+        let scale = Swift.max(displayScale, 1)
+        return (exact * scale).rounded() / scale
+    }
+
+    /// Fallback divider Y when no previous visible answer exists:
+    /// the nominal preceding center sits exactly one own-row-height
+    /// above the total's center, so the divider lands precisely on
+    /// the total row's top edge — derived from the row's own
+    /// measured height, never a magic constant.
+    public static func fallback(totalCenter: CGFloat,
+                                totalRowHeight: CGFloat) -> CGFloat {
+        totalCenter - Swift.max(totalRowHeight, 1) / 2
+    }
+}
+
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil

@@ -2042,6 +2042,15 @@ final class NotebookTextView: NSTextView {
                 baseline: rowBaseline, capHeight: textFont.capHeight
             )
             let baseline = center + numberFont.capHeight / 2
+            drawNumberGlyph(n, baseline: baseline)
+        }
+
+        // Shared number-ink drawing for both gutter paths: the digit
+        // string sits on `baseline` (view coordinates), right-anchored
+        // to the fixed x token. Both the legacy single-line path above
+        // and the r58 wrapped-block path below end here, so ordinary
+        // rows cannot drift between the two.
+        func drawNumberGlyph(_ n: Int, baseline: CGFloat) {
             let str = "\(n)" as NSString
             let size = str.size(withAttributes: [.font: numberFont])
             // The caret's line is one semantic step brighter than the rest.
@@ -2073,6 +2082,13 @@ final class NotebookTextView: NSTextView {
         // on the last line) — never the shorter natural fragment height.
         var rowTops: [CGFloat] = []
         var rowFragHeights: [CGFloat] = []
+        // r58: the REAL visual-fragment count and last fragment rect
+        // per logical line, enumerated from TextKit over the line's own
+        // glyph range (UTF-16 safe — the same NSRange byLines yields).
+        // 2+ means the line wrapped; 0/1 keeps the legacy first-
+        // fragment path below bit-exact. One pass, O(fragments).
+        var rowFragCounts: [Int] = []
+        var rowLastFrags: [CGRect] = []
         content.enumerateSubstrings(
             in: NSRange(location: 0, length: content.length),
             options: .byLines
@@ -2082,6 +2098,16 @@ final class NotebookTextView: NSTextView {
             let frag = lm.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
             rowTops.append(frag.minY)
             rowFragHeights.append(frag.height)
+            let glyphRange = lm.glyphRange(forCharacterRange: lineRange,
+                                            actualCharacterRange: nil)
+            var count = 0
+            var lastFrag = frag
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, _, _ in
+                count += 1
+                lastFrag = rect
+            }
+            rowFragCounts.append(count)
+            rowLastFrags.append(lastFrag)
         }
         // A document ending in a newline has a trailing empty line that
         // byLines does not enumerate; the caret can sit on it, so draw its
@@ -2092,6 +2118,8 @@ final class NotebookTextView: NSTextView {
             if trailingTop >= 0 {
                 rowTops.append(trailingTop)
                 rowFragHeights.append(CGFloat(self.lineHeight))
+                rowFragCounts.append(0)
+                rowLastFrags.append(CGRect.zero)
             }
         }
         for i in rowTops.indices {
@@ -2101,7 +2129,29 @@ final class NotebookTextView: NSTextView {
                 nextFragment: nextTop.map { CGRect(x: 0, y: $0, width: 0, height: 0) },
                 fixedLineHeight: CGFloat(self.lineHeight)
             )
-            drawNumber(i + 1, fragmentTop: box.minY, fragmentHeight: box.height)
+            if rowFragCounts[i] >= 2 {
+                // r58: wrapped line — the number ink centers on the
+                // exact logical block midpoint (first fragment top to
+                // next logical line top, or the line's natural end for
+                // the final record), never on the first fragment.
+                let blockBottom: CGFloat
+                if i + 1 < rowTops.count {
+                    blockBottom = box.maxY
+                } else {
+                    blockBottom = rowLastFrags[i].maxY
+                }
+                let y = insetY + rowTops[i]
+                let h = blockBottom - rowTops[i]
+                if y + h < visible.minY - 40 || y > visible.maxY + 40 { continue }
+                let baseline = insetY + GutterGeometry.wrappedNumberBaseline(
+                    blockTop: rowTops[i],
+                    blockHeight: h,
+                    numberCapHeight: numberFont.capHeight
+                )
+                drawNumberGlyph(i + 1, baseline: baseline)
+            } else {
+                drawNumber(i + 1, fragmentTop: box.minY, fragmentHeight: box.height)
+            }
         }
     }
 

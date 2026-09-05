@@ -361,13 +361,13 @@ public func resolveSheet(
         }
     }
 
-    // r57: the same shared inline-total accumulator `evaluateSheet`
-    // uses — one O(n) top-down pass. Token lines resolve normally
-    // first (a token-derived scalar contributes like any row); a total
-    // command resolves against the preceding prefix and enters the
-    // memo BEFORE later references resolve, so tokens on a total stay
-    // live and forward references still break. The command never
-    // mutates the environment.
+    // r57/r58: the same shared inline-total SECTION accumulator
+    // `evaluateSheet` uses — one O(n) top-down pass. Token lines
+    // resolve normally first (a token-derived scalar contributes like
+    // any row of its section); a total command resolves against its
+    // section, resets it, and enters the memo BEFORE later references
+    // resolve, so tokens on a total stay live and forward references
+    // still break. The command never mutates the environment.
     var totals = TotalAccumulator()
     var out: [SheetLine] = []
     for i in 0..<lines.count {

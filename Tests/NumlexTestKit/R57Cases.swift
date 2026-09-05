@@ -8,8 +8,9 @@ import NumlexCore
 /// Semantics under test: exact ASCII keyword (case-insensitive, outer
 /// spaces/tabs), near-miss/prose/comment/heading rejection, env
 /// precedence for an active variable/constant named `total`,
-/// cumulative prefix sums (no reset, prior totals excluded, ordinary
-/// references contribute), empty→0, evaluated-value precision (never
+/// SECTION subtotals (r58: each total resets; blanks/headings never
+/// reset; prior totals excluded; ordinary references contribute),
+/// empty→0, evaluated-value precision (never
 /// display strings or rounding overrides), overflow→quiet generic
 /// error, ignored money/units/weather/date/error rows, token-derived
 /// scalars, live tokens on totals, evaluate/resolve parity, stable
@@ -92,9 +93,10 @@ public let r57Cases: [EngineCase] = [
     },
 
     EngineCase("r57-basic-cumulative") {
+        // r58 sections: the second total sums only its own section.
         let lines = r57Sheet("10\n20\ntotal\n5\ntotal")
         try expectEqual(r57Number(lines, 2), 30, "first total")
-        try expectEqual(r57Number(lines, 4), 35, "cumulative, not since-last")
+        try expectEqual(r57Number(lines, 4), 5, "section since last total")
         try expectEqual(lines.map { $0.isTotal },
                         [false, false, true, false, true], "flags exact")
     },
@@ -104,7 +106,7 @@ public let r57Cases: [EngineCase] = [
         try expectEqual(r57Number(lines, 0), 0, "nothing above")
         let later = r57Sheet("10\ntotal\n20\ntotal")
         try expectEqual(r57Number(later, 1), 10, "prefix only")
-        try expectEqual(r57Number(later, 3), 30, "later total cumulative")
+        try expectEqual(r57Number(later, 3), 20, "later total is its section")
     },
 
     EngineCase("r57-negatives-decimals-zero") {
@@ -147,17 +149,18 @@ public let r57Cases: [EngineCase] = [
     },
 
     EngineCase("r57-consecutive-totals") {
-        // A prior total never enters a later total; the prefix sum is
-        // unchanged, so back-to-back totals agree.
+        // r58: the first total gives the section sum; the boundary
+        // reset leaves the next section empty, so it totals 0.
         let lines = r57Sheet("10\ntotal\ntotal")
         try expectEqual(r57Number(lines, 1), 10, "first")
-        try expectEqual(r57Number(lines, 2), 10, "second skips prior total")
+        try expectEqual(r57Number(lines, 2), 0, "second sees empty section")
         try expect(lines[1].isTotal && lines[2].isTotal, "both flagged")
     },
 
     EngineCase("r57-token-scalar-contributes") {
-        // 10 / 20 / total(30) / bare-token(30) / total(60): the token
-        // row is an ordinary unitless result and contributes normally.
+        // r58 sections: 10 / 20 / total(30) / bare-token(30) /
+        // total(30) — the token row is an ordinary unitless result of
+        // the NEW section and contributes normally there.
         let ids = r57IDs(5)
         let markerAt = 12 // "10\n20\ntotal\n" is 12 UTF-16 units
         let refs = [AnswerReference(sourceLineID: ids[2], labelLine: 3,
@@ -166,7 +169,7 @@ public let r57Cases: [EngineCase] = [
         try expectEqual(r57Number(r.lines, 2), 30, "command total")
         try expectEqual(r57Number(r.lines, 3), 30, "bare token of total")
         try expect(!r.lines[3].isTotal, "token row is not a total")
-        try expectEqual(r57Number(r.lines, 4), 60, "token contributes")
+        try expectEqual(r57Number(r.lines, 4), 30, "token is the new section")
         try expect(r.lines[4].isTotal, "second total flagged")
         try expectEqual(r.tokens.count, 1, "one token")
         if case .active(let v, nil, _) = r.tokens[0].state {
@@ -302,20 +305,21 @@ public let r57Cases: [EngineCase] = [
     EngineCase("r57-overflow-quiet-error") {
         // 1e308 + 1e308 overflows Double (the tokenizer takes no
         // exponent literals, so the operands arrive via `^`): the
-        // total is the quiet generic error (never inf, never a
-        // partial sum), the flag stays off the invisible row, and the
-        // poison persists to the next total.
+        // section total is the quiet generic error (never inf, never
+        // a partial sum) and the flag stays off the invisible row —
+        // but the boundary still resets (r58), so the next section
+        // totals 0 instead of inheriting the poison.
         let lines = r57Sheet("10 ^ 308\n10 ^ 308\ntotal\ntotal")
         try expect(r57Number(lines, 0).isFinite, "operand finite")
         try expectEqual(r57Number(lines, 0), r57Number(lines, 1), "operands equal")
-        for i in [2, 3] {
-            if case .error(let msg) = lines[i].result {
-                try expectEqual(msg, InlineTotal.overflowMessage, "generic")
-            } else {
-                throw CaseFailure(message: "row \(i) errors", location: "r57")
-            }
-            try expect(!lines[i].isTotal, "no flag on error row")
+        if case .error(let msg) = lines[2].result {
+            try expectEqual(msg, InlineTotal.overflowMessage, "generic")
+        } else {
+            throw CaseFailure(message: "row 2 errors", location: "r57")
         }
+        try expect(!lines[2].isTotal, "no flag on error row")
+        try expectEqual(r57Number(lines, 3), 0, "fresh section after overflow")
+        try expect(lines[3].isTotal, "flag on recovered total")
     },
 
     EngineCase("r57-evaluated-precision") {

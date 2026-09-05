@@ -474,9 +474,10 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
     env.seedConstants(constants)
-    // r57: one shared inline-total accumulator for the whole sheet —
-    // the command sums preceding rows only, never mutates the env,
-    // and prior total rows are excluded from later totals.
+    // r57/r58: one shared inline-total SECTION accumulator for the
+    // whole sheet — each command sums its section only and resets,
+    // never mutates the env, and prior total rows never enter a new
+    // section.
     var totals = TotalAccumulator()
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")

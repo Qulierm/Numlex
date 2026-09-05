@@ -239,4 +239,9 @@ struct EngineTests {
     func r57InlineTotals(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r58Cases)
+    func r58SectionTotals(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

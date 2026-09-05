@@ -153,3 +153,64 @@ public enum CaretGeometry {
         )
     }
 }
+
+/// Pure line-number baseline geometry (r58). The gutter draws one
+/// number per LOGICAL source line: ordinary single-fragment lines
+/// (and synthesized empty lines) keep the caret-aligned baseline
+/// bit-exact, while WRAPPED lines (2+ TextKit visual fragments)
+/// center their number ink in the full logical block — first
+/// fragment top to next logical line top (or the line's natural
+/// end) — instead of clinging to the first fragment. No empirical
+/// offset, no height-threshold heuristic: the caller counts real
+/// TextKit fragments per logical character range.
+public enum GutterGeometry {
+    /// Target number-ink baseline in the same coordinate space as
+    /// the inputs (the editor adds the container inset after).
+    ///
+    /// - Wrapped (`fragmentCount >= 2`): the number ink centers on
+    ///   the exact logical block midpoint
+    ///   (`blockTop + blockHeight / 2`), then sits on that center
+    ///   with its own cap height — the row-box inputs are ignored.
+    /// - Otherwise: the existing caret-aligned rule — the font's
+    ///   natural line box flush with the row box's bottom edge,
+    ///   ink centered via the text cap height, number on that
+    ///   center with its own cap height. Identical call sequence
+    ///   to the legacy gutter path, so single lines render
+    ///   bit-exact.
+    public static func numberBaseline(
+        fragmentCount: Int,
+        rowTop: CGFloat,
+        rowHeight: CGFloat,
+        blockTop: CGFloat,
+        blockHeight: CGFloat,
+        ascender: CGFloat,
+        naturalHeight: CGFloat,
+        textCapHeight: CGFloat,
+        numberCapHeight: CGFloat
+    ) -> CGFloat {
+        let center: CGFloat
+        if fragmentCount >= 2 {
+            center = blockTop + blockHeight / 2
+        } else {
+            let rowBaseline = CaretGeometry.baseline(
+                rowTop: rowTop, rowHeight: rowHeight,
+                ascender: ascender, naturalHeight: naturalHeight)
+            center = CaretGeometry.inkCenter(
+                baseline: rowBaseline, capHeight: textCapHeight)
+        }
+        return center + numberCapHeight / 2
+    }
+
+    /// Wrapped branch on its own: the number-ink baseline for a
+    /// logical block, in the same space as `blockTop`. The editor
+    /// routes wrapped lines through exactly this (single lines
+    /// keep their legacy inline path untouched), so the shipped
+    /// single-line rendering cannot drift from the tested rule.
+    public static func wrappedNumberBaseline(
+        blockTop: CGFloat,
+        blockHeight: CGFloat,
+        numberCapHeight: CGFloat
+    ) -> CGFloat {
+        blockTop + blockHeight / 2 + numberCapHeight / 2
+    }
+}
