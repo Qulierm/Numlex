@@ -118,8 +118,24 @@ struct ContentView: View {
             .allowsHitTesting(false)
     }
 
+    /// r60: hides ONLY the native `.sidebarToggle` toolbar item, and
+    /// only while the preference is ON and the sidebar is collapsed —
+    /// expanded keeps the native button (the collapse path), OFF keeps
+    /// fully automatic behavior. A same-tree conditional modifier, so
+    /// no view identity reset touches the editor bridge or sidebar
+    /// state; reopening is the native Toggle Sidebar responder
+    /// (Control-Command-S via SidebarCommands).
+    @ViewBuilder
+    private func sidebarToggleScope<Content: View>(_ content: Content) -> some View {
+        if model.settings.hideSidebarButtonWhenCollapsed && columnVisibility != .all {
+            content.toolbar(removing: .sidebarToggle)
+        } else {
+            content
+        }
+    }
+
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        sidebarToggleScope(NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
                 // Track the ACTUAL rendered column width (user resizes
                 // included) so the window resize response always uses the
@@ -232,7 +248,7 @@ struct ContentView: View {
                 )
             }
             .toolbar(removing: .title)
-        }
+        })
         // r59: the compact content minimum (MainWindowGeometry — the
         // same source of truth the scene root and the WindowConfigurator
         // consume, so no drifting magic numbers).

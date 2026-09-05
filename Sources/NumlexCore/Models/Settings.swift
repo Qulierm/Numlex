@@ -87,6 +87,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var language: AppLanguage
     public var sheetName: String
     public var lineNumbers: Bool
+    /// r60: hide the native sidebar toolbar button while the sidebar
+    /// is collapsed (reopen via Control-Command-S). Default OFF.
+    public var hideSidebarButtonWhenCollapsed: Bool
     public var fontColor: String // legacy
     public var input: InputPreferences
     /// r21: notebook styling (font design + role colors). The fontSizeKey
@@ -106,15 +109,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
         language: .en,
         sheetName: "Sheet",
         lineNumbers: true,
+        hideSidebarButtonWhenCollapsed: false,
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
         self.sheetName = sheetName
         self.lineNumbers = lineNumbers
+        self.hideSidebarButtonWhenCollapsed = hideSidebarButtonWhenCollapsed
         self.fontColor = fontColor
         self.input = input
         self.styling = styling
@@ -133,6 +138,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         language = try c.decode(AppLanguage.self, forKey: .language)
         sheetName = try c.decode(String.self, forKey: .sheetName)
         lineNumbers = try c.decode(Bool.self, forKey: .lineNumbers)
+        // r60: additive — pre-r60 stores carry no key and fall back
+        // to false (StorePayload.version is NOT bumped).
+        hideSidebarButtonWhenCollapsed = (try? c.decodeIfPresent(Bool.self, forKey: .hideSidebarButtonWhenCollapsed)) ?? false
         fontColor = try c.decode(String.self, forKey: .fontColor)
         input = try c.decodeIfPresent(InputPreferences.self, forKey: .input) ?? .defaults
         styling = (try? c.decodeIfPresent(StylingPreferences.self, forKey: .styling)) ?? .defaults

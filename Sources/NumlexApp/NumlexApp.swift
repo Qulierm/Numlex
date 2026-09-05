@@ -101,6 +101,10 @@ struct NumlexApp: App {
                 }
                 .keyboardShortcut("d", modifiers: .command)
             }
+            // r60: the ONE native Toggle Sidebar command (View menu +
+            // Control-Command-S responder). This is the keyboard-only
+            // reopening path when the toolbar button is hidden.
+            SidebarCommands()
             // The system registers the single Settings… item (⌘,) from the
             // Settings scene automatically; replacing the group here makes
             // macOS 26 render a SECOND item with the same shortcut, which

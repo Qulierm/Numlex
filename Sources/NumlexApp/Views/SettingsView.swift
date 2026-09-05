@@ -85,8 +85,9 @@ private struct GeneralSettingsTab: View {
         // r23 compact, r34 verified: NO scroll view — a fixed
         // two-column layout that shows every control at once in the
         // 720x460 window (and at the 690x460 minimum). Left: rounding
-        // + operators. Right: automatic insertions, line numbers +
-        // language + appearance, currency attribution. Every surface is exactly one
+        // + operators. Right: automatic insertions, line numbers,
+        // sidebar-button hiding + language + appearance, currency
+        // attribution. Every surface is exactly one
         // glass card; section titles sit outside their cards. (The
         // Sheet title control was removed from the UI in r23;
         // AppSettings.sheetName stays in the model for decoding and
@@ -167,6 +168,13 @@ private struct GeneralSettingsTab: View {
                         title: L10n.t("linenumber", language: language),
                         description: nil,
                         isOn: boolBinding(\AppSettings.lineNumbers)
+                    )
+                    // r60: hide the native sidebar toggle while the
+                    // sidebar is collapsed (keyboard-only reopening).
+                    SettingToggle(
+                        title: L10n.t("hideSidebarBtn", language: language),
+                        description: L10n.t("hideSidebarBtnCap", language: language),
+                        isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed)
                     )
                     HStack(spacing: 8) {
                         Text(L10n.t("language", language: language))
