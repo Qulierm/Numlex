@@ -74,6 +74,15 @@ Answer tokens join the same engine when they are unitless: `sqrt(<token>)` and
 money tokens passed to a function or to `^` fail safely instead of losing their
 unit.
 
+### Section totals
+
+A standalone `total` line sums the unitless calculation answers above it — since
+the sheet start or the previous `total` — and starts a fresh section below.
+The answer renders semibold under a gray rule placed exactly between the
+neighboring answers, and it behaves like any other answer: Copy, per-answer
+rounding and tokens all work, and wrapped logical lines keep their gutter
+number centered on the block.
+
 ## Conversions
 
 Write `10 km to meter` — `in` works just as well (`10 km in meter`).
@@ -116,13 +125,16 @@ appearance in Light and Dark.
 Work in named sheets with line numbers, syntax tinting and a live results column.
 Sheets are grouped by the one-level folder tabs pinned to the bottom of the sidebar:
 the built-in **General** tab plus any custom folders you create. Selecting a tab
-filters the sheet list only — your editor and cursor never jump.
+filters the sheet list only — your editor and cursor never jump. The main window
+resizes down to a 260pt content height for compact desks; the default stays
+800×600 and the sidebar and answers keep scrolling safely.
 
 ## Styling and constants
 
 Choose Light or Dark for the whole app, then tune font size, font design and role
-colors, decimal places, input helpers, line numbers, interface language and the
-currency display. Define up to 100 app-wide constants (`PI = 3.141592653589793`,
+colors, decimal places, input helpers, line numbers, interface language, the
+currency display, and an option to hide the sidebar button once collapsed —
+reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. Define up to 100 app-wide constants (`PI = 3.141592653589793`,
 `Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
 live through the same strict engine — function arguments included.
 
@@ -156,7 +168,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 663 shared cases, runnable two ways:
+The engine suite covers 732 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)
