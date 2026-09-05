@@ -192,7 +192,13 @@ struct AnswerColumnView: View {
     }
 
     private var summary: (value: String, unit: String?)? {
+        // r57: the bottom Total sums ordinary unitless `.number` rows
+        // only — inline `total` command rows (`isTotal`) are EXCLUDED
+        // so the feature never double-counts them. (Assignment
+        // `.variable` rows were never included here and still aren't;
+        // that scope is deliberately unchanged.)
         let numeric = rows.compactMap { line -> Double? in
+            guard !line.isTotal else { return nil }
             if case .number(let v, let u) = line.result, u == nil { return v } else { return nil }
         }
         guard !numeric.isEmpty else { return nil }
@@ -280,6 +286,22 @@ struct AnswerColumnView: View {
                             value: line.sourceLineIndex == highlightedSourceLineIndex
                                 && isHighlightable(line.result)
                         )
+                        .overlay(alignment: .top) {
+                            // r57: the total rule — a 1pt adaptive neutral
+                            // hairline (`Design.panelSeparator`) pinned to
+                            // the row's top edge, inset to the answer
+                            // horizontal padding. A pure overlay: it adds
+                            // no height, moves no baseline, changes no
+                            // scroll extent, hit area, caret, IME or
+                            // selection, and never duplicates into the
+                            // editor or the bottom summary.
+                            if line.isTotal {
+                                Color(nsColor: Design.panelSeparator)
+                                    .frame(height: 1)
+                                    .padding(.horizontal, 20)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                         .offset(y: geo2.top - topOffset)
                     }
                 }
@@ -382,9 +404,14 @@ struct AnswerColumnView: View {
                         .foregroundStyle(Color(nsColor: Design.baseText))
                         .lineLimit(1)
                 } else {
+                    // r57: an evaluated inline `total` row renders its
+                    // value semibold — same face, size and adaptive base
+                    // color, only the weight changes, and only for this
+                    // row (normal numeric answers stay regular).
+                    let totalWeight: Font.Weight = line.isTotal ? .semibold : .regular
                     HStack(spacing: 5) {
                         Text(formatDisplayValue(v, decimalPlaces: places))
-                            .font(palette.swiftUIFont(fontSize))
+                            .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                             // Every answer/result glyph is the fixed dark
                             // base (Design.baseText) regular on the light
                             // panel, per the r36 light theme.
@@ -394,7 +421,7 @@ struct AnswerColumnView: View {
                             // Units are full answer content: exactly the
                             // same size, weight and baseline as the value.
                             Text(u)
-                                .font(palette.swiftUIFont(fontSize))
+                                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                                 .foregroundStyle(Color(nsColor: Design.baseText))
                         }
                     }

@@ -474,16 +474,24 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
     env.seedConstants(constants)
+    // r57: one shared inline-total accumulator for the whole sheet —
+    // the command sums preceding rows only, never mutates the env,
+    // and prior total rows are excluded from later totals.
+    var totals = TotalAccumulator()
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
         let result: LineResult
+        var isTotalRow = false
         if line.trimmingCharacters(in: .whitespaces).isEmpty || line.hasPrefix("#") {
             result = .blank
         } else if line.hasPrefix("// ") {
             result = .title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
         } else if line.hasPrefix("//") {
             result = .blank
+        } else if InlineTotal.isCommand(line, env: env) {
+            result = totals.total(decimalPlaces: decimalPlaces)
+            if case .number = result { isTotalRow = true }
         } else if let eval = evalLineTyped(line, env: &env, rates: rates,
                                            decimalPlaces: decimalPlaces,
                                            now: now, calendar: calendar, weather: weather) {
@@ -491,7 +499,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
         } else {
             result = .skip
         }
-        rows.append(SheetLine(sourceLineIndex: index, result: result))
+        totals.observe(result: result, isTotalRow: isTotalRow)
+        rows.append(SheetLine(sourceLineIndex: index, result: result, isTotal: isTotalRow))
     }
     for (k, v) in env.scalarDict() { variables[k] = v }
     return rows

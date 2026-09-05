@@ -99,8 +99,16 @@ public enum LineResult: Equatable, Sendable {
 public struct SheetLine: Equatable, Sendable {
     public var sourceLineIndex: Int
     public var result: LineResult
-    public init(sourceLineIndex: Int, result: LineResult) {
+    /// r57: derived presentation flag for an evaluated inline `total`
+    /// command row (successful `.number` only). The answer renders
+    /// semibold with a gray rule above it and is excluded from the
+    /// bottom summary sum. Defaulted so every existing constructor
+    /// call stays source-compatible; never persisted to the store or
+    /// to `.nlx` — each pass re-derives it from the sheet text.
+    public var isTotal: Bool = false
+    public init(sourceLineIndex: Int, result: LineResult, isTotal: Bool = false) {
         self.sourceLineIndex = sourceLineIndex
         self.result = result
+        self.isTotal = isTotal
     }
 }

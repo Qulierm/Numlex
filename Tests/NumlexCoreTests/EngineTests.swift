@@ -234,4 +234,9 @@ struct EngineTests {
     func r56CityHighlight(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r57Cases)
+    func r57InlineTotals(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

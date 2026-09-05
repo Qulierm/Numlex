@@ -361,16 +361,29 @@ public func resolveSheet(
         }
     }
 
+    // r57: the same shared inline-total accumulator `evaluateSheet`
+    // uses — one O(n) top-down pass. Token lines resolve normally
+    // first (a token-derived scalar contributes like any row); a total
+    // command resolves against the preceding prefix and enters the
+    // memo BEFORE later references resolve, so tokens on a total stay
+    // live and forward references still break. The command never
+    // mutates the environment.
+    var totals = TotalAccumulator()
     var out: [SheetLine] = []
     for i in 0..<lines.count {
         let result: LineResult
+        var isTotalRow = false
         if lines[i].contains(String(answerTokenMarker)) {
             result = evalTokenLine(lines[i], i, docOffsets[i])
+        } else if InlineTotal.isCommand(lines[i], env: env) {
+            result = totals.total(decimalPlaces: decimalPlaces)
+            if case .number = result { isTotalRow = true }
         } else {
             result = plainLine(lines[i])
         }
+        totals.observe(result: result, isTotalRow: isTotalRow)
         memo[i] = result
-        out.append(SheetLine(sourceLineIndex: i, result: result))
+        out.append(SheetLine(sourceLineIndex: i, result: result, isTotal: isTotalRow))
     }
     let tokens = tokenStates.keys.sorted().map { TokenResolution(location: $0, state: tokenStates[$0]!) }
     return (out, tokens)
