@@ -34,8 +34,9 @@ struct NumlexApp: App {
         // window creation — BEFORE the SwiftUI restoration behavior and
         // the configurator's first setContentSize can apply. Clear the
         // stale key at launch so the window always opens at the designed
-        // initial size (SettingsGeometry: content 720x460), even when a
-        // previous build or session left it oversized. A session resize
+        // initial size (SettingsGeometry's compact content size), even
+        // when a previous build or session left it oversized. A session
+        // resize
         // is re-persisted on close and simply ignored at the next launch
         // — the open size is deterministic by design.
         UserDefaults.standard.removeObject(
@@ -117,9 +118,10 @@ struct NumlexApp: App {
             themedRoot(NativeSettingsView(model: model))
         }
         // r34: the Settings scene used to resurrect its persisted frame
-        // from an older (taller) build after every relaunch; with state
+        // from an older (wider) build after every relaunch; with state
         // restoration disabled the window always opens at the designed
-        // initial size (SettingsGeometry: content 720x460), and a user
+        // initial size (SettingsGeometry's compact content size), and a
+        // user
         // resize lives for the session only — the next open is the
         // deterministic initial size again.
         .restorationBehavior(.disabled)

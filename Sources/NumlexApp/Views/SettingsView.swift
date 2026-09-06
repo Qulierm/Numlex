@@ -2,17 +2,18 @@ import AppKit
 import SwiftUI
 import NumlexCore
 
-/// r34 — the ONE settings-window geometry source (points). Width range
-/// plus CONTENT height range (NSWindow content size — the titlebar is
-/// extra, and the configurator applies these through contentMinSize /
-/// contentMaxSize, never frame minSize/maxSize). The window opens at
-/// 720x460 (r34 compact: the old 510...640 content range left too much
-/// dead vertical space at the 540 default) and the user may resize
-/// vertically 460...540 and horizontally 690...820.
+/// r34/r75 — the ONE settings-window geometry source (points). Width
+/// range plus CONTENT height range (NSWindow content size — the
+/// titlebar is extra, and the configurator applies these through
+/// contentMinSize / contentMaxSize, never frame minSize/maxSize). The
+/// window opens at 560x460 (r75 compact single column: 520...640
+/// content width, 460...540 content height); r75 narrowed the range
+/// because every tab is now ONE readable column and the old 690...820
+/// two-column range left the window needlessly wide.
 private enum SettingsGeometry {
-    static let minWidth: CGFloat = 690
-    static let idealWidth: CGFloat = 720
-    static let maxWidth: CGFloat = 820
+    static let minWidth: CGFloat = 520
+    static let idealWidth: CGFloat = 560
+    static let maxWidth: CGFloat = 640
     static let minHeight: CGFloat = 460
     static let idealHeight: CGFloat = 460
     static let maxHeight: CGFloat = 540
@@ -31,7 +32,7 @@ private enum SettingsGeometry {
 /// surface is the Constants row table. No in-content "Settings"
 /// heading (the system titlebar carries the single localized window
 /// title), no nested cards, no fake tabs. Geometry comes from
-/// SettingsGeometry (720x460 content initial; 690...820 x 460...540).
+/// SettingsGeometry (560x460 content initial; 520...640 x 460...540).
 struct SettingsView: View {
     @Bindable var model: AppModel
 
@@ -67,14 +68,13 @@ struct SettingsView: View {
         // Window chrome the scene APIs cannot express: resizability and
         // the designed CONTENT size range (the SwiftUI frame above
         // drives the content bounds; the configurator mirrors them on
-        // the NSWindow). The title stays the native tab title
+        // the NSWindow from the SAME SettingsGeometry source). The
+        // title stays the native tab title
         // (General/Constants/Styling — the System Settings convention);
         // the configurator never fights it.
         .background(SettingsWindowConfigurator())
     }
 }
-
-// MARK: - General tab
 
 // MARK: - General tab
 
@@ -124,6 +124,11 @@ private struct GeneralSettingsTab: View {
                     .fixedSize()
                 }
                 SettingsRow(title: L10n.t("round", language: language)) {
+                    // r75: compact native MENU picker — the old 9-segment
+                    // control (fixed 232 pt) clipped its last segment at
+                    // narrow widths; the menu keeps the SAME 2...10 range
+                    // and binding and shows every choice as a full
+                    // unclipped list.
                     Picker("", selection: Binding(
                         get: { model.settings.decimalPlaces },
                         set: { model.settings.decimalPlaces = $0; model.persist() }
@@ -132,9 +137,9 @@ private struct GeneralSettingsTab: View {
                             Text("\(v)").tag(v)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 232)
+                    .fixedSize()
                 }
                 SettingsRow(title: L10n.t("appearance", language: language)) {
                     // The ONE write path (model.setAppearance: one
@@ -348,11 +353,14 @@ private struct ConstantsSettingsTab: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // r75: the SAME shared 20 pt page scaffold as every other tab
+        // (previously this tab used its own 16 pt padding, drifting the
+        // margins); the card + footer now sit exactly on the page
+        // insets and the page scrolls when the window is short.
+        SettingsPage {
             Text(L10n.t("constants.intro", language: language))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .padding(.leading, 8)
                 .fixedSize(horizontal: false, vertical: true)
 
             // The single card: column captions + the scrollable rows.
@@ -385,7 +393,8 @@ private struct ConstantsSettingsTab: View {
             }
             .settingsCard()
 
-            // Bottom toolbar: Add Constant + count/limit.
+            // Bottom toolbar: Add Constant + count/limit — flush with
+            // the page insets (the r75 footer no longer drifts +4 pt).
             HStack(spacing: 10) {
                 Button {
                     if let id = model.addConstant() { focusedName = id }
@@ -400,10 +409,7 @@ private struct ConstantsSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            .padding(.leading, 4)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// One row: Name + Value fields (capped by the model on commit),
@@ -577,7 +583,11 @@ private struct NumbersSettingsTab: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
-        .fixedSize()
+        // r75: no fixedSize — the label may be a long localized
+        // "System Region (...)" name; cap + truncate only as a
+        // last resort so the row never overflows the page inset.
+        .frame(maxWidth: 240, alignment: .trailing)
+        .lineLimit(1)
     }
 
     /// The ONE live example block (the duplicate Example card was
@@ -743,7 +753,9 @@ private struct StylingSettingsTab: View {
                                     language: language))
                             .font(.system(size: 13, weight: .medium))
                             .lineLimit(1)
-                            .frame(minWidth: 90, alignment: .trailing)
+                            // r75: capped so a long localized font-design
+                            // name can never push the row past the inset.
+                            .frame(maxWidth: 160, alignment: .trailing)
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
@@ -814,7 +826,9 @@ private struct StylingSettingsTab: View {
                         .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
                 }
-                .frame(minWidth: 128, alignment: .trailing)
+                // r75: trailing-aligned with a cap — a long localized
+                // color name truncates instead of overflowing the page.
+                .frame(maxWidth: 180, alignment: .trailing)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -989,14 +1003,14 @@ private struct StylingPreview: View {
     }
 }
 
-/// Configures the native Settings scene window (r34): resizability and
-/// the designed CONTENT size range from the single SettingsGeometry
-/// source — applied through `contentMinSize`/`contentMaxSize` (the
-/// titlebar is excluded, unlike the old frame-based minSize/maxSize
-/// mix). The initial open is deterministic: content 720x460. The title
-/// is owned by the native tab view (the active tab's localized name),
-/// matching the System Settings convention — exactly one settings
-/// window, exactly one title, no duplicates.
+/// Configures the native Settings scene window (r34, r75): resizability
+/// and the designed CONTENT size range from the single SettingsGeometry
+/// source (520x460 ... 640x540) — applied through `contentMinSize`/
+/// `contentMaxSize` (the titlebar is excluded, unlike the old frame-based
+/// minSize/maxSize mix). The initial open is deterministic: content
+/// 560x460. The title is owned by the native tab view (the active tab's
+/// localized name), matching the System Settings convention — exactly
+/// one settings window, exactly one title, no duplicates.
 private struct SettingsWindowConfigurator: NSViewRepresentable {
     @MainActor
     final class Coordinator {
@@ -1013,30 +1027,56 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
         NSSize(width: SettingsGeometry.maxWidth, height: SettingsGeometry.maxHeight)
     }
 
+    /// r75: snap an OUT-OF-RANGE content size (a stale persisted frame
+    /// from an older, wider build) back to the designed initial size —
+    /// exactly once on the window's first `didBecomeKey`. A user resize
+    /// inside the designed range is never touched (the check only fires
+    /// on out-of-range sizes, and contentMin/Max keep it that way).
+    private func snapIfOutOfRange(_ window: NSWindow) {
+        let size = window.contentRect(forFrameRect: window.frame).size
+        let outOfRange = size.width < SettingsGeometry.minWidth - 0.5
+            || size.width > SettingsGeometry.maxWidth + 0.5
+            || size.height < SettingsGeometry.minHeight - 0.5
+            || size.height > SettingsGeometry.maxHeight + 0.5
+        if outOfRange {
+            window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
+                                         height: SettingsGeometry.idealHeight))
+        }
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         Task { @MainActor in
             guard let window = view.window else { return }
             window.styleMask.insert(.resizable)
-            // Content (not frame) bounds: 690x460 ... 820x540, mirroring
-            // the root SwiftUI frame exactly — no titlebar arithmetic.
+            // Content (not frame) bounds: 520x460 ... 640x540, mirroring
+            // the root SwiftUI frame exactly (same SettingsGeometry
+            // source) — no titlebar arithmetic.
             window.contentMinSize = contentMin
             window.contentMaxSize = contentMax
-            // Deterministic first open: content 720x460 — even when a
-            // frame persisted from an older (taller) build would reopen
-            // the window oversized, setContentSize snaps it back.
+            // Deterministic first open: content 560x460 — even when a
+            // frame persisted from an older (wider/taller) build would
+            // reopen the window oversized, setContentSize snaps it back
+            // exactly ONCE (the snap only ever fires on out-of-range
+            // sizes; a user resize inside the range is never touched).
             window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
                                          height: SettingsGeometry.idealHeight))
             // SwiftUI re-asserts its own style mask during scene
-            // reconfiguration and drops the resizable bit; hold it.
+            // reconfiguration and drops the resizable bit; hold it. The
+            // same first-open moment is where an AppKit frame restore
+            // (stale, from an older wider build) lands AFTER makeNSView,
+            // so the one-time out-of-range snap lives here, not only in
+            // makeNSView/updateNSView.
             context.coordinator.observers.append(
                 NotificationCenter.default.addObserver(
                     forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
-                ) { _ in
+                ) { [weak self] _ in
                     Task { @MainActor in
-                        if let window = view.window, !window.styleMask.contains(.resizable) {
+                        guard let window = view.window else { return }
+                        if !window.styleMask.contains(.resizable) {
                             window.styleMask.insert(.resizable)
                         }
+                        self?.snapIfOutOfRange(window)
                     }
                 }
             )
@@ -1058,15 +1098,7 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             // build, an external resize) pushed the window OUT of the
             // designed range: snap back to the designed initial size.
             // A user resize inside the range is never touched.
-            let size = window.contentRect(forFrameRect: window.frame).size
-            let outOfRange = size.width < SettingsGeometry.minWidth - 0.5
-                || size.width > SettingsGeometry.maxWidth + 0.5
-                || size.height < SettingsGeometry.minHeight - 0.5
-                || size.height > SettingsGeometry.maxHeight + 0.5
-            if outOfRange {
-                window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
-                                             height: SettingsGeometry.idealHeight))
-            }
+            snapIfOutOfRange(window)
         }
     }
 

@@ -105,10 +105,13 @@ public let r59Cases: [EngineCase] = [
     },
     EngineCase("r59-settings-geometry-untouched") {
         // SettingsGeometry lives in the app target (not importable
-        // here), so pin it at the source: the Settings 720x460
-        // geometry must not move with the main-window change.
+        // here), so pin it at the source. r75 re-validated the pin
+        // after the deliberate narrowing to the compact single-column
+        // range (520...640 x 460...540) — the MAIN window geometry must
+        // still not move with the settings change.
         let text = try r59ReadSource("Sources/NumlexApp/Views/SettingsView.swift")
-        for pin in ["minWidth: CGFloat = 690", "idealWidth: CGFloat = 720",
+        for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
+                    "maxWidth: CGFloat = 640",
                     "minHeight: CGFloat = 460", "idealHeight: CGFloat = 460"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }
