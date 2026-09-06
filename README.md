@@ -28,40 +28,28 @@
 
 <table>
   <tr>
-    <th>Sheets &amp; Folders</th>
+    <th>Variables &amp; Functions</th>
     <th>Natural Calculations</th>
   </tr>
   <tr>
-    <td align="center"><a href="Assets/Screenshots/Sheets-Folders.png"><img src="Assets/Screenshots/Sheets-Folders.png" alt="Sheets grouped into folders in the dark-themed sidebar, with a selected sheet showing live money results" width="450"/></a></td>
-    <td align="center"><a href="Assets/Screenshots/Natural-Calculations.png"><img src="Assets/Screenshots/Natural-Calculations.png" alt="Plain arithmetic, percentages, a section total and date arithmetic with live results" width="450"/></a></td>
+    <td align="center"><a href="Assets/Demos/base.gif"><img src="Assets/Demos/base.gif" alt="Typing a variable assignment, a percentage of that variable, a power and a trigonometric function, with live results and a live total" width="450"/></a></td>
+    <td align="center"><a href="Assets/Demos/household.gif"><img src="Assets/Demos/household.gif" alt="A household section with arithmetic, a percentage, a section total and a date calculation, each with a live result" width="450"/></a></td>
   </tr>
   <tr>
-    <td align="center"><em>Group notebooks into sheets and folders</em></td>
-    <td align="center"><em>Plain lines become checked results as you type</em></td>
+    <td align="center"><em>Name values, apply functions, and totals stay live</em></td>
+    <td align="center"><em>Arithmetic, percentages, section totals and dates — as plain lines</em></td>
   </tr>
   <tr>
-    <th>Variables &amp; Functions</th>
     <th>Units &amp; Currencies</th>
-  </tr>
-  <tr>
-    <td align="center"><a href="Assets/Screenshots/Variables-Functions.png"><img src="Assets/Screenshots/Variables-Functions.png" alt="Variable assignments reused across lines plus sqrt, power, log and trigonometric functions" width="450"/></a></td>
-    <td align="center"><a href="Assets/Screenshots/Units-Currencies.png"><img src="Assets/Screenshots/Units-Currencies.png" alt="Distance, mass, temperature and speed conversions plus live currency conversions" width="450"/></a></td>
-  </tr>
-  <tr>
-    <td align="center"><em>Name values and reuse them with built-in functions</em></td>
-    <td align="center"><em>Convert units and currencies at live rates</em></td>
-  </tr>
-  <tr>
     <th>Linked Answers</th>
-    <th>Regional Number Formats</th>
   </tr>
   <tr>
-    <td align="center"><a href="Assets/Screenshots/Linked-Answers.png"><img src="Assets/Screenshots/Linked-Answers.png" alt="Answer tokens reuse earlier results as live bubbles in later expressions" width="450"/></a></td>
-    <td align="center"><a href="Assets/Screenshots/Regional-Number-Formats.png"><img src="Assets/Screenshots/Regional-Number-Formats.png" alt="Numbers settings with the Western Europe region selected, showing separators, grouping and compact notation" width="450"/></a></td>
+    <td align="center"><a href="Assets/Demos/kilometres.gif"><img src="Assets/Demos/kilometres.gif" alt="Distance, temperature, currency and mass conversions with live results" width="450"/></a></td>
+    <td align="center"><a href="Assets/Demos/linked.gif"><img src="Assets/Demos/linked.gif" alt="Answer bubbles reusing earlier results as they are typed into later lines" width="450"/></a></td>
   </tr>
   <tr>
+    <td align="center"><em>Convert distance, temperature, mass and currency in one line</em></td>
     <td align="center"><em>Reuse any result as a bubble that stays in sync</em></td>
-    <td align="center"><em>Match your region's separators and grouping</em></td>
   </tr>
 </table>
 
