@@ -43,6 +43,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
 </dict>
 </plist>
@@ -54,11 +55,21 @@ PLIST
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CONTENTS/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$CONTENTS/Info.plist")" == "26.0" ]]
 
-# Icon (required — declared as CFBundleIconFile=AppIcon in Info.plist).
-# THE icon: the user-supplied AppIcon.icns (canonical Assets/AppIcon.icns,
-# installed byte-exact by Scripts/generate-app-icon.sh — see Assets/README.md
-# for provenance). No Assets.car is ever produced — the ICNS is the single
-# authoritative resource macOS presents.
+# Modern icon (primary): the Xcode 26 Liquid Glass Assets.car compiled by
+# Scripts/compile-modern-app-icon.sh on the macos-26 Actions runner and
+# committed to Assets/AppIcon.compiled/ (see Assets/README.md provenance).
+# Declared via CFBundleIconName=AppIcon in Info.plist; on macOS 26 the
+# modern Assets.car rendition takes precedence over the ICNS fallback.
+CAR="$ROOT/Assets/AppIcon.compiled/Assets.car"
+if [ ! -s "$CAR" ]; then
+  echo "Missing modern icon: $CAR (run the 'Build Modern App Icon' GitHub Action first)"
+  exit 1
+fi
+cp "$CAR" "$RESOURCES_DIR/Assets.car"
+
+# Legacy fallback (required on systems that ignore Assets.car): the
+# user-supplied AppIcon.icns, installed byte-exact by
+# Scripts/generate-app-icon.sh; declared as CFBundleIconFile=AppIcon.
 if [ ! -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
   echo "Missing Sources/NumlexApp/Resources/AppIcon.icns"
   exit 1

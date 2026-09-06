@@ -10,6 +10,8 @@
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleExecutable</key><string>Numlex</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>

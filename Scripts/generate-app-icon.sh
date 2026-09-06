@@ -6,6 +6,12 @@
 #   canonical icon file (tracked byte-exact). An explicit alternate source
 #   must be an .icns file; it is validated the same way before install.
 #
+# ROLE: LEGACY FALLBACK installer. The canonical modern icon path is
+# Scripts/compile-modern-app-icon.sh + the committed
+# Assets/AppIcon.compiled/Assets.car (CFBundleIconName=AppIcon, Liquid
+# Glass renditions). This ICNS (CFBundleIconFile=AppIcon) is retained so
+# the app keeps a usable icon where modern Assets.car is unavailable.
+#
 # Behavior (deliberately narrow):
 #   1. validates the source with `iconutil -c iconset` (must unpack);
 #   2. verifies usable native reps exist for at least 32, 256 and 512 px;

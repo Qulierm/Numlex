@@ -15,6 +15,27 @@ user-supplied ICNS, installed byte-for-byte (no processing of any kind):
    strips rims, injects profiles, repacks, or synthesizes representations.
 3. `Assets/AppIconPreview.png` — exact 512 rep extracted from the canonical
    ICNS for README display only; extraction never affects packaged bytes.
+4. `Assets/AppIcon.compiled/` — the compiled modern icon committed from a
+   verified Actions run: `Assets.car` (iconstack renditions, Aqua +
+   DarkAqua), `Assets.car-partial.plist` (actool emits
+   `CFBundleIconFile=AppIcon` + `CFBundleIconName=AppIcon`),
+   `Assets.car.assetutil-info.txt`, `icon-build-metadata.json` (run URL,
+   Xcode/ictool versions, source + artifact hashes), `actool.log`,
+   `xcode-version.txt`. To rebuild: GitHub Actions → "Build Modern App
+   Icon" → Run workflow (or `gh workflow run build-modern-app-icon.yml`
+   on main), download the `numlex-modern-app-icon` artifact (7-day
+   retention), verify the SHA-256 in `icon-build-metadata.json`, and
+   commit the artifact into this directory. This artifact is NOT a
+   release; it only reaches users in the next app release.
+
+Build wiring
+-----------
+- `Scripts/build-app.sh` copies `Assets/AppIcon.compiled/Assets.car` into
+  the bundle (`CFBundleIconName=AppIcon` — modern rendition takes
+  precedence on macOS 26) and keeps the user-supplied `AppIcon.icns`
+  (`CFBundleIconFile=AppIcon`) as the legacy fallback. Both are copied
+  before the ad-hoc signature; no `Assets.car` is ever generated at
+  local build time.
 
 Modern Icon Composer source (Xcode 26 / Liquid Glass)
 -----------------------------------------------------
