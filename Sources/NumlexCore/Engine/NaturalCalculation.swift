@@ -141,14 +141,15 @@ public enum NaturalCalculation {
     /// display name plus the evaluated quantity; nil when the line is
     /// not a natural assignment (or the right-hand side is malformed).
     /// The caller records the name in the environment.
-    public static func tryAssignment(line: String, env: TypedEnv) -> (name: String, value: AssignmentValue)? {
+    public static func tryAssignment(line: String, env: TypedEnv,
+                                   context: NumberFormatContext = .legacy) -> (name: String, value: AssignmentValue)? {
         guard let eq = line.firstIndex(of: "=") else { return nil }
         let lhsRaw = String(line[..<eq])
         guard let name = naturalLHS(lhsRaw) else { return nil }
         let rhsRaw = String(line[line.index(after: eq)...])
         guard !rhsRaw.contains("=") else { return nil }
         // A money right-hand side is always recorded as money.
-        switch moneyOutcome(rhsRaw, env: env) {
+        switch moneyOutcome(rhsRaw, env: env, context: context) {
         case .money(let v, let c):
             return (name, .money(value: v, code: c))
         case .malformed, .none:
@@ -157,7 +158,7 @@ public enum NaturalCalculation {
         // Multiword names may also hold plain (possibly named) scalars;
         // single identifiers keep the legacy assignment path.
         guard name.contains(" ") else { return nil }
-        if let (v, codes) = evaluateNamedExpr(rhsRaw, env: env) {
+        if let (v, codes) = evaluateNamedExpr(rhsRaw, env: env, context: context) {
             guard codes.count <= 1 else { return nil }
             if let c = codes.first {
                 return (name, .money(value: v, code: c))
@@ -171,9 +172,10 @@ public enum NaturalCalculation {
 
     /// Detects and evaluates a natural money line against the typed
     /// environment (declared names resolve to their values).
-    public static func tryMoney(line: String, env: TypedEnv) -> Outcome {
+    public static func tryMoney(line: String, env: TypedEnv,
+                                   context: NumberFormatContext = .legacy) -> Outcome {
         if line.contains("=") { return .none }  // assignments own their `=`
-        return moneyOutcome(line, env: env)
+        return moneyOutcome(line, env: env, context: context)
     }
 
     /// The money core. `.none` when the line is NOT money-looking (no
@@ -181,7 +183,8 @@ public enum NaturalCalculation {
     /// money-looking but cannot complete (mixed currencies, unknown
     /// words, uncancelled rates, non-finite) — the caller turns
     /// `.malformed` into a hidden generic error, never a number.
-    static func moneyOutcome(_ line: String, env: TypedEnv) -> Outcome {
+    static func moneyOutcome(_ line: String, env: TypedEnv,
+                            context: NumberFormatContext = .legacy) -> Outcome {
         guard let wordRe else { return .none }
         let ns = line as NSString
         let full = NSRange(location: 0, length: ns.length)
@@ -343,8 +346,9 @@ public enum NaturalCalculation {
         }
 
         do {
-            let raw = try evaluateExpression(normalizeExprCorrect(trimmed),
-                                             variables: placeholderVars)
+            let raw = try evaluateExpression(trimmed,
+                                             variables: placeholderVars,
+                                             context: context)
             guard raw.isFinite else { return .malformed }
             return .money(value: roundResult(raw, decimalPlaces: 10), code: code)
         } catch {

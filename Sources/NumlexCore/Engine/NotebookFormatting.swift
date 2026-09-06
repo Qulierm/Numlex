@@ -29,12 +29,14 @@ public enum NotebookFormatting {
     /// left untouched (prose, comment, title, blank, conversion).
     public static func canonicalLine(_ line: String,
                                      rates: Rates = Rates(),
-                                     decimalPlaces: Int = 7) -> (text: String, map: [Int])? {
+                                     decimalPlaces: Int = 7,
+                                     context: NumberFormatContext = .legacy) -> (text: String, map: [Int])? {
         let env = TypedEnv()
         if isNaturalShape(line, env: env) {
             return naturalOperatorCanonical(line)
         }
-        if isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces) {
+        if isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces,
+                          context: context) {
             let text = canonicalMathText(line)
             return (text, insertionMap(from: line, to: text))
         }
@@ -43,7 +45,8 @@ public enum NotebookFormatting {
         var env2 = env
         if case .money? = evalLineTyped(line, env: &env2, rates: rates,
                                         decimalPlaces: decimalPlaces,
-                                        now: Date(), calendar: Calendar.current) {
+                                        now: Date(), calendar: Calendar.current,
+                                        context: context) {
             return naturalOperatorCanonical(line)
         }
         return nil
@@ -61,7 +64,8 @@ public enum NotebookFormatting {
     /// byte-for-byte.
     public static func canonicalDocument(_ content: String,
                                          rates: Rates = Rates(),
-                                         decimalPlaces: Int = 7) -> String {
+                                         decimalPlaces: Int = 7,
+                                         context: NumberFormatContext = .legacy) -> String {
         var env = TypedEnv()
         let lines = content.components(separatedBy: "\n")
         var out: [String] = []
@@ -74,14 +78,16 @@ public enum NotebookFormatting {
                 var lineEnv = env
                 _ = evalLineTyped(line, env: &lineEnv, rates: rates,
                                   decimalPlaces: decimalPlaces,
-                                  now: Date(), calendar: Calendar.current)
+                                  now: Date(), calendar: Calendar.current,
+                                  context: context)
                 env = lineEnv
                 out.append(naturalOperatorCanonical(line).text)
                 continue
             }
             if let result = evalLineTyped(line, env: &env, rates: rates,
                                           decimalPlaces: decimalPlaces,
-                                          now: Date(), calendar: Calendar.current) {
+                                          now: Date(), calendar: Calendar.current,
+                                          context: context) {
                 switch result {
                 case .number(_, .none), .variable, .error:
                     out.append(canonicalMathText(line))
@@ -111,9 +117,11 @@ public enum NotebookFormatting {
     /// natural-language text is never classified as mathematical.
     public static func isMathematical(_ line: String,
                                       rates: Rates = Rates(),
-                                      decimalPlaces: Int = 7) -> Bool {
+                                      decimalPlaces: Int = 7,
+                                      context: NumberFormatContext = .legacy) -> Bool {
         let env = TypedEnv()
-        return isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces)
+        return isMathematical(line, env: env, rates: rates, decimalPlaces: decimalPlaces,
+                              context: context)
     }
 
     /// The typed variant: a line is mathematical only when it is NOT in
@@ -124,12 +132,14 @@ public enum NotebookFormatting {
     /// digit-less lines as prose), so natural-language text is never
     /// classified as mathematical.
     static func isMathematical(_ line: String, env: TypedEnv,
-                               rates: Rates, decimalPlaces: Int) -> Bool {
+                               rates: Rates, decimalPlaces: Int,
+                               context: NumberFormatContext = .legacy) -> Bool {
         if isNaturalShape(line, env: env) { return false }
         var env2 = env
         switch evalLineTyped(line, env: &env2, rates: rates,
                              decimalPlaces: decimalPlaces,
-                             now: Date(), calendar: Calendar.current) {
+                             now: Date(), calendar: Calendar.current,
+                             context: context) {
         case .number(_, let unit):
             return unit == nil
         case .variable, .error:

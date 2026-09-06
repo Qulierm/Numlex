@@ -45,7 +45,8 @@ public enum PreviousAnswerPlan {
         decimalPlaces: Int = 7,
         references: [AnswerReference] = [],
         constants: [UserConstant] = [],
-        weather: WeatherContext = .empty
+        weather: WeatherContext = .empty,
+        context: NumberFormatContext = .legacy
     ) -> Plan? {
         guard operators.contains(op) else { return nil }
         let ns = content as NSString
@@ -60,7 +61,7 @@ public enum PreviousAnswerPlan {
         let resolved = resolveSheet(
             content: content, lineIDs: lineIDs, references: references,
             rates: rates, decimalPlaces: decimalPlaces,
-            constants: constants, weather: weather
+            constants: constants, weather: weather, context: context
         )
         for i in stride(from: caretLine - 1, through: 0, by: -1) {
             guard resolved.lines.indices.contains(i) else { continue }

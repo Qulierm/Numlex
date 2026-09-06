@@ -49,12 +49,13 @@ public func resolveSheet(
     rates: Rates,
     decimalPlaces: Int,
     constants: [UserConstant] = [],
-    weather: WeatherContext = .empty
+    weather: WeatherContext = .empty,
+    context: NumberFormatContext = .legacy
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
-                 constants: constants, weather: weather)
+                 constants: constants, weather: weather, context: context)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -71,7 +72,8 @@ public func resolveSheet(
     now: Date,
     calendar: Calendar,
     constants: [UserConstant] = [],
-    weather: WeatherContext = .empty
+    weather: WeatherContext = .empty,
+    context: NumberFormatContext = .legacy
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -122,7 +124,8 @@ public func resolveSheet(
         }
         if line.hasPrefix("//") { return .blank }
         if let eval = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
-                                    now: now, calendar: calendar, weather: weather) {
+                                    now: now, calendar: calendar, weather: weather,
+                                    context: context) {
             return eval
         }
         return .skip
@@ -179,18 +182,20 @@ public func resolveSheet(
                 // The shared quantity display: currency units render
                 // through the money presentation (`$600.00`), every
                 // other unit keeps `<value> <unit>`.
-                let display = formatQuantity(v, unit: u, decimalPlaces: decimalPlaces)
+                let display = formatQuantity(v, unit: u, decimalPlaces: decimalPlaces,
+                                                      context: context)
                 tokenStates[docPos] = .active(value: v, unit: u, display: display)
                 quantities.append(Qty(v: v, unit: u))
             case .money(let v, let code) where v.isFinite:
                 // A money source is a live quantity carrying the ISO
                 // code — tokenizable and convertible (`<token> in EUR`).
-                let display = formatMoney(v, code: code)
+                let display = formatMoney(v, code: code, context: context)
                 tokenStates[docPos] = .active(value: v, unit: code, display: display)
                 quantities.append(Qty(v: v, unit: code))
             case .variable(_, let v) where v.isFinite:
                 // A variable source is a unitless quantity.
-                let display = formatDisplayValue(v, decimalPlaces: decimalPlaces)
+                let display = formatDisplayValue(v, decimalPlaces: decimalPlaces,
+                                                  context: context)
                 tokenStates[docPos] = .active(value: v, unit: nil, display: display)
                 quantities.append(Qty(v: v, unit: nil))
             default:
@@ -293,7 +298,8 @@ public func resolveSheet(
                     rhsMap[pos - eqUTF16 - 1] = q
                 }
                 do {
-                    let q = try TokenExpr.evaluate(rhs, markerQuantities: rhsMap, vars: varsAll())
+                    let q = try TokenExpr.evaluate(rhs, markerQuantities: rhsMap, vars: varsAll(),
+                                             context: context)
                     guard q.unit == nil else { return .error(message: "Units cannot be assigned") }
                     env.set(display: lhs, qty: .scalar(q.v))
                     return .variable(name: lhs, value: roundResult(q.v, decimalPlaces: decimalPlaces))
@@ -350,7 +356,8 @@ public func resolveSheet(
             exprLine = line
         }
         do {
-            let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: varsAll())
+            let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: varsAll(),
+                                            context: context)
             // Currency units are carried as the quantity's unit label:
             // the shared `formatQuantity` renders them through
             // `formatMoney` (`$920.00`), exactly like a bare money
@@ -461,7 +468,8 @@ enum TokenExpr {
 
     static func evaluate(_ line: String,
                          markerQuantities: [Int: Qty],
-                         vars: [String: Double]) throws -> Qty {
+                         vars: [String: Double],
+                         context: NumberFormatContext = .legacy) throws -> Qty {
         let ns = line as NSString
         var i = 0
 
@@ -673,16 +681,38 @@ enum TokenExpr {
         func parseAmount() throws -> Double {
             let start = i
             var j = i
-            var hasDot = false
+            var hasDecimal = false
+            func threeGroup(_ k: Int) -> Bool {
+                guard j + 3 < ns.length || true else { return false }
+                guard k + 3 <= ns.length else { return false }
+                guard isDigit16(ns.character(at: k + 1)),
+                      isDigit16(ns.character(at: k + 2)),
+                      isDigit16(ns.character(at: k + 3)) else { return false }
+                if k + 4 < ns.length, isDigit16(ns.character(at: k + 4)) { return false }
+                return true
+            }
             while j < ns.length {
                 let c = ns.character(at: j)
                 if isDigit16(c) {
                     j += 1
                 } else if c == 0x2E {
-                    if hasDot { break }
-                    hasDot = true
-                    j += 1
+                    if hasDecimal { break }
+                    // r73: in decimal-comma modes a dot run of EXACTLY
+                    // three digits is a group separator (dropped);
+                    // otherwise the dot is the decimal point — the same
+                    // documented rule as the line normalizer.
+                    if context.decimalComma, threeGroup(j) {
+                        j += 4
+                    } else {
+                        hasDecimal = true
+                        j += 1
+                    }
                 } else if c == 0x2C, j + 1 < ns.length, isDigit16(ns.character(at: j + 1)) {
+                    // Dot modes: grouping comma (dropped below). Decimal
+                    // comma modes: the decimal point (canonicalized to
+                    // a dot below); two decimals end the literal.
+                    if hasDecimal { break }
+                    if context.decimalComma { hasDecimal = true }
                     j += 1
                 } else {
                     break
@@ -690,7 +720,14 @@ enum TokenExpr {
             }
             guard j > start else { throw ExprError.invalid }
             var text = ns.substring(with: NSRange(location: start, length: j - start))
-            text = text.replacingOccurrences(of: ",", with: "")
+            // Canonicalize: grouping commas (dot modes) / dropped group
+            // dots leave only digits and the single decimal point; any
+            // remaining comma is the decimal comma -> dot.
+            if context.decimalComma {
+                text = text.replacingOccurrences(of: ",", with: ".")
+            } else {
+                text = text.replacingOccurrences(of: ",", with: "")
+            }
             guard let n = Double(text), n.isFinite else { throw ExprError.invalid }
             i = j
             // Compact magnitude suffix (k/m/M), standalone word only.

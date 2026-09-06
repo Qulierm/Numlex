@@ -40,7 +40,126 @@ final class AppModel {
     var rates: Rates = Rates()
     var isRatesLoaded = false
 
+    // MARK: - r73: the ONE app-wide number context
+
+    /// The OS locale identifier, re-read when the OS locale changes so
+    /// the `system` preset (and every locale-derived separator) follows
+    /// the user's OS without an app restart.
+    private var localeID = Locale.current.identifier
+
+    /// THE single resolved number context the whole app uses: parsing,
+    /// highlighting, input autoformat, answer display and clipboard all
+    /// read this ONE value, so display and parsing can never drift.
+    /// `settings.regional == nil` (a pre-r73 store the user never
+    /// touched in the Numbers tab) resolves to the exact pre-r73 US
+    /// behavior.
+    var numberContext: NumberFormatContext {
+        NumberFormatContext.resolve(settings.regional,
+                                    locale: Locale(identifier: localeID))
+    }
+
+    /// The Numbers tab's pending region change, awaiting the
+    /// reinterpretation confirmation: `nil` means no dialog is up. The
+    /// examples are the first changed lines (source -> old -> new) of
+    /// the selected sheet.
+    struct PendingRegionChange: Equatable {
+        let preset: NumberRegionPreset
+        let examples: [String]
+    }
+    var pendingRegionChange: PendingRegionChange?
+
+    /// Requests a region preset change. The region never reinterprets
+    /// silently: the selected sheet is evaluated under the old and the
+    /// new context, and any answer whose value changed opens the
+    /// confirmation dialog with before/after examples. A no-difference
+    /// change (or an empty sheet) applies immediately. Legacy stores
+    /// are promoted to `RegionalNumberPreferences.newDefaults` with the
+    /// requested preset on the first write — the defaults reproduce
+    /// the legacy scale (grouping on, compact off, paste off).
+    func requestRegionChange(_ preset: NumberRegionPreset) {
+        guard settings.regional?.region != preset else { return }
+        let old = numberContext
+        var prefs = settings.regional ?? RegionalNumberPreferences.newDefaults
+        prefs.region = preset
+        let new = NumberFormatContext.resolve(prefs,
+                                              locale: Locale(identifier: localeID))
+        guard old != new else {
+            settings.regional = prefs
+            persist()
+            return
+        }
+        var examples: [String] = []
+        if let sheet = selectedSheet,
+           !sheet.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var oldVars = [String: Double]()
+            var newVars = [String: Double]()
+            let rowsOld = evaluateSheet(sheet.content, variables: &oldVars,
+                                        rates: rates,
+                                        decimalPlaces: max(settings.decimalPlaces, 10),
+                                        constants: settings.customConstants,
+                                        context: old)
+            let rowsNew = evaluateSheet(sheet.content, variables: &newVars,
+                                        rates: rates,
+                                        decimalPlaces: max(settings.decimalPlaces, 10),
+                                        constants: settings.customConstants,
+                                        context: new)
+            let lines = sheet.content.components(separatedBy: "\n")
+            for row in rowsOld where rowsNew.indices.contains(row.sourceLineIndex) {
+                let other = rowsNew[row.sourceLineIndex]
+                guard row.result != other.result else { continue }
+                let src = lines.indices.contains(row.sourceLineIndex)
+                    ? lines[row.sourceLineIndex].trimmingCharacters(in: .whitespaces)
+                    : ""
+                if src.isEmpty { continue }
+                let a = AnswerDisplay.text(for: row.result,
+                                           decimalPlaces: settings.decimalPlaces,
+                                           context: old) ?? "—"
+                let b = AnswerDisplay.text(for: other.result,
+                                           decimalPlaces: settings.decimalPlaces,
+                                           context: new) ?? "—"
+                examples.append("\(src): \(a) → \(b)")
+                if examples.count == 5 { break }
+            }
+        }
+        if examples.isEmpty {
+            settings.regional = prefs
+            persist()
+        } else {
+            pendingRegionChange = PendingRegionChange(preset: preset, examples: examples)
+        }
+    }
+
+    /// The confirmation dialog's Apply: the user accepted that the
+    /// sheet's answers reinterpret.
+    func confirmRegionChange() {
+        guard let pending = pendingRegionChange else { return }
+        var prefs = settings.regional ?? RegionalNumberPreferences.newDefaults
+        prefs.region = pending.preset
+        settings.regional = prefs
+        pendingRegionChange = nil
+        persist()
+    }
+
+    /// The confirmation dialog's Cancel: nothing changes — the sheet
+    /// keeps its old region and its prior interpretations.
+    func cancelRegionChange() {
+        pendingRegionChange = nil
+    }
+
     init() {
+        // r73: follow OS locale changes live — the `system` preset's
+        // separators re-resolve on the next observation tick without a
+        // restart (the identifier bump re-renders every body that
+        // reads `numberContext`).
+        NotificationCenter.default.addObserver(
+            forName: (NSLocale.currentLocaleDidChangeNotification as Notification.Name),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            let id = Locale.current.identifier
+            if let self, self.localeID != id {
+                self.localeID = id
+            }
+        }
         var migrated = false
         if let payload = Persistence.load() {
             // r19 store migration: v1 stores get the EXACT pre-r19
@@ -524,7 +643,7 @@ final class AppModel {
         // pass as typing (r19): the user's own operator/grouping
         // settings apply, prose/comments/titles/conversions untouched.
         let (content, map) = InputFormatting.formatDocument(
-            obj.content, prefs: settings.input)
+            obj.content, prefs: settings.input, context: numberContext)
         // The pass may re-space token lines: replay its EXACT UTF-16
         // map so imported references keep pointing at real markers.
         var refs = obj.references ?? []

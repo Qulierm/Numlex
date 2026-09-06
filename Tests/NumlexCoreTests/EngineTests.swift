@@ -259,4 +259,9 @@ struct EngineTests {
     func r62BubbleTokens(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: r73Cases)
+    func r73RegionalNumbers(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

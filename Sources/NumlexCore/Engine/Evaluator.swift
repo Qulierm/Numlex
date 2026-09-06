@@ -1,23 +1,107 @@
 import Foundation
 
 func normalizeExprCorrect(_ expr: String) -> String {
-    // r47: FUNCTION-AWARE comma normalization (the shared
-    // FunctionCalls convention, see MathFunctions.swift):
-    // - outside any call: every comma is stripped (legacy byte-for-byte:
-    //   `1,234` -> `1234`, `1,234,567` -> `1234567`);
-    // - inside a call: a comma stays an ARGUMENT SEPARATOR unless it is
-    //   a grouping comma by the shared rule (`sum(1,234)` -> `sum(1234)`,
-    //   `sum(1, 234)` and `sum(1,2,3)` keep their separators).
+    normalizeExprCorrect(expr, context: .legacy)
+}
+
+/// r73: the context-aware normalization.
+///
+/// - decimal-point modes (legacy, North America, dot-decimal system
+///   locales): the EXACT r47 function-aware comma rule, unchanged —
+///   outside a call every comma is stripped (`1,234` -> `1234`);
+///   inside a call a comma stays an argument separator unless it is a
+///   grouping comma by the shared `FunctionCalls` rule.
+/// - decimal-comma modes (Western/Eastern Europe, comma-decimal system
+///   locales): a comma directly after a digit is the DECIMAL separator
+///   and becomes `.` (`1,5` -> `1.5`; a stray comma stays and the
+///   tokenizer reports it — deterministic, no silent rewrite); the
+///   context's grouping separator (`.`, NBSP — plus the Eastern
+///   preset's plain space) is stripped ONLY in well-formed groups:
+///   a 1-3 digit run before and EXACTLY three digits after (the
+///   following character must not be a digit, so `1.2345` keeps its
+///   decimal meaning and `1.23` reads as the decimal 1.23);
+/// - both: the k/m expansion below runs after all of the above.
+public func normalizeExprCorrect(_ expr: String, context: NumberFormatContext) -> String {
     let chars = Array(expr)
-    let ctx = FunctionCalls.context(expr)
+    let n = chars.count
+    // r47's function-aware depth map. Decimal-comma modes still need
+    // it: a spaced comma decimal OUTSIDE a call (`1, 5 + 1` -> `1.5`)
+    // converts, while the same shape INSIDE a call stays an argument
+    // separator (`sum(1, 5)`).
+    let fnCtx = FunctionCalls.context(expr)
+    // The grouping separators this mode strips (dot modes group with
+    // `,` which never reaches the stripping path — it IS the decimal
+    // mode's stripped/kept character above).
+    let groupChars: Set<Character> = {
+        var set: Set<Character> = []
+        func add(_ str: String) {
+            str.unicodeScalars.forEach { set.insert(Character($0)) }
+        }
+        if !context.legacy {
+            add(context.groupingSeparator)
+            context.inputGroupingSeparators.forEach(add)
+        }
+        return set
+    }()
+    func isDig(_ i: Int) -> Bool { i >= 0 && i < n && chars[i].isNumber }
+    func isWord(_ c: Character) -> Bool { c.isLetter || c == "_" }
+    func isWellFormedGroup(_ i: Int) -> Bool {
+        guard i > 0, isDig(i - 1) else { return false }
+        var runStart = i - 1
+        while runStart - 1 >= 0, isDig(runStart - 1) { runStart -= 1 }
+        let runLen = i - runStart
+        guard (1...3).contains(runLen) else { return false }
+        // Identifier guard: `a 234` must not fuse into an identifier.
+        if runStart - 1 >= 0, isWord(chars[runStart - 1]) { return false }
+        for k in 1...3 {
+            if i + k >= n || !isDig(i + k) { return false }
+        }
+        if i + 4 < n, isDig(i + 4) { return false } // >= 4 digits after: decimal-ish, keep
+        return true
+    }
     var out: [Character] = []
     out.reserveCapacity(chars.count)
+    // r73: set when a spaced comma decimal just became `.` and the
+    // space that separated comma and digit must be dropped for the
+    // decimal to stay well-formed (`1, 5` -> `1.5`, never `1. 5`).
+    var commaDecimalEatsSpace = false
     for (i, ch) in chars.enumerated() {
+        if commaDecimalEatsSpace, ch == " " {
+            commaDecimalEatsSpace = false
+            continue
+        }
+        commaDecimalEatsSpace = false
         if ch == "," {
-            if ctx.depth[i] > 0, !FunctionCalls.isGroupingComma(chars, at: i) {
+            if context.decimalComma {
+                if i > 0, isDig(i - 1) {
+                    // A digit-adjacent comma is the decimal separator
+                    // at any depth (`sum(1,5)` keeps working). A
+                    // SPACED comma decimal converts only OUTSIDE a
+                    // call — `1, 5 + 1` -> `1.5 + 1` — while the same
+                    // shape inside a call stays an argument separator
+                    // (`sum(1, 5)`).
+                    let nextDigit = i + 1 < n && isDig(i + 1)
+                    if nextDigit {
+                        out.append(".")
+                    } else if fnCtx.depth[i] == 0 {
+                        out.append(".")
+                        commaDecimalEatsSpace = true
+                    } else {
+                        out.append(ch)
+                    }
+                } else {
+                    out.append(ch) // stray: the tokenizer reports it
+                }
+                continue
+            }
+            if fnCtx.depth[i] > 0,
+               !FunctionCalls.isGroupingComma(chars, at: i) {
                 out.append(ch)
             }
             continue
+        }
+        if context.decimalComma, groupChars.contains(ch), isWellFormedGroup(i) {
+            continue // strip the well-formed group separator
         }
         out.append(ch)
     }
@@ -45,7 +129,8 @@ private func isValidIdentifier(_ name: String) -> Bool {
     return regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
 }
 
-private func tryEvaluateCleaned(_ line: String, variables: [String: Double]) -> Double? {
+private func tryEvaluateCleaned(_ line: String, variables: [String: Double],
+                             context: NumberFormatContext = .legacy) -> Double? {
     // Replace unknown words with empty
     var cleaned = line
     if let regex = try? NSRegularExpression(pattern: #"[A-Za-z_]\w*"#) {
@@ -66,7 +151,7 @@ private func tryEvaluateCleaned(_ line: String, variables: [String: Double]) -> 
         if trimmed.range(of: #"^[\s+\-*/^%().×]*$"#, options: .regularExpression) != nil { return nil }
     }
     do {
-        return try evaluateExpression(trimmed, variables: variables)
+        return try evaluateExpression(trimmed, variables: variables, context: context)
     } catch { return nil }
 }
 
@@ -82,11 +167,12 @@ func assignmentLHSName(_ line: String) -> String? {
     return isValidIdentifier(trimmed) ? trimmed : nil
 }
 
-private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: Int) -> LineResult? {
+private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: Int,
+                                   context: NumberFormatContext = .legacy) -> LineResult? {
     guard let idx = line.firstIndex(of: "=") else { return nil }
     let left = String(line[..<idx]).trimmingCharacters(in: .whitespaces)
     let rightRaw = String(line[line.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
-    let right = normalizeExprCorrect(rightRaw)
+    let right = normalizeExprCorrect(rightRaw, context: context)
     if !isValidIdentifier(left) { return .error(message: "Invalid assignment") }
     // r33: global constants are IMMUTABLE in a sheet.
     if env.isConstant(display: left) {
@@ -94,7 +180,7 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
     }
     if right.isEmpty { return .error(message: "Missing expression") }
     do {
-        let raw = try evaluateExpression(right, variables: env.scalarDict())
+        let raw = try evaluateExpression(right, variables: env.scalarDict(), context: context)
         let v = roundResult(raw, decimalPlaces: decimalPlaces)
         env.set(display: left, qty: .scalar(v))
         return .variable(name: left, value: v)
@@ -107,7 +193,7 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
         if FunctionCalls.hasCallHead(rightRaw) {
             return .error(message: (error as? LocalizedError)?.errorDescription ?? "Invalid expression")
         }
-        if let cleaned = tryEvaluateCleaned(right, variables: env.scalarDict()) {
+        if let cleaned = tryEvaluateCleaned(right, variables: env.scalarDict(), context: context) {
             let v = roundResult(cleaned, decimalPlaces: decimalPlaces)
             env.set(display: left, qty: .scalar(v))
             return .variable(name: left, value: v)
@@ -116,8 +202,9 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
     }
 }
 
-private func evalFreeExpression(line: String, variables: [String: Double], decimalPlaces: Int) -> LineResult? {
-    let trimmed = normalizeExprCorrect(line.trimmingCharacters(in: .whitespaces))
+private func evalFreeExpression(line: String, variables: [String: Double], decimalPlaces: Int,
+                                         context: NumberFormatContext = .legacy) -> LineResult? {
+    let trimmed = normalizeExprCorrect(line.trimmingCharacters(in: .whitespaces), context: context)
     if trimmed.isEmpty { return nil }
     if trimmed.range(of: #"\d"#, options: .regularExpression) == nil {
         if trimmed.range(of: #"[а-яА-ЯёЁ]"#, options: .regularExpression) != nil { return nil }
@@ -129,7 +216,7 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
         }
     }
     do {
-        let raw = try evaluateExpression(trimmed, variables: variables)
+        let raw = try evaluateExpression(trimmed, variables: variables, context: context)
         return .number(value: roundResult(raw, decimalPlaces: decimalPlaces), unit: nil)
     } catch {
         // r47: a function-shaped line is STRICT on the free-expression
@@ -141,7 +228,7 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
         if FunctionCalls.hasCallHead(line) {
             return .error(message: "Invalid expression")
         }
-        if let cleaned = tryEvaluateCleaned(trimmed, variables: variables) {
+        if let cleaned = tryEvaluateCleaned(trimmed, variables: variables, context: context) {
             return .number(value: roundResult(cleaned, decimalPlaces: decimalPlaces), unit: nil)
         }
         return .error(message: "Invalid expression")
@@ -158,7 +245,8 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
 /// Returns the FULL-precision value plus the set of money codes the
 /// referenced names carry (more than one ⇒ hidden error upstream).
 /// No rounding happens here — display rounding is the caller's choice.
-func namedExprCore(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
+func namedExprCore(_ line: String, env: TypedEnv,
+                   context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
     strictExprCore(line, env: env, extraVars: [:])
 }
 
@@ -169,7 +257,8 @@ func namedExprCore(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<
 /// entries on key collision (the placeholders are collision-proof).
 func strictExprCore(_ line: String,
                     env: TypedEnv,
-                    extraVars: [String: Double]) -> (value: Double, codes: Set<String>)? {
+                    extraVars: [String: Double],
+                    context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
     let matches = NamedValues.matches(in: line, env: env)
     var expr = line
     var vars: [String: Double] = [:]
@@ -210,18 +299,18 @@ func strictExprCore(_ line: String,
     let trimmed = expr.trimmingCharacters(in: .whitespaces)
     guard !trimmed.isEmpty else { return nil }
     do {
-        let normalized = normalizeExprCorrect(trimmed)
+        let normalized = normalizeExprCorrect(trimmed, context: context)
         // Residual guard: every identifier must be a placeholder (or a
         // value the environment knows), the `of` infix, or a KNOWN
         // builtin in call position — a builtin call head is grammar,
         // never an unknown word, while its arguments stay guarded.
-        for t in try tokenize(normalized) {
+        for t in try tokenize(normalized, context: context) {
             if case .identifier(let n) = t,
                n != "of", vars[n] == nil, !MathFunctions.isKnown(n) {
                 return nil
             }
         }
-        let raw = try evaluateExpression(normalized, variables: vars)
+        let raw = try evaluateExpression(normalized, variables: vars, context: context)
         guard raw.isFinite else { return nil }
         return (raw, codes)
     } catch {
@@ -231,8 +320,9 @@ func strictExprCore(_ line: String,
 
 /// Evaluates an expression that may reference DECLARED named values,
 /// with the line-pipeline's display rounding (10 decimals) applied.
-func evaluateNamedExpr(_ line: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
-    guard let r = namedExprCore(line, env: env) else { return nil }
+func evaluateNamedExpr(_ line: String, env: TypedEnv,
+                        context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
+    guard let r = namedExprCore(line, env: env, context: context) else { return nil }
     return (roundResult(r.value, decimalPlaces: 10), r.codes)
 }
 
@@ -264,7 +354,8 @@ private func namedConversionShape(line: String, env: TypedEnv) -> String? {
 private func evalNamedLine(_ line: String,
                            env: inout TypedEnv,
                            rates: Rates,
-                           decimalPlaces: Int) -> LineResult? {
+                           decimalPlaces: Int,
+                   context: NumberFormatContext = .legacy) -> LineResult? {
     // 1. Explicit conversion of a named quantity: `monthly rent in EUR`.
     if let unit = namedConversionShape(line: line, env: env) {
         let matches = NamedValues.matches(in: line, env: env)
@@ -292,7 +383,7 @@ private func evalNamedLine(_ line: String,
     }
     // 2. Named reference expression: `monthly rent × 12`,
     //    `monthly rent + phone bill`, `monthly rent + 5%`.
-    if let (v, codes) = evaluateNamedExpr(line, env: env) {
+    if let (v, codes) = evaluateNamedExpr(line, env: env, context: context) {
         if let c = codes.first {
             return .money(value: v, code: c)
         }
@@ -305,7 +396,7 @@ private func evalNamedLine(_ line: String,
     // line that is neither strict nor natural (unknown prose, mixed
     // currencies, function calls on money) stays a hidden generic
     // error — no word-stripping fallback is introduced.
-    switch NaturalCalculation.moneyOutcome(line, env: env) {
+    switch NaturalCalculation.moneyOutcome(line, env: env, context: context) {
     case .money(let v, let c):
         return .money(value: v, code: c)
     case .malformed, .none:
@@ -357,7 +448,8 @@ func evalLineTyped(_ line: String,
                    decimalPlaces: Int,
                    now: Date,
                    calendar: Calendar,
-                   weather: WeatherContext = .empty) -> LineResult? {
+                   weather: WeatherContext = .empty,
+                   context: NumberFormatContext = .legacy) -> LineResult? {
     // r55: weather detection runs FIRST so `weather in London` can
     // never be misclassified as conversion or prose — but ONLY the
     // strict grammar activates it, the environment is never mutated,
@@ -374,13 +466,13 @@ func evalLineTyped(_ line: String,
        env.isConstant(display: lhs) {
         return .error(message: "Cannot assign to constant")
     }
-    if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces) {
+    if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces, context: context) {
         return conv
     }
     // Named assignment (any valid LHS, money right-hand side, or a
     // multiword name with a scalar right-hand side): the answer is the
     // assigned quantity and the name is recorded typed.
-    if line.contains("="), let a = NaturalCalculation.tryAssignment(line: line, env: env) {
+    if line.contains("="), let a = NaturalCalculation.tryAssignment(line: line, env: env, context: context) {
         switch a.value {
         case .money(let v, let c):
             env.set(display: a.name, qty: .money(v, code: c))
@@ -393,9 +485,10 @@ func evalLineTyped(_ line: String,
         }
     }
     if NamedValues.referencesTypedName(line, env: env) {
-        return evalNamedLine(line, env: &env, rates: rates, decimalPlaces: decimalPlaces)
+        return evalNamedLine(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
+                             context: context)
     }
-    switch NaturalCalculation.tryMoney(line: line, env: env) {
+    switch NaturalCalculation.tryMoney(line: line, env: env, context: context) {
     case .money(let value, let code):
         return .money(value: value, code: code)
     case .malformed:
@@ -412,18 +505,19 @@ func evalLineTyped(_ line: String,
         break
     }
     if line.contains("=") {
-        return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces)
+        return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces, context: context)
     }
-    return evalFreeExpression(line: line, variables: env.scalarDict(), decimalPlaces: decimalPlaces)
+    return evalFreeExpression(line: line, variables: env.scalarDict(), decimalPlaces: decimalPlaces, context: context)
 }
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
-             now: Date(), calendar: Calendar.current, constants: constants, weather: weather)
+             now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
+             context: context)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
@@ -435,12 +529,14 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// constant always wins over a stale seed entry.
 public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates,
                      decimalPlaces: Int, now: Date, calendar: Calendar,
-                     constants: [UserConstant] = [], weather: WeatherContext = .empty) -> LineResult? {
+                     constants: [UserConstant] = [], weather: WeatherContext = .empty,
+                     context: NumberFormatContext = .legacy) -> LineResult? {
     var env = TypedEnv(seed: variables)
     env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
-                               now: now, calendar: calendar, weather: weather)
+                               now: now, calendar: calendar, weather: weather,
+                               context: context)
     if result != nil {
         for (k, v) in env.scalarDict() { variables[k] = v }
     }
@@ -458,9 +554,10 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
-                  now: Date(), calendar: Calendar.current, constants: constants, weather: weather)
+                  now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
+                  context: context)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -469,7 +566,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
 /// the whole sheet.
 public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates,
                           decimalPlaces: Int, now: Date, calendar: Calendar,
-                          constants: [UserConstant] = [], weather: WeatherContext = .empty) -> [SheetLine] {
+                          constants: [UserConstant] = [], weather: WeatherContext = .empty,
+                          context: NumberFormatContext = .legacy) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
@@ -495,7 +593,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             if case .number = result { isTotalRow = true }
         } else if let eval = evalLineTyped(line, env: &env, rates: rates,
                                            decimalPlaces: decimalPlaces,
-                                           now: now, calendar: calendar, weather: weather) {
+                                           now: now, calendar: calendar, weather: weather,
+                                           context: context) {
             result = eval
         } else {
             result = .skip

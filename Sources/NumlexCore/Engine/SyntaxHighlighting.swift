@@ -63,7 +63,8 @@ public enum SyntaxClassifier {
     public static func spans(for source: String,
                              rates: Rates,
                              decimalPlaces: Int,
-                             constants: [UserConstant] = []) -> [[SyntaxSpan]] {
+                             constants: [UserConstant] = [],
+                             context: NumberFormatContext = .legacy) -> [[SyntaxSpan]] {
         var result: [[SyntaxSpan]] = []
         // ONE shared typed environment for the whole document — the same
         // flow `evaluateSheet` and the answer column use, so declared
@@ -132,23 +133,23 @@ public enum SyntaxClassifier {
                 spans = labelSpans(line)
             case .number(_, .some):
                 isMath = true
-                spans = conversionSpans(line)
+                spans = conversionSpans(line, context: context)
             case .number(_, .none):
                 isMath = true
                 spans = isNatural
-                    ? naturalSpans(line, env: env)
-                    : expressionSpans(line, variables: env.scalarDict())
+                    ? naturalSpans(line, env: env, context: context)
+                    : expressionSpans(line, variables: env.scalarDict(), context: context)
             case .variable(let name, _):
                 isMath = true
                 spans = isNatural || name.contains(" ")
-                    ? naturalSpans(line, env: env)
-                    : assignmentSpans(line, name: name, variables: env.scalarDict())
+                    ? naturalSpans(line, env: env, context: context)
+                    : assignmentSpans(line, name: name, variables: env.scalarDict(), context: context)
             case .money:
                 isMath = true
-                spans = naturalSpans(line, env: env)
+                spans = naturalSpans(line, env: env, context: context)
             case .date:
                 isMath = true
-                spans = dateSpans(line)
+                spans = dateSpans(line, context: context)
             case .blank, .skip, .title, .brokenToken:
                 spans = []
             case .error:
@@ -158,8 +159,8 @@ public enum SyntaxClassifier {
                 // variables only).
                 isMath = true
                 spans = isNatural
-                    ? naturalSpans(line, env: env)
-                    : errorSpans(line, variables: env.scalarDict())
+                    ? naturalSpans(line, env: env, context: context)
+                    : errorSpans(line, variables: env.scalarDict(), context: context)
             }
             // r21: operator glyphs and contextual syntax words are painted
             // ONLY on lines the evaluator treated as math (isMath — the
@@ -222,7 +223,58 @@ public enum SyntaxClassifier {
     ///   ...) are conversion content; `per` is grammar prose and, like
     ///   `=`, operators, trailing dots and other prose, stays base
     ///   white.
-    private static func naturalSpans(_ line: String, env: TypedEnv) -> [SyntaxSpan] {
+    /// r73: the context-aware number span pattern (DISPLAY ONLY —
+    /// highlighting, never evaluation). Legacy keeps the exact pre-r73
+    /// strings; decimal-comma modes use the context's grouping set and
+    /// the `,`/`.` decimal characters, decimal-point modes the
+    /// context's grouping set and `.`.
+    private static func numberPattern(_ context: NumberFormatContext) -> String {
+        guard !context.legacy else {
+            return #"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#
+        }
+        func esc(_ str: String) -> String {
+            str.unicodeScalars.map { c -> String in
+                "\\\\.\\[\\](){}*+?|^$-".unicodeScalars.contains(c)
+                    ? "\\\(String(Character(c)))" : String(Character(c))
+            }.joined()
+        }
+        var grps: [String] = []
+        func add(_ str: String) { if !str.isEmpty { grps.append(esc(str)) } }
+        add(context.groupingSeparator)
+        context.inputGroupingSeparators.forEach(add)
+        let g = grps.joined(separator: "|")
+        if context.decimalComma {
+            let groupBranch = grps.isEmpty ? "" : "(?:\\d{1,3}(?:[\(g)]\\d{3})+|"
+            return "(?:(?:\(groupBranch)\\d+)(?:[,.]\\d+)?|\\d+[,.]|[,.]\\d+|\\.\\d+)"
+        }
+        let groupBranch = grps.isEmpty ? "" : "(?:\\d{1,3}(?:[\(g)]\\d{3})+|"
+        return "(?:(?:\(groupBranch)\\d+)\\.?\\d*|\\.\\d+)"
+    }
+
+    /// The natural-line number variant (grouped | plain | leading-dot,
+    /// optional decimal, optional scientific part, optional money
+    /// suffix) — context-aware like `numberPattern`.
+    private static func naturalNumberPattern(_ context: NumberFormatContext) -> String {
+        guard !context.legacy else {
+            return #"(?<![A-Za-z0-9_])(?:\d{1,3}(?:,\d{3})+|\d+|\.\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?[kKmM]?(?![A-Za-z0-9_])"#
+        }
+        func esc(_ str: String) -> String {
+            str.unicodeScalars.map { c -> String in
+                "\\\\.\\[\\](){}*+?|^$-".unicodeScalars.contains(c)
+                    ? "\\\(String(Character(c)))" : String(Character(c))
+            }.joined()
+        }
+        var grps: [String] = []
+        func add(_ str: String) { if !str.isEmpty { grps.append(esc(str)) } }
+        add(context.groupingSeparator)
+        context.inputGroupingSeparators.forEach(add)
+        let g = grps.joined(separator: "|")
+        let grpAlt = grps.isEmpty ? "" : "\\d{1,3}(?:[\(g)]\\d{3})+|"
+        let dec = context.decimalComma ? "[,.]" : "\\."
+        return "(?<![A-Za-z0-9_])(?:\(grpAlt)\\d+|\\.\\d+)(?:\(dec)\\d+)?(?:[eE][+-]?\\d+)?[kKmM]?(?![A-Za-z0-9_])"
+    }
+
+    private static func naturalSpans(_ line: String, env: TypedEnv, context: NumberFormatContext) -> [SyntaxSpan] {
         let ns = line as NSString
         var spans: [SyntaxSpan] = []
 
@@ -247,9 +299,7 @@ public enum SyntaxClassifier {
         // Numbers: one unified pattern (grouped | plain | leading-dot),
         // optional decimal, optional scientific part, optional money
         // k/M suffix — each literal matches exactly once.
-        for m in matches(
-            #"(?<![A-Za-z0-9_])(?:\d{1,3}(?:,\d{3})+|\d+|\.\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?[kKmM]?(?![A-Za-z0-9_])"#,
-            in: ns) {
+        for m in matches(Self.naturalNumberPattern(context), in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         // Currency markers: the SHARED boundary grammar (prefix and
@@ -279,7 +329,7 @@ public enum SyntaxClassifier {
     /// ONE conversion span (multi-word units like `US mpg`, slashed
     /// units like `km/h` and `N·m` stay unsplit); the `to` keyword
     /// carries no role.
-    private static func conversionSpans(_ line: String) -> [SyntaxSpan] {
+    private static func conversionSpans(_ line: String, context: NumberFormatContext) -> [SyntaxSpan] {
         let ns = line as NSString
         // Leading-whitespace offset (the shape detector trims).
         var offset = 0
@@ -316,8 +366,7 @@ public enum SyntaxClassifier {
         // conversion word.
         var spans: [SyntaxSpan] = []
         var unitStart = 0
-        if let m = firstMatch(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#,
-                              in: ns) {
+        if let m = firstMatch(Self.numberPattern(context), in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
             unitStart = m.location + m.length
         }
@@ -333,10 +382,10 @@ public enum SyntaxClassifier {
     /// unit words (`days`, `weeks`, ...) are conversion content; month
     /// names, `today`/`tomorrow`/`yesterday`, operators and signs stay
     /// base white.
-    private static func dateSpans(_ line: String) -> [SyntaxSpan] {
+    private static func dateSpans(_ line: String, context: NumberFormatContext) -> [SyntaxSpan] {
         let ns = line as NSString
         var spans: [SyntaxSpan] = []
-        for m in matches(#"(?:\d{1,3}(?:,\d{3})+|\d+\.?\d*|\.\d+)"#, in: ns) {
+        for m in matches(Self.numberPattern(context), in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         for m in matches(#"\b(?:days?|weeks?|months?|years?)\b"#, in: ns) {
@@ -354,13 +403,14 @@ public enum SyntaxClassifier {
     /// the unit words and a base `to`. Purely lexical — no parser
     /// result is involved, so no unsafe range assumptions are made.
     private static func errorSpans(_ line: String,
-                                   variables: [String: Double]) -> [SyntaxSpan] {
+                                   variables: [String: Double],
+                                   context: NumberFormatContext) -> [SyntaxSpan] {
         let ns = line as NSString
         // Any conversion-shaped line (incompatible units, unknown units,
         // unavailable rates) keeps the conversion treatment: number plus
         // both unit expressions, base `to`.
         if conversionShape(line.trimmingCharacters(in: .whitespaces)) != nil {
-            return conversionSpans(line)
+            return conversionSpans(line, context: context)
         }
         var spans: [SyntaxSpan] = []
         // Partial assignment: a valid ASCII identifier directly before
@@ -375,7 +425,7 @@ public enum SyntaxClassifier {
         if let lhsRange {
             spans.append(SyntaxSpan(role: .variable, range: lhsRange))
         }
-        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns) {
+        for m in matches(Self.numberPattern(context), in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         for m in matches(#"[A-Za-z_]\w*"#, in: ns)
@@ -391,10 +441,11 @@ public enum SyntaxClassifier {
     /// line evaluated to `.number`, so unknown words were never painted
     /// — prose lines never reach here at all).
     private static func expressionSpans(_ line: String,
-                                        variables: [String: Double]) -> [SyntaxSpan] {
+                                        variables: [String: Double],
+                                        context: NumberFormatContext) -> [SyntaxSpan] {
         let ns = line as NSString
         var spans: [SyntaxSpan] = []
-        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns) {
+        for m in matches(Self.numberPattern(context), in: ns) {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         for m in matches(#"[A-Za-z_]\w*"#, in: ns)
@@ -409,7 +460,8 @@ public enum SyntaxClassifier {
     /// variables. The `=` and any unknown words stay base.
     private static func assignmentSpans(_ line: String,
                                         name: String,
-                                        variables: [String: Double]) -> [SyntaxSpan] {
+                                        variables: [String: Double],
+                                        context: NumberFormatContext) -> [SyntaxSpan] {
         let ns = line as NSString
         let eqRange = ns.range(of: "=")
         guard eqRange.location != NSNotFound else { return [] }
@@ -419,7 +471,7 @@ public enum SyntaxClassifier {
             spans.append(SyntaxSpan(role: .variable, range: m))
         }
         // Right-hand expression.
-        for m in matches(#"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.?\d*|\.\d+)"#, in: ns)
+        for m in matches(Self.numberPattern(context), in: ns)
         where m.location > eqRange.location {
             spans.append(SyntaxSpan(role: .number, range: m))
         }

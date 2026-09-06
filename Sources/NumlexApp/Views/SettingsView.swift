@@ -48,6 +48,11 @@ struct SettingsView: View {
                     Label(L10n.t("settings.styling", language: model.settings.language),
                           systemImage: "paintbrush")
                 }
+            NumbersSettingsTab(model: model)
+                .tabItem {
+                    Label(L10n.t("settings.numbers", language: model.settings.language),
+                          systemImage: "globe")
+                }
         }
         .frame(minWidth: SettingsGeometry.minWidth,
                idealWidth: SettingsGeometry.idealWidth,
@@ -476,9 +481,209 @@ private struct ConstantsSettingsTab: View {
     private func preview(_ qty: TypedQty) -> String {
         switch qty {
         case .scalar(let v):
-            return formatDisplayValue(v, decimalPlaces: model.settings.decimalPlaces)
+            return formatDisplayValue(v, decimalPlaces: model.settings.decimalPlaces,
+                                      context: model.numberContext)
         case .money(let v, let code):
-            return formatMoney(v, code: code)
+            return formatMoney(v, code: code, context: model.numberContext)
+        }
+    }
+}
+
+// MARK: - Numbers tab (r73)
+
+/// The r73 Numbers tab: the region preset (System Region / North
+/// America / Western Europe / Eastern Europe), the three independent
+/// toggles (paste conversion, thousands separator, compact notation)
+/// and live samples rendered through the app's ONE number context —
+/// the same values the notebook itself shows. Changing the region
+/// never reinterprets silently: the owner evaluates the selected
+/// sheet under both contexts first and only opens the confirmation
+/// dialog when an answer actually changes.
+private struct NumbersSettingsTab: View {
+    @Bindable var model: AppModel
+
+    private var language: AppLanguage { model.settings.language }
+    private var systemLocale: Locale { Locale.current }
+
+    /// Live samples rendered through the active context: the shared
+    /// display of 1234.567 at the Settings decimals, the compact
+    /// preview of 100000 (compact forced on for the preview), and the
+    /// function-argument shape this mode types (decimal-comma modes
+    /// use `;` between arguments).
+    private var sampleValue: String {
+        formatDisplayValue(1234.567, decimalPlaces: model.settings.decimalPlaces,
+                           context: model.numberContext)
+    }
+    private var sampleCompact: String {
+        let forced = NumberFormatContext(
+            locale: model.numberContext.locale,
+            decimalSeparator: model.numberContext.decimalSeparator,
+            groupingSeparator: model.numberContext.groupingSeparator,
+            inputGroupingSeparators: model.numberContext.inputGroupingSeparators,
+            argumentSeparator: model.numberContext.argumentSeparator,
+            displayGrouping: model.numberContext.displayGrouping,
+            compactNotation: true,
+            convertForeignOnPaste: model.numberContext.convertForeignOnPaste
+        )
+        return formatDisplayValue(100000, decimalPlaces: model.settings.decimalPlaces,
+                                  context: forced)
+    }
+    private var sampleFunction: String {
+        model.numberContext.decimalComma ? "max(1,5; 2,5)" : "max(1.5, 2.5)"
+    }
+
+    private func regionalBinding(_ kp: WritableKeyPath<RegionalNumberPreferences, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.settings.regional.map { $0[keyPath: kp] }
+                    ?? RegionalNumberPreferences.newDefaults[keyPath: kp] },
+            set: { v in
+                var p = model.settings.regional ?? .newDefaults
+                p[keyPath: kp] = v
+                model.settings.regional = p
+                model.persist()
+            }
+        )
+    }
+
+    private var regionPicker: some View {
+        let language = self.language
+        let regionSelection = Binding(
+            get: { model.settings.regional?.region ?? .system },
+            set: { model.requestRegionChange($0) }
+        )
+        return Picker(L10n.t("numbers.region", language: language),
+                      selection: regionSelection) {
+            ForEach(NumberRegionPreset.allCases, id: \.self) { p in
+                // The system preset displays the OS region's localized
+                // name (the app never pretends it is a fixed preset).
+                Text(p.displayName(in: systemLocale))
+                    .tag(p)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+    }
+
+    private var sampleGrid: some View {
+        let language = self.language
+        return Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+            GridRow {
+                Text(L10n.t("numbers.sample", language: language))
+                    .foregroundStyle(.secondary)
+                Text(sampleValue)
+                    .foregroundStyle(.primary)
+            }
+            GridRow {
+                Text(L10n.t("numbers.compact", language: language))
+                    .foregroundStyle(.secondary)
+                Text(sampleCompact)
+                    .foregroundStyle(.primary)
+            }
+            GridRow {
+                Text(L10n.t("numbers.syntax", language: language))
+                    .foregroundStyle(.secondary)
+                Text(sampleFunction)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .font(.system(size: 12))
+    }
+
+    private var regionCard: some View {
+        let language = self.language
+        let cap = L10n.t("numbers.regionCap", language: language)
+        return SettingsSection(title: L10n.t("numbers.region", language: language)) {
+            VStack(alignment: .leading, spacing: 10) {
+                regionPicker
+                Text(cap)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                sampleGrid
+            }
+        }
+    }
+
+    private var togglesCard: some View {
+        let language = self.language
+        return SettingsSection(title: L10n.t("autoInsert", language: language)) {
+            VStack(alignment: .leading, spacing: 10) {
+                SettingToggle(
+                    title: L10n.t("numbers.convertPaste", language: language),
+                    description: L10n.t("numbers.convertPasteCap", language: language),
+                    isOn: regionalBinding(\.convertForeignOnPaste)
+                )
+                SettingToggle(
+                    title: L10n.t("numbers.grouping", language: language),
+                    description: L10n.t("numbers.groupingCap", language: language),
+                    isOn: regionalBinding(\.showThousandsSeparator)
+                )
+                SettingToggle(
+                    title: L10n.t("numbers.compact", language: language),
+                    description: L10n.t("numbers.compactCap", language: language),
+                    isOn: regionalBinding(\.useCompactNotation)
+                )
+            }
+        }
+    }
+
+    private var previewCard: some View {
+        let language = self.language
+        return SettingsSection(title: L10n.t("numbers.sample", language: language)) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("1234.567")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(sampleValue)
+                    .font(.system(size: 16, weight: .medium))
+                Text("100000")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(sampleCompact)
+                    .font(.system(size: 16, weight: .medium))
+                Text(sampleFunction)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .settingsCard()
+    }
+
+    var body: some View {
+        let confirmBinding = Binding(
+            get: { model.pendingRegionChange != nil },
+            set: { if !$0 { model.cancelRegionChange() } }
+        )
+        let language = self.language
+        return HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                regionCard
+                togglesCard
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                previewCard
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .alert(
+            L10n.t("numbers.confirmTitle", language: language),
+            isPresented: confirmBinding
+        ) {
+            Button(L10n.t("numbers.apply", language: language)) {
+                model.confirmRegionChange()
+            }
+            Button(L10n.t("numbers.cancel", language: language), role: .cancel) {
+                model.cancelRegionChange()
+            }
+        } message: {
+            if let pending = model.pendingRegionChange {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.t("numbers.confirmBody", language: language))
+                    ForEach(pending.examples, id: \.self) { ex in
+                        Text(ex).font(.system(size: 11, design: .monospaced))
+                    }
+                }
+            }
         }
     }
 }

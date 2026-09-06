@@ -23,7 +23,8 @@ public enum InputFormatting {
         _ content: String,
         prefs: InputPreferences,
         rates: Rates = Rates(),
-        decimalPlaces: Int = 7
+        decimalPlaces: Int = 7,
+        context: NumberFormatContext = .legacy
     ) -> (text: String, map: [Int]) {
         let lines = content.components(separatedBy: "\n")
         var outLines = [String]()
@@ -36,7 +37,7 @@ public enum InputFormatting {
         var env = TypedEnv()
         for line in lines {
             let len = (line as NSString).length
-            if let (text, map) = formatLine(line, prefs: prefs, env: &env, rates: rates, decimalPlaces: decimalPlaces) {
+            if let (text, map) = formatLine(line, prefs: prefs, env: &env, rates: rates, decimalPlaces: decimalPlaces, context: context) {
                 for p in 0...len { docMap.append(newStart + map[p]) }
                 outLines.append(text)
                 newStart += (text as NSString).length
@@ -57,10 +58,12 @@ public enum InputFormatting {
         _ line: String,
         prefs: InputPreferences,
         rates: Rates = Rates(),
-        decimalPlaces: Int = 7
+        decimalPlaces: Int = 7,
+        context: NumberFormatContext = .legacy
     ) -> (text: String, map: [Int])? {
         var env = TypedEnv()
-        return formatLine(line, prefs: prefs, env: &env, rates: rates, decimalPlaces: decimalPlaces)
+        return formatLine(line, prefs: prefs, env: &env, rates: rates, decimalPlaces: decimalPlaces,
+                          context: context)
     }
 
     /// One line under the given prefs; `env` is the shared top-down
@@ -71,7 +74,8 @@ public enum InputFormatting {
         prefs: InputPreferences,
         env: inout TypedEnv,
         rates: Rates,
-        decimalPlaces: Int
+        decimalPlaces: Int,
+        context: NumberFormatContext = .legacy
     ) -> (text: String, map: [Int])? {
         guard !line.isEmpty else { return nil }
         var kind: PassKind = .none
@@ -81,9 +85,10 @@ public enum InputFormatting {
             groupable = true
             // Record the assignment for the later lines (legacy parity).
             _ = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
-                              now: Date(), calendar: Calendar.current)
+                              now: Date(), calendar: Calendar.current, context: context)
         } else if let res = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
-                                          now: Date(), calendar: Calendar.current) {
+                                          now: Date(), calendar: Calendar.current,
+                                          context: context) {
                 switch res {
                 case .number(let v, _): kind = .math; groupable = v.isFinite
                 case .variable: kind = .math; groupable = true
@@ -119,7 +124,8 @@ public enum InputFormatting {
         // grouping stage maps ITS input (the text after the spacing
         // pass); compose with the accumulated map when the spacing
         // pass moved anything.
-        if prefs.groupNumbers && groupable, let (grouped, gmap) = groupDigits(Array(text.utf16)) {
+        let groupOn = context.legacy ? prefs.groupNumbers : context.displayGrouping
+        if groupOn && groupable, let (grouped, gmap) = groupDigits(Array(text.utf16), context: context) {
             text = String(utf16CodeUnits: grouped, count: grouped.count)
             if prefs.padOperators {
                 map = map.indices.map { gmap[map[$0]] }
@@ -185,7 +191,39 @@ public enum InputFormatting {
     /// tokens are merged and regrouped, so `1,0000` normalizes to
     /// `10,000`; a digit run after a comma whose merge is ambiguous
     /// stays byte-identical.
-    static func groupDigits(_ c: [unichar]) -> (chars: [unichar], map: [Int])? {
+    /// r73: context-aware grouping. Legacy inserts `,`; regional
+    /// contexts insert their own separator (Western `12.345`,
+    /// Eastern `12\u{00A0}345`, the system locale's separator) and
+    /// merge in-progress chains across that same separator set — the
+    /// documented `1,0000 -> 10,000` behavior generalized. Returns
+    /// nil when grouping is off for the context (legacy gates on
+    /// `prefs.groupNumbers`, regional on its display toggle), when
+    /// the context carries no grouping separator, or when nothing
+    /// changes.
+    static func groupDigits(_ c: [unichar],
+                            context: NumberFormatContext) -> (chars: [unichar], map: [Int])? {
+        // The inserted separator (the context's grouping separator's
+        // first code unit; BMP-only in every preset and system
+        // locale in practice).
+        let insSep: unichar
+        let mergeSet: Set<unichar>
+        let decimalGuard: unichar
+        if context.legacy {
+            insSep = 0x2C
+            mergeSet = [0x2C]
+            decimalGuard = 0x2E
+        } else {
+            guard let first = context.groupingSeparator.unicodeScalars.first else { return nil }
+            guard first.value <= 0xFFFF else { return nil } // > UTF-16 unit: no inline grouping
+            insSep = unichar(first.value)
+            var m: Set<unichar> = [insSep]
+            for extra in context.inputGroupingSeparators {
+                guard let f = extra.unicodeScalars.first, f.value <= 0xFFFF else { continue }
+                m.insert(unichar(f.value))
+            }
+            mergeSet = m
+            decimalGuard = context.decimalComma ? 0x2C : 0x2E
+        }
         let n = c.count
         // Detect the edit regions: each replaces a pre range with a
         // regrouped digit string (same digits, new comma placement).
@@ -199,19 +237,20 @@ public enum InputFormatting {
             let b = i
             let prev = a > 0 ? c[a - 1] : 0
             // Identifier/exponent/fraction guards apply to the run itself.
-            if isIdentChar16(prev) || prev == 0x65 || prev == 0x45 || prev == 0x2E { continue }
+            if isIdentChar16(prev) || prev == 0x65 || prev == 0x45 || prev == decimalGuard { continue }
             // Merge a preceding grouped prefix when well-formed
-            // (`1,0000` in progress). An invalid merge leaves the run
-            /// untouched (it belongs to an ambiguous group).
+            // (`1,0000` / `1.0000` / `1 0000` in progress, per the
+            // context's separator set). An invalid merge leaves the
+            /// run untouched (it belongs to an ambiguous group).
             var sStart = a
-            if prev == 0x2C {
+            if mergeSet.contains(prev) {
                 var k = a - 1
-                while k > 0, isDigit16(c[k - 1]) || c[k - 1] == 0x2C { k -= 1 }
+                while k > 0, isDigit16(c[k - 1]) || mergeSet.contains(c[k - 1]) { k -= 1 }
                 if k < a - 1, isDigit16(c[k]) {
                     var valid = true
                     var j = k
                     while j < b {
-                        if c[j] == 0x2C {
+                        if mergeSet.contains(c[j]) {
                             // Digits on both sides; at most four after
                             // (three + the one in progress).
                             guard isDigit16(c[j - 1]), isDigit16(c[j + 1]) else { valid = false; break }
@@ -223,7 +262,7 @@ public enum InputFormatting {
                         j += 1
                     }
                     let before = k > 0 ? c[k - 1] : 0
-                    if valid, !isIdentChar16(before), before != 0x2E, before != 0x65, before != 0x45 {
+                    if valid, !isIdentChar16(before), before != decimalGuard, before != 0x65, before != 0x45 {
                         sStart = k
                     } else {
                         continue  // ambiguous: leave the run byte-identical
@@ -242,7 +281,7 @@ public enum InputFormatting {
             for d in digitsOnly {
                 post.append(d)
                 written += 1
-                if written < intLen, (intLen - written) % 3 == 0 { post.append(0x2C) }
+                if written < intLen, (intLen - written) % 3 == 0 { post.append(insSep) }
             }
             if post.count != seg.count || post != seg {
                 edits.append(Edit(start: sStart, end: b, post: post))

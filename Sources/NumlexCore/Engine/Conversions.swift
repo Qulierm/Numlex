@@ -43,8 +43,88 @@ struct ConversionShape: Equatable {
     let symbolCode: String?
 }
 
-private let conversionNumberPattern = try? NSRegularExpression(
-    pattern: #"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?"#)
+/// r73: scans the LEADING number of a conversion line under `context`.
+/// Dot modes (legacy included) reproduce the old `conversionNumberPattern`
+/// exactly: digits, optional `,`-thousands groups of EXACTLY three, an
+/// optional `.decimal` tail, an optional exponent — `1,5` still scans as
+/// `1` (two-digit "group" is a decimal, not a group). Decimal-comma modes
+/// alternate well-formed group runs (the context's grouping separators —
+/// a dot run counts as grouping ONLY with exactly three following digits,
+/// so the in-progress `1.23` reads decimal) with the decimal separator,
+/// and an optional exponent: `1.234,56` -> 1234.56, `1 234,5` -> 1234.5.
+/// Returns the canonical number text and the number of UTF-16 units
+/// consumed (the scan alphabet is BMP-only, so character offsets ==
+/// UTF-16 offsets).
+private func conversionNumber(_ s: String,
+                              context: NumberFormatContext) -> (text: String, length: Int)? {
+    let chars = Array(s)
+    let n = chars.count
+    func isDig(_ i: Int) -> Bool { i >= 0 && i < n && chars[i].isNumber }
+    func threeDigitGroup(_ i: Int) -> Bool {
+        // chars[i] is a grouping separator: exactly three digits follow,
+        // then a non-digit (or end).
+        guard isDig(i + 1), isDig(i + 2), isDig(i + 3) else { return false }
+        if i + 4 < n, isDig(i + 4) { return false }
+        return true
+    }
+    var i = 0
+    if i < n, chars[i] == "+" || chars[i] == "-" { i += 1 }
+    guard isDig(i) else { return nil }
+    while i < n, isDig(i) { i += 1 }
+    let groupChars: Set<Character> = {
+        var set: Set<Character> = []
+        func add(_ str: String) { str.unicodeScalars.forEach { set.insert(Character($0)) } }
+        if context.decimalComma {
+            add(context.groupingSeparator)
+            context.inputGroupingSeparators.forEach(add)
+        } else {
+            set.insert(",")
+        }
+        return set
+    }()
+    let decimalChars: Set<Character> = context.decimalComma ? [".", ","] : ["."]
+    while i < n {
+        let c = chars[i]
+        if c == ".", context.decimalComma, threeDigitGroup(i) {
+            // A dot in decimal-comma mode is GROUPING only when the run
+            // is exactly three digits; otherwise it is the decimal
+            // point (the documented in-progress `1.23` rule).
+            i += 4
+            continue
+        }
+        if groupChars.contains(c), threeDigitGroup(i) {
+            i += 4
+            continue
+        }
+        if decimalChars.contains(c) {
+            if i + 1 < n, isDig(i + 1) {
+                i += 1
+                while i < n, isDig(i) { i += 1 }
+                continue
+            }
+            if i + 1 >= n { i += 1; continue } // bare trailing point: `1,`
+            break
+        }
+        if c == "e" || c == "E" {
+            var j = i + 1
+            if j < n, chars[j] == "-" || chars[j] == "+" { j += 1 }
+            if j < n, isDig(j) {
+                i = j
+                while i < n, isDig(i) { i += 1 }
+                continue
+            }
+        }
+        break
+    }
+    var span = String(chars[0..<i])
+    // Canonicalize: drop grouping separators, then any remaining comma is
+    // the decimal point -> dot.
+    for ch in groupChars { span = span.replacingOccurrences(of: String(ch), with: "") }
+    span = span.replacingOccurrences(of: ",", with: ".")
+    guard let v = Double(span), v.isFinite else { return nil }
+    _ = v
+    return (span, i)
+}
 
 /// Matches a leading currency symbol source: the marker must be glued
 /// to a following digit or `.` (`$3,740.00`, `€100`), so prose like
@@ -55,7 +135,8 @@ private let conversionSymbolPattern = try? NSRegularExpression(
 /// Detects `<symbol?> <number> <fromUnit?> to|in <toUnit>` per the
 /// `ConversionShape` documentation. Returns nil otherwise; the line
 /// then flows on (money layer, date layer, expression evaluator).
-func conversionShape(_ line: String) -> ConversionShape? {
+func conversionShape(_ line: String,
+                         context: NumberFormatContext = .legacy) -> ConversionShape? {
     let ns = line as NSString
     let lower = (ns as String).lowercased() as NSString
     // Count whitespace-delimited `to` and `in` keywords and pick the
@@ -96,13 +177,13 @@ func conversionShape(_ line: String) -> ConversionShape? {
         symbolCode = CurrencyPresentation.code(forMarker: ns.substring(with: sM.range))
     }
     // The number must start the line (right after the symbol, if any).
+    // r73: scanned under the number context instead of the fixed
+    // dot-decimal regex (the legacy scanner reproduces the old pattern
+    // byte-for-byte).
     let numberOrigin = symbolRange.map { $0.location + $0.length } ?? 0
-    guard let numM = conversionNumberPattern?.firstMatch(
-        in: String(ns.substring(from: numberOrigin)),
-        range: NSRange(location: 0, length: ns.length - numberOrigin)),
-        numM.range.location == 0 else { return nil }
-    let numRange = NSRange(location: numM.range.location + numberOrigin,
-                           length: numM.range.length)
+    let tail = String(ns.substring(from: numberOrigin))
+    guard let scanned = conversionNumber(tail, context: context) else { return nil }
+    let numRange = NSRange(location: numberOrigin, length: scanned.length)
     // A whitespace must separate number and unit text.
     let afterNum = numRange.location + numRange.length
     guard afterNum < ns.length,
@@ -222,13 +303,16 @@ public func convertValue(_ value: Double,
 /// evaluator (which would silently return the leading number). Anything
 /// not matching the shape returns `nil` and keeps flowing into the
 /// assignment/expression evaluation.
-func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int) -> LineResult? {
+func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
+                   context: NumberFormatContext = .legacy) -> LineResult? {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
-    guard let shape = conversionShape(trimmed) else { return nil }
-    // Commas are grouping separators in the number.
-    let numText = shape.numberText.replacingOccurrences(of: ",", with: "")
-    guard let num = Double(numText) else { return .error(message: "Invalid number") }
-    guard num.isFinite else { return .error(message: "Invalid number") }
+    guard let shape = conversionShape(trimmed, context: context) else { return nil }
+    // r73: the number text is already context-scanned; re-canonicalize
+    // with the same rules (grouping stripped, decimal comma -> dot).
+    guard let scannedNum = conversionNumber(shape.numberText, context: context),
+          let num = Double(scannedNum.text), num.isFinite else {
+        return .error(message: "Invalid number")
+    }
     // From side: an explicit unit expression, or the currency implied
     // by a leading symbol source (`$100 to EUR`, `€100 in USD`).
     var from: UnitCatalog.ParsedExpr

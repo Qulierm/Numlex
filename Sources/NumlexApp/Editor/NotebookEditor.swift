@@ -38,6 +38,10 @@ struct NotebookEditor: NSViewRepresentable {
     /// classifier so constant names paint green exactly like declared
     /// names (and constant-driven lines evaluate the same way).
     var constants: [UserConstant]
+    /// r73: the app's ONE number context — syntax spans, the input
+    /// autoformat pass and the safe paste conversion all read this
+    /// value (parsing and display can never drift).
+    var numberContext: NumberFormatContext = .legacy
     var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// Editor scroll offset, top-down points in editor-content coordinates
     /// (0 = top of the document).
@@ -127,7 +131,8 @@ struct NotebookEditor: NSViewRepresentable {
             focusRequestID: focusRequestID,
             focusPosition: focusPosition,
             onFocusConsumed: onFocusConsumed,
-            onTokenHoverChanged: onTokenHoverChanged
+            onTokenHoverChanged: onTokenHoverChanged,
+            numberContext: numberContext
         )
     }
 }
@@ -153,6 +158,8 @@ final class NotebookEditorCoordinator: NSObject {
     /// The live token states for the current content (the editor draws a
     /// capsule attachment at every U+FFFC from these).
     var tokenStates: [TokenResolution] = []
+    /// r73: the number context the coordinator's passes use.
+    var numberContext: NumberFormatContext = .legacy
     /// The sheet's references, used only to build the internal clipboard
     /// representation of a copy.
     var tokenRefs: [AnswerReference] = []
@@ -549,8 +556,10 @@ final class NotebookEditorCoordinator: NSObject {
                 focusRequestID: Sheet.ID?,
                 focusPosition: Int?,
                 onFocusConsumed: @escaping () -> Void,
-                onTokenHoverChanged: ((UUID?) -> Void)?) {
+                onTokenHoverChanged: ((UUID?) -> Void)?,
+                numberContext: NumberFormatContext = .legacy) {
         self.sheetID = sheetID
+        self.numberContext = numberContext
         self.inputPrefs = inputPrefs
         self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
         self.onScroll = onScroll
@@ -600,6 +609,7 @@ final class NotebookEditorCoordinator: NSObject {
         // and repainted in place — deterministically, not by hope.
         let appAppearanceChanged = appAppearance != self.appAppearance
         if appAppearanceChanged { self.appAppearance = appAppearance }
+        textView.numberContext = numberContext
         if appearanceChanged {
             textView.lineNumbers = lineNumbers
             applyTypography()
@@ -1158,7 +1168,7 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
                     // The editor's actual preference-aware pass: exact.
                     pos = map[min(max(pos, 0), map.count - 1)]
                 } else {
-                    guard NotebookFormatting.canonicalDocument(intermediate) == final else { continue }
+                    guard NotebookFormatting.canonicalDocument(intermediate, context: numberContext) == final else { continue }
                     let map = NotebookFormatting.mapDocument(from: intermediate, to: final)
                     pos = map[min(max(pos, 0), map.count - 1)]
                 }
@@ -1198,7 +1208,8 @@ extension NotebookEditorCoordinator: NSTextViewDelegate {
         // returned map is the exact transformation (caret, marker and
         // pasted-reference remapping all reuse it).
         let (canonical, map) = InputFormatting.formatDocument(
-            newText, prefs: self.inputPrefs, rates: self.rates, decimalPlaces: self.decimalPlaces)
+            newText, prefs: self.inputPrefs, rates: self.rates, decimalPlaces: self.decimalPlaces,
+            context: self.numberContext)
         guard canonical != newText else { return false }
         self.lastFormatMap = map
         let sel = textView.selectedRange()
@@ -1310,6 +1321,9 @@ private final class EditorScrollView: NSScrollView {
 final class NotebookTextView: NSTextView {
     var lineHeight: Double = 30
     var lineNumbers: Bool = true
+    /// r73: the number context for the safe paste conversion (the
+    /// coordinator keeps it in sync on every update).
+    var numberContext: NumberFormatContext = .legacy
     /// 1-based logical line the caret currently sits on (set by the
     /// coordinator on every selection change).
     var caretLine: Int = 1
@@ -1536,6 +1550,23 @@ final class NotebookTextView: NSTextView {
         if let s = pb.string(forType: .string), s.contains("\u{FFFC}") {
             replaceCharacters(in: selectedRange(), with: s.replacingOccurrences(of: "\u{FFFC}", with: ""))
         } else {
+            // r73: external PLAIN text pastes convert confidently
+            // foreign numeric spans into THIS region's notation (the
+            // user's paste-conversion toggle; legacy stores and
+            // internal Numlex pastes never take this path). The
+            // converted string flows through insertText like every
+            // other edit — one undoable intent, then the normal
+            // autoformat pass. IME compositions never paste.
+            let ctx = numberContext
+            if !ctx.legacy, ctx.convertForeignOnPaste,
+               !hasMarkedText(),
+               let s = pb.string(forType: .string), !s.isEmpty {
+                let converted = PasteConversion.convert(s, context: ctx)
+                if converted != s {
+                    insertText(converted, replacementRange: selectedRange())
+                    return
+                }
+            }
             super.paste(sender)
         }
     }

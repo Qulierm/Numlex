@@ -102,6 +102,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// r38: the app-wide Light/Dark appearance (persisted; the
     /// authoritative source for the one NSApp.appearance application).
     public var appearance: AppAppearance
+    /// r73: the regional number settings. `nil` means the store has
+    /// no `regional` key at all — the PRE-r73 legacy store — and the
+    /// app keeps the pre-r73 US behavior (decimal `.`, grouping `,`,
+    /// display always grouped) byte-for-byte. A present block resolves
+    /// through `NumberFormatContext.resolve`; writing the regional
+    /// tab on a legacy store promotes it to `RegionalNumberPreferences`
+    /// (its defaults reproduce the legacy scale: system region is the
+    /// OS locale, grouping on, compact off, paste conversion off).
+    public var regional: RegionalNumberPreferences?
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -113,7 +122,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -125,6 +134,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.styling = styling
         self.customConstants = customConstants
         self.appearance = appearance
+        self.regional = regional
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -153,6 +163,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // fall back to `.light` instead of failing the whole store
         // (StorePayload.version is NOT bumped; nothing is migrated).
         appearance = (try? c.decodeIfPresent(AppAppearance.self, forKey: .appearance)) ?? .light
+        // r73: additive — pre-r73 stores carry no `regional` key at
+        // all: `nil` is the legacy signal (pre-r73 US behavior). A
+        // present block decodes per-key tolerantly (see
+        // RegionalNumberPreferences).
+        regional = (try? c.decodeIfPresent(RegionalNumberPreferences.self, forKey: .regional))
     }
 
     public var fontSize: Double {

@@ -73,6 +73,7 @@ struct ContentView: View {
             styling: settings.styling,
             appAppearance: settings.appearance,
             constants: settings.customConstants,
+            numberContext: model.numberContext,
             onPreviousAnswerTrigger: { key, caret in
                 model.insertPreviousAnswer(key: key, at: caret)
             },
@@ -155,7 +156,8 @@ struct ContentView: View {
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants,
-                        weather: weatherContext
+                        weather: weatherContext,
+                        context: model.numberContext
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's
@@ -199,7 +201,8 @@ struct ContentView: View {
                         rates: model.rates,
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants,
-                        weather: weatherContext
+                        weather: weatherContext,
+                        context: model.numberContext
                     ).lines
                 }()
                 AnswerColumnView(
@@ -228,7 +231,8 @@ struct ContentView: View {
                     onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
                     fontDesign: settings.styling.fontDesign,
                     totalLabel: L10n.t("total", language: settings.language),
-                    highlightedSourceLineIndex: highlightedSourceLineIndex
+                    highlightedSourceLineIndex: highlightedSourceLineIndex,
+                    numberContext: model.numberContext
                 )
             }
             .toolbar(removing: .title)

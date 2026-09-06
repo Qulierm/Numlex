@@ -49,6 +49,11 @@ struct AnswerColumnView: View {
     /// pure stroke overlay — it never alters layout, row frames,
     /// baselines, hit testing or clipping.
     var highlightedSourceLineIndex: Int? = nil
+    /// r73: the app's ONE number context — answers render in its
+    /// separators (grouping, decimal comma, compact notation) and the
+    /// copy paths read the same value, so the clipboard always matches
+    /// the visible row (full-precision copy when the row compacts).
+    var numberContext: NumberFormatContext = .legacy
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -91,7 +96,8 @@ struct AnswerColumnView: View {
         guard let kind = AnswerDisplay.menu(for: line.result) else { return nil }
         let idx = line.sourceLineIndex
         let places = places(for: idx)
-        guard let text = AnswerDisplay.text(for: line.result, decimalPlaces: places) else { return nil }
+        guard let text = AnswerDisplay.text(for: line.result, decimalPlaces: places,
+                                                context: numberContext) else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false  // r54: the custom slider item and
                                        // the disabled caption are enabled
@@ -249,7 +255,7 @@ struct AnswerColumnView: View {
         }
         // The shared overflow-safe formatter: an overflowing sum (inf)
         // can never trap here.
-        return (formatDisplayValue(sum, decimalPlaces: decimalPlaces), nil)
+        return (formatDisplayValue(sum, decimalPlaces: decimalPlaces, context: numberContext), nil)
     }
 
     var body: some View {
@@ -454,7 +460,7 @@ struct AnswerColumnView: View {
                     // Currency results render as ONE money string
                     // (`$600.00`, `€107.64`) — symbol and value share
                     // the same dark-base regular glyphs, no unit suffix.
-                    Text(formatMoney(v, code: u))
+                    Text(formatMoney(v, code: u, context: numberContext))
                         .font(palette.swiftUIFont(fontSize))
                         .foregroundStyle(Color(nsColor: Design.baseText))
                         .lineLimit(1)
@@ -465,7 +471,7 @@ struct AnswerColumnView: View {
                     // row (normal numeric answers stay regular).
                     let totalWeight: Font.Weight = line.isTotal ? .semibold : .regular
                     HStack(spacing: 5) {
-                        Text(formatDisplayValue(v, decimalPlaces: places))
+                        Text(formatDisplayValue(v, decimalPlaces: places, context: numberContext))
                             .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                             // Every answer/result glyph is the fixed dark
                             // base (Design.baseText) regular on the light
@@ -484,7 +490,7 @@ struct AnswerColumnView: View {
             case .money(let v, let code):
                 // Natural money: shared presentation (`$600.00`),
                 // dark-base regular, never enters the numeric Total.
-                Text(formatMoney(v, code: code))
+                Text(formatMoney(v, code: code, context: numberContext))
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
@@ -499,7 +505,7 @@ struct AnswerColumnView: View {
             case .variable(_, let v):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
-                Text(formatDisplayValue(v, decimalPlaces: places))
+                Text(formatDisplayValue(v, decimalPlaces: places, context: numberContext))
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)

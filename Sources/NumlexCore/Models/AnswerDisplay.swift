@@ -93,20 +93,32 @@ public enum AnswerDisplay {
     /// - date: `DateArithmetic.display`; broken token: `Line N`;
     /// - `Rates unavailable`: exactly that text.
     public static func text(for result: LineResult, decimalPlaces: Int) -> String? {
+        text(for: result, decimalPlaces: decimalPlaces, context: .legacy)
+    }
+
+    /// r73: the context-aware copy string. Plain scalars copy the
+    /// FULL-PRECISION (non-compact) value in the context's separators
+    /// — the display row may compact (100k) but the clipboard keeps
+    /// the exact 100,000 shape; money keeps the shared money
+    /// presentation.
+    public static func text(for result: LineResult, decimalPlaces: Int,
+                            context: NumberFormatContext) -> String? {
         switch result {
         case .blank, .skip, .title:
             return nil
         case .number(let v, let unit):
             if let u = unit, isCurrencyCode(u) {
-                return formatMoney(v, code: u)
+                return formatMoney(v, code: u, context: context)
             }
-            let s = formatDisplayValue(v, decimalPlaces: decimalPlaces)
+            let s = formatDisplayValue(v, decimalPlaces: decimalPlaces,
+                                       context: context.withoutCompactNotation)
             if let u = unit { return "\(s) \(u)" }
             return s
         case .variable(_, let v):
-            return formatDisplayValue(v, decimalPlaces: decimalPlaces)
+            return formatDisplayValue(v, decimalPlaces: decimalPlaces,
+                                      context: context.withoutCompactNotation)
         case .money(let v, let code):
-            return formatMoney(v, code: code)
+            return formatMoney(v, code: code, context: context)
         case .date(let y, let m, let d, let showYear):
             return DateArithmetic.display(year: y, month: m, day: d, showYear: showYear)
         case .brokenToken(let line):
