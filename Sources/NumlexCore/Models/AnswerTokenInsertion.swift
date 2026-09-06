@@ -81,6 +81,32 @@ public enum AnswerTokenInsertion {
         let sourceLineID = lineIDs[sourceLineIndex]
         let labelLine = sourceLineIndex + 1
 
+        // r77c: a token minted ON the very line it references is
+        // circular — it breaks that line's result (the bubble degrades
+        // to a broken state) and every later double-click on the now
+        // quiet line is dropped by the answer gate, so one careless
+        // same-line click made the answer permanently untokenizable.
+        // The canonical flow returns to a fresh line before clicking;
+        // a same-line request is a deterministic no-op.
+        let ns2 = content as NSString
+        var lineStarts: [Int] = [0]
+        var pos = 0
+        while pos <= ns2.length {
+            let r = ns2.range(of: "\n", options: [],
+                              range: NSRange(location: pos, length: ns2.length - pos))
+            if r.location == NSNotFound { break }
+            let next = r.location + 1
+            guard next <= ns2.length else { break }
+            lineStarts.append(next)
+            pos = next
+        }
+        let ls = lineStarts[sourceLineIndex]
+        // The last line's "end" is one PAST the content end: a caret at
+        // the document end sits on the last line, not past it.
+        let le = sourceLineIndex + 1 < lineStarts.count
+            ? lineStarts[sourceLineIndex + 1]
+            : ns2.length + 1
+
         // --- rigorous UTF-16 range validation ---
         let ns = content as NSString
         guard selection.location >= 0, selection.length >= 0 else { return nil }
@@ -104,6 +130,13 @@ public enum AnswerTokenInsertion {
         // can still type normally; only the token minting is refused).
         guard ns.substring(with: selection).range(of: "\n") == nil,
               ns.substring(with: selection).range(of: "\r") == nil else { return nil }
+        // r77c: refuse to mint a self-referencing token (a zero-length
+        // caret counts as "on" the line from its start through the last
+        // unit before the next line's start).
+        let selOverlapsSource = selection.length == 0
+            ? (selection.location >= ls && selection.location < le)
+            : (selection.location < le && end > ls)
+        guard !selOverlapsSource else { return nil }
 
         // --- apply exactly like typing: replace, never append ---
         let marker = String(answerTokenMarker)

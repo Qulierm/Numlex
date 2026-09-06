@@ -37,8 +37,18 @@ struct ContentView: View {
     private func answerDoubleTap(lineIndex: Int,
                                  sheetID: Sheet.ID?,
                                  bridge: NotebookEditorCoordinator?) {
-        guard let sheetID,
-              let range = bridge?.selectionSnapshot(sheetID: sheetID) else { return }
+        // r77c: trace the double-click hop from the catcher into the
+        // model (sheet identity at fire time + editor snapshot result).
+        guard let sheetID else {
+            Diagnostics.shared?.log("answerDoubleTap ABORT sheet-nil line=\(lineIndex)")
+            return
+        }
+        let snap = bridge?.selectionSnapshot(sheetID: sheetID)
+        let bridgeSheet = bridge?.sheetID?.uuidString.prefix(4) ?? "nil"
+        let modelSel = model.selectedSheet.map { $0.id.uuidString.prefix(4) } ?? "nil"
+        let snapDesc = snap.map { "\($0.location)+\($0.length)" } ?? "nil"
+        Diagnostics.shared?.log("answerDoubleTap line=\(lineIndex) sheet=\(sheetID.uuidString.prefix(4)) modelSelected=\(modelSel) bridgeSheet=\(bridgeSheet) snapshot=\(snapDesc)")
+        guard let range = snap else { return }
         model.insertToken(sourceLineIndex: lineIndex, selection: range)
     }
 
@@ -282,6 +292,12 @@ struct ContentView: View {
                 // insertions, sheet switches) arrives as a change — the
                 // quiet→result edges among them start the fade-in passes.
                 .onChange(of: motionEntries, initial: true) { _, newEntries in
+                    // r77c: record what the observation saw (compact).
+                    let desc = newEntries.prefix(8).map {
+                        let k = $0.key.map { String($0.prefix(5)) } ?? "q"
+                        return $0.id.uuidString.prefix(4) + ":" + k
+                    }.joined(separator: " ")
+                    Diagnostics.shared?.log("motion.onChange n=\(newEntries.count) \(desc)")
                     model.noteAnswerResultActivity(newEntries)
                 }
             }
@@ -302,12 +318,21 @@ struct ContentView: View {
         // Reset the editor-bound state when the selected SHEET ID changes,
         // not only the numeric index: deleting the selected non-last row
         // changes the ID under an unchanged index, and stale answer
-        // geometry (or a dead bridge) from the previous sheet would flash
-        // or drift. The new coordinator re-arms itself via onReady.
+        // geometry from the previous sheet would flash or drift.
+        // r77c: `editorBridge` is intentionally NOT nilled here. A
+        // sheet switch recreates the editor (`.id(sheet.id)`) and its
+        // coordinator re-arms via onReady — but whether onReady or this
+        // onChange action ran last was a frame-ordering coin flip, and
+        // a reset that landed AFTER onReady left the bridge nil for the
+        // WHOLE lifetime of the new sheet: every answer double-click
+        // (token insertion) on a freshly created or switched-to sheet
+        // aborted on the dead bridge. The stale bridge is harmless:
+        // selectionSnapshot guards on the coordinator's sheetID (a
+        // mismatched snapshot is a no-op), and forwardScrollWheel no-ops
+        // while the coordinator's scroll view is detached from a window.
         .onChange(of: model.selectedSheet?.id) { _, _ in
             topOffset = 0
             metrics = LineMetrics(lines: [])
-            editorBridge = nil
             // r37: a stale hover from the previous sheet can never
             // highlight the new one.
             hoveredSourceID = nil

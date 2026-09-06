@@ -97,45 +97,48 @@ public let r62Cases: [EngineCase] = [
     // MARK: token plans for every mintable row kind
 
     EngineCase("r62-mint-number-row") {
-        let content = "1+1"
-        let (plan, lines) = r62Plan(content, sourceLineIndex: 0)
+        // r77c: the caret sits on the (blank) line 2 — a same-line caret
+        // would mint a circular self-reference and is refused.
+        let content = "1+1\n"
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 4)
         guard case .number(let v, let u) = lines[0].result, u == nil, v == 2
         else { return try expect(false, "sanity: 1+1 is a unitless number") }
         guard let plan else { return try expect(false, "number row plans a token") }
-        try expectEqual(plan.content, WM + content,
-                        "the marker is inserted at the caret; the source is untouched")
-        try expectEqual(plan.caret, 1, "the caret lands right after the marker")
+        try expectEqual(plan.content, content + WM,
+                        "the marker is inserted at the line-2 caret; the source is untouched")
+        try expectEqual(plan.caret, 5, "the caret lands right after the marker")
         try expectEqual(plan.references.count, 1, "exactly one fresh reference")
         try expectEqual(plan.newReference.labelLine, 1,
                         "the token keeps the 1-based source label")
     },
 
     EngineCase("r62-mint-variable-row") {
-        let content = "apple = 5\n\n"
-        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 1)
+        // r77c: caret on the (blank) line 2, source line 1.
+        let content = "apple = 5\n"
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 10)
         guard case .variable = lines[0].result
         else { return try expect(false, "sanity: assignment is a variable row") }
         guard let plan else { return try expect(false, "variable row plans a token") }
         try expect(plan.content.contains(WM), "marker inserted")
-        try expectEqual(plan.caret, 2, "caret after the marker")
+        try expectEqual(plan.caret, 11, "caret after the marker")
     },
 
     EngineCase("r62-mint-money-row") {
-        let content = "$10 + 5% tip\n\n"
-        let (plan, lines) = r62Plan(content, sourceLineIndex: 0)
+        let content = "$10 + 5% tip\n"
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 13)
         guard case .money = lines[0].result
         else { return try expect(false, "sanity: money row kind") }
         guard let plan else { return try expect(false, "money row plans a token") }
-        try expect(plan.content.hasPrefix(WM), "marker at the caret")
+        try expectEqual(plan.content, content + WM, "marker at the line-2 caret")
     },
 
     EngineCase("r62-mint-unit-row") {
-        let content = "10 km in m\n\n"
-        let (plan, lines) = r62Plan(content, sourceLineIndex: 0)
+        let content = "10 km in m\n"
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 11)
         guard case .number(_, let u) = lines[0].result, u != nil
         else { return try expect(false, "sanity: conversion row carries a unit") }
         guard let plan else { return try expect(false, "unit row plans a token") }
-        try expect(plan.content.hasPrefix(WM), "marker at the caret")
+        try expectEqual(plan.content, content + WM, "marker at the line-2 caret")
         try expectEqual(plan.newReference.labelLine, 1, "stable source label")
     },
 
@@ -144,27 +147,27 @@ public let r62Cases: [EngineCase] = [
         // like any number row; the token re-resolves the live value.
         // A snapshot context stands in for the live service (r55 style):
         // the mint path is identical regardless of value source.
-        let content = "weather in London\n\n"
+        let content = "weather in London\n"
         let weather = WeatherContext(snapshots: ["london": WeatherSnapshot(
             queryKey: "london", displayQuery: "London",
             placeName: "London", country: "United Kingdom",
             latitude: 51.5074, longitude: -0.1278,
             temperatureCelsius: 18.5, fetchedAt: Date())])
-        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, weather: weather)
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 18, weather: weather)
         guard case .number(_, let u) = lines[0].result, u != nil
         else { return try expect(false, "sanity: weather row is a unit number") }
         guard let plan else { return try expect(false, "weather row plans a token") }
-        try expect(plan.content.hasPrefix(WM), "marker at the caret")
+        try expectEqual(plan.content, content + WM, "marker at the line-2 caret")
     },
 
     EngineCase("r62-mint-inline-total-row") {
-        let content = "10\n20\ntotal\n\n"
-        let (plan, lines) = r62Plan(content, sourceLineIndex: 2)
+        let content = "10\n20\ntotal\n"
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 2, caret: 12)
         guard case .number = lines[2].result, lines[2].isTotal
         else { return try expect(false, "sanity: total is a number row flagged isTotal") }
         guard let plan else { return try expect(false, "total row plans a token") }
-        try expectEqual(plan.content, WM + content,
-                        "the total token inserts at the caret without disturbing the sheet")
+        try expectEqual(plan.content, content + WM,
+                        "the total token inserts at the line-4 caret without disturbing the sheet")
         try expectEqual(plan.newReference.labelLine, 3,
                         "the total keeps its 1-based label")
     },
@@ -172,18 +175,20 @@ public let r62Cases: [EngineCase] = [
     // MARK: duplicates, selection replacement, refusals
 
     EngineCase("r62-duplicate-tokens-same-source") {
+        // r77c: both tokens land on the (blank) line 2 — different from
+        // the source line, the only allowed placement.
         let content = "1+1\n\n"
-        let ids = [UUID(), UUID()]
+        let ids = [UUID(), UUID(), UUID()]
         guard let first = AnswerTokenInsertion.plan(
             content: content, lineIDs: ids, references: [],
             sourceLineIndex: 0,
-            selection: NSRange(location: 0, length: 0))
-        else { return try expect(false, "first token plans") }
+            selection: NSRange(location: 4, length: 0))
+        else { return try expect(false, "first token plans on line 2") }
         guard let second = AnswerTokenInsertion.plan(
             content: first.content, lineIDs: first.lineIDs,
             references: first.references,
             sourceLineIndex: 0,
-            selection: NSRange(location: 4, length: 0))
+            selection: NSRange(location: 5, length: 0))
         else { return try expect(false, "second token on the same source plans") }
         try expectEqual(second.references.count, 2,
                         "two tokens from one source line coexist")
@@ -193,16 +198,17 @@ public let r62Cases: [EngineCase] = [
     },
 
     EngineCase("r62-selection-replaced-by-single-marker") {
-        let content = "1+1\n\n"
-        let ids = [UUID(), UUID()]
+        // r77c: the selection is on line 2 (source = line 1).
+        let content = "1+1\nabc\n"
+        let ids = [UUID(), UUID(), UUID()]
         guard let plan = AnswerTokenInsertion.plan(
             content: content, lineIDs: ids, references: [],
             sourceLineIndex: 0,
-            selection: NSRange(location: 0, length: 3))
+            selection: NSRange(location: 4, length: 3))
         else { return try expect(false, "selection replacement plans") }
-        try expectEqual(plan.content, WM + "\n\n",
+        try expectEqual(plan.content, "1+1\n" + WM + "\n",
                         "the selected text is replaced by the single marker")
-        try expectEqual(plan.caret, 1, "caret after the replacement")
+        try expectEqual(plan.caret, 5, "caret after the replacement")
     },
 
     EngineCase("r62-cross-line-selection-refused") {
@@ -262,8 +268,8 @@ public let r62Cases: [EngineCase] = [
 
     EngineCase("r62-mint-switch-kinds") {
         let view = r62Source("Sources/NumlexApp/Views/AnswerColumnView.swift")
-        let block = view.range(of: "onDoubleTap: { y in")
-            .map { String(view[$0.lowerBound..<view.endIndex]).prefix(400) } ?? ""
+        let block = view.range(of: "onDoubleTap: { y, count in")
+            .map { String(view[$0.lowerBound..<view.endIndex]).prefix(1800) } ?? ""
         try expect(block.contains("case .number, .variable, .money"),
                    "double-tap mints number/variable/money rows (number covers units and weather)")
         try expect(!block.contains(".date"),
@@ -277,5 +283,47 @@ public let r62Cases: [EngineCase] = [
         let content = r62Source("Sources/NumlexApp/Views/ContentView.swift")
         try expect(content.contains("selectionSnapshot(sheetID: sheetID)"),
                    "a stale or missing bridge yields a no-op; nothing is ever appended as a fallback")
+    },
+
+    // MARK: r77c — a token minted on its own source line is circular
+
+    EngineCase("r77c-self-reference-refused") {
+        // "7×8\n": line 0 = "7×8\n" units [0,4), line 1 = "" at unit 4.
+        let content = "7×8\n"
+        // A collapsed caret anywhere ON the source line refuses the plan.
+        for caret in [0, 1, 2, 3] {
+            let (plan, _) = r62Plan(content, sourceLineIndex: 0, caret: caret)
+            try expect(plan == nil,
+                       "a caret at unit \(caret) sits on the source line — the plan is a deterministic no-op")
+        }
+        // A non-empty selection on the source line is refused too.
+        let (sel, _) = r62Plan(content, sourceLineIndex: 0, caret: 1, length: 2)
+        try expect(sel == nil, "a selection covering source-line text is refused")
+    },
+
+    EngineCase("r77c-cross-line-still-plans") {
+        // "7×8\n": the caret on line 1 (unit 4) referencing line 0 is the
+        // canonical flow (Return, then double-click) and must still work.
+        let content = "7×8\n"
+        let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 4)
+        guard case .number(let v, let u) = lines[0].result, u == nil, v == 56
+        else { return try expect(false, "sanity: 7×8 answers 56") }
+        guard let plan else {
+            return try expect(false, "a cross-line caret on line 1 still plans the token")
+        }
+        try expectEqual(plan.content, content + WM,
+                        "the marker lands at the line-1 caret, the source line is untouched")
+        try expectEqual(plan.caret, 5, "the caret lands right after the marker")
+        try expectEqual(plan.references.count, 1, "exactly one fresh reference")
+        try expectEqual(plan.newReference.labelLine, 1, "the token keeps the 1-based source label")
+    },
+
+    EngineCase("r77c-caret-at-next-line-start-allowed") {
+        // Unit 4 is the FIRST unit of line 1 (the line-0 range is the
+        // half-open [0,4)) — a caret there belongs to line 1, not line 0,
+        // so the plan is allowed (same as the cross-line case).
+        let content = "7×8\n"
+        let (plan, _) = r62Plan(content, sourceLineIndex: 0, caret: 4)
+        try expect(plan != nil, "a caret at the next line's start is NOT on the source line")
     },
 ]

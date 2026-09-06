@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // process is launched with `--motion-evidence <dir>` (validation
         // runs with an isolated HOME; never part of normal operation).
         MotionEvidence.startIfRequested()
+        // r77c: opt-in event-chain tracing — inert unless launched with
+        // `--trace <dir>`.
+        Diagnostics.startIfRequested()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

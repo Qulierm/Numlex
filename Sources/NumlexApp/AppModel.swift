@@ -183,6 +183,14 @@ final class AppModel {
     /// are reported by the view through `noteAnswerResultActivity` —
     /// line-ID bookkeeping alone cannot see a result appearing on an
     /// existing line (the r77b root cause of "no visible motion").
+    /// r77c: main-thread diagnostics log (call sites all run on the
+    /// main thread; inert unless launched with --trace).
+    private func dlog(_ s: String) {
+        MainActor.assumeIsolated {
+            Diagnostics.shared?.log(s)
+        }
+    }
+
     func noteAnswerActivity() {
         let sheetID = selectedSheet?.id
         if sheetID != answerSheetID {
@@ -190,6 +198,10 @@ final class AppModel {
             answerAppearance.seed(ids: selectedSheet?.lineIDs ?? [])
             stopAnswerTick()
             answerOpacities = [:]
+            // r77c: sheet-switch / load seed point (no replay).
+            dlog(String(
+                "noteAnswerActivity sheet=\(sheetID?.uuidString.prefix(4) ?? "nil") "
+                + "lines=\(selectedSheet?.lineIDs.count ?? 0) (seed)"))
         }
     }
 
@@ -201,12 +213,21 @@ final class AppModel {
     /// view; seeded (pending) lines adopt silently. The tick runs only
     /// while a pass is in flight.
     func noteAnswerResultActivity(_ entries: [AnswerMotionEntry]) {
-        answerAppearance.observe(
+        let fresh = answerAppearance.observe(
             entries: entries,
             now: ProcessInfo.processInfo.systemUptime,
             reduceMotion: Motion.reduceMotion
         )
-        if answerAppearance.isAnimating {
+        let animating = answerAppearance.isAnimating
+        // r77c: compact observation record — what changed and what it
+        // did (pass started / nothing), one line per observation.
+        let freshDesc = fresh.map { $0.uuidString.prefix(4) }.joined(separator: ",")
+        let entriesDesc = entries.prefix(10).map {
+            let k = $0.key.map { String($0.prefix(6)) } ?? "q"
+            return $0.id.uuidString.prefix(4) + ":" + k
+        }.joined(separator: " ")
+        dlog("noteAnswerResult n=\(entries.count) fresh=[\(freshDesc)] anim=\(animating) \(entriesDesc)")
+        if animating {
             startAnswerTick()
             // r77b: evidence burst (inert unless --motion-evidence is
             // passed; the call sites run on the main thread).
@@ -257,6 +278,11 @@ final class AppModel {
         MainActor.assumeIsolated {
             MotionEvidence.shared?.sample(opacities: opacities, now: now)
         }
+        // r77c: 60 Hz opacity record while a pass is in flight.
+        let opacDesc = opacities
+            .map { "\($0.key.uuidString.prefix(4))=\($0.value)" }
+            .joined(separator: " ")
+        dlog("tick opac=\(opacDesc)")
         if answerAppearance.isAnimating {
             scheduleAnswerTick()
         } else {
@@ -475,8 +501,24 @@ final class AppModel {
     /// invalid/stale range is a deterministic no-op: nothing is
     /// persisted, retitled, focused, or animated.
     func insertToken(sourceLineIndex: Int, selection: NSRange?) {
-        guard let selection else { return }
-        guard sheets.indices.contains(selectedIndex) else { return }
+        // r77c: trace the whole insertion decision (the double-click
+        // chain's final step).
+        let beforeFFFC = selectedSheet.map { $0.content.components(separatedBy: "\u{FFFC}").count - 1 } ?? 0
+        let sheetID = selectedSheet.map { $0.id.uuidString.prefix(4) }
+        var planOK = false
+        if let sheetID {
+            // The plan is computed inside the guard chain below; log
+            // the outcome there too.
+            _ = sheetID
+        }
+        guard let selection else {
+            dlog("insertToken ABORT no-selection sheet=\(sheetID ?? "nil") line=\(sourceLineIndex)")
+            return
+        }
+        guard sheets.indices.contains(selectedIndex) else {
+            dlog("insertToken ABORT bad-selectedIndex sheet=\(sheetID ?? "nil")")
+            return
+        }
         let sheet = sheets[selectedIndex]
         guard let plan = AnswerTokenInsertion.plan(
             content: sheet.content,
@@ -484,7 +526,11 @@ final class AppModel {
             references: sheet.references,
             sourceLineIndex: sourceLineIndex,
             selection: selection
-        ) else { return }
+        ) else {
+            dlog("insertToken ABORT plan-nil sheet=\(sheetID ?? "nil") line=\(sourceLineIndex) sel=\(selection) nlines=\(sheet.lineIDs.count)")
+            return
+        }
+        planOK = true
         var s = sheet
         s.content = plan.content
         s.lineIDs = plan.lineIDs
@@ -495,6 +541,10 @@ final class AppModel {
         persist()
         focusSheetID = s.id
         focusCaret = plan.caret
+        let afterFFFC = sheets[selectedIndex].content.components(separatedBy: "\u{FFFC}").count - 1
+        dlog(String(
+            "insertToken OK plan=\(planOK) sheet=\(sheetID ?? "nil") line=\(sourceLineIndex) "
+            + "sel=\(selection.location)+\(selection.length) fffc \(beforeFFFC)→\(afterFFFC) caret=\(plan.caret)"))
         noteAnswerActivity()
     }
 
@@ -586,6 +636,10 @@ final class AppModel {
         selectedIndex = idx
         focusSheetID = sheet.id
         persist()
+        // r77c: the new sheet's full lifecycle marker (id, index,
+        // focus request) for the double-click-after-New-Sheet trace.
+        dlog(String(
+            "newSheet DONE id=\(sheet.id.uuidString.prefix(4)) idx=\(idx) title=\(sheet.title)"))
     }
 
     func renameSheet(id: UUID, to newTitle: String) {

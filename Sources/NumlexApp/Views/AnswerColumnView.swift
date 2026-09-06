@@ -7,6 +7,13 @@ struct AnswerColumnView: View {
     /// contract from `evaluateSheet`); every rendered answer binds to its
     /// explicit `sourceLineIndex`, never to its position after filtering.
     var rows: [SheetLine]
+    /// r77c: the row a stationary multi-pair click run keeps minting.
+    /// The first pair (clickCount 2) resolves the row under the cursor;
+    /// later pairs of the same run (4, 6, …) reuse it — the first pair's
+    /// insertion reflows the document, and a fresh y-remap of a
+    /// stationary cursor would land on whichever row merely moved under
+    /// it. A new hardware run restarts at clickCount 2 and re-resolves.
+    @State private var runMintedRow: Int?
     var metrics: LineMetrics
     /// Shared scroll state: top-down points scrolled from the top of the
     /// document. The editor is the primary surface; this column renders its
@@ -404,14 +411,33 @@ struct AnswerColumnView: View {
                     // Neither path touches selection, focus or scrolling.
                     ScrollWheelCatcher(
                         onScroll: onWheelScroll,
-                        onDoubleTap: { y in
-                            if let line = rowAt(y: y) {
+                        onDoubleTap: { y, count in
+                            // r77c: mapping diagnostics (inert w/o --trace).
+                            let firstTop = rows.first.map { rowGeometry($0).top - topOffset }
+                            let firstH = rows.first.map { rowGeometry($0).height }
+                            Diagnostics.shared?.log(String(
+                                "catcher.map y=\(Int(y)) count=\(count) topOffset=\(Int(topOffset)) "
+                                + "rows=\(rows.count) metrics=\(metrics.lines.count) "
+                                + "top0=\(firstTop.map(String.init) ?? "nil") h0=\(firstH.map(String.init) ?? "nil") "
+                                + "runRow=\(runMintedRow.map(String.init) ?? "nil")"))
+                            // r77c: the run's row (first pair = fresh
+                            // resolution, later pairs = reuse).
+                            let rowIndex: Int?
+                            if count <= 2 {
+                                let idx = rowAt(y: y)?.sourceLineIndex
+                                runMintedRow = idx
+                                rowIndex = idx
+                            } else {
+                                rowIndex = runMintedRow ?? rowAt(y: y)?.sourceLineIndex
+                            }
+                            guard let idx = rowIndex else { return }
+                            if let line = rows.first(where: { $0.sourceLineIndex == idx }) {
                                 switch line.result {
                                 case .number, .variable, .money:
                                     // Money answers are tokenizable (their
                                     // tokens carry the ISO code); date
                                     // answers are never minted.
-                                    onAnswerDoubleTap(line.sourceLineIndex)
+                                    onAnswerDoubleTap(idx)
                                 default:
                                     break
                                 }
@@ -698,7 +724,7 @@ private final class MenuAction: NSObject {
 
 private struct ScrollWheelCatcher: NSViewRepresentable {
     var onScroll: (NSEvent) -> Void
-    var onDoubleTap: ((CGFloat) -> Void)?
+    var onDoubleTap: ((CGFloat, Int) -> Void)?
     /// r51: content y (from the TOP, the row-geometry space) to the
     /// row's explicit source line index — the SAME mapping double-tap
     /// uses, so right-click after scroll/bounce hits the same row.
@@ -707,7 +733,7 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
     var menuForRow: ((Int) -> NSMenu?)?
 
     init(onScroll: @escaping (NSEvent) -> Void,
-         onDoubleTap: ((CGFloat) -> Void)? = nil,
+         onDoubleTap: ((CGFloat, Int) -> Void)? = nil,
          rowIndexAtY: ((CGFloat) -> Int?)? = nil,
          menuForRow: ((Int) -> NSMenu?)? = nil) {
         self.onScroll = onScroll
@@ -722,6 +748,8 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
         v.onDoubleTap = onDoubleTap
         v.rowIndexAtY = rowIndexAtY ?? { _ in nil }
         v.menuForRow = menuForRow
+        // r77c: one-shot creation marker (hosted wrapper identity).
+        Diagnostics.shared?.log("catcher.makeNSView")
         return v
     }
 
@@ -751,13 +779,17 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
             super.layout()
             if let sup = superview, frame != sup.bounds {
                 frame = sup.bounds
+                // r77c: frame lockstep events (the r62 desync class).
+                Diagnostics.shared?.log(String(
+                    "catcher.layout frame=\(Int(frame.width))x\(Int(frame.height)) "
+                    + "sup=\(Int(sup.bounds.width))x\(Int(sup.bounds.height))"))
             }
         }
 
         var onScroll: (NSEvent) -> Void = { _ in }
         /// Double-clicks over the surface, reported as y from the TOP of
         /// the view (the row geometry the owner maps through).
-        var onDoubleTap: ((CGFloat) -> Void)?
+        var onDoubleTap: ((CGFloat, Int) -> Void)?
         var rowIndexAtY: ((CGFloat) -> Int?) = { _ in nil }
         var menuForRow: ((Int) -> NSMenu?)?
 
@@ -789,10 +821,20 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
             // run mints one token per pair (2, 4, 6, ...); odd counts
             // are pair starts and never fire. No per-pair double fire,
             // no timers racing the system doubleClickInterval.
-            guard AnswerDoubleClick.completesPair(at: event.clickCount),
-                  let cb = onDoubleTap else { return }
+            // r77c: full event record — did the click reach the catcher,
+            // with what geometry, and what did it resolve to?
             let p = convert(event.locationInWindow, from: nil)
-            cb(bounds.height - p.y)
+            let yTop = bounds.height - p.y
+            let pair = AnswerDoubleClick.completesPair(at: event.clickCount)
+            let row = rowIndexAtY(yTop)
+            let rowDesc = row.map(String.init) ?? "nil"
+            let msg = "catcher.mouseDown count=\(event.clickCount) pair=\(pair) "
+                + "bounds=\(Int(bounds.width))x\(Int(bounds.height)) "
+                + "win=\(window?.windowNumber ?? -1) attached=\(window != nil) "
+                + "yTop=\(Int(yTop)) row=\(rowDesc)"
+            Diagnostics.shared?.log(msg)
+            guard pair, let cb = onDoubleTap else { return }
+            cb(yTop, event.clickCount)
         }
     }
 }

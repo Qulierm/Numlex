@@ -82,7 +82,9 @@ struct NotebookEditor: NSViewRepresentable {
     var onTokenHoverChanged: ((UUID?) -> Void)? = nil
 
     func makeCoordinator() -> NotebookEditorCoordinator {
-        NotebookEditorCoordinator(
+        // r77c: birth marker — the sheet ID the coordinator is born with.
+        Diagnostics.shared?.log("editor.makeCoordinator sheet=\(sheetID?.uuidString.prefix(4) ?? "nil")")
+        return NotebookEditorCoordinator(
             sheetID: sheetID,
             fontSize: fontSize,
             lineHeight: lineHeight,
@@ -333,6 +335,7 @@ final class NotebookEditorCoordinator: NSObject {
         textView.onHoverLocationChanged = { [weak self] location in
             self?.publishTokenHover(location: location)
         }
+        Diagnostics.shared?.log("editor.ready sheet=\(self.sheetID?.uuidString.prefix(4) ?? "nil")")
         onReady(self)
 
         // The flipped document view makes the clip bounds' y origin the
@@ -549,7 +552,15 @@ final class NotebookEditorCoordinator: NSObject {
     /// live composition would corrupt it — the deterministic safe
     /// behavior is a no-op, never a mid-composition insertion).
     func selectionSnapshot(sheetID: Sheet.ID) -> NSRange? {
-        guard self.sheetID == sheetID, textView.window != nil else { return nil }
+        if self.sheetID != sheetID {
+            Diagnostics.shared?.log(String(
+                "selectionSnapshot MISS sheetID=\(sheetID.uuidString.prefix(4)) "
+                + "coordinator=\(self.sheetID?.uuidString.prefix(4) ?? "nil")"))
+        }
+        guard self.sheetID == sheetID, textView.window != nil else {
+            Diagnostics.shared?.log("selectionSnapshot nil window=\(textView.window != nil)")
+            return nil
+        }
         if textView.hasMarkedText() { return nil }
         let sel = textView.selectedRange()
         let len = (textView.string as NSString).length
@@ -578,6 +589,14 @@ final class NotebookEditorCoordinator: NSObject {
                 onFocusConsumed: @escaping () -> Void,
                 onTokenHoverChanged: ((UUID?) -> Void)?,
                 numberContext: NumberFormatContext = .legacy) {
+        // r77c: editor rebind marker — the coordinator's sheet binding
+        // must follow the model's selection; a stale binding is the
+        // prime suspect for dropped double-click insertions.
+        if self.sheetID != sheetID {
+            Diagnostics.shared?.log(String(
+                "editor.rebind \(self.sheetID?.uuidString.prefix(4) ?? "nil") -> "
+                + "\(sheetID?.uuidString.prefix(4) ?? "nil")"))
+        }
         self.sheetID = sheetID
         self.numberContext = numberContext
         self.inputPrefs = inputPrefs
@@ -736,7 +755,14 @@ final class NotebookEditorCoordinator: NSObject {
     /// scroll source. Used by the answer column's wheel bridge instead of
     /// manually accumulating CGFloat deltas.
     func forwardScrollWheel(_ event: NSEvent) {
-        MainActor.assumeIsolated { scrollView.scrollWheel(with: event) }
+        MainActor.assumeIsolated {
+            // r77c: only the ATTACHED editor may consume a forwarded
+            // scroll — after a sheet switch the previous coordinator's
+            // scroll view is detached; forwarding into it would move
+            // dead geometry and desync the shared answer offset.
+            guard scrollView.window != nil else { return }
+            scrollView.scrollWheel(with: event)
+        }
     }
 
     // MARK: - Typography + highlighting
