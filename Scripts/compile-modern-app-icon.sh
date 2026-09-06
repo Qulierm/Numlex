@@ -62,7 +62,7 @@ fi
 [ -n "$ICTOOL" ] && [ -x "$ICTOOL" ] \
     || die "ictool not found (xcrun or inside Xcode bundle) — needed for version provenance"
 ICTOOL_VER_PLIST="$($ICTOOL --version 2>&1 || true)"
-ICBUILD="$(printf '%s' "$ICTOOL_VER_PLIST" | awk -v RS='</string>' '/bundle-version/{print $0}' | awk '{print $NF}')"
+ICBUILD="$(printf '%s' "$ICTOOL_VER_PLIST" | tr -d '[:space:]' | sed -n 's/.*bundle-version..string.\([0-9][0-9]*\).*/\1/p' | head -1)"
 echo "compile-modern-app-icon: ictool=$ICTOOL (build ${ICBUILD:-unknown})"
 
 WORK="$(mktemp -d)"
@@ -90,8 +90,11 @@ plutil -lint "$OUT/Assets.car-partial.plist" >/dev/null || die "partial plist no
 
 # --- 2) Fail-closed artifact inspection.
 ICONNAME="$(plutil -extract CFBundleIconName raw -orig "$OUT/Assets.car-partial.plist" 2>/dev/null || true)"
-[ "$ICONNAME" = "AppIcon" ] \
-    || die "partial plist CFBundleIconName expected 'AppIcon', got: '${ICONNAME:-missing}'"
+[ "$ICONNAME" = "AppIcon" ] || {
+    echo "compile-modern-app-icon: partial plist keys:" >&2
+    plutil -p "$OUT/Assets.car-partial.plist" >&2 || cat "$OUT/Assets.car-partial.plist" >&2
+    die "partial plist CFBundleIconName expected 'AppIcon', got: '${ICONNAME:-missing}'"
+}
 
 CARINFO="$WORK/car-info.txt"
 xcrun --sdk macosx assetutil --info "$OUT/Assets.car" > "$CARINFO" 2>&1 \
