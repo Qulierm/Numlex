@@ -17,14 +17,19 @@ jobs:
       - name: Probe ictool and actool CLIs
         shell: bash
         run: |
-          echo "=== ictool help ==="
-          /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ictool --help 2>&1 | head -80
+          IC=/Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ictool
+          echo "=== ictool bad-arg (usage) ==="
+          "$IC" --bogus 2>&1 | head -60
           echo "=== ictool version ==="
-          /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ictool --version 2>&1 | head -5
+          "$IC" --version 2>&1 | head -8
           echo "=== actool help ==="
-          xcrun actool --help 2>&1 | head -120
-          echo "=== try direct .icon with actool ==="
+          xcrun actool --help 2>&1 | head -140
+          echo "=== try ictool IR export again (verbose) ==="
+          "$IC" Assets/AppIcon.icon --export-intermediate-representation --output-directory /tmp/probe-ir --platform macOS 2>&1 | head -40
+          echo "=== try actool on .icon directly ==="
           mkdir -p /tmp/probe-out
-          xcrun actool Assets/AppIcon.icon --compile /tmp/probe-out --platform macosx --minimum-deployment-target 26.0 --target-device mac --app-icon AppIcon --output-partial-info-plist /tmp/probe-out/p.plist 2>&1 | head -30
-          ls -l /tmp/probe-out 2>/dev/null || echo "(no out dir)"
+          xcrun actool Assets/AppIcon.icon --compile /tmp/probe-out --platform macosx --minimum-deployment-target 26.0 --target-device mac --app-icon AppIcon --output-partial-info-plist /tmp/probe-out/p.plist 2>&1 | head -40
+          echo "=== out dir ==="
+          ls -l /tmp/probe-out 2>/dev/null || true
+          echo "=== probe done ==="
         id: probe
