@@ -174,29 +174,48 @@ final class AppModel {
     private var answerAnimTimer: Timer?
     private var answerAnimRunning = false
 
-    /// Called after every change that can introduce new lines on the
-    /// selected sheet (user edits, deletions, token insertions, sheet
-    /// switches, store load). A sheet switch re-seeds (no replay);
-    /// otherwise newly introduced line IDs start ONE fade-in each and
-    /// the tick runs only for the pass duration.
+    /// Called after every change that can change the selected sheet's
+    /// line population (user edits, deletions, token insertions, sheet
+    /// switches, store load). Only the SHEET-SWITCH / load case is
+    /// handled here: the sheet's line IDs are seeded `pending` so the
+    /// first observation adopts their real result phases silently (no
+    /// replay of already-visible answers). Per-line result transitions
+    /// are reported by the view through `noteAnswerResultActivity` —
+    /// line-ID bookkeeping alone cannot see a result appearing on an
+    /// existing line (the r77b root cause of "no visible motion").
     func noteAnswerActivity() {
         let sheetID = selectedSheet?.id
-        let ids = selectedSheet?.lineIDs ?? []
         if sheetID != answerSheetID {
             answerSheetID = sheetID
-            answerAppearance.seed(ids: ids)
+            answerAppearance.seed(ids: selectedSheet?.lineIDs ?? [])
             stopAnswerTick()
             answerOpacities = [:]
-            return
         }
+    }
+
+    /// r77b: the answer view reports, after every re-evaluation, one
+    /// entry per source line (stable UUID + displayed answer key, nil
+    /// for quiet lines). A line that goes quiet → real answer starts
+    /// ONE fade-in pass (visible 180–220 ms fade of the answer row);
+    /// a changed result on an answering line is crossfade-only in the
+    /// view; seeded (pending) lines adopt silently. The tick runs only
+    /// while a pass is in flight.
+    func noteAnswerResultActivity(_ entries: [AnswerMotionEntry]) {
         answerAppearance.observe(
-            ids: ids,
+            entries: entries,
             now: ProcessInfo.processInfo.systemUptime,
             reduceMotion: Motion.reduceMotion
         )
         if answerAppearance.isAnimating {
             startAnswerTick()
-        } else {
+            // r77b: evidence burst (inert unless --motion-evidence is
+            // passed; the call sites run on the main thread).
+            MainActor.assumeIsolated {
+                MotionEvidence.shared?.noteBurst()
+            }
+        } else if !answerOpacities.isEmpty {
+            // Only clear when something was in flight — an empty map
+            // assignment would needlessly re-render on every edit.
             answerOpacities = [:]
         }
     }
@@ -233,6 +252,11 @@ final class AppModel {
         }
         answerAppearance.expire(now: now)
         answerOpacities = opacities
+        // r77b: instrumented evidence (inert unless launched with
+        // --motion-evidence <dir>): 60 Hz per-tick opacity samples.
+        MainActor.assumeIsolated {
+            MotionEvidence.shared?.sample(opacities: opacities, now: now)
+        }
         if answerAppearance.isAnimating {
             scheduleAnswerTick()
         } else {

@@ -14,6 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppAppearanceController.apply(
             AppAppearanceController.persistedAppearance())
+        // r77b: instrumented motion-evidence harness — inert unless the
+        // process is launched with `--motion-evidence <dir>` (validation
+        // runs with an isolated HOME; never part of normal operation).
+        MotionEvidence.startIfRequested()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MotionEvidence.shared?.finish()
     }
 }
 

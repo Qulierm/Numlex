@@ -1,155 +1,247 @@
 import Foundation
 import NumlexCore
 
-/// r77 — Motion-policy unit cases: the injected-clock, state-based
-/// appearance passes for answers and tokens. These exercise the exact
-/// same state the app's main-run-loop ticks drive, with no AppKit and
-/// no wall clock: seed suppression, one-shot passes, deletion/reinsert-
-/// ion, duplicate IDs, relabel coalescing, Reduce Motion mid-flight
-/// cancellation and cancelAll. The AppKit/SwiftUI wiring (row opacity,
-/// identity crossfade, capsule ring) is validated visually in the real
-/// app, never by these state machines.
+/// r77b — Motion-policy unit cases: the injected-clock, state-based
+/// appearance passes for answers and tokens. The answer trigger is the
+/// RESULT, not the line's birth: quiet→result edges (blank or error →
+/// a real answer) start one fade-in pass, result→result changes are
+/// crossfade-only in the view, and seeded (pending) lines — initial
+/// load, relaunch, sheet switch — adopt silently so already-visible
+/// answers never replay. These exercise the exact state the app's
+/// main-run-loop ticks drive, with no AppKit, timers or wall clock.
 public let r77MotionCases: [EngineCase] = [
-    EngineCase("r77-answer-seed-suppresses-load") {
+    EngineCase("r77b-seed-adopts-silently") {
+        // Load: every line is seeded pending; the first observation
+        // adopts the real result phases without a single pass, no
+        // matter how many lines already show answers.
         var a = AnswerAppearance()
         let aID = UUID()
         let bID = UUID()
         a.seed(ids: [aID, bID])
-        let fresh = a.observe(ids: [aID, bID], now: 10, reduceMotion: false)
-        try expect(fresh.isEmpty, "loaded lines never animate")
-        try expect(!a.isAnimating, "no pass scheduled on load")
-        try expect(a.progress(for: aID, now: 10.05) == nil, "final state")
+        a.observe(entries: [
+            AnswerMotionEntry(id: aID, key: "42"),
+            AnswerMotionEntry(id: bID, key: nil),
+        ], now: 10, reduceMotion: false)
+        try expect(!a.isAnimating, "loaded answers never replay")
+        // A later re-evaluation of the same state animates nothing.
+        a.observe(entries: [
+            AnswerMotionEntry(id: aID, key: "42"),
+            AnswerMotionEntry(id: bID, key: nil),
+        ], now: 11, reduceMotion: false)
+        try expect(!a.isAnimating, "re-evaluation is quiet")
+        try expect(a.progress(for: aID, now: 11.05) == nil, "final state")
     },
 
-    EngineCase("r77-answer-new-line-animates-once") {
+    EngineCase("r77b-empty-seeded-line-result-delayed") {
+        // The user's actual case: an existing (seeded, previously
+        // blank) line receives its FIRST answer much later than the
+        // pass duration — the fade must start at the result edge,
+        // not at line creation.
         var a = AnswerAppearance()
-        a.seed(ids: [])
         let id = UUID()
-        let fresh = a.observe(ids: [id], now: 0, reduceMotion: false)
-        try expectEqual(fresh, [id], "new line reported once")
+        a.seed(ids: [id])
+        a.observe(entries: [AnswerMotionEntry(id: id, key: nil)],
+                  now: 0, reduceMotion: false)
+        try expect(!a.isAnimating, "blank line: no pass")
+        // The user types for half a second; the answer lands well
+        // after any line-creation-based trigger could have fired.
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")],
+                  now: 0.5, reduceMotion: false)
+        try expect(a.isAnimating, "first result starts the pass")
         try expectClose(
-            AnswerAppearance.opacity(progress: a.progress(for: id, now: 0)),
-            0, 1e-9, "starts transparent"
+            AnswerAppearance.opacity(progress: a.progress(for: id, now: 0.5)),
+            0, 1e-9, "starts transparent at the result edge"
         )
-        // The pass eases (past half by the midpoint, unlike linear).
-        let p = a.progress(for: id, now: AnswerAppearance.duration / 2)!
-        try expect(p > 0.5, "eased past half at midpoint")
+        let mid = a.progress(for: id, now: 0.5 + AnswerAppearance.duration / 2)!
+        try expect(mid > 0.5, "eased past half at the midpoint")
         try expect(
-            a.progress(for: id, now: AnswerAppearance.duration + 0.01) == nil,
-            "settles after the shared 180 ms duration"
+            a.progress(for: id, now: 0.5 + AnswerAppearance.duration + 0.01) == nil,
+            "settles after the shared duration"
         )
-        a.expire(now: AnswerAppearance.duration + 0.01)
-        // Re-observing the same ID set never replays the pass.
-        let again = a.observe(ids: [id], now: 100, reduceMotion: false)
-        try expect(again.isEmpty, "known line is not re-animated")
-        try expect(!a.isAnimating, "chain is stopped")
+        a.expire(now: 0.5 + AnswerAppearance.duration + 0.01)
+        try expect(!a.isAnimating, "chain stopped")
     },
 
-    EngineCase("r77-answer-removal-and-reinsertion") {
+    EngineCase("r77b-new-blank-line-then-result") {
+        // A genuinely new line (no seed — typed after load) starts as
+        // noResult; its first result later starts the pass.
         var a = AnswerAppearance()
         let id = UUID()
-        let fresh = UUID()
-        a.seed(ids: [id])
-        a.observe(ids: [id, fresh], now: 10, reduceMotion: false)
-        try expect(a.isAnimating, "fresh line mid-pass")
-        // Deleting the line mid-pass stops the pass (the tick reads
-        // the latest sheet state every frame).
-        a.observe(ids: [id], now: 10.05, reduceMotion: false)
-        try expect(!a.isAnimating, "removal stops the in-flight pass")
-        try expect(a.progress(for: fresh, now: 10.1) == nil, "no pass after removal")
-        // Re-typing the line arrives as a NEW UUID and animates once.
-        let retyped = UUID()
-        let freshIDs = a.observe(ids: [id, retyped], now: 20, reduceMotion: false)
-        try expectEqual(freshIDs, [retyped], "reinsertion animates")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: nil)],
+                  now: 0, reduceMotion: false)
+        try expect(!a.isAnimating, "new blank line: no pass yet")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "7")],
+                  now: 0.3, reduceMotion: false)
+        try expect(a.isAnimating, "result on the new line starts the pass")
         try expectClose(
-            AnswerAppearance.opacity(progress: a.progress(for: retyped, now: 20)),
-            0, 1e-9, "starts transparent"
+            AnswerAppearance.opacity(progress: a.progress(for: id, now: 0.3)),
+            0, 1e-9, "transparent at the start"
         )
     },
 
-    EngineCase("r77-answer-repeated-ids") {
-        var a = AnswerAppearance()
-        let id = UUID()
-        let fresh = a.observe(ids: [id, id, id], now: 1, reduceMotion: false)
-        try expectEqual(fresh, [id], "duplicates collapse to one fresh pass")
-        try expect(a.inFlight.count == 1, "one in-flight entry")
-        a.expire(now: 2)
-        a.observe(ids: [id, id], now: 2, reduceMotion: false)
-        try expect(!a.isAnimating, "re-observing duplicates never replays")
-    },
-
-    EngineCase("r77-answer-relabel-never-replays") {
+    EngineCase("r77b-invalid-to-valid") {
+        // An expression that is invalid (no result) becomes valid:
+        // the quiet→result edge animates exactly like a blank line.
         var a = AnswerAppearance()
         let id = UUID()
         a.seed(ids: [id])
-        a.observe(ids: [id], now: 1, reduceMotion: false)
-        // Relabel / re-evaluation keeps the ID set unchanged: no pass,
-        // ever — the displayed value changes in place instead.
-        let fresh = a.observe(ids: [id], now: 2, reduceMotion: false)
-        try expect(fresh.isEmpty, "ID set unchanged → no appearance pass")
-        try expect(!a.isAnimating, "settled")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: nil)],
+                  now: 0, reduceMotion: false)
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "12")],
+                  now: 0.2, reduceMotion: false)
+        try expect(a.isAnimating, "error→valid starts the pass")
+        // Further value churn while answering is crossfade-only:
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "125")],
+                  now: 0.25, reduceMotion: false)
+        try expect(a.inFlight[id] != nil, "the pass is not restarted by value churn")
     },
 
-    EngineCase("r77-answer-coalescing") {
-        var a = AnswerAppearance()
-        // Rapid successive insertions (fast typing): each new line
-        // gets its own start time; the single shared tick coalesces to
-        // the LATEST state, so all passes stay in lockstep with the
-        // wall clock.
-        let aID = UUID()
-        let bID = UUID()
-        let cID = UUID()
-        a.observe(ids: [aID], now: 0, reduceMotion: false)
-        a.observe(ids: [aID, bID], now: 0.05, reduceMotion: false)
-        a.observe(ids: [aID, bID, cID], now: 0.1, reduceMotion: false)
-        try expect(a.isAnimating, "all three lines mid-pass")
-        let now = 0.1 + AnswerAppearance.duration / 2
-        // aID's pass (started at 0) has already SETTLED at this point
-        // (duration 0.18 < 0.19) and reads as nil = final state.
-        try expect(a.progress(for: aID, now: now) == nil, "oldest pass settled to final")
-        let pb = a.progress(for: bID, now: now)!
-        let pc = a.progress(for: cID, now: now)!
-        try expect(pb > pc, "older pass is further along than the newest")
-        a.expire(now: now)
-        try expect(a.inFlight[cID] != nil, "newest pass still in flight")
-        a.expire(now: 0.1 + AnswerAppearance.duration + 0.01)
-        try expect(!a.isAnimating, "chain stops only after the LAST pass")
-        try expect(a.inFlight.isEmpty, "no residual state")
-    },
-
-    EngineCase("r77-answer-reducemotion-midflight") {
+    EngineCase("r77b-result-change-crossfade-only") {
+        // A loaded, answering line whose VALUE changes (re-evaluation,
+        // rounding, region) never starts an appearance pass — the view
+        // crossfades the identity swap in place.
         var a = AnswerAppearance()
         let id = UUID()
-        a.observe(ids: [id], now: 0, reduceMotion: false)
+        a.seed(ids: [id])
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")],
+                  now: 0, reduceMotion: false)
+        try expect(!a.isAnimating, "loaded answer adopted silently")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "43")],
+                  now: 1, reduceMotion: false)
+        try expect(!a.isAnimating, "value change is crossfade-only, never a pass")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "43")],
+                  now: 2, reduceMotion: false)
+        try expect(!a.isAnimating, "unchanged value is quiet")
+    },
+
+    EngineCase("r77b-new-result-line-unknown") {
+        // A line that arrives already having a result (e.g. a line
+        // created by a previous-answer token) fades in on sight.
+        var a = AnswerAppearance()
+        let id = UUID()
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "21")],
+                  now: 0, reduceMotion: false)
+        try expect(a.isAnimating, "new result line starts the pass")
+    },
+
+    EngineCase("r77b-result-cleared-reappears") {
+        // Clearing a result returns the line to quiet (any in-flight
+        // pass drops); a later result is a fresh quiet→result edge.
+        var a = AnswerAppearance()
+        let id = UUID()
+        a.seed(ids: [id])
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")],
+                  now: 0, reduceMotion: false)
+        try expect(!a.isAnimating, "loaded answer adopted silently")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: nil)],
+                  now: 0.1, reduceMotion: false)
+        try expect(!a.isAnimating, "cleared result is quiet")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "50")],
+                  now: 1, reduceMotion: false)
+        try expect(a.isAnimating, "reappearing result fades again")
+        // A mid-pass clear drops the pass at once.
+        a.observe(entries: [AnswerMotionEntry(id: id, key: nil)],
+                  now: 1.05, reduceMotion: false)
+        try expect(!a.isAnimating, "mid-pass clear drops the pass")
+    },
+
+    EngineCase("r77b-rapid-coalescing") {
+        // Rapid editing: the quiet→result edge starts ONE pass; every
+        // subsequent value change coalesces into the crossfade and
+        // never restarts or extends the pass.
+        var a = AnswerAppearance()
+        let id = UUID()
+        a.seed(ids: [id])
+        a.observe(entries: [AnswerMotionEntry(id: id, key: nil)], now: 0, reduceMotion: false)
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "4")], now: 0.02, reduceMotion: false)
+        let start = a.inFlight[id]!
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")], now: 0.06, reduceMotion: false)
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "424")], now: 0.1, reduceMotion: false)
+        try expectClose(a.inFlight[id]!, start, 1e-9, "start time never moves")
+        a.expire(now: start + AnswerAppearance.duration + 0.01)
+        try expect(!a.isAnimating, "one pass, settled")
+    },
+
+    EngineCase("r77b-sheet-switch-reseed") {
+        // Switching sheets seeds the new sheet's lines pending: its
+        // already-visible answers are adopted silently (no replay),
+        // and the old sheet's in-flight state is dropped.
+        var a = AnswerAppearance()
+        let oneID = UUID()
+        let twoA = UUID()
+        let twoB = UUID()
+        a.observe(entries: [AnswerMotionEntry(id: oneID, key: nil)], now: 0, reduceMotion: false)
+        a.observe(entries: [AnswerMotionEntry(id: oneID, key: "9")], now: 0.1, reduceMotion: false)
+        try expect(a.isAnimating, "first sheet mid-pass")
+        a.seed(ids: [twoA, twoB])
+        a.observe(entries: [
+            AnswerMotionEntry(id: twoA, key: "31"),
+            AnswerMotionEntry(id: twoB, key: "7"),
+        ], now: 1, reduceMotion: false)
+        try expect(!a.isAnimating, "switched-to sheet's answers never replay")
+        // Returning to the first sheet re-seeds it: no replay either.
+        a.seed(ids: [oneID])
+        a.observe(entries: [AnswerMotionEntry(id: oneID, key: "9")], now: 2, reduceMotion: false)
+        try expect(!a.isAnimating, "returning sheet is adopted, not replayed")
+    },
+
+    EngineCase("r77b-reduce-motion-midflight") {
+        var a = AnswerAppearance()
+        let id = UUID()
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")],
+                  now: 0, reduceMotion: false)
         try expect(a.isAnimating, "pass in flight")
-        // The OS flips Reduce Motion mid-pass: everything settles now
-        // and the app's tick stops the chain from the next frame.
-        a.observe(ids: [id], now: 0.05, reduceMotion: true)
+        // The OS flips Reduce Motion mid-pass: everything settles now.
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")],
+                  now: 0.05, reduceMotion: true)
         try expect(!a.isAnimating, "mid-flight pass cancelled")
         try expect(a.progress(for: id, now: 0.1) == nil, "final state immediately")
-        // New lines while Reduce Motion is ON never schedule a pass.
+        // With Reduce Motion ON, result edges never schedule passes.
         let id2 = UUID()
-        let fresh = a.observe(ids: [id, id2], now: 1, reduceMotion: true)
-        try expectEqual(fresh, [id2], "still tracked for future playback")
+        a.observe(entries: [AnswerMotionEntry(id: id2, key: nil)],
+                  now: 1, reduceMotion: true)
+        a.observe(entries: [AnswerMotionEntry(id: id2, key: "3")],
+                  now: 1.1, reduceMotion: true)
         try expect(!a.isAnimating, "no pass under Reduce Motion")
     },
 
-    EngineCase("r77-answer-cancel-all") {
+    EngineCase("r77b-removal-drops-pass") {
         var a = AnswerAppearance()
         let id = UUID()
-        a.observe(ids: [id], now: 0, reduceMotion: false)
-        try expect(a.isAnimating, "pass in flight")
-        a.cancelAll()
-        try expect(!a.isAnimating, "cancelAll stops the chain")
-        try expect(a.inFlight.isEmpty, "state cleared")
-        try expect(a.progress(for: id, now: 1) == nil, "final state")
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42")],
+                  now: 0, reduceMotion: false)
+        try expect(a.isAnimating, "mid-pass")
+        // The line is deleted: its ID leaves the entries.
+        a.observe(entries: [], now: 0.05, reduceMotion: false)
+        try expect(!a.isAnimating, "removal drops the pass")
+        // A re-created line is a NEW identity: it animates fresh.
+        let retyped = UUID()
+        a.observe(entries: [AnswerMotionEntry(id: retyped, key: "42")],
+                  now: 1, reduceMotion: false)
+        try expect(a.isAnimating, "reinserted line animates")
     },
 
-    EngineCase("r77-answer-opacity-curve") {
+    EngineCase("r77b-duplicate-entries") {
+        var a = AnswerAppearance()
+        let id = UUID()
+        a.observe(entries: [
+            AnswerMotionEntry(id: id, key: "42"),
+            AnswerMotionEntry(id: id, key: "42"),
+            AnswerMotionEntry(id: id, key: "42"),
+        ], now: 0, reduceMotion: false)
+        try expect(a.inFlight.count == 1, "duplicate entries collapse to one pass")
+        a.expire(now: AnswerAppearance.duration + 0.01)
+        a.observe(entries: [AnswerMotionEntry(id: id, key: "42"),
+                           AnswerMotionEntry(id: id, key: "42")],
+                  now: 1, reduceMotion: false)
+        try expect(!a.isAnimating, "duplicates never replay")
+    },
+
+    EngineCase("r77b-answer-opacity-curve") {
         // Opacity-only: the value is monotone 0 → 1 and the settled
-        // value is exactly the final text state. The eased curve lives
-        // in `progress()` (already eased); `opacity` maps it 1:1 so the
-        // view can never introduce a second, layout-affecting tween.
+        // value is exactly the final text state. The eased curve is
+        // baked into `progress()`; `opacity` maps it 1:1 so the view
+        // can never introduce a second, layout-affecting tween.
         let p0 = AnswerAppearance.opacity(progress: 0)
         let pLow = AnswerAppearance.opacity(progress: 0.3)
         let pHigh = AnswerAppearance.opacity(progress: 0.7)
@@ -169,8 +261,8 @@ public let r77MotionCases: [EngineCase] = [
     },
 
     EngineCase("r77-token-restrained-settle") {
-        // r77: the ink settle is restrained (0.94 → 1); the label is
-        // never scaled and the pass still eases and settles.
+        // The token bubble settle is restrained (0.94 → 1); the label
+        // is never scaled and the pass eases and settles.
         try expectClose(
             TokenAppearance.startScale, 0.94, 1e-9, "restrained start scale"
         )
@@ -193,6 +285,9 @@ public let r77MotionCases: [EngineCase] = [
         a.cancelAll()
         try expect(!a.isAnimating, "Reduce Motion mid-flight settles")
         try expect(a.progress(for: id, now: 0.1) == nil, "final state")
-        try expectClose(TokenAppearance.scale(progress: a.progress(for: id, now: 0.1)), 1, 1e-9, "draws final geometry")
+        try expectClose(
+            TokenAppearance.scale(progress: a.progress(for: id, now: 0.1)),
+            1, 1e-9, "draws final geometry"
+        )
     },
 ]

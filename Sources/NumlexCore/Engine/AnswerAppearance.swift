@@ -1,74 +1,130 @@
 import Foundation
 
-/// Pure, clock-injected appearance-animation state for NEW answer rows
-/// (r77). The app model feeds it the selected sheet's STABLE line UUIDs
-/// on every evaluation; the line IDs present at `seed` (initial load,
-/// relaunch, sheet switch) never animate, and only IDs that are NEWLY
-/// introduced (a line the user newly typed, a line re-created after a
-/// deletion) get ONE fade-in pass. Live re-evaluations, caret moves,
-/// highlighting and view re-renders change neither the ID set nor any
-/// start time, so they never replay. Changed displayed values on an
-/// EXISTING line are not this struct's concern — the view crossfades
-/// those directly (content transition, no row-frame movement).
-///
-/// All time is caller-supplied (seconds), so the logic is deterministic
-/// and unit-testable without AppKit, timers or the main thread.
+/// One line's reported motion-relevant state (r77b). The app feeds the
+/// appearance state, after EVERY re-evaluation, one entry per source
+/// line: the line's STABLE UUID and its result phase. `key` is the
+/// displayed answer string — the very string the answer view uses as
+/// its crossfade identity (so a changed value crossfades, never
+/// re-inserts) — or nil when the line shows no real answer (blank,
+/// heading, error, quiet status, broken token).
+public struct AnswerMotionEntry: Equatable, Sendable {
+    public let id: UUID
+    public let key: String?
+
+    public init(id: UUID, key: String?) {
+        self.id = id
+        self.key = key
+    }
+}
+
+/// Pure, clock-injected answer-appearance state (r77b). The trigger is
+/// the RESULT, not the line's birth: a line that goes from quiet
+/// (no result: blank, error, hidden) to a real answer plays ONE
+/// fade-in pass, whether that line is brand new or has sat empty for
+/// an hour. A result that CHANGES on an already-answering line is not
+/// a pass — the view crossfades the value in place (identity swap,
+/// 0.12 s). Loaded sheets and sheet switches are seeded `pending`:
+/// their first observation adopts the actual phases silently, so
+/// relaunch, sheet switch, theme/locale/region/style changes and any
+/// other full re-evaluation never replay insertions. Rapid edits
+/// coalesce naturally: only the quiet→result edge starts a pass, and
+/// value churn afterwards is crossfade-only. Disappeared lines drop
+/// their pass. All time is caller-supplied (seconds) so the logic is
+/// deterministic and unit-testable without AppKit, timers or the main
+/// thread.
 public struct AnswerAppearance: Equatable {
-    /// The appearance pass duration (seconds): a restrained fade-in for
-    /// a freshly computed answer.
+    /// The appearance-pass duration (seconds): a visible, restrained
+    /// fade-in for an answer that just appeared (180–220 ms band).
     public static let duration: TimeInterval = 0.18
 
-    /// Line IDs already present when this app instance first saw the
-    /// sheet (or before) — these never animate in this instance.
-    private var known: Set<UUID>
-    /// Line ID → start time (seconds) of its one in-flight fade-in.
+    public enum Phase: Equatable, Sendable {
+        /// Seeded (load / relaunch / sheet switch) but not yet
+        /// observed: the next observation adopts the real phase
+        /// WITHOUT a pass.
+        case pending
+        /// The line currently shows no real answer.
+        case noResult
+        /// The line shows an answer, identified by its display key.
+        case result(key: String)
+    }
+
+    private var known: [UUID: Phase]
+    /// Line ID → start time (seconds) of its in-flight fade-in.
     public private(set) var inFlight: [UUID: TimeInterval]
 
     public init() {
-        known = []
+        known = [:]
         inFlight = [:]
     }
 
-    /// Registers the line IDs already on the sheet when this instance
-    /// attaches (load / relaunch) or when the user switches sheets.
-    /// They become known WITHOUT animating.
+    /// Registers the lines present at load/relaunch or sheet switch.
+    /// They become `pending`: the first observation adopts their real
+    /// phases silently (no replay of already-visible answers).
     public mutating func seed(ids: [UUID]) {
-        known.formUnion(ids)
+        for id in ids { known[id] = .pending }
     }
 
-    /// Observes the current ID set at `now`. Returns the IDs that are
-    /// NEWLY introduced (in order of first appearance) — those are the
-    /// ones that should play exactly one fade-in. When `reduceMotion`
-    /// is true no pass is scheduled at all (and any pass already
-    /// in flight is cancelled, so a mid-flight switch to Reduce Motion
-    /// settles instantly), and the caller renders the final state.
-    /// Disappeared IDs drop any in-flight pass.
+    /// Observes the current per-line result state at `now`.
+    /// - A `pending` or never-seen line adopts its phase; a never-seen
+    ///   line that ALREADY has a result (a freshly created result
+    ///   line) starts a pass.
+    /// - A `noResult` line that gains a result starts ONE pass.
+    /// - A `result` line whose key changes updates the key without a
+    ///   pass (the view crossfades); a line that loses its result
+    ///   returns to `noResult` silently.
+    /// - IDs no longer present drop their pass and phase.
+    /// Duplicate IDs inside one call collapse to the first entry.
+    /// When `reduceMotion` is true no pass is scheduled and any pass
+    /// already in flight is cancelled (the caller renders the final
+    /// state).
     @discardableResult
     public mutating func observe(
-        ids: [UUID],
+        entries: [AnswerMotionEntry],
         now: TimeInterval,
         reduceMotion: Bool
     ) -> [UUID] {
         var fresh: [UUID] = []
-        let set = Set(ids)
         if reduceMotion {
             // Reduce Motion flipped on mid-pass: everything settles now.
             inFlight.removeAll()
         }
-        for id in ids where !known.contains(id) {
-            // Mark known IMMEDIATELY so duplicate IDs inside one
-            // observe call collapse to a single fresh pass.
-            known.insert(id)
-            fresh.append(id)
-            if !reduceMotion {
-                inFlight[id] = now
+        var seen = Set<UUID>()
+        for entry in entries {
+            guard !seen.contains(entry.id) else { continue }
+            seen.insert(entry.id)
+            let phase: Phase = entry.key.map { .result(key: $0) } ?? .noResult
+            switch known[entry.id] {
+            case .some(.pending):
+                // Load / sheet switch adoption: silent.
+                known[entry.id] = phase
+            case .some(.noResult):
+                known[entry.id] = phase
+                if case .result = phase, !reduceMotion {
+                    inFlight[entry.id] = now
+                    fresh.append(entry.id)
+                }
+            case .some(.result(let oldKey)):
+                known[entry.id] = phase
+                if case .result = phase {
+                    // Value changed (or identical): the view
+                    // crossfades; no insertion pass.
+                } else {
+                    // Result cleared: the row goes quiet immediately.
+                    inFlight.removeValue(forKey: entry.id)
+                }
+            case .none:
+                known[entry.id] = phase
+                if case .result = phase, !reduceMotion {
+                    inFlight[entry.id] = now
+                    fresh.append(entry.id)
+                }
             }
         }
-        // Removal: a line that left the sheet stops its pass.
-        for id in inFlight.keys where !set.contains(id) {
+        // Removal: lines that left the sheet drop phase and pass.
+        for id in known.keys where !seen.contains(id) {
+            known.removeValue(forKey: id)
             inFlight.removeValue(forKey: id)
         }
-        known.formUnion(ids)
         return fresh
     }
 

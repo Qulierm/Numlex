@@ -87,9 +87,9 @@ public struct RateStore: Sendable {
         if let directory {
             dir = directory
         } else {
-            let base = FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            dir = base.appendingPathComponent("Numlex", isDirectory: true)
+            // r77b: the ONE shared data directory (honors the
+            // --data-dir validation override, like the store).
+            dir = Persistence.dataDirectory()
         }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("rates.json")

@@ -205,6 +205,43 @@ struct ContentView: View {
                         context: model.numberContext
                     ).lines
                 }()
+                // r77b: per-line result state for the answer-appearance
+                // motion model, parallel to `rows`: stable line ID + the
+                // row's displayed answer key (the SAME string the answer
+                // view crossfades on), nil for quiet lines (blank,
+                // heading, error, broken token). A quiet→result edge is
+                // what starts a fade-in — reporting from the view (the
+                // only place results are known) after every re-evaluation
+                // is what makes the fade trigger on the FIRST answer of
+                // an existing line, not on line creation.
+                let motionEntries: [AnswerMotionEntry] = {
+                    guard let sheet = model.selectedSheet else { return [] }
+                    var out: [AnswerMotionEntry] = []
+                    out.reserveCapacity(rows.count)
+                    for line in rows where sheet.lineIDs.indices.contains(line.sourceLineIndex) {
+                        let id = sheet.lineIDs[line.sourceLineIndex]
+                        // Only real answers get a pass: quiet rows
+                        // (blanks, headings, errors, broken tokens) stay
+                        // key-less, so a result appearing on any of them
+                        // is the quiet→result edge, and errors never dim
+                        // the column.
+                        var key: String?
+                        switch line.result {
+                        case .number, .variable, .money, .date:
+                            let places = AnswerDisplay.effective(
+                                defaultPlaces: settings.decimalPlaces,
+                                override: answerRounding[id])
+                            key = AnswerDisplay.text(
+                                for: line.result,
+                                decimalPlaces: places,
+                                context: model.numberContext)
+                        default:
+                            key = nil
+                        }
+                        out.append(AnswerMotionEntry(id: id, key: key))
+                    }
+                    return out
+                }()
                 AnswerColumnView(
                     rows: rows,
                     metrics: metrics,
@@ -237,6 +274,16 @@ struct ContentView: View {
                     // appearance pass (empty = every row fully opaque).
                     answerOpacities: model.answerOpacities
                 )
+                // r77b: report the per-line result state to the motion
+                // model. `initial: true` delivers the INITIAL load state
+                // on first appearance (the sheet is seeded pending in
+                // AppModel.init, so this adopts silently — loaded answers
+                // never replay); every later re-evaluation (edits, token
+                // insertions, sheet switches) arrives as a change — the
+                // quiet→result edges among them start the fade-in passes.
+                .onChange(of: motionEntries, initial: true) { _, newEntries in
+                    model.noteAnswerResultActivity(newEntries)
+                }
             }
             .toolbar(removing: .title)
         }

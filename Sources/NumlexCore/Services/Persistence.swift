@@ -39,12 +39,44 @@ public struct StorePayload: Codable {
 }
 
 public enum Persistence {
+    /// r77b: isolated-data override for validation launches. The launch
+    /// argument `--data-dir <path>` (or the `NUMLEX_DATA_DIR`
+    /// environment variable) redirects the ENTIRE data directory
+    /// (store and every cached data file the app keeps beside it) to
+    /// the given path, so an instrumented validation instance can run
+    /// against a temporary fixture without ever touching the user's
+    /// real Application Support. Inert unless explicitly passed —
+    /// normal launches always use the standard user-location folder.
+    public static let dataDirOverride: URL? = {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--data-dir"), i + 1 < args.count {
+            return URL(fileURLWithPath: args[i + 1], isDirectory: true)
+        }
+        if let env = ProcessInfo.processInfo.environment["NUMLEX_DATA_DIR"],
+           !env.isEmpty {
+            return URL(fileURLWithPath: env, isDirectory: true)
+        }
+        return nil
+    }()
+
+    /// The one data directory every persisted artifact lives in (see
+    /// `dataDirOverride`): the standard user-location folder, or the
+    /// explicit validation override directory.
+    public static func dataDirectory() -> URL {
+        let dir: URL
+        if let override = dataDirOverride {
+            dir = override
+        } else {
+            let base = FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            dir = base.appendingPathComponent("Numlex", isDirectory: true)
+        }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
     public static func appSupportURL() -> URL {
-        let fm = FileManager.default
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("Numlex", isDirectory: true)
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("store.json")
+        dataDirectory().appendingPathComponent("store.json")
     }
 
     public static func load() -> StorePayload? {
