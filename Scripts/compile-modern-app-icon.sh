@@ -104,7 +104,7 @@ cp "$CARINFO" "$OUT/Assets.car.assetutil-info.txt"
 
 # --- 3) Reproducibility metadata.
 ICONJSON_SHA="$(shasum -a 256 "$SRC/icon.json" | cut -d' ' -f1)"
-IMG_SHA="$(find "$SRC/Assets" -type f | sort | xargs shasum -a 256 | cut -d' ' -f1 | tr '\n' ' ')"
+IMG_SHA="$(find "$SRC/Assets" -type f | sort | while IFS= read -r f; do shasum -a 256 "$f" | cut -d' ' -f1; done | tr '\n' ' ')"
 ICONHASH="$(shasum -a 256 "$OUT/Assets.car" | cut -d' ' -f1)"
 ICNS_SHA=""
 [ -f "$OUT/AppIcon.icns" ] && ICNS_SHA="$(shasum -a 256 "$OUT/AppIcon.icns" | cut -d' ' -f1)"
