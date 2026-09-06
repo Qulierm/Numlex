@@ -1,5 +1,5 @@
 name: probe ictool
-on: workflow_dispatch
+on: [push, workflow_dispatch]
 concurrency:
   group: probe-${{ github.run_id }}
 permissions:
