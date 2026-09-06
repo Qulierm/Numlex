@@ -1,31 +1,27 @@
 import Foundation
 
-/// Pure, clock-injected appearance-animation state for answer-reference
-/// capsules. The editor feeds it the sheet's current reference IDs (the
-/// STABLE `AnswerReference.id` UUIDs, never marker locations) on every
-/// commit; the IDs present at `seed` (sheet load, relaunch, sheet
-/// switch) never animate, and only IDs that are NEWLY introduced
-/// (double-click insertion, valid internal paste) get ONE appearance
-/// pass. Live label/source updates and broken/recovered transitions
-/// change neither the ID set nor any start time, so they never replay.
+/// Pure, clock-injected appearance-animation state for NEW answer rows
+/// (r77). The app model feeds it the selected sheet's STABLE line UUIDs
+/// on every evaluation; the line IDs present at `seed` (initial load,
+/// relaunch, sheet switch) never animate, and only IDs that are NEWLY
+/// introduced (a line the user newly typed, a line re-created after a
+/// deletion) get ONE fade-in pass. Live re-evaluations, caret moves,
+/// highlighting and view re-renders change neither the ID set nor any
+/// start time, so they never replay. Changed displayed values on an
+/// EXISTING line are not this struct's concern — the view crossfades
+/// those directly (content transition, no row-frame movement).
 ///
 /// All time is caller-supplied (seconds), so the logic is deterministic
 /// and unit-testable without AppKit, timers or the main thread.
-public struct TokenAppearance: Equatable {
-    /// The appearance pass duration (seconds): short, snappy — inside
-    /// the calm 0.18–0.22 s window the app uses for token appearances
-    /// (r77 motion policy).
-    public static let duration: TimeInterval = 0.2
-    /// Center scale at the start of the pass (the final scale is 1).
-    /// r77: restrained from 0.84 to 0.94 — a subtle ink settle inside
-    /// the FINAL reserved capsule rect (the label is never scaled),
-    /// never a bounce.
-    public static let startScale: Double = 0.94
+public struct AnswerAppearance: Equatable {
+    /// The appearance pass duration (seconds): a restrained fade-in for
+    /// a freshly computed answer.
+    public static let duration: TimeInterval = 0.18
 
-    /// IDs already present when this editor instance first saw the sheet
-    /// (or seen before) — these never animate in this instance.
+    /// Line IDs already present when this app instance first saw the
+    /// sheet (or before) — these never animate in this instance.
     private var known: Set<UUID>
-    /// ID → start time (seconds) of its one in-flight appearance pass.
+    /// Line ID → start time (seconds) of its one in-flight fade-in.
     public private(set) var inFlight: [UUID: TimeInterval]
 
     public init() {
@@ -33,18 +29,20 @@ public struct TokenAppearance: Equatable {
         inFlight = [:]
     }
 
-    /// Registers the IDs that are already on the sheet when this editor
-    /// instance attaches (load / relaunch / switch). They become known
-    /// WITHOUT animating.
+    /// Registers the line IDs already on the sheet when this instance
+    /// attaches (load / relaunch) or when the user switches sheets.
+    /// They become known WITHOUT animating.
     public mutating func seed(ids: [UUID]) {
         known.formUnion(ids)
     }
 
     /// Observes the current ID set at `now`. Returns the IDs that are
-    /// NEWLY introduced (in any order) — those are the ones that should
-    /// play exactly one appearance pass. When `reduceMotion` is true no
-    /// pass is scheduled at all (the caller renders the final state
-    /// immediately). Disappeared IDs drop any in-flight pass.
+    /// NEWLY introduced (in order of first appearance) — those are the
+    /// ones that should play exactly one fade-in. When `reduceMotion`
+    /// is true no pass is scheduled at all (and any pass already
+    /// in flight is cancelled, so a mid-flight switch to Reduce Motion
+    /// settles instantly), and the caller renders the final state.
+    /// Disappeared IDs drop any in-flight pass.
     @discardableResult
     public mutating func observe(
         ids: [UUID],
@@ -53,6 +51,10 @@ public struct TokenAppearance: Equatable {
     ) -> [UUID] {
         var fresh: [UUID] = []
         let set = Set(ids)
+        if reduceMotion {
+            // Reduce Motion flipped on mid-pass: everything settles now.
+            inFlight.removeAll()
+        }
         for id in ids where !known.contains(id) {
             // Mark known IMMEDIATELY so duplicate IDs inside one
             // observe call collapse to a single fresh pass.
@@ -62,7 +64,7 @@ public struct TokenAppearance: Equatable {
                 inFlight[id] = now
             }
         }
-        // Removal: a token that left the sheet stops ticking.
+        // Removal: a line that left the sheet stops its pass.
         for id in inFlight.keys where !set.contains(id) {
             inFlight.removeValue(forKey: id)
         }
@@ -90,16 +92,10 @@ public struct TokenAppearance: Equatable {
         !inFlight.isEmpty
     }
 
-    /// r77: cancels every in-flight pass (Reduce Motion flipped on
-    /// mid-pass): the caller renders the final state and stops ticking.
+    /// Cancels every in-flight pass (Reduce Motion flipped on mid-pass):
+    /// the caller renders the final state and stops ticking.
     public mutating func cancelAll() {
         inFlight.removeAll()
-    }
-
-    /// Center scale for a progress value (nil progress = final).
-    public static func scale(progress: Double?) -> Double {
-        guard let p = progress else { return 1 }
-        return startScale + (1 - startScale) * p
     }
 
     /// Drawn opacity for a progress value (nil progress = final).
@@ -107,7 +103,8 @@ public struct TokenAppearance: Equatable {
         progress ?? 1
     }
 
-    /// Short eased/snappy curve: fast out, settled end.
+    /// Short eased/snappy curve: fast out, settled end — the same
+    /// character as the token pass, so both surfaces breathe together.
     public static func ease(_ t: Double) -> Double {
         let c = 1 - min(max(t, 0), 1)
         return 1 - c * c * c

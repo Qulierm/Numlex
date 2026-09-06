@@ -173,6 +173,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// or window detach, so no perpetual timer survives.
     private var animTimer: Timer?
     private var animRunning = false
+    /// (r77) A mid-flight switch to Reduce Motion is honoured on the
+    /// next tick (≤ one frame) by polling `Motion.reduceMotion` in
+    /// `appearanceTick()` — no notification dependency.
 
     /// The intent of the pending user edit (see `EditIntent` in
     /// NumlexCore), armed by
@@ -472,6 +475,23 @@ final class NotebookEditorCoordinator: NSObject {
     }
 
     private func appearanceTick() {
+        // r77: Reduce Motion flipped on mid-pass: cancel every
+        // in-flight pass, stop the chain and repaint the affected
+        // capsules once in their final state (no further frames).
+        if Motion.reduceMotion {
+            let affected = Set(
+                tokenRefs
+                    .filter { appearance.inFlight[$0.id] != nil }
+                    .map(\.location)
+            )
+            appearance.cancelAll()
+            stopAppearanceTick()
+            textView.tokenAnimProgress = [:]
+            if let rect = textView.tokenCapsuleUnionRect(locations: affected) {
+                textView.setNeedsDisplay(rect)
+            }
+            return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         var locations: Set<Int> = []
         var settled: Set<Int> = []
@@ -1363,6 +1383,84 @@ final class NotebookTextView: NSTextView {
     private(set) var tokenHitRects: [Int: NSRect] = [:]
     private var hoveredLocation: Int?
     private var hoverTracking: NSTrackingArea?
+    /// r77: the last capsule that was hovered (kept after the hover
+    /// leaves so the exit ramp can repaint its rect once, and so a
+    /// quick move between two capsules repaints both).
+    private var lastHoveredLocation: Int?
+    /// r77: current hover-emphasis level (0...1) for the hovered token
+    /// capsule — a restrained ring fade (opacity/color only; no
+    /// geometry, hit-test or baseline change). Ramps over
+    /// `Motion.hover` on enter/exit; under Reduce Motion it snaps
+    /// instantly. The one-shot chained timer self-terminates on
+    /// settle, retarget or detach, so no perpetual timer survives.
+    var hoverGlow: CGFloat = 0
+    private var hoverGlowRampTimer: Timer?
+    private var hoverGlowFrom: CGFloat = 0
+    private var hoverGlowTarget: CGFloat = 0
+    private var hoverGlowStart: TimeInterval = 0
+
+    private func startHoverGlowRamp(to target: CGFloat) {
+        hoverGlowFrom = hoverGlow
+        hoverGlowTarget = target
+        if Motion.reduceMotion || abs(target - hoverGlow) < 0.01 {
+            // Reduce Motion (or a no-op retarget): instant static state.
+            hoverGlow = target
+            hoverGlowRampTimer?.invalidate()
+            hoverGlowRampTimer = nil
+            invalidateHoveredCapsules()
+            return
+        }
+        hoverGlowStart = ProcessInfo.processInfo.systemUptime
+        // A retarget mid-ramp (a quick move between two capsules)
+        // restarts from the CURRENT glow — the ramp coalesces to the
+        // latest target and never stacks timers.
+        hoverGlowRampTimer?.invalidate()
+        scheduleHoverGlowTick()
+    }
+
+    private func scheduleHoverGlowTick() {
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
+            self?.hoverGlowTick()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hoverGlowRampTimer = timer
+    }
+
+    private func hoverGlowTick() {
+        // r77: Reduce Motion flipped on mid-ramp: snap to the target
+        // state within this frame and stop the ramp.
+        if Motion.reduceMotion {
+            hoverGlow = hoverGlowTarget
+            hoverGlowRampTimer?.invalidate()
+            hoverGlowRampTimer = nil
+            invalidateHoveredCapsules()
+            return
+        }
+        let t = (ProcessInfo.processInfo.systemUptime - hoverGlowStart) / Motion.hover
+        if t >= 1 {
+            hoverGlow = hoverGlowTarget
+            hoverGlowRampTimer?.invalidate()
+            hoverGlowRampTimer = nil
+        } else {
+            hoverGlow = hoverGlowFrom + (hoverGlowTarget - hoverGlowFrom)
+                * CGFloat(TokenAppearance.ease(t))
+            scheduleHoverGlowTick()
+        }
+        invalidateHoveredCapsules()
+    }
+
+    /// Repaints ONLY the hovered capsule's rect (plus the just-exited
+    /// one) — never the whole document, at no frame rate beyond the
+    /// short ramp.
+    private func invalidateHoveredCapsules() {
+        let affected = Set(
+            [hoveredLocation, lastHoveredLocation].compactMap { $0 }
+        )
+        if !affected.isEmpty,
+           let rect = tokenCapsuleUnionRect(locations: affected) {
+            setNeedsDisplay(rect)
+        }
+    }
 
     /// Rebuilds the hover hit cache from the SHARED capsule geometry
     /// (the exact rects the drawing and invalidation use — the three
@@ -1406,15 +1504,29 @@ final class NotebookTextView: NSTextView {
         setHoveredLocation(nil)
     }
 
-    /// Detach (sheet switch / window close): drop the tracking area and
-    /// clear the hover so no stale callback can outlive the editor —
-    /// the only post-detach publish is this nil clear.
+    /// Detach (sheet switch / window close): drop the tracking area,
+    /// cancel any in-flight hover ramp and repaint the affected
+    /// capsule in its resting state, so no stale callback or timer can
+    /// outlive the editor — the only post-detach publish is this nil
+    /// clear.
     func resetHoverForDetach() {
         if let t = hoverTracking {
             removeTrackingArea(t)
             hoverTracking = nil
         }
-        setHoveredLocation(nil)
+        hoverGlowRampTimer?.invalidate()
+        hoverGlowRampTimer = nil
+        let affected = Set(
+            [hoveredLocation, lastHoveredLocation].compactMap { $0 }
+        )
+        let wasHovering = hoveredLocation != nil
+        hoveredLocation = nil
+        hoverGlow = 0
+        if wasHovering, !affected.isEmpty,
+           let rect = tokenCapsuleUnionRect(locations: affected) {
+            setNeedsDisplay(rect)
+        }
+        if wasHovering { onHoverLocationChanged?(nil) }
     }
 
     private func hitLocation(at p: NSPoint) -> Int? {
@@ -1426,7 +1538,11 @@ final class NotebookTextView: NSTextView {
 
     private func setHoveredLocation(_ location: Int?) {
         guard location != hoveredLocation else { return }
+        if let old = hoveredLocation { lastHoveredLocation = old }
         hoveredLocation = location
+        // r77: the token's own hover emphasis — the same restrained
+        // ramp as the source-answer outline on the answer column.
+        startHoverGlowRamp(to: location != nil ? 1 : 0)
         onHoverLocationChanged?(location)
     }
 
@@ -1703,6 +1819,27 @@ final class NotebookTextView: NSTextView {
                 // read as active.
                 Design.tokenFillInactive.withAlphaComponent(alpha).setFill()
                 path.fill()
+            }
+            // r77: the restrained hover ring — a soft outer stroke
+            // around the FINAL capsule rect (fixed offset, never
+            // animated in extent), fading over the shared hover
+            // duration. Pure overlay: it adds no layout, hit region or
+            // baseline change.
+            if t.active, t.location == hoveredLocation, hoverGlow > 0 {
+                let ringRect = capRect.insetBy(
+                    dx: -Design.tokenHoverRingInset,
+                    dy: -Design.tokenHoverRingInset
+                )
+                let ring = NSBezierPath(
+                    roundedRect: ringRect,
+                    xRadius: radius + Design.tokenHoverRingInset,
+                    yRadius: radius + Design.tokenHoverRingInset
+                )
+                Design.caretColor.withAlphaComponent(
+                    Design.tokenHoverRingAlpha * hoverGlow
+                ).setStroke()
+                ring.lineWidth = Design.tokenHoverRingWidth
+                ring.stroke()
             }
             // The label sits on the row's actual text baseline (the same
             // rule the editor's own glyphs sit on), centered horizontally

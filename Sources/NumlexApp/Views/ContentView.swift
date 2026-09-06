@@ -232,7 +232,10 @@ struct ContentView: View {
                     fontDesign: settings.styling.fontDesign,
                     totalLabel: L10n.t("total", language: settings.language),
                     highlightedSourceLineIndex: highlightedSourceLineIndex,
-                    numberContext: model.numberContext
+                    numberContext: model.numberContext,
+                    // r77: per-line fade-in opacities of the answer
+                    // appearance pass (empty = every row fully opaque).
+                    answerOpacities: model.answerOpacities
                 )
             }
             .toolbar(removing: .title)

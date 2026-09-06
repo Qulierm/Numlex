@@ -415,7 +415,9 @@ public let r18AnimationCases: [EngineCase] = [
             prev = e
         }
         try expectEqual(TokenAppearance.scale(progress: nil), 1, "final scale")
-        try expectClose(TokenAppearance.scale(progress: 0), 0.84, 1e-9, "start scale")
+        try expectClose(TokenAppearance.scale(progress: 0), TokenAppearance.startScale, 1e-9, "start scale")
+        // r77: the settle is restrained (0.94 → 1), not a pop.
+        try expectClose(TokenAppearance.startScale, 0.94, 1e-9, "restrained start scale")
         try expectEqual(TokenAppearance.scale(progress: 1), 1, "end scale")
         try expectEqual(TokenAppearance.opacity(progress: nil), 1, "final opacity")
         try expectEqual(TokenAppearance.opacity(progress: 0), 0, "start opacity")

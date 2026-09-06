@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import NumlexCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -10,7 +11,11 @@ extension UTType {
 @Observable
 final class AppModel {
     var sheets: [Sheet] = []
-    var selectedIndex: Int = 0
+    var selectedIndex: Int = 0 {
+        // r77: a sheet switch re-seeds the answer appearance state so
+        // the new sheet's rows never replay insertion animations.
+        didSet { noteAnswerActivity() }
+    }
     var settings: AppSettings = .defaults
     /// r39: one-level sidebar folders (array order = sidebar order).
     /// Membership lives on Sheet.folderID (nil = General). App-local
@@ -146,6 +151,106 @@ final class AppModel {
         pendingRegionChange = nil
     }
 
+    // MARK: - r77: answer appearance motion (UI-only, never persisted)
+
+    /// Pure appearance-pass state for NEW answer rows (stable line
+    /// UUIDs, never positions). Seeded with the selected sheet's line
+    /// IDs on load/relaunch/sheet switch so those rows never replay an
+    /// insertion animation; only genuinely new lines (typed lines,
+    /// re-created lines after a deletion) fade in once. UI state only
+    /// — it is never part of the store.
+    var answerAppearance = AnswerAppearance()
+    /// The sheet whose line IDs the appearance state is seeded for.
+    private(set) var answerSheetID: Sheet.ID?
+    /// Line ID → current fade-in opacity (0...1). Empty = every row at
+    /// full opacity (the tick bumps this ~60/s only while a pass runs,
+    /// so the view re-renders only for the ~180 ms appearance burst).
+    private(set) var answerOpacities: [UUID: Double] = [:]
+    /// One-shot chained tick for the answer pass (1/60 s, common run-
+    /// loop mode); self-terminating, like the editor's token pass. A
+    /// mid-flight switch to Reduce Motion is honoured on the next tick
+    /// (≤ one frame) by polling `Motion.reduceMotion` there — no
+    /// notification dependency.
+    private var answerAnimTimer: Timer?
+    private var answerAnimRunning = false
+
+    /// Called after every change that can introduce new lines on the
+    /// selected sheet (user edits, deletions, token insertions, sheet
+    /// switches, store load). A sheet switch re-seeds (no replay);
+    /// otherwise newly introduced line IDs start ONE fade-in each and
+    /// the tick runs only for the pass duration.
+    func noteAnswerActivity() {
+        let sheetID = selectedSheet?.id
+        let ids = selectedSheet?.lineIDs ?? []
+        if sheetID != answerSheetID {
+            answerSheetID = sheetID
+            answerAppearance.seed(ids: ids)
+            stopAnswerTick()
+            answerOpacities = [:]
+            return
+        }
+        answerAppearance.observe(
+            ids: ids,
+            now: ProcessInfo.processInfo.systemUptime,
+            reduceMotion: Motion.reduceMotion
+        )
+        if answerAppearance.isAnimating {
+            startAnswerTick()
+        } else {
+            answerOpacities = [:]
+        }
+    }
+
+    private func startAnswerTick() {
+        guard !answerAnimRunning else { return }
+        answerAnimRunning = true
+        scheduleAnswerTick()
+    }
+
+    private func scheduleAnswerTick() {
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
+            self?.answerTick()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        answerAnimTimer = timer
+    }
+
+    private func answerTick() {
+        // r77: Reduce Motion flipped on mid-pass: settle instantly
+        // (within this one frame) — final opacity, chain stopped.
+        if Motion.reduceMotion {
+            answerAppearance.cancelAll()
+            stopAnswerTick()
+            answerOpacities = [:]
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        var opacities: [UUID: Double] = [:]
+        for id in selectedSheet?.lineIDs ?? [] {
+            if let p = answerAppearance.progress(for: id, now: now) {
+                opacities[id] = p
+            }
+        }
+        answerAppearance.expire(now: now)
+        answerOpacities = opacities
+        if answerAppearance.isAnimating {
+            scheduleAnswerTick()
+        } else {
+            stopAnswerTick()
+            answerOpacities = [:]
+        }
+    }
+
+    private func stopAnswerTick() {
+        answerAnimTimer?.invalidate()
+        answerAnimTimer = nil
+        answerAnimRunning = false
+    }
+
+    deinit {
+        stopAnswerTick()
+    }
+
     init() {
         // r73: follow OS locale changes live — the `system` preset's
         // separators re-resolve on the next observation tick without a
@@ -234,6 +339,9 @@ final class AppModel {
         MainActor.assumeIsolated {
             AppAppearanceController.apply(appearance)
         }
+        // r77: seed the answer appearance state with the loaded sheet's
+        // lines — initial load never plays insertion animations.
+        noteAnswerActivity()
         // rates loaded on appear
         // Task { await loadRates() } moved to view onAppear
         _ = 0
@@ -267,6 +375,7 @@ final class AppModel {
         sheets[selectedIndex] = Sheet.retitled(sheet, content: content,
                                                constants: settings.customConstants)
         persist()
+        noteAnswerActivity()
     }
 
     /// r51: per-answer rounding override on the SELECTED sheet by
@@ -326,6 +435,7 @@ final class AppModel {
         sheet.references = Sheet.sanitizeReferences(all, in: sheet.content)
         sheets[selectedIndex] = sheet
         persist()
+        noteAnswerActivity()
     }
 
     /// Double-click on a successful answer: insert ONE token at the
@@ -361,6 +471,7 @@ final class AppModel {
         persist()
         focusSheetID = s.id
         focusCaret = plan.caret
+        noteAnswerActivity()
     }
 
     /// The "insert previous answer" input helper (r19): when the user
@@ -404,6 +515,7 @@ final class AppModel {
         persist()
         focusSheetID = s.id
         focusCaret = applied.caret
+        noteAnswerActivity()
         return true
     }
 

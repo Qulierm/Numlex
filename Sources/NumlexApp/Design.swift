@@ -114,6 +114,18 @@ enum Design {
     /// Invalidation inset around a capsule: covers the shadow extent
     /// (blur + offset) plus the border and sheen.
     static let tokenInvalidationInset: CGFloat = 20
+
+    // MARK: r77 — token hover ring (restrained, opacity-only emphasis)
+
+    /// Alpha of the soft outer stroke drawn around the hovered capsule
+    /// (multiplied by the live hover-glow ramp 0...1).
+    static let tokenHoverRingAlpha: CGFloat = 0.32
+    /// Stroke width of the hover ring.
+    static let tokenHoverRingWidth: CGFloat = 1.5
+    /// Fixed inset of the ring OUTSIDE the final capsule rect (never
+    /// animated — the ring's extent is constant; only its opacity
+    /// ramps).
+    static let tokenHoverRingInset: CGFloat = 2
     /// Inactive (broken) token capsule: a quiet dark-gray FLAT surface
     /// with muted text — no gradient, border, sheen or shadow, so it
     /// can never read as live, but stays legible on the editor
@@ -264,4 +276,34 @@ enum Design {
 
     static let label: Font = .system(size: 13)       // sidebar titles / controls
     static let labelSmall: Font = .system(size: 11)  // metadata
+}
+
+/// r77 — the ONE shared motion policy for the app's micro-animations.
+/// Everything here is a short opacity/color-only pass: no geometry,
+/// no bounces, no numeric tweens. The calm native notebook should feel
+/// alive, not like a demo. Durations are the single source of truth —
+/// SwiftUI (answers, totals, hovers) and the TextKit token pass read
+/// from here; `TokenAppearance.duration` and
+/// `AnswerAppearance.duration` are the AppKit/clock-injected twins of
+/// the two token/answer appearance durations.
+enum Motion {
+    /// Fade-in of a freshly computed answer row (new line the user
+    /// typed): restrained, fast-out.
+    static let answerIn: Double = AnswerAppearance.duration
+    /// Crossfade of a CHANGED displayed answer (re-evaluation, rounding
+    /// change, region change) and of the footer Total value.
+    static let answerChange: Double = 0.12
+    /// Source-answer hover outline + token hover ring (opacity/color
+    /// only; no geometry, focus or scroll changes).
+    static let hover: Double = 0.12
+    /// Token (bubble) appearance pass — the shared twin of
+    /// `TokenAppearance.duration`/`startScale`.
+    static let tokenIn: Double = TokenAppearance.duration
+
+    /// Whether the OS Reduce Motion is currently on (live source for
+    /// the AppKit passes; SwiftUI reads `\.accessibilityReduceMotion`,
+    /// which the system keeps in lockstep with this flag).
+    static var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
 }

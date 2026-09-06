@@ -54,6 +54,11 @@ struct AnswerColumnView: View {
     /// copy paths read the same value, so the clipboard always matches
     /// the visible row (full-precision copy when the row compacts).
     var numberContext: NumberFormatContext = .legacy
+    /// r77: per-line fade-in opacities of the answer appearance pass
+    /// (line ID → 0...1; empty = every row fully opaque). Opacity-only:
+    /// geometry, baseline placement, hit testing and the display model
+    /// are all final from the first frame.
+    var answerOpacities: [UUID: Double] = [:]
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -73,6 +78,28 @@ struct AnswerColumnView: View {
     private func override(for sourceLineIndex: Int) -> Int? {
         guard lineIDs.indices.contains(sourceLineIndex) else { return nil }
         return roundingOverrides[lineIDs[sourceLineIndex]].map(AnswerDisplay.clamped)
+    }
+
+    /// r77: this row's appearance-pass opacity (1 = settled final
+    /// state). Seeded lines (load/relaunch/sheet switch) are never in
+    /// the map, so they render at full opacity from the first frame —
+    /// only genuinely new lines fade in, and only their opacity.
+    private func rowOpacity(_ line: SheetLine) -> Double {
+        guard lineIDs.indices.contains(line.sourceLineIndex) else { return 1 }
+        return answerOpacities[lineIDs[line.sourceLineIndex]] ?? 1
+    }
+
+    /// r77: the row's displayed answer string — the SAME authoritative
+    /// text the Copy Answer path uses (full precision; the copy is
+    /// never an animated snapshot). nil = a hidden row (no crossfade
+    /// identity churn).
+    private func answerDisplayText(for line: SheetLine) -> String? {
+        guard lineIDs.indices.contains(line.sourceLineIndex) else { return nil }
+        return AnswerDisplay.text(
+            for: line.result,
+            decimalPlaces: places(for: line.sourceLineIndex),
+            context: numberContext
+        )
     }
 
     /// r51: effective display decimals for one answer row.
@@ -335,6 +362,11 @@ struct AnswerColumnView: View {
                                 && isHighlightable(line.result)
                         )
                         .offset(y: geo2.top - topOffset)
+                        // r77: the ONE opacity-only appearance pass —
+                        // a freshly introduced line's answer fades in
+                        // over the shared Motion.answerIn duration; the
+                        // row's offset/geometry are never animated.
+                        .opacity(rowOpacity(line))
                     }
                     // r58: centered total dividers — one 1pt adaptive
                     // neutral hairline (`Design.panelSeparator`) per total
@@ -417,6 +449,16 @@ struct AnswerColumnView: View {
                         .font(palette.swiftUIFont(fontSize))
                         .foregroundStyle(Color(nsColor: Design.baseText))
                         .lineLimit(1)
+                        // r77: the Total value gets the same short
+                        // crossfade as changed answers — text identity
+                        // only; the bar never moves or resizes.
+                        .id(s.value)
+                        .transition(.opacity)
+                        .animation(
+                            reduceMotion ? nil
+                                : .easeInOut(duration: Motion.answerChange),
+                            value: s.value
+                        )
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -540,6 +582,19 @@ struct AnswerColumnView: View {
             }
         }
         .lineLimit(1)
+        // r77: the displayed value of an EXISTING line changes
+        // (re-evaluation, rounding override, region change): a short
+        // opacity crossfade via an identity swap in place — no numeric
+        // tween, no frame movement, no baseline change (the row's
+        // geometry stays owned by BaselineAnswerRow). Under Reduce
+        // Motion the swap is immediate. Newly introduced lines are
+        // handled separately by the row-opacity pass (rowOpacity).
+        .id(answerDisplayText(for: line) ?? "")
+        .transition(.opacity)
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: Motion.answerChange),
+            value: answerDisplayText(for: line)
+        )
         // Symmetric row insets; no invisible scroller reservation — the
         // column has no scroll bar of its own.
         .padding(.horizontal, 20)
