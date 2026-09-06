@@ -1,0 +1,3 @@
+Xcode 26.6
+sdk 26.5
+DEVELOPER_DIR /Applications/Xcode_26.6.app/Contents/Developer

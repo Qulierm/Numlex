@@ -33,7 +33,9 @@ AppIcon`; Xcode 26's ictool has no IR-export flag and no IR detour is
 needed) run on the GitHub Actions `macos-26` runner
 (`.github/workflows/build-modern-app-icon.yml`); the compiled
 `Assets/AppIcon.compiled/Assets.car` is committed to the repo after
-digest-verified inspection. `Assets/AppIcon.icns` remains the explicit
+digest-verified inspection (current: built by Actions run
+34029287600, Xcode 26.6, SHA-256 `3ff69341…c2996` — see
+`Assets/AppIcon.compiled/icon-build-metadata.json`). `Assets/AppIcon.icns` remains the explicit
 legacy fallback (installed by `Scripts/generate-app-icon.sh`) — the
 modern Assets.car takes precedence when present.
 
