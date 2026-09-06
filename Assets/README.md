@@ -27,9 +27,10 @@ Contents: system-dark fill, one glass/translucent layer (gradient white,
 scale 1.9, neutral shadow). No script modifies the package.
 
 Canonical modern-icon build path: `Scripts/compile-modern-app-icon.sh`
-(CTOOL-free: `ictool --export-intermediate-representation` +
-`xcrun actool --app-icon AppIcon`, macOS 26, min deployment 26.0) run on
-the GitHub Actions `macos-26` runner
+(`xcrun actool` compiles the .icon package directly — `--compile --platform
+macosx --minimum-deployment-target 26.0 --target-device mac --app-icon
+AppIcon`; Xcode 26's ictool has no IR-export flag and no IR detour is
+needed) run on the GitHub Actions `macos-26` runner
 (`.github/workflows/build-modern-app-icon.yml`); the compiled
 `Assets/AppIcon.compiled/Assets.car` is committed to the repo after
 digest-verified inspection. `Assets/AppIcon.icns` remains the explicit
