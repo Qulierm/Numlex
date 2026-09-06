@@ -89,7 +89,7 @@ xcrun actool "${ACTOOL_ARGS[@]}" > "$WORK/actool.log" 2>&1 \
 plutil -lint "$OUT/Assets.car-partial.plist" >/dev/null || die "partial plist not valid XML/plist"
 
 # --- 2) Fail-closed artifact inspection.
-ICONNAME="$(plutil -extract CFBundleIconName raw -orig "$OUT/Assets.car-partial.plist" 2>/dev/null || true)"
+ICONNAME="$(plutil -extract CFBundleIconName raw "$OUT/Assets.car-partial.plist" 2>/dev/null || true)"
 [ "$ICONNAME" = "AppIcon" ] || {
     echo "compile-modern-app-icon: partial plist keys:" >&2
     plutil -p "$OUT/Assets.car-partial.plist" >&2 || cat "$OUT/Assets.car-partial.plist" >&2
