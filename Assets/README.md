@@ -16,6 +16,26 @@ user-supplied ICNS, installed byte-for-byte (no processing of any kind):
 3. `Assets/AppIconPreview.png` — exact 512 rep extracted from the canonical
    ICNS for README display only; extraction never affects packaged bytes.
 
+Modern Icon Composer source (Xcode 26 / Liquid Glass)
+-----------------------------------------------------
+`AppIcon.icon/` — user-supplied Icon Composer project (from
+`/Users/nikita/Downloads/numlex.icon`, package renamed to `AppIcon.icon`
+so the asset name is `AppIcon`), tracked byte-exact:
+- `icon.json` SHA-256 `347f6a378e7267d944cffd66b93c768f410431cb6f228f6bd9fc2e240b7ff726`
+- `Assets/Image 32.png` SHA-256 `b293279246cb9e37396b89878c5d631e6ff8c35a6e7fd95a2622b483d5c0080d`
+Contents: system-dark fill, one glass/translucent layer (gradient white,
+scale 1.9, neutral shadow). No script modifies the package.
+
+Canonical modern-icon build path: `Scripts/compile-modern-app-icon.sh`
+(CTOOL-free: `ictool --export-intermediate-representation` +
+`xcrun actool --app-icon AppIcon`, macOS 26, min deployment 26.0) run on
+the GitHub Actions `macos-26` runner
+(`.github/workflows/build-modern-app-icon.yml`); the compiled
+`Assets/AppIcon.compiled/Assets.car` is committed to the repo after
+digest-verified inspection. `Assets/AppIcon.icns` remains the explicit
+legacy fallback (installed by `Scripts/generate-app-icon.sh`) — the
+modern Assets.car takes precedence when present.
+
 Legacy reference (not active)
 -----------------------------
 `AppIcon.exported.iconset/` and `AppIcon.iconset/` are the previous
