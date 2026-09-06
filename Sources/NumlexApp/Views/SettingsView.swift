@@ -18,15 +18,19 @@ private enum SettingsGeometry {
     static let maxHeight: CGFloat = 540
 }
 
-/// The Settings scene content (r21, r33, r34): one native macOS `TabView`
-/// with exactly three tabs — General (all non-style settings, six input
-/// helpers, language/line numbers, rate attribution),
-/// Constants (the GLOBAL user-defined constants, one scrollable row
-/// table) and Styling (font size/family plus one finite color picker
-/// per notebook role, with a live preview). One restrained outer Liquid
-/// Glass surface per tab with native GroupBox sections; no in-content
-/// "Settings" heading (the system titlebar carries the single localized
-/// window title), no nested cards, no fake tabs. Geometry comes from
+/// The Settings scene content (r21, r33, r34, r74): one native macOS
+/// `TabView` with exactly four tabs — General (all non-style settings,
+/// six input helpers, language/line numbers, rate attribution),
+/// Numbers (r73 region + the three independent toggles, one live
+/// example block), Constants (the GLOBAL user-defined constants, one
+/// scrollable row table) and Styling (font size/family plus one finite
+/// color picker per notebook role, with a full-width live preview).
+/// r74: every tab is ONE single readable column on the shared
+/// SettingsPage scaffold (label left, native control right,
+/// description under the label text); the only remaining glass
+/// surface is the Constants row table. No in-content "Settings"
+/// heading (the system titlebar carries the single localized window
+/// title), no nested cards, no fake tabs. Geometry comes from
 /// SettingsGeometry (720x460 content initial; 690...820 x 460...540).
 struct SettingsView: View {
     @Bindable var model: AppModel
@@ -72,13 +76,15 @@ struct SettingsView: View {
 
 // MARK: - General tab
 
+// MARK: - General tab
+
 private struct GeneralSettingsTab: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
 
     /// One persisted boolean binding (every control writes through
-    /// model.persist(), exactly like the previous GroupBox rows).
+    /// model.persist(), exactly like the previous rows).
     private func boolBinding(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
         Binding(
             get: { model.settings[keyPath: keyPath] },
@@ -86,24 +92,38 @@ private struct GeneralSettingsTab: View {
         )
     }
 
+    /// The native checkbox control shared by every General row.
+    private func checkbox(_ isOn: Binding<Bool>) -> some View {
+        Toggle("", isOn: isOn)
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+    }
+
     var body: some View {
-        // r23 compact, r34 verified: NO scroll view — a fixed
-        // two-column layout that shows every control at once in the
-        // 720x460 window (and at the 690x460 minimum). Left: rounding
-        // + operators. Right: automatic insertions, line numbers,
-        // sidebar-button hiding + language + appearance, currency
-        // attribution. Every surface is exactly one
-        // glass card; section titles sit outside their cards. (The
-        // Sheet title control was removed from the UI in r23;
-        // AppSettings.sheetName stays in the model for decoding and
-        // new-sheet naming.)
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 14) {
-                // Rounding numbers: 12 pt label + segmented 2...10.
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(L10n.t("round", language: language))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
+        // r74: ONE single readable column on the shared page scaffold —
+        // label left, native control right, description under the label
+        // text. No two-column split, no per-card glass. (The Sheet
+        // title control was removed from the UI in r23; AppSettings.
+        // sheetName stays in the model for decoding and new-sheet
+        // naming.)
+        let language = self.language
+        return SettingsPage {
+            // Interface + display rows.
+            SettingsGroup {
+                SettingsRow(title: L10n.t("language", language: language)) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.language },
+                        set: { model.settings.language = $0; model.persist() }
+                    )) {
+                        ForEach(AppLanguage.allCases, id: \.self) { lang in
+                            Text(lang.rawValue.uppercased()).tag(lang)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
+                SettingsRow(title: L10n.t("round", language: language)) {
                     Picker("", selection: Binding(
                         get: { model.settings.decimalPlaces },
                         set: { model.settings.decimalPlaces = $0; model.persist() }
@@ -114,130 +134,96 @@ private struct GeneralSettingsTab: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .frame(width: 232)
                 }
-                .settingsCard()
-
-                // Operators: external title + one card with the four
-                // input helpers and their example captions.
-                SettingsSection(title: L10n.t("operators", language: language)) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SettingToggle(
-                            title: L10n.t("opPad", language: language),
-                            description: L10n.t("opPadCap", language: language),
-                            isOn: boolBinding(\AppSettings.input.padOperators)
-                        )
-                        SettingToggle(
-                            title: L10n.t("opStar", language: language),
-                            description: L10n.t("opStarCap", language: language),
-                            isOn: boolBinding(\AppSettings.input.replaceAsterisk)
-                        )
-                        SettingToggle(
-                            title: L10n.t("opBacktick", language: language),
-                            description: L10n.t("opBacktickCap", language: language),
-                            isOn: boolBinding(\AppSettings.input.replaceBacktick)
-                        )
-                        SettingToggle(
-                            title: L10n.t("opQuick", language: language),
-                            description: L10n.t("opQuickCap", language: language),
-                            isOn: boolBinding(\AppSettings.input.quickOperators)
-                        )
+                SettingsRow(title: L10n.t("appearance", language: language)) {
+                    // The ONE write path (model.setAppearance: one
+                    // settings write, one persist, one process-wide
+                    // NSApp.appearance application) — a direct settings
+                    // write would skip the live switch.
+                    Picker("", selection: Binding(
+                        get: { model.settings.appearance },
+                        set: { model.setAppearance($0) }
+                    )) {
+                        ForEach(AppAppearance.allCases, id: \.self) { a in
+                            Text(L10n.t(
+                                a == .light ? "appearanceLight" : "appearanceDark",
+                                language: language)).tag(a)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 128)
+                }
+                SettingsRow(title: L10n.t("linenumber", language: language)) {
+                    checkbox(boolBinding(\AppSettings.lineNumbers))
+                }
+                SettingsRow(
+                    title: L10n.t("hideSidebarBtn", language: language),
+                    detail: L10n.t("hideSidebarBtnCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            VStack(alignment: .leading, spacing: 14) {
-                // Automatic insertions: external title + one card.
-                SettingsSection(title: L10n.t("autoInsert", language: language)) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SettingToggle(
-                            title: L10n.t("autoGroup", language: language),
-                            description: L10n.t("autoGroupCap", language: language),
-                            isOn: boolBinding(\AppSettings.input.groupNumbers)
-                        )
-                        SettingToggle(
-                            title: L10n.t("autoPrev", language: language),
-                            description: L10n.t("autoPrevCap", language: language),
-                            isOn: boolBinding(\AppSettings.input.insertPreviousAnswer)
-                        )
-                    }
+            SettingsGroup(title: L10n.t("operators", language: language)) {
+                SettingsRow(
+                    title: L10n.t("opPad", language: language),
+                    detail: L10n.t("opPadCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.input.padOperators))
                 }
-
-                // Line numbers + interface language + appearance: one
-                // card. The appearance picker is the ONE write path
-                // (model.setAppearance: one settings write, one persist,
-                // one process-wide NSApp.appearance application) — a
-                // direct settings write would skip the live switch.
-                VStack(alignment: .leading, spacing: 10) {
-                    SettingToggle(
-                        title: L10n.t("linenumber", language: language),
-                        description: nil,
-                        isOn: boolBinding(\AppSettings.lineNumbers)
-                    )
-                    // r60: hide the native sidebar toggle while the
-                    // sidebar is collapsed (keyboard-only reopening).
-                    SettingToggle(
-                        title: L10n.t("hideSidebarBtn", language: language),
-                        description: L10n.t("hideSidebarBtnCap", language: language),
-                        isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed)
-                    )
-                    HStack(spacing: 8) {
-                        Text(L10n.t("language", language: language))
-                            .font(.system(size: 12, weight: .medium))
-                        Spacer(minLength: 8)
-                        Picker("", selection: Binding(
-                            get: { model.settings.language },
-                            set: { model.settings.language = $0; model.persist() }
-                        )) {
-                            ForEach(AppLanguage.allCases, id: \.self) { lang in
-                                Text(lang.rawValue.uppercased()).tag(lang)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 84)
-                    }
-                    HStack(spacing: 8) {
-                        Text(L10n.t("appearance", language: language))
-                            .font(.system(size: 12, weight: .medium))
-                        Spacer(minLength: 8)
-                        Picker("", selection: Binding(
-                            get: { model.settings.appearance },
-                            set: { model.setAppearance($0) }
-                        )) {
-                            ForEach(AppAppearance.allCases, id: \.self) { a in
-                                Text(L10n.t(
-                                    a == .light ? "appearanceLight" : "appearanceDark",
-                                    language: language)).tag(a)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                    }
+                SettingsRow(
+                    title: L10n.t("opStar", language: language),
+                    detail: L10n.t("opStarCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.input.replaceAsterisk))
                 }
-                .settingsCard()
-
-                // Currency rate attribution (the bundled fiat catalog is
-                // converted with the open provider table fetched at
-                // launch — no API key required).
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.t("currencyRates", language: language))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Link("open.er-api.com",
-                         destination: URL(string: "https://open.er-api.com")!)
-                        .font(.system(size: 12))
+                SettingsRow(
+                    title: L10n.t("opBacktick", language: language),
+                    detail: L10n.t("opBacktickCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.input.replaceBacktick))
                 }
-                .settingsCard()
+                SettingsRow(
+                    title: L10n.t("opQuick", language: language),
+                    detail: L10n.t("opQuickCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.input.quickOperators))
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            SettingsGroup(title: L10n.t("autoInsert", language: language)) {
+                SettingsRow(
+                    title: L10n.t("autoGroup", language: language),
+                    detail: L10n.t("autoGroupCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.input.groupNumbers))
+                }
+                SettingsRow(
+                    title: L10n.t("autoPrev", language: language),
+                    detail: L10n.t("autoPrevCap", language: language)
+                ) {
+                    checkbox(boolBinding(\AppSettings.input.insertPreviousAnswer))
+                }
+            }
+
+            // Currency rate attribution (the bundled fiat catalog is
+            // converted with the open provider table fetched at
+            // launch — no API key required).
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.t("currencyRates", language: language))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Link("open.er-api.com",
+                     destination: URL(string: "https://open.er-api.com")!)
+                    .font(.system(size: 12))
+            }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
-// MARK: - Card components (r23)
+// MARK: - Shared components (r23 glass card, r74 page layout)
 
 /// One glass surface: 10 pt content padding, leading alignment, regular
 /// liquid glass in a 14 pt continuous-corner rounded rect. A section
@@ -258,54 +244,83 @@ extension View {
     }
 }
 
-/// An external section title above its single card: 13 pt semibold
-/// with 8 pt leading padding and 6 pt spacing to the content.
-private struct SettingsSection<Content: View>: View {
-    let title: String
+/// r74 shared page layout: ONE single readable column inside a
+/// top-aligned ScrollView with 20 pt page insets. Every tab uses this
+/// scaffold, so all four share the same layout rules; a tab that
+/// overflows the minimum window height scrolls instead of enlarging
+/// the window.
+private struct SettingsPage<Content: View>: View {
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                content
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
+/// One group of rows under an optional 13 pt semibold heading
+/// (heading-less groups are allowed for compact tabs).
+private struct SettingsGroup<Content: View>: View {
+    let title: String?
+    let content: Content
+
+    init(title: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .padding(.leading, 8)
+        VStack(alignment: .leading, spacing: 10) {
+            if let title {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
             content
-                .settingsCard()
         }
     }
 }
 
-/// One checkbox row: top-aligned checkbox, 12 pt medium title and an
-/// optional 10 pt secondary description (2 pt spacing).
-private struct SettingToggle: View {
+/// One r74 settings row: 13 pt label on the left with its optional
+/// 11 pt secondary description underneath, aligned to the LABEL text
+/// (never to the control glyph), and the native control trailing.
+private struct SettingsRow<Control: View>: View {
     let title: String
-    let description: String?
-    @Binding var isOn: Bool
+    let detail: String?
+    let control: Control
+
+    init(title: String, detail: String? = nil, @ViewBuilder control: () -> Control) {
+        self.title = title
+        self.detail = detail
+        self.control = control()
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.checkbox)
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                if let description {
-                    Text(description)
-                        .font(.system(size: 10))
+                    .font(.system(size: 13))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 12)
+            control
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
 
 // MARK: - Constants tab (r33)
 
@@ -344,11 +359,11 @@ private struct ConstantsSettingsTab: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     Text(L10n.t("constants.name", language: language))
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 132, alignment: .leading)
                     Text(L10n.t("constants.value", language: language))
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
@@ -401,13 +416,13 @@ private struct ConstantsSettingsTab: View {
             TextField(L10n.t("constants.name", language: language),
                       text: row.name)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .frame(width: 132)
                 .focused($focusedName, equals: row.id)
             TextField(L10n.t("constants.value", language: language),
                       text: row.expression)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .onSubmit {
                     if model.settings.customConstants.count < ConstantResolver.maxRows {
                         if let id = model.addConstant(after: row.id) {
@@ -443,7 +458,7 @@ private struct ConstantsSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.green)
                 Text(preview(qty))
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             case .empty:
@@ -454,7 +469,7 @@ private struct ConstantsSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
                 Text(statusText(resolved.status))
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.red)
                     .lineLimit(1)
             }
@@ -489,16 +504,16 @@ private struct ConstantsSettingsTab: View {
     }
 }
 
-// MARK: - Numbers tab (r73)
+// MARK: - Numbers tab (r73 content, r74 layout)
 
-/// The r73 Numbers tab: the region preset (System Region / North
-/// America / Western Europe / Eastern Europe), the three independent
-/// toggles (paste conversion, thousands separator, compact notation)
-/// and live samples rendered through the app's ONE number context —
-/// the same values the notebook itself shows. Changing the region
-/// never reinterprets silently: the owner evaluates the selected
-/// sheet under both contexts first and only opens the confirmation
-/// dialog when an answer actually changes.
+/// The r73 Numbers tab on the shared r74 single column: the region
+/// group (picker, caption, ONE live example block) and the three
+/// independent toggle rows. The old duplicated Example card is gone —
+/// the samples are rendered through the app's ONE number context, the
+/// same values the notebook itself shows. Changing the region never
+/// reinterprets silently: the owner evaluates the selected sheet under
+/// both contexts first and only opens the confirmation dialog when an
+/// answer actually changes.
 private struct NumbersSettingsTab: View {
     @Bindable var model: AppModel
 
@@ -551,7 +566,7 @@ private struct NumbersSettingsTab: View {
             get: { model.settings.regional?.region ?? .system },
             set: { model.requestRegionChange($0) }
         )
-        return Picker(L10n.t("numbers.region", language: language),
+        return Picker(L10n.t("numbers.regionLabel", language: language),
                       selection: regionSelection) {
             ForEach(NumberRegionPreset.allCases, id: \.self) { p in
                 // The system preset displays the OS region's localized
@@ -562,90 +577,38 @@ private struct NumbersSettingsTab: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
+        .fixedSize()
     }
 
+    /// The ONE live example block (the duplicate Example card was
+    /// removed in r74): caption + value pairs through the active
+    /// context.
     private var sampleGrid: some View {
         let language = self.language
         return Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
                 Text(L10n.t("numbers.sample", language: language))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Text(sampleValue)
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 13))
             }
             GridRow {
                 Text(L10n.t("numbers.compact", language: language))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Text(sampleCompact)
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 13))
             }
             GridRow {
                 Text(L10n.t("numbers.syntax", language: language))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Text(sampleFunction)
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 13))
             }
         }
-        .font(.system(size: 12))
-    }
-
-    private var regionCard: some View {
-        let language = self.language
-        let cap = L10n.t("numbers.regionCap", language: language)
-        return SettingsSection(title: L10n.t("numbers.region", language: language)) {
-            VStack(alignment: .leading, spacing: 10) {
-                regionPicker
-                Text(cap)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                sampleGrid
-            }
-        }
-    }
-
-    private var togglesCard: some View {
-        let language = self.language
-        return SettingsSection(title: L10n.t("autoInsert", language: language)) {
-            VStack(alignment: .leading, spacing: 10) {
-                SettingToggle(
-                    title: L10n.t("numbers.convertPaste", language: language),
-                    description: L10n.t("numbers.convertPasteCap", language: language),
-                    isOn: regionalBinding(\.convertForeignOnPaste)
-                )
-                SettingToggle(
-                    title: L10n.t("numbers.grouping", language: language),
-                    description: L10n.t("numbers.groupingCap", language: language),
-                    isOn: regionalBinding(\.showThousandsSeparator)
-                )
-                SettingToggle(
-                    title: L10n.t("numbers.compact", language: language),
-                    description: L10n.t("numbers.compactCap", language: language),
-                    isOn: regionalBinding(\.useCompactNotation)
-                )
-            }
-        }
-    }
-
-    private var previewCard: some View {
-        let language = self.language
-        return SettingsSection(title: L10n.t("numbers.sample", language: language)) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("1234.567")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(sampleValue)
-                    .font(.system(size: 16, weight: .medium))
-                Text("100000")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(sampleCompact)
-                    .font(.system(size: 16, weight: .medium))
-                Text(sampleFunction)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .settingsCard()
+        .padding(.leading, 4)
     }
 
     var body: some View {
@@ -654,17 +617,43 @@ private struct NumbersSettingsTab: View {
             set: { if !$0 { model.cancelRegionChange() } }
         )
         let language = self.language
-        return HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 14) {
-                regionCard
-                togglesCard
+        return SettingsPage {
+            SettingsGroup(title: L10n.t("numbers.region", language: language)) {
+                SettingsRow(
+                    title: L10n.t("numbers.regionLabel", language: language),
+                    detail: L10n.t("numbers.regionCap", language: language)
+                ) {
+                    regionPicker
+                }
+                sampleGrid
             }
-            VStack(alignment: .leading, spacing: 14) {
-                previewCard
+            SettingsGroup(title: L10n.t("autoInsert", language: language)) {
+                SettingsRow(
+                    title: L10n.t("numbers.convertPaste", language: language),
+                    detail: L10n.t("numbers.convertPasteCap", language: language)
+                ) {
+                    Toggle("", isOn: regionalBinding(\.convertForeignOnPaste))
+                        .labelsHidden()
+                        .toggleStyle(.checkbox)
+                }
+                SettingsRow(
+                    title: L10n.t("numbers.grouping", language: language),
+                    detail: L10n.t("numbers.groupingCap", language: language)
+                ) {
+                    Toggle("", isOn: regionalBinding(\.showThousandsSeparator))
+                        .labelsHidden()
+                        .toggleStyle(.checkbox)
+                }
+                SettingsRow(
+                    title: L10n.t("numbers.compact", language: language),
+                    detail: L10n.t("numbers.compactCap", language: language)
+                ) {
+                    Toggle("", isOn: regionalBinding(\.useCompactNotation))
+                        .labelsHidden()
+                        .toggleStyle(.checkbox)
+                }
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .alert(
             L10n.t("numbers.confirmTitle", language: language),
             isPresented: confirmBinding
@@ -690,17 +679,20 @@ private struct NumbersSettingsTab: View {
 
 // MARK: - Styling tab
 
-/// The r21 Styling tab: a screenshot-like two-column layout. Left column
-/// — aligned rows for font size (the single existing size key), font
-/// family (finite native system designs) and one finite color choice per
-/// notebook role; every picker shows a real sRGB swatch plus the
-/// localized name. Right column — a live preview of the notebook that
-/// resolves colors/fonts through the SAME palette resolver as the real
-/// editor (no duplicated RGB values anywhere).
+/// The r21 Styling tab on the shared r74 single column: font size,
+/// font design and one finite color choice per notebook role as
+/// aligned label/control rows (every picker shows a real sRGB swatch
+/// plus the localized name). Below, the live preview — ONE clearly
+/// labelled area sharing the page width. It resolves colors/fonts
+/// through the SAME palette resolver as the real editor (no duplicated
+/// RGB values anywhere) and keeps the REAL notebook font size
+/// (including 30 pt, never shrunk); the page scrolls instead of the
+/// window enlarging.
 private struct StylingSettingsTab: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
+
     private var styling: StylingPreferences { model.settings.styling }
 
     private func setRole(_ keyPath: WritableKeyPath<StylingPreferences, RoleColorChoice>,
@@ -710,98 +702,72 @@ private struct StylingSettingsTab: View {
     }
 
     var body: some View {
-        // r23 compact, r34 verified: NO scroll view — the font
-        // size/family rows and all eight role rows are a fixed compact
-        // column (8 pt rhythm, 11 pt labels) that fits the 720x460
-        // window at once. The live preview keeps the REAL notebook font
-        // size (including 30 pt) and its answer strip hugs its content,
-        // so the preview fits by width-sharing instead of shrinking its
-        // semantic font. The right column's VERTICAL chrome is compact
-        // (10 pt top/bottom padding, 6 pt heading spacing) so the 30 pt
-        // preview stays fully visible at the 460 content minimum; the
-        // preview font and line height are never touched.
-        HStack(spacing: 0) {
-            // Left column: aligned control rows.
-            VStack(alignment: .leading, spacing: 8) {
+        // r74: controls in ONE readable column (label left, native
+        // control right); the live preview is a single full-width area
+        // below, never a fixed narrow second column.
+        let language = self.language
+        return SettingsPage {
+            SettingsGroup {
                 controlRow(L10n.t("styling.fontsize", language: language)) {
-                        Menu {
-                            ForEach(fontSizeOptions, id: \.key) { opt in
-                                Button {
-                                    model.settings.fontSizeKey = opt.key
-                                    model.persist()
-                                } label: {
-                                    Text("\(opt.label) pt")
-                                }
+                    Menu {
+                        ForEach(fontSizeOptions, id: \.key) { opt in
+                            Button {
+                                model.settings.fontSizeKey = opt.key
+                                model.persist()
+                            } label: {
+                                Text("\(opt.label) pt")
                             }
-                        } label: {
-                            Text("\(fontSizeLabel) pt")
-                                .font(.system(size: 11, weight: .medium))
-                                .frame(minWidth: 56, alignment: .trailing)
                         }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
+                    } label: {
+                        Text("\(fontSizeLabel) pt")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(minWidth: 56, alignment: .trailing)
                     }
-
-                    controlRow(L10n.t("styling.font", language: language)) {
-                        Menu {
-                            ForEach(StylingFontDesign.allCases, id: \.self) { design in
-                                Button {
-                                    model.settings.styling.fontDesign = design
-                                    model.persist()
-                                } label: {
-                                    Text(L10n.t("styling.font.\(design.rawValue)",
-                                                language: language))
-                                }
-                            }
-                        } label: {
-                            Text(L10n.t("styling.font.\(styling.fontDesign.rawValue)",
-                                        language: language))
-                                .font(.system(size: 11, weight: .medium))
-                                .lineLimit(1)
-                                .frame(minWidth: 90, alignment: .trailing)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                    }
-
-                    Divider().padding(.vertical, 4)
-
-                    roleRow("styling.role.numbers", keyPath: \.numbers)
-                    roleRow("styling.role.operators", keyPath: \.operators)
-                    roleRow("styling.role.variables", keyPath: \.variables)
-                    roleRow("styling.role.units", keyPath: \.units)
-                    roleRow("styling.role.specifiers", keyPath: \.specifiers)
-                    roleRow("styling.role.headings", keyPath: \.headings)
-                    roleRow("styling.role.comments", keyPath: \.comments)
-                    roleRow("styling.role.labels", keyPath: \.labels)
-
-                    Spacer(minLength: 0)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .frame(width: 272)
 
-            Divider()
+                controlRow(L10n.t("styling.font", language: language)) {
+                    Menu {
+                        ForEach(StylingFontDesign.allCases, id: \.self) { design in
+                            Button {
+                                model.settings.styling.fontDesign = design
+                                model.persist()
+                            } label: {
+                                Text(L10n.t("styling.font.\(design.rawValue)",
+                                            language: language))
+                            }
+                        }
+                    } label: {
+                        Text(L10n.t("styling.font.\(styling.fontDesign.rawValue)",
+                                    language: language))
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(1)
+                            .frame(minWidth: 90, alignment: .trailing)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
 
-            // Right column: live preview (r34 compact: 8 pt vertical /
-            // 14 pt horizontal padding, 4 pt heading spacing; the box
-            // hugs the heading instead of floating in the middle, so the
-            // 30 pt preview — REAL font and line height, never shrunk —
-            // stays fully visible at the 460 content minimum).
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.t("styling.preview", language: language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                Divider().padding(.vertical, 4)
+
+                roleRow("styling.role.numbers", keyPath: \.numbers)
+                roleRow("styling.role.operators", keyPath: \.operators)
+                roleRow("styling.role.variables", keyPath: \.variables)
+                roleRow("styling.role.units", keyPath: \.units)
+                roleRow("styling.role.specifiers", keyPath: \.specifiers)
+                roleRow("styling.role.headings", keyPath: \.headings)
+                roleRow("styling.role.comments", keyPath: \.comments)
+                roleRow("styling.role.labels", keyPath: \.labels)
+            }
+
+            SettingsGroup(title: L10n.t("styling.preview", language: language)) {
                 StylingPreview(
                     fontSize: model.settings.fontSize,
                     lineHeight: model.settings.lineHeight,
                     styling: styling
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -810,13 +776,12 @@ private struct StylingSettingsTab: View {
             ?? String(Int(model.settings.fontSize))
     }
 
-    /// One aligned label + trailing popup row.
+    /// One aligned label + trailing popup row (r74 row rhythm).
     private func controlRow(_ title: String, @ViewBuilder control: () -> some View) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 16) {
             Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 6)
+                .font(.system(size: 13))
+            Spacer(minLength: 12)
             control()
         }
     }
@@ -825,11 +790,10 @@ private struct StylingSettingsTab: View {
     /// real sRGB swatch + localized color name on the right.
     private func roleRow(_ labelKey: String,
                          keyPath: WritableKeyPath<StylingPreferences, RoleColorChoice>) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 16) {
             Text(L10n.t(labelKey, language: language))
-                .font(.system(size: 11))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 6)
+                .font(.system(size: 13))
+            Spacer(minLength: 12)
             Menu {
                 ForEach(RoleColorChoice.allCases, id: \.self) { choice in
                     Button {
@@ -837,7 +801,8 @@ private struct StylingSettingsTab: View {
                     } label: {
                         HStack(spacing: 7) {
                             swatch(choice)
-                            Text(L10n.t("styling.color.\(choice.rawValue)", language: language))
+                            Text(L10n.t("styling.color.\(choice.rawValue)",
+                                        language: language))
                         }
                     }
                 }
@@ -846,10 +811,10 @@ private struct StylingSettingsTab: View {
                     swatch(styling[keyPath: keyPath])
                     Text(L10n.t("styling.color.\(styling[keyPath: keyPath].rawValue)",
                                 language: language))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
                 }
-                .frame(minWidth: 112, alignment: .trailing)
+                .frame(minWidth: 128, alignment: .trailing)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()

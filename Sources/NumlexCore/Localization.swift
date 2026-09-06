@@ -10,6 +10,7 @@ public struct L10n {
         .en: [
             "settings.numbers": "Numbers",
             "numbers.region": "Number format",
+            "numbers.regionLabel": "Region",
             "numbers.regionCap": "How numbers are typed, pasted, grouped and displayed",
             "numbers.sample": "Example",
             "numbers.syntax": "Function arguments",
@@ -122,6 +123,7 @@ public struct L10n {
         .ru: [
             "settings.numbers": "Числа",
             "numbers.region": "Формат чисел",
+            "numbers.regionLabel": "Регион",
             "numbers.regionCap": "Как числа вводятся, вставляются, группируются и отображаются",
             "numbers.sample": "Пример",
             "numbers.syntax": "Аргументы функций",
@@ -234,6 +236,7 @@ public struct L10n {
         .de: [
             "settings.numbers": "Zahlen",
             "numbers.region": "Zahlenformat",
+            "numbers.regionLabel": "Region",
             "numbers.regionCap": "Wie Zahlen eingegeben, eingefügt, gruppiert und angezeigt werden",
             "numbers.sample": "Beispiel",
             "numbers.syntax": "Funktionsargumente",
@@ -345,6 +348,7 @@ public struct L10n {
         .fr: [
             "settings.numbers": "Nombres",
             "numbers.region": "Format des nombres",
+            "numbers.regionLabel": "Région",
             "numbers.regionCap": "Comment les nombres sont saisis, collés, groupés et affichés",
             "numbers.sample": "Exemple",
             "numbers.syntax": "Arguments de fonction",
@@ -456,6 +460,7 @@ public struct L10n {
         .it: [
             "settings.numbers": "Numeri",
             "numbers.region": "Formato numerico",
+            "numbers.regionLabel": "Regione",
             "numbers.regionCap": "Come i numeri vengono digitati, incollati, raggruppati e visualizzati",
             "numbers.sample": "Esempio",
             "numbers.syntax": "Argomenti delle funzioni",
@@ -567,6 +572,7 @@ public struct L10n {
         .zh: [
             "settings.numbers": "数字",
             "numbers.region": "数字格式",
+            "numbers.regionLabel": "地区",
             "numbers.regionCap": "数字的输入、粘贴、分组与显示方式",
             "numbers.sample": "示例",
             "numbers.syntax": "函数参数",
