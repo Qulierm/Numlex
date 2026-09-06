@@ -9,7 +9,9 @@ import NumlexCore
 /// window opens at 560x460 (r75 compact single column: 520...640
 /// content width, 460...540 content height); r75 narrowed the range
 /// because every tab is now ONE readable column and the old 690...820
-/// two-column range left the window needlessly wide.
+/// two-column range left the window needlessly wide. r76 keeps this
+/// range: the five native tab labels (General, Editing, Numbers,
+/// Constants, Styling) fit the 520 pt minimum with room to spare.
 private enum SettingsGeometry {
     static let minWidth: CGFloat = 520
     static let idealWidth: CGFloat = 560
@@ -19,20 +21,19 @@ private enum SettingsGeometry {
     static let maxHeight: CGFloat = 540
 }
 
-/// The Settings scene content (r21, r33, r34, r74): one native macOS
-/// `TabView` with exactly four tabs — General (all non-style settings,
-/// six input helpers, language/line numbers, rate attribution),
-/// Numbers (r73 region + the three independent toggles, one live
-/// example block), Constants (the GLOBAL user-defined constants, one
-/// scrollable row table) and Styling (font size/family plus one finite
-/// color picker per notebook role, with a full-width live preview).
-/// r74: every tab is ONE single readable column on the shared
-/// SettingsPage scaffold (label left, native control right,
-/// description under the label text); the only remaining glass
-/// surface is the Constants row table. No in-content "Settings"
-/// heading (the system titlebar carries the single localized window
-/// title), no nested cards, no fake tabs. Geometry comes from
-/// SettingsGeometry (560x460 content initial; 520...640 x 460...540).
+/// The Settings scene content (r21, r33, r34, r74, r76): one native
+/// macOS `TabView` with exactly FIVE focused tabs —
+/// General (interface + notebook, understated rate attribution),
+/// Editing (operator helpers + automatic input insertions),
+/// Numbers (r73 region + the three independent display/paste toggles,
+/// one live example block), Constants (the GLOBAL user-defined
+/// constants, one scrollable row table) and Styling (typography,
+/// syntax colors and a full-width live preview).
+/// r76: every tab is ONE readable column of LOGICAL GROUPS on the
+/// shared SettingsPage scaffold; every boolean preference is a NATIVE
+/// switch (never a custom-drawn control), grouped so each tab has one
+/// clear job. Geometry comes from SettingsGeometry (560x460 content
+/// initial; 520...640 x 460...540).
 struct SettingsView: View {
     @Bindable var model: AppModel
 
@@ -43,6 +44,16 @@ struct SettingsView: View {
                     Label(L10n.t("settings.general", language: model.settings.language),
                           systemImage: "gear")
                 }
+            EditingSettingsTab(model: model)
+                .tabItem {
+                    Label(L10n.t("settings.editing", language: model.settings.language),
+                          systemImage: "pencil.tip")
+                }
+            NumbersSettingsTab(model: model)
+                .tabItem {
+                    Label(L10n.t("settings.numbers", language: model.settings.language),
+                          systemImage: "globe")
+                }
             ConstantsSettingsTab(model: model)
                 .tabItem {
                     Label(L10n.t("settings.constants", language: model.settings.language),
@@ -52,11 +63,6 @@ struct SettingsView: View {
                 .tabItem {
                     Label(L10n.t("settings.styling", language: model.settings.language),
                           systemImage: "paintbrush")
-                }
-            NumbersSettingsTab(model: model)
-                .tabItem {
-                    Label(L10n.t("settings.numbers", language: model.settings.language),
-                          systemImage: "globe")
                 }
         }
         .frame(minWidth: SettingsGeometry.minWidth,
@@ -70,13 +76,134 @@ struct SettingsView: View {
         // drives the content bounds; the configurator mirrors them on
         // the NSWindow from the SAME SettingsGeometry source). The
         // title stays the native tab title
-        // (General/Constants/Styling — the System Settings convention);
-        // the configurator never fights it.
+        // (General/Editing/Numbers/Constants/Styling — the System
+        // Settings convention); the configurator never fights it.
         .background(SettingsWindowConfigurator())
     }
 }
 
-// MARK: - General tab
+// MARK: - Shared components (r74 page layout, r76 groups and switches)
+
+/// r74/r76 shared page layout: ONE single readable column inside a
+/// top-aligned ScrollView with 20 pt page insets on every side (the
+/// overlay scroll indicator rides over the inset, so content always
+/// stays inside the viewport). Every tab uses this scaffold, so all
+/// five share the same layout rules; a tab that overflows the minimum
+/// window height scrolls instead of enlarging the window.
+private struct SettingsPage<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                content
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
+/// r76: one logical GROUP of rows. An optional 13 pt semibold heading
+/// sits ABOVE a restrained, theme-aware rounded surface (5 % primary
+/// tint — light and dark aware, never per-row glassEffect and never
+/// one card per toggle). Groups are the section boundaries that keep
+/// each tab from reading as a mishmash of loose rows.
+private struct SettingsGroup<Content: View>: View {
+    let title: String?
+    let surface: Bool
+    let content: Content
+
+    init(title: String? = nil, surface: Bool = true,
+         @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.surface = surface
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            let rows = content
+            if surface {
+                rows
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+            } else {
+                rows
+            }
+        }
+    }
+}
+
+/// r76: one settings row — 13 pt label on the left with its optional
+/// 11 pt secondary description underneath (wrapped, never clipped),
+/// aligned to the LABEL text, and the native control trailing. The
+/// row is vertically centered so a wrapped description keeps the
+/// control (switch/menus) visually balanced against the label block.
+private struct SettingsRow<Control: View>: View {
+    let title: String
+    let detail: String?
+    let control: Control
+
+    init(title: String, detail: String? = nil, @ViewBuilder control: () -> Control) {
+        self.title = title
+        self.detail = detail
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 12)
+            control
+        }
+    }
+}
+
+/// r76: the ONE native switch used by every boolean preference.
+/// `labelsHidden` removes the visible label (the row already shows
+/// the title on the left) while the explicit accessibilityLabel keeps
+/// the switch fully named for VoiceOver/focus — the row title is the
+/// switch's label, never an anonymous toggle.
+private struct SettingsSwitch: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    init(title: String, isOn: Binding<Bool>) {
+        self.title = title
+        self._isOn = isOn
+    }
+
+    var body: some View {
+        Toggle(title, isOn: $isOn)
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .accessibilityLabel(title)
+    }
+}
+
+// MARK: - General tab (r76: interface + notebook, one clear home each)
 
 private struct GeneralSettingsTab: View {
     @Bindable var model: AppModel
@@ -92,24 +219,15 @@ private struct GeneralSettingsTab: View {
         )
     }
 
-    /// The native checkbox control shared by every General row.
-    private func checkbox(_ isOn: Binding<Bool>) -> some View {
-        Toggle("", isOn: isOn)
-            .labelsHidden()
-            .toggleStyle(.checkbox)
-    }
-
     var body: some View {
-        // r74: ONE single readable column on the shared page scaffold —
-        // label left, native control right, description under the label
-        // text. No two-column split, no per-card glass. (The Sheet
-        // title control was removed from the UI in r23; AppSettings.
-        // sheetName stays in the model for decoding and new-sheet
-        // naming.)
+        // r76: General keeps exactly two jobs — how the app speaks and
+        // looks (Interface) and how the notebook window behaves
+        // (Notebook). Editing helpers moved to their own Editing tab;
+        // number display/paste moved to Numbers; the currency-rate
+        // attribution is an understated footer line, not a section.
         let language = self.language
         return SettingsPage {
-            // Interface + display rows.
-            SettingsGroup {
+            SettingsGroup(title: L10n.t("general.interface", language: language)) {
                 SettingsRow(title: L10n.t("language", language: language)) {
                     Picker("", selection: Binding(
                         get: { model.settings.language },
@@ -121,24 +239,6 @@ private struct GeneralSettingsTab: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .fixedSize()
-                }
-                SettingsRow(title: L10n.t("round", language: language)) {
-                    // r75: compact native MENU picker — the old 9-segment
-                    // control (fixed 232 pt) clipped its last segment at
-                    // narrow widths; the menu keeps the SAME 2...10 range
-                    // and binding and shows every choice as a full
-                    // unclipped list.
-                    Picker("", selection: Binding(
-                        get: { model.settings.decimalPlaces },
-                        set: { model.settings.decimalPlaces = $0; model.persist() }
-                    )) {
-                        ForEach(2...10, id: \.self) { v in
-                            Text("\(v)").tag(v)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
                     .fixedSize()
                 }
                 SettingsRow(title: L10n.t("appearance", language: language)) {
@@ -160,41 +260,102 @@ private struct GeneralSettingsTab: View {
                     .pickerStyle(.segmented)
                     .frame(width: 128)
                 }
-                SettingsRow(title: L10n.t("linenumber", language: language)) {
-                    checkbox(boolBinding(\AppSettings.lineNumbers))
+            }
+
+            SettingsGroup(title: L10n.t("general.notebook", language: language)) {
+                SettingsRow(
+                    title: L10n.t("linenumber", language: language),
+                    detail: L10n.t("linenumberCap", language: language)
+                ) {
+                    SettingsSwitch(title: L10n.t("linenumber", language: language),
+                                   isOn: boolBinding(\AppSettings.lineNumbers))
                 }
                 SettingsRow(
                     title: L10n.t("hideSidebarBtn", language: language),
                     detail: L10n.t("hideSidebarBtnCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
+                    SettingsSwitch(title: L10n.t("hideSidebarBtn", language: language),
+                                   isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
                 }
             }
 
+            // Currency-rate attribution: ONE understated footer line —
+            // the bundled fiat catalog is converted with the open
+            // provider table fetched at launch (no API key).
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.t("currencyRates", language: language))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Link("open.er-api.com",
+                     destination: URL(string: "https://open.er-api.com")!)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - Editing tab (r76: operator helpers + automatic input insertions)
+
+/// r76: the Editing tab owns EVERYTHING that rewrites what the user
+/// TYPES — the operator helpers and the automatic input insertions.
+/// It is deliberately separate from Numbers: input grouping
+/// (this tab) shapes the text as it is typed; answer grouping and
+/// rounding (Numbers tab) shape what the app DISPLAYS.
+private struct EditingSettingsTab: View {
+    @Bindable var model: AppModel
+
+    private var language: AppLanguage { model.settings.language }
+
+    private func boolBinding(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.settings[keyPath: keyPath] },
+            set: { model.settings[keyPath: keyPath] = $0; model.persist() }
+        )
+    }
+    private func inputBinding(_ keyPath: WritableKeyPath<InputPreferences, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.settings.input[keyPath: keyPath] },
+            set: {
+                var input = model.settings.input
+                input[keyPath: keyPath] = $0
+                model.settings.input = input
+                model.persist()
+            }
+        )
+    }
+
+    var body: some View {
+        let language = self.language
+        return SettingsPage {
             SettingsGroup(title: L10n.t("operators", language: language)) {
                 SettingsRow(
                     title: L10n.t("opPad", language: language),
                     detail: L10n.t("opPadCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.input.padOperators))
+                    SettingsSwitch(title: L10n.t("opPad", language: language),
+                                   isOn: inputBinding(\.padOperators))
                 }
                 SettingsRow(
                     title: L10n.t("opStar", language: language),
                     detail: L10n.t("opStarCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.input.replaceAsterisk))
+                    SettingsSwitch(title: L10n.t("opStar", language: language),
+                                   isOn: inputBinding(\.replaceAsterisk))
                 }
                 SettingsRow(
                     title: L10n.t("opBacktick", language: language),
                     detail: L10n.t("opBacktickCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.input.replaceBacktick))
+                    SettingsSwitch(title: L10n.t("opBacktick", language: language),
+                                   isOn: inputBinding(\.replaceBacktick))
                 }
                 SettingsRow(
                     title: L10n.t("opQuick", language: language),
                     detail: L10n.t("opQuickCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.input.quickOperators))
+                    SettingsSwitch(title: L10n.t("opQuick", language: language),
+                                   isOn: inputBinding(\.quickOperators))
                 }
             }
 
@@ -203,139 +364,31 @@ private struct GeneralSettingsTab: View {
                     title: L10n.t("autoGroup", language: language),
                     detail: L10n.t("autoGroupCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.input.groupNumbers))
+                    SettingsSwitch(title: L10n.t("autoGroup", language: language),
+                                   isOn: inputBinding(\.groupNumbers))
                 }
                 SettingsRow(
                     title: L10n.t("autoPrev", language: language),
                     detail: L10n.t("autoPrevCap", language: language)
                 ) {
-                    checkbox(boolBinding(\AppSettings.input.insertPreviousAnswer))
+                    SettingsSwitch(title: L10n.t("autoPrev", language: language),
+                                   isOn: inputBinding(\.insertPreviousAnswer))
                 }
             }
-
-            // Currency rate attribution (the bundled fiat catalog is
-            // converted with the open provider table fetched at
-            // launch — no API key required).
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.t("currencyRates", language: language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Link("open.er-api.com",
-                     destination: URL(string: "https://open.er-api.com")!)
-                    .font(.system(size: 12))
-            }
         }
     }
 }
 
-// MARK: - Shared components (r23 glass card, r74 page layout)
+// MARK: - Constants tab (r33, r75 shared page, r76 restrained surface)
 
-/// One glass surface: 10 pt content padding, leading alignment, regular
-/// liquid glass in a 14 pt continuous-corner rounded rect. A section
-/// shows exactly ONE card; titles live outside it (no nested cards, no
-/// fake titlebar).
-private struct SettingsCardModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-extension View {
-    fileprivate func settingsCard() -> some View {
-        modifier(SettingsCardModifier())
-    }
-}
-
-/// r74 shared page layout: ONE single readable column inside a
-/// top-aligned ScrollView with 20 pt page insets. Every tab uses this
-/// scaffold, so all four share the same layout rules; a tab that
-/// overflows the minimum window height scrolls instead of enlarging
-/// the window.
-private struct SettingsPage<Content: View>: View {
-    let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                content
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-    }
-}
-
-/// One group of rows under an optional 13 pt semibold heading
-/// (heading-less groups are allowed for compact tabs).
-private struct SettingsGroup<Content: View>: View {
-    let title: String?
-    let content: Content
-
-    init(title: String? = nil, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let title {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            content
-        }
-    }
-}
-
-/// One r74 settings row: 13 pt label on the left with its optional
-/// 11 pt secondary description underneath, aligned to the LABEL text
-/// (never to the control glyph), and the native control trailing.
-private struct SettingsRow<Control: View>: View {
-    let title: String
-    let detail: String?
-    let control: Control
-
-    init(title: String, detail: String? = nil, @ViewBuilder control: () -> Control) {
-        self.title = title
-        self.detail = detail
-        self.control = control()
-    }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13))
-                if let detail {
-                    Text(detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 12)
-            control
-        }
-    }
-}
-
-
-// MARK: - Constants tab (r33)
-
-/// The r33 Constants tab: a concise localized intro, ONE glass card
-/// holding a vertically scrollable row table (Name, Value, per-row
-/// status, borderless destructive trash) and a bottom toolbar with the
-/// Add Constant button and the count/limit. Every row binds by STABLE
-/// UUID through the focused AppModel methods; each committed change
-/// persists and re-evaluates every sheet live. `.nlx` exports never
-/// embed constants — that is stated in the intro, never in the rows.
+/// The r33 Constants tab: a concise localized intro, ONE restrained
+/// surface holding a vertically scrollable row table (Name, Value,
+/// per-row status, borderless destructive trash) and a bottom toolbar
+/// with the Add Constant button and the count/limit. Every row binds
+/// by STABLE UUID through the focused AppModel methods; each committed
+/// change persists and re-evaluates every sheet live. `.nlx` exports
+/// never embed constants — that is stated in the intro, never in the
+/// rows.
 private struct ConstantsSettingsTab: View {
     @Bindable var model: AppModel
     /// Focus target for the fresh row's name field (Add and
@@ -353,17 +406,16 @@ private struct ConstantsSettingsTab: View {
     }
 
     var body: some View {
-        // r75: the SAME shared 20 pt page scaffold as every other tab
-        // (previously this tab used its own 16 pt padding, drifting the
-        // margins); the card + footer now sit exactly on the page
-        // insets and the page scrolls when the window is short.
+        // r75: the SAME shared 20 pt page scaffold as every other tab;
+        // r76: the table surface matches the restrained group surface
+        // (no per-card glass in Settings at all).
         SettingsPage {
             Text(L10n.t("constants.intro", language: language))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // The single card: column captions + the scrollable rows.
+            // The single surface: column captions + the scrollable rows.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     Text(L10n.t("constants.name", language: language))
@@ -391,7 +443,12 @@ private struct ConstantsSettingsTab: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .settingsCard()
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
 
             // Bottom toolbar: Add Constant + count/limit — flush with
             // the page insets (the r75 footer no longer drifts +4 pt).
@@ -510,16 +567,21 @@ private struct ConstantsSettingsTab: View {
     }
 }
 
-// MARK: - Numbers tab (r73 content, r74 layout)
+// MARK: - Numbers tab (r73 content, r76 three logical groups)
 
-/// The r73 Numbers tab on the shared r74 single column: the region
-/// group (picker, caption, ONE live example block) and the three
-/// independent toggle rows. The old duplicated Example card is gone —
-/// the samples are rendered through the app's ONE number context, the
-/// same values the notebook itself shows. Changing the region never
-/// reinterprets silently: the owner evaluates the selected sheet under
-/// both contexts first and only opens the confirmation dialog when an
-/// answer actually changes.
+/// The r73 Numbers tab re-organized in r76 into three logical groups
+/// on the shared r74/r75 single column:
+///   1. Number format — the region picker, ONE live example block
+///      (caption + function-argument separator) through the app's ONE
+///      number context,
+///   2. Answer display — rounding (the compact menu picker that moved
+///      here from General in r76, its ONLY home), thousands-separator
+///      display and compact notation,
+///   3. Pasting — the opt-in foreign-number conversion with its
+///      example.
+/// Changing the region never reinterprets silently: the owner
+/// evaluates the selected sheet under both contexts first and only
+/// opens the confirmation dialog when an answer actually changes.
 private struct NumbersSettingsTab: View {
     @Bindable var model: AppModel
 
@@ -528,7 +590,9 @@ private struct NumbersSettingsTab: View {
 
     /// Live samples rendered through the active context: the shared
     /// display of 1234.567 at the Settings decimals, the compact
-    /// preview of 100000 (compact forced on for the preview), and the
+    /// preview of 100000 (compact forced on for the preview — it
+    /// illustrates what the compact toggle will do, while every value
+    /// in the notebook keeps full precision), and the
     /// function-argument shape this mode types (decimal-comma modes
     /// use `;` between arguments).
     private var sampleValue: String {
@@ -590,9 +654,8 @@ private struct NumbersSettingsTab: View {
         .lineLimit(1)
     }
 
-    /// The ONE live example block (the duplicate Example card was
-    /// removed in r74): caption + value pairs through the active
-    /// context.
+    /// The ONE live example block: caption + value pairs through the
+    /// active context (the same values the notebook itself shows).
     private var sampleGrid: some View {
         let language = self.language
         return Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
@@ -628,6 +691,7 @@ private struct NumbersSettingsTab: View {
         )
         let language = self.language
         return SettingsPage {
+            // 1. NUMBER FORMAT — what shape numbers have everywhere.
             SettingsGroup(title: L10n.t("numbers.region", language: language)) {
                 SettingsRow(
                     title: L10n.t("numbers.regionLabel", language: language),
@@ -637,30 +701,56 @@ private struct NumbersSettingsTab: View {
                 }
                 sampleGrid
             }
-            SettingsGroup(title: L10n.t("autoInsert", language: language)) {
+
+            // 2. ANSWER DISPLAY — how RESULTS are rounded and grouped
+            // (independent of the region and of input grouping).
+            SettingsGroup(title: L10n.t("numbers.answer", language: language)) {
                 SettingsRow(
-                    title: L10n.t("numbers.convertPaste", language: language),
-                    detail: L10n.t("numbers.convertPasteCap", language: language)
+                    title: L10n.t("rounding", language: language),
+                    detail: L10n.t("roundingCap", language: language)
                 ) {
-                    Toggle("", isOn: regionalBinding(\.convertForeignOnPaste))
-                        .labelsHidden()
-                        .toggleStyle(.checkbox)
+                    // r75/r76: compact native MENU picker — the old
+                    // 9-segment control clipped its last segment at
+                    // narrow widths. The menu keeps the SAME 2...10
+                    // range and binding and shows every choice as a
+                    // full unclipped list. This is rounding's ONE home
+                    // (it moved out of General in r76).
+                    Picker("", selection: Binding(
+                        get: { model.settings.decimalPlaces },
+                        set: { model.settings.decimalPlaces = $0; model.persist() }
+                    )) {
+                        ForEach(2...10, id: \.self) { v in
+                            Text("\(v)").tag(v)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
                 }
                 SettingsRow(
                     title: L10n.t("numbers.grouping", language: language),
                     detail: L10n.t("numbers.groupingCap", language: language)
                 ) {
-                    Toggle("", isOn: regionalBinding(\.showThousandsSeparator))
-                        .labelsHidden()
-                        .toggleStyle(.checkbox)
+                    SettingsSwitch(title: L10n.t("numbers.grouping", language: language),
+                                   isOn: regionalBinding(\.showThousandsSeparator))
                 }
                 SettingsRow(
                     title: L10n.t("numbers.compact", language: language),
                     detail: L10n.t("numbers.compactCap", language: language)
                 ) {
-                    Toggle("", isOn: regionalBinding(\.useCompactNotation))
-                        .labelsHidden()
-                        .toggleStyle(.checkbox)
+                    SettingsSwitch(title: L10n.t("numbers.compact", language: language),
+                                   isOn: regionalBinding(\.useCompactNotation))
+                }
+            }
+
+            // 3. PASTING — the opt-in conversion of foreign numbers.
+            SettingsGroup(title: L10n.t("numbers.pasting", language: language)) {
+                SettingsRow(
+                    title: L10n.t("numbers.convertPaste", language: language),
+                    detail: L10n.t("numbers.convertPasteCap", language: language)
+                ) {
+                    SettingsSwitch(title: L10n.t("numbers.convertPaste", language: language),
+                                   isOn: regionalBinding(\.convertForeignOnPaste))
                 }
             }
         }
@@ -687,17 +777,17 @@ private struct NumbersSettingsTab: View {
     }
 }
 
-// MARK: - Styling tab
+// MARK: - Styling tab (r76: typography / syntax colors / preview)
 
-/// The r21 Styling tab on the shared r74 single column: font size,
-/// font design and one finite color choice per notebook role as
-/// aligned label/control rows (every picker shows a real sRGB swatch
-/// plus the localized name). Below, the live preview — ONE clearly
-/// labelled area sharing the page width. It resolves colors/fonts
-/// through the SAME palette resolver as the real editor (no duplicated
-/// RGB values anywhere) and keeps the REAL notebook font size
-/// (including 30 pt, never shrunk); the page scrolls instead of the
-/// window enlarging.
+/// The r21 Styling tab re-organized in r76 into three groups:
+/// Typography (font size + font design), Syntax colors (one finite
+/// color choice per notebook role, each picker showing a real sRGB
+/// swatch plus the localized name) and Preview (ONE clearly labelled
+/// full-width area that shares the page width). It resolves
+/// colors/fonts through the SAME palette resolver as the real editor
+/// (no duplicated RGB values anywhere) and keeps the REAL notebook
+/// font size (including 30 pt, never shrunk); the page scrolls
+/// instead of the window enlarging.
 private struct StylingSettingsTab: View {
     @Bindable var model: AppModel
 
@@ -712,13 +802,11 @@ private struct StylingSettingsTab: View {
     }
 
     var body: some View {
-        // r74: controls in ONE readable column (label left, native
-        // control right); the live preview is a single full-width area
-        // below, never a fixed narrow second column.
         let language = self.language
         return SettingsPage {
-            SettingsGroup {
-                controlRow(L10n.t("styling.fontsize", language: language)) {
+            // 1. TYPOGRAPHY.
+            SettingsGroup(title: L10n.t("styling.typography", language: language)) {
+                SettingsRow(title: L10n.t("styling.fontsize", language: language)) {
                     Menu {
                         ForEach(fontSizeOptions, id: \.key) { opt in
                             Button {
@@ -737,7 +825,7 @@ private struct StylingSettingsTab: View {
                     .fixedSize()
                 }
 
-                controlRow(L10n.t("styling.font", language: language)) {
+                SettingsRow(title: L10n.t("styling.font", language: language)) {
                     Menu {
                         ForEach(StylingFontDesign.allCases, id: \.self) { design in
                             Button {
@@ -760,9 +848,10 @@ private struct StylingSettingsTab: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
+            }
 
-                Divider().padding(.vertical, 4)
-
+            // 2. SYNTAX COLORS — one finite choice per role.
+            SettingsGroup(title: L10n.t("styling.colors", language: language)) {
                 roleRow("styling.role.numbers", keyPath: \.numbers)
                 roleRow("styling.role.operators", keyPath: \.operators)
                 roleRow("styling.role.variables", keyPath: \.variables)
@@ -773,7 +862,9 @@ private struct StylingSettingsTab: View {
                 roleRow("styling.role.labels", keyPath: \.labels)
             }
 
-            SettingsGroup(title: L10n.t("styling.preview", language: language)) {
+            // 3. PREVIEW — the live, full-width, real-font-size sample.
+            SettingsGroup(title: L10n.t("styling.preview", language: language),
+                          surface: false) {
                 StylingPreview(
                     fontSize: model.settings.fontSize,
                     lineHeight: model.settings.lineHeight,
@@ -788,21 +879,11 @@ private struct StylingSettingsTab: View {
             ?? String(Int(model.settings.fontSize))
     }
 
-    /// One aligned label + trailing popup row (r74 row rhythm).
-    private func controlRow(_ title: String, @ViewBuilder control: () -> some View) -> some View {
-        HStack(spacing: 16) {
-            Text(title)
-                .font(.system(size: 13))
-            Spacer(minLength: 12)
-            control()
-        }
-    }
-
     /// One role row: localized role label on the left, a menu with a
     /// real sRGB swatch + localized color name on the right.
     private func roleRow(_ labelKey: String,
                          keyPath: WritableKeyPath<StylingPreferences, RoleColorChoice>) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Text(L10n.t(labelKey, language: language))
                 .font(.system(size: 13))
             Spacer(minLength: 12)
@@ -949,10 +1030,10 @@ private struct StylingPreview: View {
 
     /// Paints one preview line through the real classifier (plus the
     /// row's illustrative overrides): the dark base (Design.baseText)
-    /// regular on the selected
-    /// size/design; `// ` comments semibold in the comments color; hash
-    /// headings heavy (gray marker, headings-color body); every
-    /// classified span via the palette resolver.
+    /// regular on the selected size/design; `// ` comments semibold in
+    /// the comments color; hash headings heavy (gray marker,
+    /// headings-color body); every classified span via the palette
+    /// resolver.
     private func previewAttributed(_ line: String) -> AttributedString {
         let font = palette.editorFont(size: fontSize)
         let ns = NSMutableAttributedString(string: line)
@@ -1002,6 +1083,8 @@ private struct StylingPreview: View {
         return AttributedString(ns)
     }
 }
+
+// MARK: - Settings window configurator
 
 /// Configures the native Settings scene window (r34, r75): resizability
 /// and the designed CONTENT size range from the single SettingsGeometry
@@ -1070,13 +1153,13 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             context.coordinator.observers.append(
                 NotificationCenter.default.addObserver(
                     forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
-                ) { [weak self] _ in
+                ) { _ in
                     Task { @MainActor in
                         guard let window = view.window else { return }
                         if !window.styleMask.contains(.resizable) {
                             window.styleMask.insert(.resizable)
                         }
-                        self?.snapIfOutOfRange(window)
+                        snapIfOutOfRange(window)
                     }
                 }
             )
