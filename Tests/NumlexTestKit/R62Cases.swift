@@ -97,8 +97,8 @@ public let r62Cases: [EngineCase] = [
     // MARK: token plans for every mintable row kind
 
     EngineCase("r62-mint-number-row") {
-        // r77c: the caret sits on the (blank) line 2 — a same-line caret
-        // would mint a circular self-reference and is refused.
+        // The caret sits on the (blank) line 2 (cross-line: the r80
+        // same-line branch mints on a new line below the source).
         let content = "1+1\n"
         let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 4)
         guard case .number(let v, let u) = lines[0].result, u == nil, v == 2
@@ -113,7 +113,7 @@ public let r62Cases: [EngineCase] = [
     },
 
     EngineCase("r62-mint-variable-row") {
-        // r77c: caret on the (blank) line 2, source line 1.
+        // Caret on the (blank) line 2, source line 1 (cross-line).
         let content = "apple = 5\n"
         let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 10)
         guard case .variable = lines[0].result
@@ -175,8 +175,7 @@ public let r62Cases: [EngineCase] = [
     // MARK: duplicates, selection replacement, refusals
 
     EngineCase("r62-duplicate-tokens-same-source") {
-        // r77c: both tokens land on the (blank) line 2 — different from
-        // the source line, the only allowed placement.
+        // Both tokens land on the (blank) line 2 (cross-line).
         let content = "1+1\n\n"
         let ids = [UUID(), UUID(), UUID()]
         guard let first = AnswerTokenInsertion.plan(
@@ -285,20 +284,35 @@ public let r62Cases: [EngineCase] = [
                    "a stale or missing bridge yields a no-op; nothing is ever appended as a fallback")
     },
 
-    // MARK: r77c — a token minted on its own source line is circular
+    // MARK: r80 — a same-line click mints the token on a NEW line
 
-    EngineCase("r77c-self-reference-refused") {
-        // "7×8\n": line 0 = "7×8\n" units [0,4), line 1 = "" at unit 4.
+    EngineCase("r77c-same-line-mints-below") {
+        // r80 supersedes the r77c refusal: a collapsed caret anywhere ON
+        // the source line mints the token on a NEW line immediately
+        // after the source — "7×8\n" becomes "7×8\nM\n" (the existing
+        // blank line is preserved after the new one).
         let content = "7×8\n"
-        // A collapsed caret anywhere ON the source line refuses the plan.
         for caret in [0, 1, 2, 3] {
             let (plan, _) = r62Plan(content, sourceLineIndex: 0, caret: caret)
-            try expect(plan == nil,
-                       "a caret at unit \(caret) sits on the source line — the plan is a deterministic no-op")
+            guard let plan else {
+                return try expect(false, "same-line caret \(caret): the r80 branch must plan")
+            }
+            try expectEqual(plan.content, content + WM + "\n",
+                            "same-line caret \(caret): marker on its own new line after the source")
+            try expectEqual(plan.caret, 5, "the caret lands right after the marker (unit 4)")
+            try expectEqual(plan.newReference.sourceLineID, plan.lineIDs[0],
+                            "the fresh reference points at the source line's stable ID")
+            try expect(plan.lineIDs.count == 3 && plan.lineIDs[1] != plan.lineIDs[0] && plan.lineIDs[1] != plan.lineIDs[2],
+                       "a fresh ID was minted for the new marker line")
         }
-        // A non-empty selection on the source line is refused too.
+        // A contained non-empty selection on the source line is planned
+        // the same way — the source text is preserved, the marker goes
+        // below.
         let (sel, _) = r62Plan(content, sourceLineIndex: 0, caret: 1, length: 2)
-        try expect(sel == nil, "a selection covering source-line text is refused")
+        guard let sel else {
+            return try expect(false, "same-line selection: the r80 branch must plan")
+        }
+        try expectEqual(sel.content, content + WM + "\n", "source preserved, marker below")
     },
 
     EngineCase("r77c-cross-line-still-plans") {

@@ -1,10 +1,14 @@
 import Foundation
 
 /// r43: the pure, reference-aware plan for minting ONE answer token at
-/// the editor's CURRENT caret/selection — exactly like a normal typed
-/// insertion at the caret. A collapsed range inserts the single U+FFFC
-/// marker at its location; a non-empty selection is REPLACED by that
-/// one marker; no newline and no trailing blank line are ever added.
+/// the editor's CURRENT caret/selection. A caret (or a contained
+/// selection) on a line OTHER than the clicked source line inserts the
+/// single U+FFFC marker at the caret — a non-empty selection is
+/// REPLACED by that one marker. A caret or contained selection on the
+/// SOURCE line itself (r80) would mint a circular self-reference, so
+/// the marker goes to a NEW logical line immediately after the entire
+/// source line instead; the source line and every following line are
+/// preserved verbatim (see `planSameLine`).
 ///
 /// The source identity comes from the CLICKED source line (stable line
 /// ID + 1-based label), independent of the line the caret happens to
@@ -81,13 +85,8 @@ public enum AnswerTokenInsertion {
         let sourceLineID = lineIDs[sourceLineIndex]
         let labelLine = sourceLineIndex + 1
 
-        // r77c: a token minted ON the very line it references is
-        // circular — it breaks that line's result (the bubble degrades
-        // to a broken state) and every later double-click on the now
-        // quiet line is dropped by the answer gate, so one careless
-        // same-line click made the answer permanently untokenizable.
-        // The canonical flow returns to a fresh line before clicking;
-        // a same-line request is a deterministic no-op.
+        // The pre-edit line starts (UTF-16), walked once and reused by
+        // both the same-line detection below and the same-line branch.
         let ns2 = content as NSString
         var lineStarts: [Int] = [0]
         var pos = 0
@@ -130,13 +129,29 @@ public enum AnswerTokenInsertion {
         // can still type normally; only the token minting is refused).
         guard ns.substring(with: selection).range(of: "\n") == nil,
               ns.substring(with: selection).range(of: "\r") == nil else { return nil }
-        // r77c: refuse to mint a self-referencing token (a zero-length
-        // caret counts as "on" the line from its start through the last
-        // unit before the next line's start).
+        // A zero-length caret counts as "on" the line from its start
+        // through the last unit before the next line's start; a
+        // non-empty selection overlaps it when it is strictly inside
+        // (newline-carrying selections were refused above).
         let selOverlapsSource = selection.length == 0
             ? (selection.location >= ls && selection.location < le)
             : (selection.location < le && end > ls)
-        guard !selOverlapsSource else { return nil }
+        if selOverlapsSource {
+            // r80: the user asked for a bubble while the caret sits on
+            // the clicked line — mint it on a NEW line right after the
+            // source instead of refusing (a marker placed on the source
+            // line would be circular and break that line's result).
+            return planSameLine(
+                ns: ns2,
+                lineStarts: lineStarts,
+                le: le,
+                lineIDs: lineIDs,
+                references: references,
+                sourceLineID: sourceLineID,
+                labelLine: labelLine,
+                sourceLineIndex: sourceLineIndex
+            )
+        }
 
         // --- apply exactly like typing: replace, never append ---
         let marker = String(answerTokenMarker)
@@ -184,6 +199,109 @@ public enum AnswerTokenInsertion {
             lineIDs: newLineIDs,
             references: finalReferences,
             caret: selection.location + 1, // the marker is exactly one UTF-16 unit
+            newReference: newReference
+        )
+    }
+
+    /// r80: the SAME-LINE branch. The caret (or a contained non-empty
+    /// selection) sits on the clicked source line; the marker goes to a
+    /// NEW logical line immediately after the entire source line,
+    /// holding exactly one U+FFFC token referencing the source's stable
+    /// ID, with the caret landing right after the marker.
+    ///
+    /// Newline contract — the source expression and every following
+    /// line are preserved VERBATIM; exactly one newline is inserted,
+    /// never a join, delete or re-wrap:
+    ///
+    ///   "7×8"       -> "7×8\n<marker>"      (last line without a
+    ///                                                     newline: one \n at
+    ///                                                     the document end)
+    ///   "7×8\nB"    -> "7×8\n<marker>\nB"   (marker + \n after the
+    ///                                                     source's own newline)
+    ///   "7×8\n\nB"  -> "7×8\n<marker>\n\nB" (an existing BLANK next
+    ///                                                     line is preserved
+    ///                                                     after the new line)
+    ///
+    /// The inserted text is applied as ONE pure NotebookEdit (zero
+    /// length) through the shared `LineIdentity.reconcile` pipeline, so
+    /// the source line ID is preserved exactly, the fresh line is
+    /// minted a new stable ID, and every following line's UTF-16 ranges
+    /// and references shift by the inserted length; rounding overrides
+    /// are untouched (they key off line IDs). The caret lands after the
+    /// marker, on the new line — a second double-click pair on the same
+    /// answer now inserts at that caret (a line different from the
+    /// source) and mints the next bubble there, adding no further
+    /// lines.
+    private static func planSameLine(
+        ns: NSString,
+        lineStarts: [Int],
+        le: Int,
+        lineIDs: [UUID],
+        references: [AnswerReference],
+        sourceLineID: UUID,
+        labelLine: Int,
+        sourceLineIndex: Int
+    ) -> Plan? {
+        let marker = String(answerTokenMarker)
+        // Where the marker line goes: after the source line's own
+        // newline (marker first — the next line, blank or not, keeps
+        // its own start), or at the document end with one leading
+        // newline when the source line is the last line and owns none.
+        let hasOwnNewline = sourceLineIndex + 1 < lineStarts.count
+        let insertPos: Int
+        let text: String
+        let markerOffset: Int
+        if hasOwnNewline {
+            // `le` is the next line's start (just past the source's
+            // newline); inserting here keeps both lines intact.
+            insertPos = le
+            text = marker + "\n"
+            markerOffset = 0
+        } else {
+            insertPos = ns.length
+            text = "\n" + marker
+            markerOffset = 1
+        }
+
+        let newContent = ns.replacingCharacters(
+            in: NSRange(location: insertPos, length: 0), with: text)
+        // One NotebookEdit through the shared reconciliation — the
+        // source line keeps its ID, the new line is minted, the lines
+        // after shift by the inserted length, and existing references
+        // shift or survive exactly like a typed insertion would.
+        let edit = NotebookEdit(range: NSRange(location: insertPos, length: 0),
+                                replacement: text)
+        let (newLineIDs, keptReferences) = LineIdentity.reconcile(
+            oldContent: String(ns),
+            oldLineIDs: lineIDs,
+            oldReferences: references,
+            newContent: newContent,
+            edit: edit
+        )
+
+        let newReference = AnswerReference(
+            sourceLineID: sourceLineID,
+            labelLine: labelLine,
+            location: insertPos + markerOffset
+        )
+        // The fresh marker sits at a position no old marker could
+        // occupy (a brand-new line / document end), so the usual
+        // same-location displacement sweep is a no-op kept for parity.
+        var finalReferences = Sheet.sanitizeReferences(
+            keptReferences + [newReference], in: newContent)
+        finalReferences.removeAll { ref in
+            ref.id != newReference.id && ref.location == newReference.location
+        }
+        // Defense in depth: the marker is placed verbatim, so this can
+        // only fail if reconciliation misbehaved — in that case the
+        // whole insertion is a no-op rather than a corrupted sheet.
+        guard finalReferences.contains(where: { $0.id == newReference.id }) else { return nil }
+
+        return Plan(
+            content: newContent,
+            lineIDs: newLineIDs,
+            references: finalReferences,
+            caret: newReference.location + 1, // right after the one marker
             newReference: newReference
         )
     }

@@ -90,6 +90,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// r60: hide the native sidebar toolbar button while the sidebar
     /// is collapsed (reopen via Control-Command-S). Default OFF.
     public var hideSidebarButtonWhenCollapsed: Bool
+    /// r80: show the sheet's bottom Total panel under the answer
+    /// column. Default ON (the pre-r80 layout). OFF removes only that
+    /// panel and its reserved space — inline total lines keep
+    /// evaluating and rendering as before.
+    public var showTotalBar: Bool
     public var fontColor: String // legacy
     public var input: InputPreferences
     /// r21: notebook styling (font design + role colors). The fontSizeKey
@@ -119,16 +124,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
         sheetName: "Sheet",
         lineNumbers: true,
         hideSidebarButtonWhenCollapsed: false,
+        showTotalBar: true,
         fontColor: "white"
     )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
         self.sheetName = sheetName
         self.lineNumbers = lineNumbers
         self.hideSidebarButtonWhenCollapsed = hideSidebarButtonWhenCollapsed
+        self.showTotalBar = showTotalBar
         self.fontColor = fontColor
         self.input = input
         self.styling = styling
@@ -151,6 +158,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // r60: additive — pre-r60 stores carry no key and fall back
         // to false (StorePayload.version is NOT bumped).
         hideSidebarButtonWhenCollapsed = (try? c.decodeIfPresent(Bool.self, forKey: .hideSidebarButtonWhenCollapsed)) ?? false
+        // r80: additive and failure-proof — a missing key (legacy
+        // store) or a malformed value falls back to true, the
+        // pre-r80 layout (StorePayload.version is NOT bumped).
+        showTotalBar = (try? c.decodeIfPresent(Bool.self, forKey: .showTotalBar)) ?? true
         fontColor = try c.decode(String.self, forKey: .fontColor)
         input = try c.decodeIfPresent(InputPreferences.self, forKey: .input) ?? .defaults
         styling = (try? c.decodeIfPresent(StylingPreferences.self, forKey: .styling)) ?? .defaults

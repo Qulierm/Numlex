@@ -20,10 +20,9 @@ public let r43Cases: [EngineCase] = [
         // one marker at the caret; no newline is ever added.
         let content = "7\nx = 3\n2 * x"
         let lineIDs = r43Ids(3)
-        // r77c: the marker may only be minted on a line OTHER than the
-        // clicked (source) line — a same-line token would reference the
-        // line it sits on (circular) and break that line's result.
-        // The source below is always a DIFFERENT line than the caret's.
+        // The source below is always a DIFFERENT line than the
+        // caret's (the same-line branch — marker on a NEW line right
+        // after the source — is covered separately).
         let cases: [(pos: Int, source: Int, expectContent: String)] = [
             (0, 1, r43M + "7\nx = 3\n2 * x"),         // start of line 1, source line 2
             (1, 2, "7" + r43M + "\nx = 3\n2 * x"),    // end of line 1, source line 3
@@ -48,15 +47,30 @@ public let r43Cases: [EngineCase] = [
             try expectEqual(p.newReference.labelLine, c.source + 1,
                             "caret \(c.pos): label = 1-based clicked line")
         }
-        // r77c: a caret ON the source line is a deterministic no-op
-        // (a self-referencing token would break the source line).
-        for (pos, source) in [(0, 0), (1, 0), (2, 1),
-                              ((content as NSString).length, 2)] {
-            try expect(AnswerTokenInsertion.plan(
+        // r80: a caret ON the source line is NOT refused anymore — the
+        // marker goes to a NEW line immediately after the source line
+        // (the source and every following line preserved verbatim).
+        let sameLine: [(pos: Int, source: Int, expect: String)] = [
+            (0, 0, "7\n" + r43M + "\nx = 3\n2 * x"),        // marker line between line 1 and 2
+            (1, 0, "7\n" + r43M + "\nx = 3\n2 * x"),
+            (2, 1, "7\nx = 3\n" + r43M + "\n2 * x"),        // marker line between line 2 and 3
+            ((content as NSString).length, 2, content + "\n" + r43M) // one newline at EOF
+        ]
+        for c in sameLine {
+            guard let p = AnswerTokenInsertion.plan(
                 content: content, lineIDs: lineIDs, references: [],
-                sourceLineIndex: source,
-                selection: NSRange(location: pos, length: 0)) == nil,
-                "caret \(pos) on source line \(source + 1): self-reference is a no-op")
+                sourceLineIndex: c.source,
+                selection: NSRange(location: c.pos, length: 0)) else {
+                throw CaseFailure(message: "same-line caret \(c.pos): expected the new-line plan")
+            }
+            try expectEqual(p.content, c.expect, "same-line caret \(c.pos): marker on its own new line")
+            try expectEqual(p.lineIDs[c.source], lineIDs[c.source],
+                            "same-line caret \(c.pos): the source line keeps its ID")
+            try expectEqual(p.references.count, 1, "same-line caret \(c.pos): exactly one fresh reference")
+            try expectEqual(p.newReference.sourceLineID, lineIDs[c.source],
+                            "same-line caret \(c.pos): source = the clicked line")
+            try expectEqual(p.caret, p.newReference.location + 1,
+                            "same-line caret \(c.pos): caret right after the marker")
         }
     },
 
@@ -131,8 +145,8 @@ public let r43Cases: [EngineCase] = [
         try expect(AnswerTokenInsertion.plan(
             content: content, lineIDs: lineIDs, references: [],
             sourceLineIndex: 0,
-            selection: NSRange(location: 0, length: 2)) == nil,
-            "selection ending mid-pair is a no-op")
+            selection: NSRange(location: 4, length: 2)) == nil,
+            "a selection ending mid-pair (a + half emoji) is a no-op")
     },
 
     EngineCase("r43-combining-mark-boundaries") {

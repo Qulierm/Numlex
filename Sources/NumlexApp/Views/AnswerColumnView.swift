@@ -51,6 +51,13 @@ struct AnswerColumnView: View {
     /// match the editor exactly (same resolver).
     var fontDesign: StylingFontDesign = .system
     var totalLabel: String
+    /// r80: the sheet's bottom Total panel (footer bar under the
+    /// answers). OFF removes the panel AND its reserved space — the
+    /// answers viewport above expands to take it; inline total lines
+    /// are unaffected. No animation: the answers' hit surface
+    /// (ScrollWheelCatcher, r62 lockstep) must never chase an animated
+    /// frame, so the toggle snaps in one layout pass.
+    var showTotalBar: Bool = true
     /// r37: the source line whose answer is highlighted (a token
     /// capsule referencing it is hovered). Ephemeral; the outline is a
     /// pure stroke overlay — it never alters layout, row frames,
@@ -465,7 +472,7 @@ struct AnswerColumnView: View {
             .clipped()
             .frame(maxHeight: .infinity)
 
-            if let s = summary {
+            if showTotalBar, let s = summary {
                 HStack(spacing: 8) {
                     Text(totalLabel)
                         .font(Design.labelSmall)

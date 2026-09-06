@@ -277,6 +277,16 @@ private struct GeneralSettingsTab: View {
                     SettingsSwitch(title: L10n.t("hideSidebarBtn", language: language),
                                    isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
                 }
+                // r80: the sheet's bottom Total panel (the answer
+                // column's footer bar). OFF removes only that panel —
+                // inline total lines keep evaluating and rendering.
+                SettingsRow(
+                    title: L10n.t("showTotalBar", language: language),
+                    detail: L10n.t("showTotalBarCap", language: language)
+                ) {
+                    SettingsSwitch(title: L10n.t("showTotalBar", language: language),
+                                   isOn: boolBinding(\AppSettings.showTotalBar))
+                }
             }
 
             // Currency-rate attribution: ONE understated footer line —

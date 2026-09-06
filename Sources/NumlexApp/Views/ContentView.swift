@@ -278,6 +278,7 @@ struct ContentView: View {
                     onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
                     fontDesign: settings.styling.fontDesign,
                     totalLabel: L10n.t("total", language: settings.language),
+                    showTotalBar: settings.showTotalBar,
                     highlightedSourceLineIndex: highlightedSourceLineIndex,
                     numberContext: model.numberContext,
                     // r77: per-line fade-in opacities of the answer
