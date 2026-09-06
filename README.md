@@ -24,6 +24,12 @@
   <a href="https://github.com/Qulierm/Numlex/releases/latest">Download the latest release</a>
 </p>
 
+<p align="center">
+  <a href="Assets/NumlexScreenshot.png">
+    <img src="Assets/NumlexScreenshot.png" alt="Numlex notebook with variables, conversions, totals, dates and linked answers" width="900"/>
+  </a>
+</p>
+
 ## Features
 
 <table>
@@ -32,8 +38,8 @@
     <th>Natural Calculations</th>
   </tr>
   <tr>
-    <td align="center"><a href="Assets/Demos/base.gif"><img src="Assets/Demos/base.gif" alt="Typing a variable assignment, a percentage of that variable, a power and a trigonometric function, with live results and a live total" width="450"/></a></td>
-    <td align="center"><a href="Assets/Demos/household.gif"><img src="Assets/Demos/household.gif" alt="A household section with arithmetic, a percentage, a section total and a date calculation, each with a live result" width="450"/></a></td>
+    <td align="center"><a href="Assets/Demos/base.gif"><img src="Assets/Demos/base.gif" alt="Typing a variable assignment, a percentage of that variable, a power and a trigonometric function, with live results and a live total" width="388"/></a></td>
+    <td align="center"><a href="Assets/Demos/household.gif"><img src="Assets/Demos/household.gif" alt="A household section with arithmetic, a percentage, a section total and a date calculation, each with a live result" width="388"/></a></td>
   </tr>
   <tr>
     <td align="center"><em>Name values, apply functions, and totals stay live</em></td>
@@ -44,8 +50,8 @@
     <th>Linked Answers</th>
   </tr>
   <tr>
-    <td align="center"><a href="Assets/Demos/kilometres.gif"><img src="Assets/Demos/kilometres.gif" alt="Distance, temperature, currency and mass conversions with live results" width="450"/></a></td>
-    <td align="center"><a href="Assets/Demos/linked.gif"><img src="Assets/Demos/linked.gif" alt="Answer bubbles reusing earlier results as they are typed into later lines" width="450"/></a></td>
+    <td align="center"><a href="Assets/Demos/kilometres.gif"><img src="Assets/Demos/kilometres.gif" alt="Distance, temperature, currency and mass conversions with live results" width="388"/></a></td>
+    <td align="center"><a href="Assets/Demos/linked.gif"><img src="Assets/Demos/linked.gif" alt="Answer bubbles reusing earlier results as they are typed into later lines" width="388"/></a></td>
   </tr>
   <tr>
     <td align="center"><em>Convert distance, temperature, mass and currency in one line</em></td>
