@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Assets/AppIcon.exported.iconset/icon_512x512.png" alt="Numlex app icon" width="132" height="132"/>
+  <img src="Assets/AppIconPreview.png" alt="Numlex app icon" width="132" height="132"/>
 </p>
 
 <h1 align="center">Numlex</h1>

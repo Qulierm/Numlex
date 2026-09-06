@@ -1,140 +1,75 @@
 #!/bin/bash
-# Native-slot AppIcon.icns packer (macOS iconutil — NO resizing).
+# Supplied-ICNS validator/copier — the ONLY sanctioned icon pipeline step.
 #
-# Usage: Scripts/generate-app-icon.sh [iconset-dir]
-#   iconset-dir defaults to <repo>/Assets/AppIcon.iconset: the tracked,
-#   PACKAGED silver rasters with iconutil-standard filenames — kept
-#   BYTE-EXACT copies of the raw supplied exports (no RGB correction,
-#   no resizing). Each slot is packed exactly as supplied — the script
-#   never resizes or recompresses a slot (sips is used for metadata
-#   queries only).
+# Usage: Scripts/generate-app-icon.sh [source-icns]
+#   source-icns defaults to <repo>/Assets/AppIcon.icns: the user-supplied
+#   canonical icon file (tracked byte-exact). An explicit alternate source
+#   must be an .icns file; it is validated the same way before install.
+#
+# Behavior (deliberately narrow):
+#   1. validates the source with `iconutil -c iconset` (must unpack);
+#   2. verifies usable native reps exist for at least 32, 256 and 512 px;
+#   3. atomically copies the file BYTE-FOR-BYTE to
+#      Sources/NumlexApp/Resources/AppIcon.icns.
+#
+# The script NEVER constructs from Assets/AppIcon.iconset, resizes,
+# recolors, strips rims, injects profiles, repacks, or synthesizes
+# missing representations. Byte preservation IS the invariant
+# (source SHA-256 must equal installed SHA-256).
 #
 # Provenance (see Assets/README.md):
-#   * Assets/AppIcon.exported.iconset: the RAW supplied silver exports
-#     (byte-exact, tracked, never modified by any script).
-#   * Assets/AppIcon.iconset: PACKAGED slots, byte-exact copies of the
-#     raw exports. No rim correction is applied (former
-#     strip-icon-rim.py removed — it altered edge RGB).
-#   * No layered source is supplied or tracked: the per-size PNGs ARE
-#     the source of truth and ship as-is.
-#
-# Produces Sources/NumlexApp/Resources/AppIcon.icns, replacing the
-# previous file atomically, then unpacks the result and validates all
-# ten slots:
-#   * iconutil re-compresses IDAT streams that are not in its own
-#     encoder output, so byte preservation is not the invariant — pixels
-#     are. All slots must round-trip PIXEL-IDENTICAL to the tracked
-#     silver rasters (0 differing RGBA pixels), enforced;
-#   * the two legacy-representation slots (16, 32 px @1x) are stored by
-#     iconutil in the legacy ICNS representation and its unpacker
-#     re-encodes them with palette quantization — enforced with exact
-#     dimensions and a documented alpha-weighted pixel tolerance
-#     (measured worst case 186, limit 200; alpha drift ≤2).
-#
-# Requires: python3 + Pillow for pixel validation.
+#   * Assets/AppIcon.icns: canonical user-supplied file, tracked
+#     byte-exact (SHA-256 b2bc96a9a52544611e997ec6176dd7a7ac981bc259f1b53104e4767e59a6a4b4),
+#     native reps 32/256/512 px.
+#   * Assets/AppIcon.iconset + AppIcon.exported.iconset: LEGACY reference
+#     only (previous PNG-slot pipeline); not read by this script.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ICONSET="${1:-${ROOT}/Assets/AppIcon.iconset}"
+SRC="${1:-${ROOT}/Assets/AppIcon.icns}"
 OUT_DIR="${ROOT}/Sources/NumlexApp/Resources"
 OUT="${OUT_DIR}/AppIcon.icns"
 
 die() { echo "generate-app-icon: $*" >&2; exit 1; }
 
-for tool in iconutil sips; do
-    command -v "$tool" >/dev/null 2>&1 || die "required tool '$tool' not found in PATH"
-done
+command -v iconutil >/dev/null 2>&1 || die "required tool 'iconutil' not found in PATH"
 
-[ -d "$ICONSET" ] || die "iconset directory not found: $ICONSET"
-
-# name : expected pixels
-SLOTS=(
-    "icon_16x16.png:16"
-    "icon_16x16@2x.png:32"
-    "icon_32x32.png:32"
-    "icon_32x32@2x.png:64"
-    "icon_128x128.png:128"
-    "icon_128x128@2x.png:256"
-    "icon_256x256.png:256"
-    "icon_256x256@2x.png:512"
-    "icon_512x512.png:512"
-    "icon_512x512@2x.png:1024"
-)
-
-dims_of() {
-    sips -g pixelWidth -g pixelHeight "$1" 2>/dev/null \
-        | awk -F': ' '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{print w" "h}'
-}
-
-# --- Validate the supplied slots: exact filenames, nonempty, dimensions, alpha.
-for slot in "${SLOTS[@]}"; do
-    name="${slot%%:*}"
-    size="${slot##*:}"
-    f="${ICONSET}/${name}"
-    [ -s "$f" ] || die "missing or empty slot: $f"
-    d="$(dims_of "$f")"
-    [ "$d" = "${size} ${size}" ] || die "slot ${name} is ${d:-unreadable}, expected ${size}x${size} (slots are never resized)"
-    a="$(sips -g hasAlpha "$f" 2>/dev/null | awk -F': ' '/hasAlpha/{print $2}')"
-    [ "$a" = "yes" ] || die "slot ${name} must carry an alpha channel"
-done
+[[ "$SRC" == *.icns ]] || die "accepted input is an ICNS file, got: $SRC"
+[ -s "$SRC" ] || die "source ICNS missing or empty: $SRC"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# --- Pack the directory as-is (iconutil cannot and does not resize).
-TMP_OUT="${WORK}/AppIcon.icns"
-iconutil -c icns "$ICONSET" -o "$TMP_OUT" || die "iconutil failed to build the ICNS"
-[ -s "$TMP_OUT" ] || die "iconutil produced an empty file"
+# --- 1) iconutil must unpack the source.
+iconutil -c iconset "$SRC" -o "$WORK/check.iconset" || die "source ICNS cannot be unpacked by iconutil: $SRC"
 
-# --- Unpack and validate every slot.
-UP="${WORK}/check.iconset"
-iconutil -c iconset "$TMP_OUT" -o "$UP" || die "produced ICNS cannot be unpacked"
-[ "$(find "$UP" -name '*.png' | wc -l | tr -d ' ')" = "10" ] || die "unpacked ICNS does not contain all 10 slots"
-
-python3 -c 'import PIL' >/dev/null 2>&1 \
-    || die "python3 + Pillow is required for icon pixel validation (pip install pillow)"
-
-for slot in "${SLOTS[@]}"; do
-    name="${slot%%:*}"
-    size="${slot##*:}"
-    [ -s "$UP/${name}" ] || die "unpacked slot missing: ${name}"
-    d="$(dims_of "$UP/${name}")"
-    [ "$d" = "${size} ${size}" ] || die "unpacked slot ${name} is ${d}, expected ${size}x${size}"
-    # Legacy ICNS representation: iconutil's unpacker re-encodes the two
-    # 16/32 @1x slots with palette quantization — documented tolerance.
-    # Every other slot must round-trip pixel-identical (tolerance 0).
-    if [ "$name" = "icon_16x16.png" ] || [ "$name" = "icon_32x32.png" ]; then
-        tol=200
-    else
-        tol=0
-    fi
-    python3 - "$UP/${name}" "${ICONSET}/${name}" "$tol" << 'PYEOF' || die "slot pixel check failed: ${name}"
-import sys
-from PIL import Image
-up, src = Image.open(sys.argv[1]).convert("RGBA"), Image.open(sys.argv[2]).convert("RGBA")
-tol = float(sys.argv[3])
-assert up.size == src.size, "size mismatch"
-du, ds = up.load(), src.load()
-maxa = 0.0
-maxw = 0.0
-for y in range(up.size[1]):
-    for x in range(up.size[0]):
-        pu, ps = du[x, y], ds[x, y]
-        maxa = max(maxa, abs(pu[3] - ps[3]))
-        # Perceptual delta: RGB channel-sum weighted by the source
-        # alpha — a fully transparent swing is invisible, an opaque
-        # swing is not.
-        rgb = sum(abs(pu[i] - ps[i]) for i in range(3))
-        maxw = max(maxw, rgb * ps[3] / 255.0)
-assert maxa <= 2, f"alpha drifted: {maxa}"
-assert maxw <= tol, f"pixel delta beyond tolerance {tol}: {maxw:.1f}"
-PYEOF
+# --- 2) required usable reps: at least 32, 256, 512 px.
+dims_of() {
+    sips -g pixelWidth -g pixelHeight "$1" 2>/dev/null \
+        | awk -F': ' '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{print w" "h}'
+}
+have32=0; have256=0; have512=0
+for f in "$WORK"/check.iconset/*.png; do
+    [ -f "$f" ] || continue
+    case "$(dims_of "$f")" in
+        "32 32") have32=1 ;;
+        "256 256") have256=1 ;;
+        "512 512") have512=1 ;;
+    esac
 done
+(( have32 )) || die "source ICNS lacks a usable 32px rep"
+(( have256 )) || die "source ICNS lacks a usable 256px rep"
+(( have512 )) || die "source ICNS lacks a usable 512px rep"
 
-# --- Atomic replace of the tracked ICNS.
+# --- 3) atomic byte-for-byte install.
 mkdir -p "$OUT_DIR"
 STAGED="${OUT_DIR}/.AppIcon.icns.tmp.$$"
-cp "$TMP_OUT" "$STAGED"
+cp "$SRC" "$STAGED"
 mv -f "$STAGED" "$OUT"
 
-echo "generate-app-icon: wrote $OUT from $ICONSET (10 native slots, no resizing)"
+# --- 4) byte-preservation proof.
+[ "$(shasum -a 256 "$SRC" | cut -d' ' -f1)" = "$(shasum -a 256 "$OUT" | cut -d' ' -f1)" ] \
+    || die "installed ICNS hash differs from source (byte preservation violated)"
+cmp -s "$SRC" "$OUT" || die "installed ICNS not byte-identical to source"
+
+echo "generate-app-icon: installed $OUT byte-exact from $SRC (reps 32/256/512 verified)"

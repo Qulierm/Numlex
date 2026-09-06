@@ -55,10 +55,10 @@ PLIST
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$CONTENTS/Info.plist")" == "26.0" ]]
 
 # Icon (required — declared as CFBundleIconFile=AppIcon in Info.plist).
-# THE icon: the silver AppIcon.icns built by Scripts/generate-app-icon.sh
-# from Assets/AppIcon.iconset (see Assets/README.md for provenance). No
-# Assets.car is ever produced — the ICNS is the single authoritative
-# resource macOS presents.
+# THE icon: the user-supplied AppIcon.icns (canonical Assets/AppIcon.icns,
+# installed byte-exact by Scripts/generate-app-icon.sh — see Assets/README.md
+# for provenance). No Assets.car is ever produced — the ICNS is the single
+# authoritative resource macOS presents.
 if [ ! -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
   echo "Missing Sources/NumlexApp/Resources/AppIcon.icns"
   exit 1
