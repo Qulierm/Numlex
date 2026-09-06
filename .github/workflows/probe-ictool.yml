@@ -1,0 +1,30 @@
+name: probe ictool
+on: workflow_dispatch
+concurrency:
+  group: probe-${{ github.run_id }}
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-26
+    steps:
+      - name: Select Xcode 26.6
+        shell: bash
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          xcodebuild -version
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Probe ictool and actool CLIs
+        shell: bash
+        run: |
+          echo "=== ictool help ==="
+          /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ictool --help 2>&1 | head -80
+          echo "=== ictool version ==="
+          /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ictool --version 2>&1 | head -5
+          echo "=== actool help ==="
+          xcrun actool --help 2>&1 | head -120
+          echo "=== try direct .icon with actool ==="
+          mkdir -p /tmp/probe-out
+          xcrun actool Assets/AppIcon.icon --compile /tmp/probe-out --platform macosx --minimum-deployment-target 26.0 --target-device mac --app-icon AppIcon --output-partial-info-plist /tmp/probe-out/p.plist 2>&1 | head -30
+          ls -l /tmp/probe-out 2>/dev/null || echo "(no out dir)"
+        id: probe
