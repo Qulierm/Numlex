@@ -84,6 +84,16 @@ struct EvalValue: Sendable {
 }
 
 public func evaluateExpression(_ expr: String, variables: [String: Double]) throws -> Double {
+    try evaluateExpression(expr, variables: variables, context: .legacy)
+}
+
+/// r73: the context-aware entry point: normalization, tokenization
+/// and the recursive-descent parse all run under `context` (decimal
+/// separators, grouping strips, the `;`/`,` argument convention). The
+/// value grammar below is mode-independent: the normalized, tokenized
+/// form is identical in shape to the legacy one.
+public func evaluateExpression(_ expr: String, variables: [String: Double],
+                               context: NumberFormatContext) throws -> Double {
     let trimmed = expr.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty { throw ParseError.emptyExpression }
     // r47: normalize FIRST (idempotent — the line routes normalize
@@ -91,7 +101,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
     // no-op): commas outside calls are grouping artifacts and are
     // stripped, commas inside calls keep the shared separator rule.
     // The direct API and the line routes therefore always agree.
-    let tokens = try tokenize(normalizeExprCorrect(trimmed))
+    let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
     var pos = 0
     func peek() -> Token? { pos < tokens.count ? tokens[pos] : nil }
     func consume() -> Token { let t = tokens[pos]; pos += 1; return t }

@@ -358,8 +358,9 @@ public enum ConstantResolver {
     /// money grammar when the line carries a currency marker/ISO
     /// annotation, the strict named-expression pipeline otherwise
     /// (no word stripping, no unit parsing).
-    static func evaluateValue(_ expr: String, env: TypedEnv) -> TypedQty? {
-        switch NaturalCalculation.moneyOutcome(expr, env: env) {
+    static func evaluateValue(_ expr: String, env: TypedEnv,
+                              context: NumberFormatContext = .legacy) -> TypedQty? {
+        switch NaturalCalculation.moneyOutcome(expr, env: env, context: context) {
         case .money(let v, let c):
             return .money(v, code: c)
         case .malformed:
@@ -377,8 +378,9 @@ public enum ConstantResolver {
     /// `evaluateExpression` — no second parser, no word stripping),
     /// WITHOUT the line pipeline's 10-decimal display rounding: stored
     /// constant values keep exactly what the shared engine computes.
-    private static func strictScalar(_ expr: String, env: TypedEnv) -> (value: Double, codes: Set<String>)? {
-        namedExprCore(expr, env: env)
+    private static func strictScalar(_ expr: String, env: TypedEnv,
+                                     context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
+        namedExprCore(expr, env: env, context: context)
     }
 }
 
