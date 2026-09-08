@@ -949,6 +949,9 @@ final class NotebookEditorCoordinator: NSObject {
             case .active(_, _, let display):
                 label = display
                 active = true
+            case .activeBool(_, let display):
+                label = display
+                active = true
             case .broken(let line):
                 label = "Line \(line)"
                 active = false
@@ -973,6 +976,7 @@ final class NotebookEditorCoordinator: NSObject {
             let display: String
             switch state {
             case .active(_, _, let d): display = d
+            case .activeBool(_, let d): display = d
             case .broken(let n): display = "Line \(n)"
             case nil: display = "Line \(ref.labelLine)"
             }

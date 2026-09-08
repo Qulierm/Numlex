@@ -87,6 +87,12 @@ public enum LineResult: Equatable, Sendable {
     /// Double and never tokenized as a number. Display is compact
     /// English (`Jun 17`, year added when explicit or crossed).
     case date(year: Int, month: Int, day: Int, showYear: Bool)
+    /// r82: a boolean answer (`2 < 3`, `true and not false`, a boolean
+    /// variable or token). A real Bool — never numeric 1/0: it renders
+    /// and copies as lowercase `true`/`false`, never enters the totals
+    /// or the rounding slider, and is excluded from previous-answer
+    /// (numeric) planning.
+    case boolean(value: Bool)
     /// A line that is ONLY an inactive reference token (its source line
     /// was deleted or stopped evaluating to a number/variable). The token
     /// stays in place in the editor; the line displays the remembered

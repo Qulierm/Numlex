@@ -81,7 +81,7 @@ struct AnswerColumnView: View {
     /// Blank/title/skip/error/broken/date never outline.
     private func isHighlightable(_ result: LineResult) -> Bool {
         switch result {
-        case .number, .variable, .money:
+        case .number, .variable, .money, .boolean:
             return true
         case .blank, .skip, .title, .date, .brokenToken, .error:
             return false
@@ -584,6 +584,15 @@ struct AnswerColumnView: View {
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
+            case .boolean(let b):
+                // r82: a boolean answer renders as its lowercase word
+                // with the same dark-base regular glyphs as numbers —
+                // no unit suffix, no rounding, exactly what Copy
+                // Answer puts on the clipboard.
+                Text(b ? "true" : "false")
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
             case .brokenToken(let line):
                 // An inactive token on its own line: the remembered
                 // label, dimmed to read as "not live".
@@ -808,8 +817,14 @@ private struct ScrollWheelCatcher: NSViewRepresentable {
         override func rightMouseDown(with event: NSEvent) {
             let p = convert(event.locationInWindow, from: nil)
             let y = bounds.height - p.y
-            guard let idx = rowIndexAtY(y),
-                  let menu = menuForRow?(idx) else { return }
+            let idxOpt = rowIndexAtY(y)
+            let menuOpt = idxOpt.flatMap { menuForRow?($0) }
+            Diagnostics.shared?.log(String(
+                "catcher.rightMouseDown bounds=\(Int(bounds.width))x\(Int(bounds.height)) "
+                + "win=\(window?.windowNumber ?? -1) key=\(window?.isKeyWindow ?? false) "
+                + "yTop=\(Int(y)) row=\(idxOpt.map(String.init) ?? "nil") menu=\(menuOpt != nil)"))
+            guard let idx = idxOpt,
+                  let menu = menuOpt else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: self)
         }
 

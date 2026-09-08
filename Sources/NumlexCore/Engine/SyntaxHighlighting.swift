@@ -138,7 +138,14 @@ public enum SyntaxClassifier {
                 isMath = true
                 spans = isNatural
                     ? naturalSpans(line, env: env, context: context)
-                    : expressionSpans(line, variables: env.scalarDict(), context: context)
+                    : BooleanLogic.booleanShape(line, env: env)
+                        // r82: a conditional VALUE line (`if c then 1
+                        // else 0`) evaluates to a number but is boolean
+                        // syntax: it keeps the boolean palette (keyword
+                        // specifiers, comparison operators, boolean
+                        // names) instead of the lexical expression one.
+                        ? booleanSpans(line, env: env, context: context)
+                        : expressionSpans(line, variables: env.scalarDict(), context: context)
             case .variable(let name, _):
                 isMath = true
                 spans = isNatural || name.contains(" ")
@@ -147,6 +154,9 @@ public enum SyntaxClassifier {
             case .money:
                 isMath = true
                 spans = naturalSpans(line, env: env, context: context)
+            case .boolean:
+                isMath = true
+                spans = booleanSpans(line, env: env, context: context)
             case .date:
                 isMath = true
                 spans = dateSpans(line, context: context)
@@ -190,11 +200,12 @@ public enum SyntaxClassifier {
     /// same shared matcher).
     private static func lineIsNatural(_ line: String, env: TypedEnv) -> Bool {
         if !NaturalCalculation.markerOccurrences(in: line).isEmpty { return true }
-        if line.contains("=") {
-            guard let eq = line.firstIndex(of: "=") else { return false }
-            let lhs = String(line[..<eq])
+        // r82: the shared `=` recognizer — `==`, `!=`, `<=`, `>=`
+        // comparison lines can never look like natural assignments.
+        if let split = BooleanLogic.assignmentSplit(line) {
+            let lhs = split.lhs
             guard NaturalCalculation.naturalLHS(lhs) != nil else { return false }
-            let rhs = String(line[line.index(after: eq)...])
+            let rhs = split.rhs
             if !NaturalCalculation.markerOccurrences(in: rhs).isEmpty { return true }
             if rhs.range(of: #"\d\s+[A-Z]{3}\b"#, options: .regularExpression) != nil {
                 return true
@@ -278,11 +289,13 @@ public enum SyntaxClassifier {
         let ns = line as NSString
         var spans: [SyntaxSpan] = []
 
-        // Whole natural LHS (grammar-valid), as one span.
-        if let eq = line.firstIndex(of: "=") {
-            let lhs = String(line[..<eq])
+        // Whole natural LHS (grammar-valid), as one span. r82: the
+        // shared `=` recognizer — a comparison line (`x == 5`) is
+        // never a natural assignment, so no LHS span is painted.
+        if let split = BooleanLogic.assignmentSplit(line) {
+            let lhs = split.lhs
             if NaturalCalculation.naturalLHS(lhs) != nil {
-                var end = eq.utf16Offset(in: line)
+                var end = (lhs as NSString).length
                 var start = 0
                 while start < end, ns.character(at: start) == 0x20 { start += 1 }
                 while end > start, ns.character(at: end - 1) == 0x20 { end -= 1 }
@@ -505,8 +518,45 @@ public enum SyntaxClassifier {
     private static func operatorSpans(_ line: String) -> [SyntaxSpan] {
         let ns = line as NSString
         var spans: [SyntaxSpan] = []
-        for m in matches(#"[+\-−×÷*/=]+"#, in: ns) {
+        // r82: the comparison/logical glyphs are operator-color too —
+        // `==`, `<=`, `&&` and friends match as single contiguous
+        // runs. Prose lines never reach this helper (isMath gate).
+        for m in matches(#"[+\-−×÷*/=!<>&|]+"#, in: ns) {
             spans.append(SyntaxSpan(role: .operatorGlyph, range: m))
+        }
+        return spans
+    }
+
+    /// r82: the boolean palette. Numeric literals take the number role;
+    /// declared BOOLEAN names (single or multiword) take the variable
+    /// role through the shared matcher (so highlighting and evaluation
+    /// cannot drift); the keyword/literal words — `true`, `false`,
+    /// `and`, `or`, `not`, `if`, `then`, `else` — take the existing
+    /// specifier role, UNLESS an active variable/constant carries that
+    /// name (keyword compatibility). Comparison/logical glyphs are
+    /// painted by `operatorSpans` on the shared isMath path.
+    private static func booleanSpans(_ line: String,
+                                     env: TypedEnv,
+                                     context: NumberFormatContext) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(Self.numberPattern(context), in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        for m in NamedValues.matches(in: line, env: env) {
+            guard case .bool = m.entry.qty else { continue }
+            spans.append(SyntaxSpan(role: .variable, range: m.range))
+        }
+        let keywordPattern = "(?<![A-Za-z0-9_])(?:true|false|and|or|not|if|then|else)(?![A-Za-z0-9_])"
+        for m in matches(keywordPattern, in: ns) {
+            let word = ns.substring(with: m).lowercased()
+            // An active variable/constant named like a keyword wins.
+            if env.entries.contains(where: {
+                canonicalNameKey($0.display) == canonicalNameKey(word)
+            }) {
+                continue
+            }
+            spans.append(SyntaxSpan(role: .specifier, range: m))
         }
         return spans
     }

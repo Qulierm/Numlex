@@ -89,7 +89,7 @@ public enum NotebookFormatting {
                                           now: Date(), calendar: Calendar.current,
                                           context: context) {
                 switch result {
-                case .number(_, .none), .variable, .error:
+                case .number(_, .none), .variable, .boolean, .error:
                     out.append(canonicalMathText(line))
                 case .money:
                     // A money result that is NOT in natural shape (a
@@ -142,7 +142,7 @@ public enum NotebookFormatting {
                              context: context) {
         case .number(_, let unit):
             return unit == nil
-        case .variable, .error:
+        case .variable, .boolean, .error:
             return true
         case .money, .date, .blank, .skip, .title, .brokenToken, .none:
             // Money/date lines keep their exact typed form.
@@ -166,12 +166,12 @@ public enum NotebookFormatting {
             let code = String(line[m].suffix(3))
             if isCurrencyCode(code) { return true }
         }
-        if let eq = line.firstIndex(of: "=") {
-            let lhs = String(line[..<eq])
-            if let name = NaturalCalculation.naturalLHS(lhs) {
+        // r82: the shared `=` recognizer — a comparison line
+        // (`x == 5`, `flag <= 3`) is never a natural assignment.
+        if let split = BooleanLogic.assignmentSplit(line) {
+            if let name = NaturalCalculation.naturalLHS(split.lhs) {
                 if name.contains(" ") { return true }
-                let rhs = String(line[line.index(after: eq)...])
-                if !NaturalCalculation.markerOccurrences(in: rhs).isEmpty { return true }
+                if !NaturalCalculation.markerOccurrences(in: split.rhs).isEmpty { return true }
             }
         }
         let timeWords = "(?:s|sec|secs|second|seconds|min|mins|minute|minutes|"
@@ -396,7 +396,12 @@ public enum NotebookFormatting {
         let wsBefore: Bool
     }
 
-    private static let opChars: Set<Character> = ["+", "-", "×", "÷", "/", "^", "="]
+    /// r82: the comparison/logical glyphs are operators for the
+    /// padding rules too; `!` is the prefix negation (it attaches to
+    /// its operand like a unary sign), and the two-character forms
+    /// `<= >= == != && ||` scan as SINGLE tokens.
+    private static let opChars: Set<Character> = ["+", "-", "×", "÷", "/", "^", "=", "<", ">", "!", "&", "|"]
+    private static let signChars: Set<Character> = ["+", "-", "×", "÷", "/", "^"]
 
     private static func scan(_ s: String, replaceStar: Bool) -> [Tok] {
         // With the star replacement OFF, `*` survives the input and must
@@ -414,9 +419,33 @@ public enum NotebookFormatting {
             }
             let kind: Tok.Kind
             if ops.contains(c) {
-                // Unary when there is nothing before, or the previous
-                // significant token is an operator/`(`/`=`.
-                kind = (toks.isEmpty || lastSignificant(toks)) ? .unary : .op
+                // r82: the two-character boolean operators are one
+                // token — `<=` must never be padded to `< =`.
+                let j = s.index(after: i)
+                if j < s.endIndex {
+                    let pair = "\(c)\(s[j])"
+                    if pair == "<=" || pair == ">=" || pair == "==" || pair == "!="
+                        || pair == "&&" || pair == "||" {
+                        toks.append(Tok(kind: .op, text: pair, wsBefore: wsBefore))
+                        wsBefore = false
+                        i = s.index(after: j)
+                        continue
+                    }
+                }
+                if c == "!" {
+                    // Logical negation: a prefix glyph that sticks to
+                    // its operand, exactly like a unary sign.
+                    kind = .unary
+                } else if ops.contains(c), signChars.contains(c) || c == "*" {
+                    // Sign glyphs are unary when there is nothing
+                    // before, or the previous significant token is an
+                    // operator/`(`/`=` (`a < -3`, `x = -5`).
+                    kind = (toks.isEmpty || lastSignificant(toks)) ? .unary : .op
+                } else {
+                    // r82: `<` `>` `&` `|` are binary logical operators
+                    // — they never take the unary role.
+                    kind = .op
+                }
             } else if c == "(" {
                 kind = .parenOpen
             } else if c == ")" {

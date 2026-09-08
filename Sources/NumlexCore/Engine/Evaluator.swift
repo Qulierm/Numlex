@@ -157,9 +157,12 @@ private func tryEvaluateCleaned(_ line: String, variables: [String: Double],
 
 /// The assignment LHS name of a line: a natural multiword LHS when
 /// that grammar accepts it, otherwise the legacy single identifier.
+/// r82: the `=` is recognized through `BooleanLogic.assignmentSplit`
+/// (the single shared recognizer — `==`, `!=`, `<=`, `>=` never enter
+/// assignment routes).
 func assignmentLHSName(_ line: String) -> String? {
-    guard let eq = line.firstIndex(of: "=") else { return nil }
-    let lhs = String(line[..<eq])
+    guard let split = BooleanLogic.assignmentSplit(line) else { return nil }
+    let lhs = split.lhs
     if let natural = NaturalCalculation.naturalLHS(lhs) {
         return natural
     }
@@ -169,9 +172,9 @@ func assignmentLHSName(_ line: String) -> String? {
 
 private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: Int,
                                    context: NumberFormatContext = .legacy) -> LineResult? {
-    guard let idx = line.firstIndex(of: "=") else { return nil }
-    let left = String(line[..<idx]).trimmingCharacters(in: .whitespaces)
-    let rightRaw = String(line[line.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
+    guard let split = BooleanLogic.assignmentSplit(line) else { return nil }
+    let left = split.lhs.trimmingCharacters(in: .whitespaces)
+    let rightRaw = split.rhs.trimmingCharacters(in: .whitespaces)
     let right = normalizeExprCorrect(rightRaw, context: context)
     if !isValidIdentifier(left) { return .error(message: "Invalid assignment") }
     // r33: global constants are IMMUTABLE in a sheet.
@@ -377,8 +380,8 @@ private func evalNamedLine(_ line: String,
                                unit: to.unit.label)
             }
             return .error(message: "Invalid conversion")
-        case .scalar:
-            break  // unitless name: not convertible, fall to reference
+        case .scalar, .bool:
+            break  // unitless/boolean name: not convertible, fall to reference
         }
     }
     // 2. Named reference expression: `monthly rent × 12`,
@@ -400,6 +403,19 @@ private func evalNamedLine(_ line: String,
     case .money(let v, let c):
         return .money(value: v, code: c)
     case .malformed, .none:
+        break
+    }
+    // r82: a boolean line that references a declared name (a compound
+    // boolean name, or a single-identifier boolean variable) is
+    // finished by the strict boolean core — money/scalar routes above
+    // never see it, and a boolean line never degrades to the generic
+    // numeric fallback.
+    switch BooleanLogic.boolOutcome(line, env: env, context: context) {
+    case .value(let b):
+        return .boolean(value: b)
+    case .error(let m):
+        return .error(message: m)
+    case .notBool:
         break
     }
     return .error(message: "Invalid expression")
@@ -459,29 +475,47 @@ func evalLineTyped(_ line: String,
         return evalWeatherLine(query, weather: weather, decimalPlaces: decimalPlaces)
     }
     // r33: assignment to an ACTIVE global constant is a visible error on
-    // EVERY route (single identifier, multiword natural, money RHS) —
-    // no fallback, no partial mutation. Constants never shadow or get
-    // shadowed: an invalid/inactive constant row reserves no name.
-    if line.contains("="), let lhs = assignmentLHSName(line),
+    // EVERY route (single identifier, multiword natural, money RHS,
+    // boolean RHS) — no fallback, no partial mutation. Constants never
+    // shadow or get shadowed: an invalid/inactive constant row reserves
+    // no name.
+    if BooleanLogic.hasAssignment(line), let lhs = assignmentLHSName(line),
        env.isConstant(display: lhs) {
         return .error(message: "Cannot assign to constant")
     }
     if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces, context: context) {
         return conv
     }
-    // Named assignment (any valid LHS, money right-hand side, or a
-    // multiword name with a scalar right-hand side): the answer is the
+    // Named assignment (any valid LHS, money right-hand side, a
+    // multiword name with a scalar right-hand side, or — r82 — ANY
+    // valid LHS with a boolean right-hand side): the answer is the
     // assigned quantity and the name is recorded typed.
-    if line.contains("="), let a = NaturalCalculation.tryAssignment(line: line, env: env, context: context) {
+    if BooleanLogic.hasAssignment(line),
+       let a = NaturalCalculation.tryAssignment(line: line, env: env, context: context) {
         switch a.value {
+        case .error(let m):
+            // r82: a rejected boolean-looking right-hand side fails
+            // strictly — no numeric/money fallback.
+            return .error(message: m)
         case .money(let v, let c):
             env.set(display: a.name, qty: .money(v, code: c))
             return .money(value: v, code: c)
         case .scalar(let v) where a.name.contains(" "):
             env.set(display: a.name, qty: .scalar(v))
             return .variable(name: a.name, value: v)
-        case .scalar:
-            break  // single identifier: the legacy assignment path
+        case .scalar(let v):
+            // r82: a single identifier that earned its scalar through
+            // the boolean/conditional route (`x = if … then … else …`)
+            // is recorded like any named value. (Legacy single-
+            // identifier scalar assignments never produce this case —
+            // they keep the path below.)
+            env.set(display: a.name, qty: .scalar(v))
+            return .variable(name: a.name, value: v)
+        case .bool(let b):
+            // r82: a boolean right-hand side (single- OR multiword
+            // LHS) records a real boolean — never a 0/1 scalar.
+            env.set(display: a.name, qty: .bool(b))
+            return .boolean(value: b)
         }
     }
     if NamedValues.referencesTypedName(line, env: env) {
@@ -504,7 +538,34 @@ func evalLineTyped(_ line: String,
     case .none:
         break
     }
-    if line.contains("=") {
+    // r82: boolean and conditional lines — comparisons, logical
+    // expressions, boolean literals/variables and `if … then … else`
+    // (value or conditional-assignment form). Boolean-looking lines
+    // NEVER fall through to the word-stripping or numeric routes;
+    // every other line (booleanShape false) is untouched by this
+    // stage.
+    if BooleanLogic.booleanShape(line, env: env) {
+        // Conditional lines come first: the conditional-assignment form
+        // (`if c then x = a else x = b`) DOES carry an `=`, so it must
+        // be resolved before the assignment-aware skip below.
+        if let cond = BooleanLogic.conditionalLine(line, env: &env, context: context) {
+            return cond
+        }
+        // Lines with a single assignment `=` are owned by the
+        // assignment routes (boolean right-hand sides included) — the
+        // free-expression boolean core never re-parses them.
+        if !BooleanLogic.hasAssignment(line) {
+            switch BooleanLogic.boolOutcome(line, env: env, context: context) {
+            case .value(let b):
+                return .boolean(value: b)
+            case .error(let m):
+                return .error(message: m)
+            case .notBool:
+                break
+            }
+        }
+    }
+    if BooleanLogic.hasAssignment(line) {
         return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces, context: context)
     }
     return evalFreeExpression(line: line, variables: env.scalarDict(), decimalPlaces: decimalPlaces, context: context)
@@ -608,14 +669,20 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
 
 /// Declared names, legacy and natural: single ASCII identifiers
 /// (`x = 1`) AND bounded multiword natural names (`monthly rent = $5`)
-/// — the same LHS grammar the evaluator accepts.
+/// — the same LHS grammar the evaluator accepts (r82: through the
+/// shared `=` recognizer, so `==`/`!=`/`<=`/`>=` never declare).
 public func declaredVariables(_ source: String) -> [String: Bool] {
     var dict: [String: Bool] = [:]
     for line in source.components(separatedBy: "\n") {
-        if let eq = line.firstIndex(of: "=") {
-            let lhs = String(line[..<eq])
+        if let split = BooleanLogic.assignmentSplit(line) {
+            let lhs = split.lhs
             if let natural = NaturalCalculation.naturalLHS(lhs) {
                 dict[natural] = true
+                continue
+            }
+            let trimmed = lhs.trimmingCharacters(in: .whitespaces)
+            if isValidIdentifier(trimmed) {
+                dict[trimmed] = true
                 continue
             }
         }

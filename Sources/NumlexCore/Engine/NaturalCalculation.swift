@@ -134,26 +134,54 @@ public enum NaturalCalculation {
     public enum AssignmentValue: Equatable {
         case money(value: Double, code: String)
         case scalar(Double)
+        /// r82: a boolean right-hand side (`flag = 2 < 3`).
+        case bool(Bool)
+        /// r82: a boolean-looking right-hand side the strict engine
+        /// rejected — surfaced verbatim, never degraded to the
+        /// numeric/money routes (a money name can never silently
+        /// become the assignment's value in a boolean context).
+        case error(String)
     }
 
     /// A named assignment: `<name> = <money expression>` (and, for
-    /// multiword names, `<name> = <scalar expression>`). Returns the
-    /// display name plus the evaluated quantity; nil when the line is
-    /// not a natural assignment (or the right-hand side is malformed).
-    /// The caller records the name in the environment.
+    /// multiword names, `<name> = <scalar expression>`; r82: ANY
+    /// grammar-valid LHS may also hold `<name> = <boolean expression>`).
+    /// Returns the display name plus the evaluated quantity; nil when
+    /// the line is not a natural assignment (or the right-hand side is
+    /// malformed). The caller records the name in the environment.
     public static func tryAssignment(line: String, env: TypedEnv,
                                    context: NumberFormatContext = .legacy) -> (name: String, value: AssignmentValue)? {
-        guard let eq = line.firstIndex(of: "=") else { return nil }
-        let lhsRaw = String(line[..<eq])
+        guard let split = BooleanLogic.assignmentSplit(line) else { return nil }
+        let lhsRaw = split.lhs
         guard let name = naturalLHS(lhsRaw) else { return nil }
-        let rhsRaw = String(line[line.index(after: eq)...])
-        guard !rhsRaw.contains("=") else { return nil }
+        let rhsRaw = split.rhs
+        guard BooleanLogic.assignmentSplit(rhsRaw) == nil else { return nil }
         // A money right-hand side is always recorded as money.
         switch moneyOutcome(rhsRaw, env: env, context: context) {
         case .money(let v, let c):
             return (name, .money(value: v, code: c))
         case .malformed, .none:
             break
+        }
+        // r82: a boolean-looking right-hand side (explicit syntax, a
+        // logical word, or a boolean name) is decided by the ONE
+        // shared typed engine — conditional values included. A scalar
+        // outcome records a scalar, a boolean outcome a real boolean,
+        // and a REJECTED boolean-looking right-hand side errors
+        // straight away: it never degrades to the numeric/money
+        // routes (no silent money coercion).
+        if BooleanLogic.isBoolLikely(rhsRaw, env: env) {
+            if let r = BooleanLogic.branchValue(rhsRaw, env: env, context: context) {
+                switch r {
+                case .boolean(let b):
+                    return (name, .bool(b))
+                case .number(let v, nil):
+                    return (name, .scalar(v))
+                default:
+                    break
+                }
+            }
+            return (name, .error("Invalid expression"))
         }
         // Multiword names may also hold plain (possibly named) scalars;
         // single identifiers keep the legacy assignment path.
@@ -174,7 +202,7 @@ public enum NaturalCalculation {
     /// environment (declared names resolve to their values).
     public static func tryMoney(line: String, env: TypedEnv,
                                    context: NumberFormatContext = .legacy) -> Outcome {
-        if line.contains("=") { return .none }  // assignments own their `=`
+        if BooleanLogic.hasAssignment(line) { return .none }  // assignments own their `=`
         return moneyOutcome(line, env: env, context: context)
     }
 

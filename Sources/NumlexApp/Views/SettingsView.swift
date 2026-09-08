@@ -573,6 +573,9 @@ private struct ConstantsSettingsTab: View {
                                       context: model.numberContext)
         case .money(let v, let code):
             return formatMoney(v, code: code, context: model.numberContext)
+        case .bool(let b):
+            // r82: a boolean constant expression previews as its word.
+            return b ? "true" : "false"
         }
     }
 }

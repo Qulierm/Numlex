@@ -8,6 +8,10 @@ public struct TokenResolution: Equatable, Sendable {
         /// The source line currently evaluates to a finite number or a
         /// variable: the token is active and shows the full quantity.
         case active(value: Double, unit: String?, display: String)
+        /// r82: the source line evaluates to a boolean — a DISTINCT
+        /// resolution (never a 0/1 Double): the capsule shows the
+        /// lowercase word and the token joins logical expressions.
+        case activeBool(value: Bool, display: String)
         /// The source line is missing or invalid: the token stays in
         /// place, inactive, displaying its remembered label.
         case broken(line: Int)
@@ -134,8 +138,10 @@ public func resolveSheet(
     func evalTokenLine(_ line: String, _ index: Int, _ docStart: Int) -> LineResult {
         // r33: constant-assignment guard on the token route too — the
         // token lines bypass `evalLineTyped` entirely.
-        if let eq = line.firstIndex(of: "=") {
-            let lhs = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+        // r82: the shared `=` recognizer (comparison operators never
+        // enter the assignment route).
+        if let split = BooleanLogic.assignmentSplit(line) {
+            let lhs = split.lhs.trimmingCharacters(in: .whitespaces)
             if env.isConstant(display: lhs) {
                 return .error(message: "Cannot assign to constant")
             }
@@ -198,6 +204,13 @@ public func resolveSheet(
                                                   context: context)
                 tokenStates[docPos] = .active(value: v, unit: nil, display: display)
                 quantities.append(Qty(v: v, unit: nil))
+            case .boolean(let b):
+                // r82: a boolean source is a live BOOLEAN token — a
+                // distinct resolution that shows the lowercase word
+                // and feeds the typed boolean engine, never a 0/1.
+                let display = b ? "true" : "false"
+                tokenStates[docPos] = .activeBool(value: b, display: display)
+                quantities.append(Qty(v: 0, unit: nil, boolValue: b))
             default:
                 // Error, blank, prose, non-finite: the token is inactive.
                 tokenStates[docPos] = .broken(line: ref.labelLine)
@@ -217,6 +230,12 @@ public func resolveSheet(
                 return .brokenToken(line: refsHere[0]?.labelLine ?? 1)
             }
             if let q = quantities[0] {
+                // r82: a bare boolean token shows its lowercase word
+                // as a real boolean answer (copyable, tokenizable,
+                // never numeric).
+                if let b = q.boolValue {
+                    return .boolean(value: b)
+                }
                 return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
             }
         }
@@ -255,17 +274,19 @@ public func resolveSheet(
         }
 
         // Assignment: `name = <token expression>`.
-        if let eq = line.firstIndex(of: "="),
-           line[..<eq].rangeOfCharacter(from: CharacterSet(charactersIn: String(answerTokenMarker))) == nil {
-            let lhs = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
-            let rhs = String(line[line.index(after: eq)...])
+        if let split = BooleanLogic.assignmentSplit(line),
+           split.lhs.rangeOfCharacter(from: CharacterSet(charactersIn: String(answerTokenMarker))) == nil {
+            let lhs = split.lhs.trimmingCharacters(in: .whitespaces)
+            let rhs = split.rhs
             if isValidReferenceIdentifier(lhs) {
                 // r33: token-expression assignment to an active global
                 // constant is blocked exactly like the other routes.
                 if env.isConstant(display: lhs) {
                     return .error(message: "Cannot assign to constant")
                 }
-                let eqUTF16 = (line as NSString).range(of: "=").location
+                // r82: the assignment `=` position is exactly the
+                // (untrimmed) LHS length — never a comparison `==`.
+                let eqUTF16 = (split.lhs as NSString).length
                 let rhsQuantities: [Qty] = qtyByPos
                     .filter { $0.key > eqUTF16 }
                     .sorted(by: { $0.key < $1.key })
@@ -278,6 +299,48 @@ public func resolveSheet(
                 // arguments fail safely (no implicit stripping).
                 let rhsAllUnitless = !rhsQuantities.isEmpty
                     && rhsQuantities.allSatisfy { $0.unit == nil }
+                // r82: a BOOLEAN right-hand side (explicit boolean
+                // syntax, a logical word, or a boolean token) goes
+                // through the ONE shared typed engine — placeholders
+                // carry their real types, so arithmetic on a boolean
+                // token fails strictly and a money token can never
+                // coerce. The name is recorded as a real boolean.
+                if BooleanLogic.isBoolLikely(rhs, env: env)
+                        || rhsQuantities.contains(where: { $0.boolValue != nil }) {
+                    var tvars: [String: TypedScalar] = [:]
+                    for e in env.entries {
+                        switch e.qty {
+                        case .scalar(let v) where v.isFinite: tvars[e.display] = .number(v)
+                        case .bool(let b): tvars[e.display] = .bool(b)
+                        default: break
+                        }
+                    }
+                    for (k, q) in rhsQuantities.enumerated() {
+                        if let b = q.boolValue { tvars[namePlaceholder(k)] = .bool(b) }
+                        else if q.unit == nil, q.v.isFinite { tvars[namePlaceholder(k)] = .number(q.v) }
+                        // Unit/money tokens stay absent: they fail
+                        // safely in a boolean context.
+                    }
+                    if let r = try? typedBoolResult(
+                            text: rhs,
+                            variables: tvars,
+                            decimalPlaces: decimalPlaces,
+                            context: context) {
+                        switch r {
+                        case .boolean(let b):
+                            env.set(display: lhs, qty: .bool(b))
+                            return .boolean(value: b)
+                        case .number(let v, nil):
+                            // A conditional value branch may pick a
+                            // scalar: record it like any assignment.
+                            env.set(display: lhs, qty: .scalar(v))
+                            return .variable(name: lhs, value: v)
+                        default:
+                            break
+                        }
+                    }
+                    return .error(message: "Invalid expression")
+                }
                 if rhsAllUnitless,
                    FunctionCalls.hasCallHead(rhs) || rhs.contains("^") {
                     let exprRhs = replacingTokenMarkers(rhs)
@@ -322,6 +385,38 @@ public func resolveSheet(
         // keep the legacy route byte-for-byte.
         let allUnitless = quantities.allSatisfy { q in
             q.map { $0.unit == nil } ?? false
+        }
+        // r82: a BOOLEAN-shaped token line — explicit comparison/logical
+        // syntax, a logical word, or a boolean token anywhere — routes
+        // through the ONE shared typed engine: placeholders carry their
+        // real types, so `and`/`or`/`not`/comparisons/if-then-else
+        // evaluate strictly, arithmetic on a boolean token fails
+        // deterministically, and unit/money tokens can never coerce
+        // into a boolean context. Non-boolean token lines keep the
+        // legacy routes byte-for-byte.
+        let hasBoolToken = quantities.contains { $0?.boolValue != nil }
+        if BooleanLogic.isBoolLikely(line, env: env) || hasBoolToken {
+            var tvars: [String: TypedScalar] = [:]
+            for e in env.entries {
+                switch e.qty {
+                case .scalar(let v) where v.isFinite: tvars[e.display] = .number(v)
+                case .bool(let b): tvars[e.display] = .bool(b)
+                default: break
+                }
+            }
+            for (k, q) in quantities.enumerated() {
+                guard let q else { continue }
+                if let b = q.boolValue { tvars[namePlaceholder(k)] = .bool(b) }
+                else if q.unit == nil, q.v.isFinite { tvars[namePlaceholder(k)] = .number(q.v) }
+            }
+            if let r = try? typedBoolResult(
+                    text: line,
+                    variables: tvars,
+                    decimalPlaces: decimalPlaces,
+                    context: context) {
+                return r
+            }
+            return .error(message: "Invalid expression")
         }
         if allUnitless,
            NaturalCalculation.markerOccurrences(in: line).isEmpty,
@@ -440,12 +535,39 @@ private func replacingTokenMarkers(_ line: String) -> String {
     return out
 }
 
+/// r82: the typed boolean route for token lines. The evaluation copy
+/// swaps every marker for its collision-proof placeholder (the sheet
+/// content is never rewritten), then runs the ONE shared typed engine
+/// over the caller's typed table (scalar tokens -> numbers, boolean
+/// tokens -> booleans, unit/money tokens absent). The result is a
+/// scalar or a REAL boolean — arithmetic on a boolean token, mixed
+/// equality and money coercion all throw, and the caller maps that to
+/// the deterministic hidden error.
+private func typedBoolResult(text: String,
+                             variables: [String: TypedScalar],
+                             decimalPlaces: Int,
+                             context: NumberFormatContext) throws -> LineResult {
+    let expr = replacingTokenMarkers(text)
+    let v = try evaluateTypedExpression(expr, variables: variables, context: context)
+    switch v {
+    case .number(let n):
+        guard n.isFinite else { throw ParseError.nonFiniteResult }
+        return .number(value: roundResult(n, decimalPlaces: decimalPlaces), unit: nil)
+    case .bool(let b):
+        return .boolean(value: b)
+    }
+}
+
 // MARK: - Quantity expression parser
 
 /// One evaluated operand of a token expression.
 struct Qty: Equatable {
     var v: Double
     var unit: String?
+    /// r82: non-nil when the token is a BOOLEAN quantity — `v` is
+    /// unused (0) and the token can never join unit algebra; it
+    /// participates only in the typed boolean engine.
+    var boolValue: Bool? = nil
 }
 
 /// Recursive-descent evaluator for a line containing one or more

@@ -237,7 +237,7 @@ struct ContentView: View {
                         // the column.
                         var key: String?
                         switch line.result {
-                        case .number, .variable, .money, .date:
+                        case .number, .variable, .money, .date, .boolean:
                             let places = AnswerDisplay.effective(
                                 defaultPlaces: settings.decimalPlaces,
                                 override: answerRounding[id])

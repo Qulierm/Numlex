@@ -2,10 +2,13 @@ import Foundation
 
 /// One quantity a named value can carry. Unitless scalars keep the
 /// legacy variable semantics; money carries its ISO fiat code so later
-/// lines preserve the currency.
+/// lines preserve the currency; r82: a boolean carries a real `Bool`
+/// (never a numeric 1/0) for comparison/logical lines and conditional
+/// assignments.
 public enum TypedQty: Equatable, Sendable {
     case scalar(Double)
     case money(Double, code: String)
+    case bool(Bool)
 }
 
 /// Canonical name key: casefolded, whitespace-collapsed. `Monthly Rent`
@@ -77,6 +80,14 @@ public struct TypedEnv: Equatable {
 
     /// Whether a display name is an active global constant (case/
     /// whitespace-insensitive). Used by EVERY assignment route.
+    /// Whether any active entry (variable or constant) reserves the
+    /// given canonical name — the keyword-compatibility rule: grammar
+    /// keywords yield to active names (`true = 7` makes `true` a
+    /// variable, so a later `true` is not a boolean literal).
+    public func shadowsKeyword(_ name: String) -> Bool {
+        entry(display: name) != nil
+    }
+
     public func isConstant(display: String) -> Bool {
         byKey[canonicalNameKey(display)]?.isConstant == true
     }
@@ -224,21 +235,30 @@ public enum NamedValues {
     /// The pipeline activation rule: a declared compound name anywhere
     /// in the line, a declared MONEY name used in an expression (the
     /// line carries an operator or a digit — plain prose mentioning a
-    /// money name stays prose), or ANY global constant (r33) —
-    /// constants always take the typed pipeline so a single-identifier
-    /// constant matches case/whitespace-insensitively and evaluates
-    /// strictly. Ordinary single unitless variables keep the legacy
-    /// free-expression path untouched.
+    /// money name stays prose), ANY global constant (r33) — constants
+    /// always take the typed pipeline so a single-identifier constant
+    /// matches case/whitespace-insensitively and evaluates strictly,
+    /// or (r82) a declared BOOLEAN name used in an expression-shaped
+    /// line or standing alone (plain prose mentioning a boolean name
+    /// stays prose, exactly like money names). Ordinary single
+    /// unitless variables keep the legacy free-expression path
+    /// untouched.
     public static func referencesTypedName(_ line: String, env: TypedEnv) -> Bool {
         guard !env.entries.isEmpty else { return false }
         let expressionLike = line.unicodeScalars.contains {
-            ("0123456789+-*/^%(".unicodeScalars.contains($0))
+            ("0123456789+-*/^(".unicodeScalars.contains($0))
                 || $0 == "×" || $0 == "÷"
         }
         return matches(in: line, env: env).contains { m in
             if m.entry.isConstant { return true }
             if !TypedEnv.isLegacyIdentifier(m.display) { return true }
             if case .money = m.entry.qty { return expressionLike }
+            if case .bool = m.entry.qty {
+                // r82: a single-identifier boolean name is routed to
+                // the typed core only on boolean-shaped lines (or
+                // standing alone) — never a plain prose mention.
+                return BooleanLogic.booleanShape(line, env: env)
+            }
             return false
         }
     }

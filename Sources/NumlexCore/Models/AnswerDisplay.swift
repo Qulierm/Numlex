@@ -114,6 +114,9 @@ public enum AnswerDisplay {
                                        context: context.withoutCompactNotation)
             if let u = unit { return "\(s) \(u)" }
             return s
+        case .boolean(let b):
+            // r82: booleans copy exactly as their lowercase word.
+            return b ? "true" : "false"
         case .variable(_, let v):
             return formatDisplayValue(v, decimalPlaces: decimalPlaces,
                                       context: context.withoutCompactNotation)
@@ -168,6 +171,10 @@ public enum AnswerDisplay {
             return Menu(showsActions: true, showsRounding: true)
         case .variable:
             return Menu(showsActions: true, showsRounding: true)
+        case .boolean:
+            // r82: booleans offer Copy Answer + Delete Line only —
+            // there is nothing to round on a true/false.
+            return Menu(showsActions: true, showsRounding: false)
         case .money, .date, .brokenToken:
             return Menu(showsActions: true, showsRounding: false)
         }

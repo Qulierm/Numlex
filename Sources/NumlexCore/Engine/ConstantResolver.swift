@@ -175,8 +175,10 @@ public enum ConstantResolver {
                 status[i] = .invalidExpression
                 continue
             }
-            // Assignment is never a value expression.
-            if expr.contains("=") {
+            // Assignment is never a value expression. r82: through the
+            // shared recognizer — a comparison expression (`2 == 3`)
+            // is a valid constant value and must NOT be rejected.
+            if BooleanLogic.hasAssignment(expr) {
                 status[i] = .invalidExpression
                 continue
             }

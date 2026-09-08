@@ -75,12 +75,16 @@ public enum PreviousAnswerPlan {
 
     /// The answerable shapes: a finite number (with or without unit —
     /// conversions resolve to numbers and qualify), a variable, or a
-    /// finite money answer.
+    /// finite money answer. r82: a boolean answer is NOT answerable
+    /// here — the previous-answer chain is numeric, and a boolean can
+    /// never become the operand of `ans + 1` (it fails strictly on
+    /// the line that uses it).
     public static func isAnswerable(_ result: LineResult) -> Bool {
         switch result {
         case .number(let v, _): return v.isFinite
         case .variable: return true
         case .money(let v, _): return v.isFinite
+        case .boolean: return false
         case .blank, .skip, .title, .date, .brokenToken, .error: return false
         }
     }

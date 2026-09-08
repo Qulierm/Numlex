@@ -68,6 +68,39 @@ public func tokenize(_ expr: String, context: NumberFormatContext) throws -> [To
             i = expr.index(after: i)
             continue
         }
+        // r82: the typed-boolean operator set. Multi-character forms
+        // are scanned FIRST so `<=`, `>=`, `==`, `!=`, `&&`, `||`
+        // become single tokens; a lone `!`/`<`/`>`/`=` keeps its own
+        // op token. A LONE `&` or `|` is not an operator (prose like
+        // `fish & chips` must never become math) and stays an
+        // unexpected character, exactly like any other unknown glyph.
+        if ch == "<" || ch == ">" || ch == "=" || ch == "!" {
+            let j = expr.index(after: i)
+            if j < expr.endIndex {
+                let pair = "\(ch)\(expr[j])"
+                if pair == "<=" || pair == ">=" || pair == "==" || pair == "!=" {
+                    tokens.append(.op(pair))
+                    i = expr.index(after: j)
+                    continue
+                }
+            }
+            tokens.append(.op(String(ch)))
+            i = j
+            continue
+        }
+        if ch == "&" || ch == "|" {
+            // The word forms `and` / `or` are the primary spelling;
+            // `&&` / `||` are the symbolic aliases. A LONE `&`/`|` is
+            // not an operator (prose like `fish & chips` must never
+            // become math) and stays an unexpected character.
+            let j = expr.index(after: i)
+            if j < expr.endIndex, expr[j] == ch {
+                tokens.append(.op("\(ch)\(ch)"))
+                i = expr.index(after: j)
+                continue
+            }
+            throw TokenizeError.unexpectedCharacter(ch)
+        }
         if ch == "," {
             // The argument separator of decimal-point modes. In
             // decimal-comma modes a surviving comma is the SPACED

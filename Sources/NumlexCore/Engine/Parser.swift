@@ -22,6 +22,20 @@ public enum ParseError: Error, LocalizedError {
     /// A deterministic function DOMAIN/non-finite failure carried with
     /// its stable message (the registry's `MathFunctionError`).
     case functionError(String)
+    // r82: strict typed-boolean failures. Every message is stable so
+    // tests and the UI can rely on exact text.
+    /// A boolean-shaped node reached the NUMERIC entry point: the
+    /// numeric API never coerces booleans, it fails deterministically.
+    case booleanExpression
+    /// A logical/conditional position received a non-boolean operand.
+    case booleanExpected(op: String)
+    /// An arithmetic, relational-ordering or function position received
+    /// a non-scalar operand (a boolean, or a chained comparison).
+    case scalarExpected(op: String)
+    /// `==` / `!=` with one scalar and one boolean operand.
+    case mixedTypes(op: String)
+    /// `if … then …` without an `else` branch.
+    case missingElse
     public var errorDescription: String? {
         switch self {
         case .emptyExpression: return "Empty expression"
@@ -44,6 +58,11 @@ public enum ParseError: Error, LocalizedError {
         case .functionDoubleComma: return "Unexpected comma in function arguments"
         case .functionMissingComma: return "Missing comma between function arguments"
         case .functionError(let s): return s
+        case .booleanExpression: return "Boolean expression"
+        case .booleanExpected(let op): return "Boolean expected in '\(op)'"
+        case .scalarExpected(let op): return "Scalar expected in '\(op)'"
+        case .mixedTypes(let op): return "Mixed types in '\(op)'"
+        case .missingElse: return "Missing 'else' branch"
         }
     }
 }
@@ -57,6 +76,13 @@ public enum ParseError: Error, LocalizedError {
 /// left side (`100 + 10%` = 110, `110 - 5%` = 104.5), while in every
 /// other context a percentage is the ordinary scalar `p/100`
 /// (`200 × 10%` = 20, `200 / 10%` = 2000, `50%` = 0.5).
+///
+/// r82: the boolean productions extend the same AST. The NUMERIC
+/// entry point parses down to the additive level and rejects boolean
+/// nodes; the TYPED entry point parses the full precedence chain
+/// (or < and < not < equality < relational < additive < term <
+/// factor < unary < primary, with the conditional lowest and
+/// right-associative).
 indirect enum Expr: Sendable {
     case num(Double)
     case variable(String)
@@ -73,6 +99,26 @@ indirect enum Expr: Sendable {
     /// registry name; arguments are full expressions (comma-separated,
     /// parsed with the shared precedence rules).
     case funcall(String, [Expr])
+    // r82: boolean productions.
+    /// `true` / `false` literal.
+    case boolLit(Bool)
+    /// `not x` / `!x` (binds tighter than `and`).
+    case not(Expr)
+    /// `x and y` / `x && y` (binds tighter than `or`, lazier).
+    case and(Expr, Expr)
+    /// `x or y` / `x || y`.
+    case or(Expr, Expr)
+    /// Strict relational ordering: scalar-scalar only.
+    case lt(Expr, Expr)
+    case le(Expr, Expr)
+    case gt(Expr, Expr)
+    case ge(Expr, Expr)
+    /// Equality: scalar-scalar or bool-bool; mixed operands error.
+    case eq(Expr, Expr)
+    case ne(Expr, Expr)
+    /// `if <cond> then <a> else <b>` — the conditional, lowest and
+    /// right-associative. Branches are full (conditional) expressions.
+    case ifThenElse(Expr, Expr, Expr)
 }
 
 /// A parsed value plus its contextual-percentage flag. Only a postfix
@@ -83,30 +129,160 @@ struct EvalValue: Sendable {
     var purePercent: Bool
 }
 
-public func evaluateExpression(_ expr: String, variables: [String: Double]) throws -> Double {
-    try evaluateExpression(expr, variables: variables, context: .legacy)
+/// r82: the typed scalar a boolean-aware expression can produce. A
+/// boolean is NEVER a numeric 1/0: the typed evaluator carries the two
+/// kinds distinctly and strict typing keeps them from mixing.
+public enum TypedScalar: Equatable, Sendable {
+    case number(Double)
+    case bool(Bool)
 }
 
-/// r73: the context-aware entry point: normalization, tokenization
-/// and the recursive-descent parse all run under `context` (decimal
-/// separators, grouping strips, the `;`/`,` argument convention). The
-/// value grammar below is mode-independent: the normalized, tokenized
-/// form is identical in shape to the legacy one.
-public func evaluateExpression(_ expr: String, variables: [String: Double],
-                               context: NumberFormatContext) throws -> Double {
-    let trimmed = expr.trimmingCharacters(in: .whitespaces)
-    if trimmed.isEmpty { throw ParseError.emptyExpression }
-    // r47: normalize FIRST (idempotent — the line routes normalize
-    // before calling, and re-normalizing a normalized string is a
-    // no-op): commas outside calls are grouping artifacts and are
-    // stripped, commas inside calls keep the shared separator rule.
-    // The direct API and the line routes therefore always agree.
-    let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
-    var pos = 0
-    func peek() -> Token? { pos < tokens.count ? tokens[pos] : nil }
-    func consume() -> Token { let t = tokens[pos]; pos += 1; return t }
+// MARK: - Shared recursive-descent core
 
-    func parseExpression() throws -> Expr {
+/// The ONE shared parser: tokenizer output plus a typed variable table.
+/// Both the legacy numeric entry (parses down to the additive level and
+/// evaluates with numeric semantics) and the typed entry (parses the
+/// full conditional chain and evaluates with strict typed semantics)
+/// run over this core, so precedence, function-call discipline and
+/// keyword/variable resolution can never diverge between the two.
+struct ExprParser {
+    let tokens: [Token]
+    /// The typed variable table: every entry is either a finite scalar
+    /// or a boolean. The numeric entry maps its `[String: Double]`
+    /// caller table onto `.number` values; the typed entry maps
+    /// scalars and booleans and (by construction of the caller) never
+    /// money — a money name in a boolean context must fail safely.
+    let vars: [String: TypedScalar]
+    var pos = 0
+
+    init(tokens: [Token], vars: [String: TypedScalar]) {
+        self.tokens = tokens
+        self.vars = vars
+    }
+
+    func peek() -> Token? { pos < tokens.count ? tokens[pos] : nil }
+    @discardableResult
+    mutating func consume() -> Token { let t = tokens[pos]; pos += 1; return t }
+
+    /// Whether an identifier is a LIVE boolean keyword: grammar wins
+    /// only when no active variable/constant carries the same name
+    /// (keyword compatibility — persisted sheets that historically used
+    /// keyword-like identifiers keep working).
+    func isKeyword(_ name: String, _ kw: String) -> Bool {
+        guard name.lowercased() == kw else { return false }
+        return vars[name] == nil
+    }
+
+    // MARK: - Productions (shared by both entries)
+
+    /// r82: `if <cond> then <expr> else <expr>` — the LOWEST
+    /// production, right-associative (the branches are themselves
+    /// conditionals). When the line does not start with the `if`
+    /// keyword the production falls through to the or-chain.
+    mutating func parseConditional() throws -> Expr {
+        if let t = peek(), case .identifier(let name) = t,
+           isKeyword(name, "if") {
+            _ = consume()
+            let cond = try parseOr()
+            guard let t2 = peek(), case .identifier(let w) = t2,
+                  isKeyword(w, "then") else {
+                throw ParseError.unexpectedToken("then")
+            }
+            _ = consume()
+            let thenE = try parseConditional()
+            guard let t3 = peek(), case .identifier(let w3) = t3,
+                  isKeyword(w3, "else") else {
+                throw ParseError.missingElse
+            }
+            _ = consume()
+            let elseE = try parseConditional()
+            return .ifThenElse(cond, thenE, elseE)
+        }
+        return try parseOr()
+    }
+
+    mutating func parseOr() throws -> Expr {
+        var left = try parseAnd()
+        while true {
+            if let t = peek(), case .op(let op) = t, op == "||" {
+                _ = consume()
+                let right = try parseAnd()
+                left = .or(left, right)
+            } else if let t = peek(), case .identifier(let name) = t,
+                      isKeyword(name, "or") {
+                _ = consume()
+                let right = try parseAnd()
+                left = .or(left, right)
+            } else {
+                break
+            }
+        }
+        return left
+    }
+
+    mutating func parseAnd() throws -> Expr {
+        var left = try parseNot()
+        while true {
+            if let t = peek(), case .op(let op) = t, op == "&&" {
+                _ = consume()
+                let right = try parseNot()
+                left = .and(left, right)
+            } else if let t = peek(), case .identifier(let name) = t,
+                      isKeyword(name, "and") {
+                _ = consume()
+                let right = try parseNot()
+                left = .and(left, right)
+            } else {
+                break
+            }
+        }
+        return left
+    }
+
+    /// `not` / `!` prefix. The tokenizer emits `!=` as its own op
+    /// token, so the `!` pattern below can never consume the equality
+    /// operator.
+    mutating func parseNot() throws -> Expr {
+        if let t = peek(), case .op("!") = t {
+            _ = consume()
+            return .not(try parseNot())
+        }
+        if let t = peek(), case .identifier(let name) = t,
+           isKeyword(name, "not") {
+            _ = consume()
+            return .not(try parseNot())
+        }
+        return try parseEquality()
+    }
+
+    mutating func parseEquality() throws -> Expr {
+        var left = try parseRelational()
+        while let t = peek(), case .op(let op) = t,
+              (op == "==" || op == "!=") {
+            _ = consume()
+            let right = try parseRelational()
+            left = (op == "==") ? .eq(left, right) : .ne(left, right)
+        }
+        return left
+    }
+
+    mutating func parseRelational() throws -> Expr {
+        var left = try parseExpression()
+        while let t = peek(), case .op(let op) = t,
+              (op == "<" || op == "<=" || op == ">" || op == ">=") {
+            _ = consume()
+            let right = try parseExpression()
+            switch op {
+            case "<": left = .lt(left, right)
+            case "<=": left = .le(left, right)
+            case ">": left = .gt(left, right)
+            default: left = .ge(left, right)
+            }
+        }
+        return left
+    }
+
+    mutating func parseExpression() throws -> Expr {
         var left = try parseTerm()
         while let t = peek(), case .op(let op) = t, (op == "+" || op == "-") {
             _ = consume()
@@ -116,7 +292,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
         return left
     }
 
-    func parseTerm() throws -> Expr {
+    mutating func parseTerm() throws -> Expr {
         var left = try parseFactor()
         while true {
             if let t = peek(), case .op(let op) = t, (op == "*" || op == "/") {
@@ -138,7 +314,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
         return left
     }
 
-    func parseFactor() throws -> Expr {
+    mutating func parseFactor() throws -> Expr {
         let left = try parseUnary()
         if let t = peek(), case .op("^") = t {
             _ = consume()
@@ -148,7 +324,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
         return left
     }
 
-    func parseUnary() throws -> Expr {
+    mutating func parseUnary() throws -> Expr {
         if let t = peek(), case .op(let op) = t, (op == "+" || op == "-") {
             _ = consume()
             let v = try parseUnary()
@@ -157,7 +333,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
         return try parsePrimary()
     }
 
-    func parsePrimary() throws -> Expr {
+    mutating func parsePrimary() throws -> Expr {
         guard let tok = peek() else { throw ParseError.unexpectedEnd }
         var node: Expr
         switch tok {
@@ -166,27 +342,41 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
             node = .num(v)
         case .identifier(let name):
             _ = consume()
-            // r47: call position. The tokenizer already skips
-            // whitespace, so an identifier token directly followed by a
-            // `(` token is `name(` or `name (` — a call head. A KNOWN
-            // builtin takes precedence over any same-named variable or
-            // constant ONLY here; in every non-call position the
-            // identifier stays an ordinary variable lookup. An UNKNOWN
-            // name in call position is strict — a deterministic
-            // "unknown function" error, never a parenthesized operand.
-            if let next = peek(), case .paren("(") = next {
-                if MathFunctions.isKnown(name) {
-                    node = try parseFunctionCall(name)
-                } else {
-                    _ = consume()
-                    throw ParseError.unknownFunction(name)
-                }
+            // r82: boolean literals — only when no active variable/
+            // constant carries the same name (keyword compatibility).
+            if isKeyword(name, "true") {
+                node = .boolLit(true)
+            } else if isKeyword(name, "false") {
+                node = .boolLit(false)
             } else {
-                node = .variable(name)
+                // r47: call position. The tokenizer already skips
+                // whitespace, so an identifier token directly followed
+                // by a `(` token is `name(` or `name (` — a call head.
+                // A KNOWN builtin takes precedence over any same-named
+                // variable or constant ONLY here; in every non-call
+                // position the identifier stays an ordinary variable
+                // lookup. An UNKNOWN name in call position is strict —
+                // a deterministic "unknown function" error, never a
+                // parenthesized operand.
+                if let next = peek(), case .paren("(") = next {
+                    if MathFunctions.isKnown(name) {
+                        node = try parseFunctionCall(name)
+                    } else {
+                        _ = consume()
+                        throw ParseError.unknownFunction(name)
+                    }
+                } else {
+                    node = .variable(name)
+                }
             }
         case .paren("("):
             _ = consume()
-            node = try parseExpression()
+            // r82: a parenthesized group is a FULL expression — it may
+            // contain comparisons, logical operators and conditionals
+            // (`false && (1/0 > 0)`, `not (true and false)`). The
+            // numeric entry still rejects any boolean production inside
+            // (evalNumeric throws `booleanExpression`).
+            node = try parseConditional()
             guard let closing = peek(), case .paren(")") = closing else {
                 throw ParseError.missingClosingParen
             }
@@ -208,7 +398,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
     /// strict and deterministic: empty args, trailing commas, doubled
     /// commas and missing separators are distinct syntax failures; a
     /// missing close reuses `missingClosingParen`.
-    func parseFunctionCall(_ name: String) throws -> Expr {
+    mutating func parseFunctionCall(_ name: String) throws -> Expr {
         let key = name.lowercased()
         let (minArgs, maxArgs) = MathFunctions.arity(key)!
         _ = consume() // "("
@@ -252,31 +442,32 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
         return .funcall(key, args)
     }
 
-    func isPurePercent(_ node: Expr) -> Bool {
-        if case .percent = node { return true }
-        return false
-    }
-
     func isOfEligible(_ node: Expr) -> Bool {
         if case .percent = node { return true }
         if case .of = node { return true }
         return false
     }
 
-    // MARK: - Evaluation (contextual percentages live here)
+    // MARK: - Numeric evaluation (legacy semantics)
 
-    func eval(_ node: Expr) throws -> EvalValue {
+    /// The legacy value evaluator: contextual percentages and pure
+    /// scalar arithmetic. r82: any boolean production reached here
+    /// fails DETERMINISTICALLY — the numeric API never coerces a
+    /// boolean to 0/1.
+    func evalNumeric(_ node: Expr) throws -> EvalValue {
         switch node {
         case .num(let v):
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         case .variable(let name):
-            guard let v = variables[name] else { throw ParseError.unknownVariable(name) }
-            guard v.isFinite else { throw ParseError.invalidVariable(name) }
-            return EvalValue(value: v, purePercent: false)
+            guard let v = vars[name], case .number(let n) = v, n.isFinite else {
+                if vars[name] == nil { throw ParseError.unknownVariable(name) }
+                throw ParseError.booleanExpression
+            }
+            return EvalValue(value: n, purePercent: false)
         case .add(let l, let r):
-            let a = try eval(l)
-            let b = try eval(r)
+            let a = try evalNumeric(l)
+            let b = try evalNumeric(r)
             let v: Double
             if b.purePercent {
                 // `base + base×p/100` — the base is the accumulated
@@ -288,8 +479,8 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         case .sub(let l, let r):
-            let a = try eval(l)
-            let b = try eval(r)
+            let a = try evalNumeric(l)
+            let b = try evalNumeric(r)
             let v: Double
             if b.purePercent {
                 v = a.value - a.value * b.value
@@ -299,37 +490,37 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         case .mul(let l, let r):
-            let a = try eval(l)
-            let b = try eval(r)
+            let a = try evalNumeric(l)
+            let b = try evalNumeric(r)
             let v = a.value * b.value
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         case .div(let l, let r):
-            let a = try eval(l)
-            let b = try eval(r)
+            let a = try evalNumeric(l)
+            let b = try evalNumeric(r)
             if b.value == 0 { throw ParseError.divisionByZero }
             let v = a.value / b.value
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         case .pow(let l, let r):
-            let a = try eval(l)
-            let b = try eval(r)
+            let a = try evalNumeric(l)
+            let b = try evalNumeric(r)
             let v = pow(a.value, b.value)
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
         case .neg(let l):
-            let a = try eval(l)
+            let a = try evalNumeric(l)
             let v = -a.value
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             // A unary minus yields an ordinary scalar: `-10%` = -0.1.
             return EvalValue(value: v, purePercent: false)
         case .percent(let l):
-            let a = try eval(l)
+            let a = try evalNumeric(l)
             let v = a.value / 100
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: true)
         case .of(let l, let r):
-            let a = try eval(l)
+            let a = try evalNumeric(l)
             let eligible: Bool
             if case .of = l {
                 eligible = true
@@ -337,7 +528,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
                 eligible = a.purePercent
             }
             guard eligible else { throw ParseError.unexpectedToken("of") }
-            let b = try eval(r)
+            let b = try evalNumeric(r)
             let v = a.value * b.value
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
@@ -345,7 +536,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
             // r47: arguments are plain scalars — a percent argument is
             // its non-additive value (`10%` = 0.1). Domain and
             // non-finite failures carry the registry's stable message.
-            let values = try args.map { try eval($0).value }
+            let values = try args.map { try evalNumeric($0).value }
             let v: Double
             do {
                 v = try MathFunctions.evaluate(key, args: values)
@@ -354,16 +545,214 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
             }
             guard v.isFinite else { throw ParseError.nonFiniteResult }
             return EvalValue(value: v, purePercent: false)
+        // r82: boolean productions are unreachable on a healthy numeric
+        // line; when one reaches here (a boolean variable on a numeric
+        // route) the deterministic failure is the boolean sentinel —
+        // never a coercion.
+        case .boolLit, .not, .and, .or, .lt, .le, .gt, .ge, .eq, .ne, .ifThenElse:
+            throw ParseError.booleanExpression
         }
     }
 
-    let parsed = try parseExpression()
-    if pos < tokens.count {
-        throw ParseError.unexpectedToken("\(tokens[pos])")
+    // MARK: - r82: typed evaluation (strict typing, lazy branches)
+
+    /// Strict typed evaluation: scalars and booleans never mix.
+    /// - arithmetic / `of` / functions: scalar operands only;
+    /// - relational ordering (`< <= > >=`): scalar operands only (a
+    ///   boolean here is a chained comparison — `1 < 2 < 3`);
+    /// - equality / inequality: scalar-scalar or bool-bool;
+    /// - `and` / `or` / `not` / the conditional: boolean operands,
+    ///   and `and` / `or` / the conditional evaluate ONLY what is
+    ///   required (the unselected branch never runs, so it cannot
+    ///   divide by zero or mutate anything).
+    func evalTyped(_ node: Expr) throws -> TypedScalar {
+        switch node {
+        case .num(let v):
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .variable(let name):
+            guard let v = vars[name] else { throw ParseError.unknownVariable(name) }
+            if case .number(let n) = v, !n.isFinite { throw ParseError.invalidVariable(name) }
+            return v
+        case .add(let l, let r):
+            return .number(try arithmetic(l, r) { a, b in a + b })
+        case .sub(let l, let r):
+            return .number(try arithmetic(l, r) { a, b in a - b })
+        case .mul(let l, let r):
+            return .number(try arithmetic(l, r) { a, b in a * b })
+        case .div(let l, let r):
+            let a = try scalar(l, op: "/")
+            let b = try scalar(r, op: "/")
+            if b == 0 { throw ParseError.divisionByZero }
+            let v = a / b
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .pow(let l, let r):
+            let a = try scalar(l, op: "^")
+            let b = try scalar(r, op: "^")
+            let v = pow(a, b)
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .neg(let l):
+            let a = try scalar(l, op: "-")
+            let v = -a
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .percent(let l):
+            let a = try scalar(l, op: "%")
+            let v = a / 100
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .of(let l, let r):
+            let a = try scalar(l, op: "of")
+            let b = try scalar(r, op: "of")
+            let v = a * b
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .funcall(let key, let args):
+            let values = try args.map { try scalar($0, op: key) }
+            let v: Double
+            do {
+                v = try MathFunctions.evaluate(key, args: values)
+            } catch let e as MathFunctions.MathFunctionError {
+                throw ParseError.functionError(e.errorDescription ?? "Invalid function")
+            }
+            guard v.isFinite else { throw ParseError.nonFiniteResult }
+            return .number(v)
+        case .boolLit(let b):
+            return .bool(b)
+        case .not(let l):
+            let a = try boolean(l, op: "not")
+            return .bool(!a)
+        case .and(let l, let r):
+            let a = try boolean(l, op: "and")
+            if !a { return .bool(false) } // short-circuit: r never runs
+            let b = try boolean(r, op: "and")
+            return .bool(a && b)
+        case .or(let l, let r):
+            let a = try boolean(l, op: "or")
+            if a { return .bool(true) } // short-circuit: r never runs
+            let b = try boolean(r, op: "or")
+            return .bool(a || b)
+        case .lt(let l, let r):
+            return .bool(try relational(l, r, op: "<") { $0 < $1 })
+        case .le(let l, let r):
+            return .bool(try relational(l, r, op: "<=") { $0 <= $1 })
+        case .gt(let l, let r):
+            return .bool(try relational(l, r, op: ">") { $0 > $1 })
+        case .ge(let l, let r):
+            return .bool(try relational(l, r, op: ">=") { $0 >= $1 })
+        case .eq(let l, let r):
+            return .bool(try equality(l, r, op: "==", negate: false))
+        case .ne(let l, let r):
+            return .bool(try equality(l, r, op: "!=", negate: true))
+        case .ifThenElse(let cond, let t, let e):
+            let c = try boolean(cond, op: "if")
+            // Lazy: exactly one branch evaluates — the other cannot
+            // divide by zero or mutate the environment.
+            return c ? try evalTyped(t) : try evalTyped(e)
+        }
     }
-    // Overflow defense: every intermediate was checked above; the final
-    // value is finite by construction (kept as a last-line invariant).
-    let result = try eval(parsed)
+
+    /// Both operands must be finite scalars (a boolean here — including
+    /// a chained comparison like `1 < 2 < 3` — is a type error).
+    private func arithmetic(_ l: Expr, _ r: Expr,
+                            _ f: (Double, Double) -> Double) throws -> Double {
+        let a = try scalar(l, op: "arithmetic")
+        let b = try scalar(r, op: "arithmetic")
+        let v = f(a, b)
+        guard v.isFinite else { throw ParseError.nonFiniteResult }
+        return v
+    }
+
+    private func scalar(_ node: Expr, op: String) throws -> Double {
+        let v = try evalTyped(node)
+        if case .number(let n) = v { return n }
+        throw ParseError.scalarExpected(op: op)
+    }
+
+    private func boolean(_ node: Expr, op: String) throws -> Bool {
+        let v = try evalTyped(node)
+        if case .bool(let b) = v { return b }
+        throw ParseError.booleanExpected(op: op)
+    }
+
+    private func relational(_ l: Expr, _ r: Expr, op: String,
+                            _ f: (Double, Double) -> Bool) throws -> Bool {
+        let a = try scalar(l, op: op)
+        let b = try scalar(r, op: op)
+        return f(a, b)
+    }
+
+    private func equality(_ l: Expr, _ r: Expr, op: String,
+                          negate: Bool) throws -> Bool {
+        let a = try evalTyped(l)
+        let b = try evalTyped(r)
+        let same: Bool
+        switch (a, b) {
+        case (.number(let x), .number(let y)):
+            same = (x == y)
+        case (.bool(let x), .bool(let y)):
+            same = (x == y)
+        case (.number, .bool), (.bool, .number):
+            throw ParseError.mixedTypes(op: op)
+        }
+        return negate ? !same : same
+    }
+}
+
+// MARK: - Entry points
+
+/// The LEGACY numeric entry point: normalization, tokenization and the
+/// recursive-descent parse all run under `context` (decimal
+/// separators, grouping strips, the `;`/`,` argument convention). The
+/// value grammar below is mode-independent: the normalized, tokenized
+/// form is identical in shape to the legacy one.
+public func evaluateExpression(_ expr: String, variables: [String: Double]) throws -> Double {
+    try evaluateExpression(expr, variables: variables, context: .legacy)
+}
+
+/// The numeric entry: parses down to the ADDITIVE level (boolean
+/// operators at the top level stay an unexpected-token failure,
+/// exactly like the pre-r82 behavior for unknown characters) and
+/// evaluates with the legacy contextual-percentage semantics. Any
+/// boolean-shaped line fails deterministically (`booleanExpression` or
+/// `unexpectedToken`) — never a coercion to 0/1.
+public func evaluateExpression(_ expr: String, variables: [String: Double],
+                               context: NumberFormatContext) throws -> Double {
+    let trimmed = expr.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty { throw ParseError.emptyExpression }
+    // r47: normalize FIRST (idempotent — the line routes normalize
+    // before calling, and re-normalizing a normalized string is a
+    // no-op): commas outside calls are grouping artifacts and are
+    // stripped, commas inside calls keep the shared separator rule.
+    // The direct API and the line routes therefore always agree.
+    let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
+    let vars = variables.mapValues { TypedScalar.number($0) }
+    var parser = ExprParser(tokens: tokens, vars: vars)
+    let parsed = try parser.parseExpression()
+    if parser.pos < parser.tokens.count {
+        throw ParseError.unexpectedToken("\(parser.tokens[parser.pos])")
+    }
+    let result = try parser.evalNumeric(parsed)
     guard result.value.isFinite else { throw ParseError.nonFiniteResult }
     return result.value
+}
+
+/// r82: the TYPED entry point: the same normalization/tokenization,
+/// the full boolean precedence chain, and strict typed evaluation.
+/// `variables` carries both finite scalars and booleans; a boolean
+/// result is returned as `TypedScalar.bool` — never a numeric 1/0.
+public func evaluateTypedExpression(_ expr: String,
+                                    variables: [String: TypedScalar],
+                                    context: NumberFormatContext = .legacy) throws -> TypedScalar {
+    let trimmed = expr.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty { throw ParseError.emptyExpression }
+    let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
+    var parser = ExprParser(tokens: tokens, vars: variables)
+    let parsed = try parser.parseConditional()
+    if parser.pos < parser.tokens.count {
+        throw ParseError.unexpectedToken("\(parser.tokens[parser.pos])")
+    }
+    return try parser.evalTyped(parsed)
 }
