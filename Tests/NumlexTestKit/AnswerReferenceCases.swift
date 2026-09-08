@@ -65,7 +65,7 @@ public let answerReferenceCases: [EngineCase] = [
         try expectEqual(refs[0].location, 16, "marker offset followed the edit")
         // And the link really resolves after the shift.
         let (lines, tokens) = resolve(new, ids: ids, refs: refs)
-        if case .number(let v, let u) = lines[2].result {
+        if case .number(let v, let u, _, _) = lines[2].result {
             try expectEqual(v, 5000, "live value after edits above")
             try expectEqual(u ?? "<none>", "m", "unit kept")
         } else {
@@ -106,7 +106,7 @@ public let answerReferenceCases: [EngineCase] = [
         try expectEqual(refs[0].location, 10, "marker offset remapped")
         try expectEqual(ids[1], u2, "token line kept its own ID")
         let (lines, _) = resolve(new, ids: ids, refs: refs)
-        if case .number(let v, _) = lines[1].result {
+        if case .number(let v, _, _, _) = lines[1].result {
             try expectEqual(v, 5000, "still live")
         } else {
             throw CaseFailure(message: "expected live number, got \(lines[1].result)",
@@ -128,7 +128,7 @@ public let answerReferenceCases: [EngineCase] = [
         try expectEqual(refs[0].location, 22, "marker offset remapped")
         try expectEqual(ids.count, 4, "four logical lines")
         let (lines, _) = resolve(new, ids: ids, refs: refs)
-        if case .number(let v, let u) = lines[3].result {
+        if case .number(let v, let u, _, _) = lines[3].result {
             try expectEqual(v, 5000, "live across the insertion")
             try expectEqual(u ?? "<none>", "m", "unit kept")
         } else {
@@ -169,7 +169,7 @@ public let answerReferenceCases: [EngineCase] = [
         try expectEqual(refs.count, 1, "token survived the in-place replacement")
         try expectEqual(refs[0].location, 11, "marker offset remapped")
         let (lines, _) = resolve(new, ids: ids, refs: refs)
-        if case .variable(let name, let v) = lines[1].result {
+        if case .variable(let name, let v, _, _) = lines[1].result {
             try expectEqual(name, "y", "assignment variable")
             try expectEqual(v, 12, "assignment takes the live unitless value")
         } else {
@@ -418,7 +418,7 @@ public let answerReferenceCases: [EngineCase] = [
         let (lines, tokens) = resolve(new, ids: ids, refs: refs)
         try expectEqual(tokens[0].state, .active(value: 998, unit: nil, display: "998"),
                         "live value after the same-line edit")
-        if case .number(let v, _) = lines[0].result {
+        if case .number(let v, _, _, _) = lines[0].result {
             try expectEqual(v, 998, "source line evaluated")
         } else {
             throw CaseFailure(message: "expected 998, got \(lines[0].result)",

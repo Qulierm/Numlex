@@ -207,7 +207,7 @@ public let r33Cases: [EngineCase] = [
     EngineCase("r33-sheet-first-line") {
         let cs = [rc("PI", "3.141592653589793")]
         let lines = resolveLines("PI × 2", constants: cs)
-        guard case .number(let v, let u) = lines[0].result else {
+        guard case .number(let v, let u, _, _) = lines[0].result else {
             throw CaseFailure(message: "PI × 2 must be a number, got \(lines[0].result)",
                               location: "R33Cases")
         }
@@ -218,13 +218,13 @@ public let r33Cases: [EngineCase] = [
     EngineCase("r33-sheet-casefold-multispace") {
         let cs = [rc("PI", "3.141592653589793"), rc("Sales Tax", "20%")]
         let a = resolveLines("pi   × 2", constants: cs)
-        guard case .number(let v, _) = a[0].result else {
+        guard case .number(let v, _, _, _) = a[0].result else {
             throw CaseFailure(message: "pi × 2 must evaluate, got \(a[0].result)",
                               location: "R33Cases")
         }
         try expectClose(v, 6.2831853072, 1e-9, "casefold PI")
         let b = resolveLines("SALES   TAX × 100", constants: cs)
-        guard case .number(let w, _) = b[0].result else {
+        guard case .number(let w, _, _, _) = b[0].result else {
             throw CaseFailure(message: "SALES TAX × 100 must evaluate, got \(b[0].result)",
                               location: "R33Cases")
         }
@@ -243,7 +243,7 @@ public let r33Cases: [EngineCase] = [
         // Fiat conversion of a money constant with synthetic rates.
         let rates = Rates(base: "USD", rates: ["USD": 1, "EUR": 1.1])
         let b = resolveLines("Monthly Rent in EUR", constants: cs, rates: rates)
-        guard case .number(let w, let u) = b[0].result else {
+        guard case .number(let w, let u, _, _) = b[0].result else {
             throw CaseFailure(message: "rent in EUR must convert, got \(b[0].result)",
                               location: "R33Cases")
         }
@@ -264,13 +264,13 @@ public let r33Cases: [EngineCase] = [
             }
             try expectEqual(msg, "Cannot assign to constant", "row \(i) message")
         }
-        guard case .variable(let n, let v) = lines[3].result else {
+        guard case .variable(let n, let v, _, _) = lines[3].result else {
             throw CaseFailure(message: "x = 4 must assign, got \(lines[3].result)",
                               location: "R33Cases")
         }
         try expectEqual(n, "x", "ordinary assignment works")
         try expectClose(v, 4, 0, "x value")
-        guard case .number(let w, _) = lines[4].result else {
+        guard case .number(let w, _, _, _) = lines[4].result else {
             throw CaseFailure(message: "x × 2 must evaluate, got \(lines[4].result)",
                               location: "R33Cases")
         }
@@ -282,7 +282,7 @@ public let r33Cases: [EngineCase] = [
         // local variable again.
         let cs = [UserConstant(name: "g", expression: "9.81")]
         let lines = resolveLines("g = 5", constants: cs)
-        guard case .variable(let n, let v) = lines[0].result else {
+        guard case .variable(let n, let v, _, _) = lines[0].result else {
             throw CaseFailure(message: "g = 5 must assign, got \(lines[0].result)",
                               location: "R33Cases")
         }
@@ -301,12 +301,12 @@ public let r33Cases: [EngineCase] = [
         let (lines, tokens) = resolveSheet(content: content, lineIDs: [u0, u1],
                                            references: refs, rates: Rates(),
                                            decimalPlaces: 7, constants: cs)
-        guard case .number(let v, _) = lines[0].result else {
+        guard case .number(let v, _, _, _) = lines[0].result else {
             throw CaseFailure(message: "line 0 must be a number, got \(lines[0].result)",
                               location: "R33Cases")
         }
         try expectClose(v, 6.2831853072, 1e-9, "source value")
-        guard case .number(let w, _) = lines[1].result else {
+        guard case .number(let w, _, _, _) = lines[1].result else {
             throw CaseFailure(message: "token line must be a number, got \(lines[1].result)",
                               location: "R33Cases")
         }
@@ -379,8 +379,8 @@ public let r33Cases: [EngineCase] = [
         let b = resolveSheet(content: content, lineIDs: ids, references: [],
                              rates: Rates(), decimalPlaces: 7,
                              constants: [rc("PI", "2")]).lines
-        guard case .number(let va, _) = a[0].result,
-              case .number(let vb, _) = b[0].result else {
+        guard case .number(let va, _, _, _) = a[0].result,
+              case .number(let vb, _, _, _) = b[0].result else {
             throw CaseFailure(message: "both must evaluate", location: "R33Cases")
         }
         try expectClose(va, 6.2831853072, 1e-9, "before")
@@ -391,7 +391,7 @@ public let r33Cases: [EngineCase] = [
         var v: [String: Double] = [:]
         let r = evalLine("pi × 2", variables: &v, rates: Rates(), decimalPlaces: 7,
                          constants: [rc("PI", "3.141592653589793")])
-        guard case .number(let val, let u)? = r else {
+        guard case .number(let val, let u, _, _)? = r else {
             throw CaseFailure(message: "evalLine must evaluate, got \(String(describing: r))",
                               location: "R33Cases")
         }

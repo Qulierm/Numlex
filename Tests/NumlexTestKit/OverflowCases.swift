@@ -17,7 +17,7 @@ public let overflowCases: [EngineCase] = [
                                rates: Rates(), decimalPlaces: 7) else {
             throw CaseFailure(message: "conversion must evaluate", location: "OverflowCases")
         }
-        guard case .number(let v, let u) = r else {
+        guard case .number(let v, let u, _, _) = r else {
             throw CaseFailure(message: "must be a conversion number, got \(r)",
                               location: "OverflowCases")
         }
@@ -150,7 +150,7 @@ public let overflowCases: [EngineCase] = [
         var vars: [String: Double] = [:]
         let big = "1" + String(repeating: "0", count: 36) // 1e36, finite
         let r = evalLine("\(big) kg to mg", variables: &vars, rates: Rates(), decimalPlaces: 7)
-        guard case .number(let v, let u)? = r else {
+        guard case .number(let v, let u, _, _)? = r else {
             throw CaseFailure(message: "1e36 kg to mg must evaluate, got \(String(describing: r))",
                               location: "OverflowCases")
         }
@@ -196,7 +196,7 @@ public let overflowCases: [EngineCase] = [
         // Ordinary rates are untouched.
         let ok = evalLine("10 USD to RUB", variables: &vars,
                           rates: Rates(base: "USD", rates: ["USD": 1, "RUB": 90]), decimalPlaces: 7)
-        guard case .number(let v, let u)? = ok else {
+        guard case .number(let v, let u, _, _)? = ok else {
             throw CaseFailure(message: "10 USD to RUB @90 must work, got \(String(describing: ok))",
                               location: "OverflowCases")
         }

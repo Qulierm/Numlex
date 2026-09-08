@@ -949,6 +949,11 @@ final class NotebookEditorCoordinator: NSObject {
             case .active(_, _, let display):
                 label = display
                 active = true
+            case .activeKinded(_, _, _, _, let display):
+                // r83: a kinded answer token (`20%`, `1/5`, `1.5x`)
+                // shows its kinded string like any active token.
+                label = display
+                active = true
             case .activeBool(_, let display):
                 label = display
                 active = true
@@ -976,6 +981,7 @@ final class NotebookEditorCoordinator: NSObject {
             let display: String
             switch state {
             case .active(_, _, let d): display = d
+            case .activeKinded(_, _, _, _, let d): display = d
             case .activeBool(_, let d): display = d
             case .broken(let n): display = "Line \(n)"
             case nil: display = "Line \(ref.labelLine)"

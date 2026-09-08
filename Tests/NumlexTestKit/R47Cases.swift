@@ -44,7 +44,7 @@ private func lineResults(_ content: String,
 }
 
 private func num(_ r: LineResult) -> Double? {
-    if case .number(let v, let u) = r { return u == nil ? v : nil }
+    if case .number(let v, let u, _, _) = r { return u == nil ? v : nil }
     return nil
 }
 
@@ -317,7 +317,7 @@ public let r47Cases: [EngineCase] = [
         try expect(isErr(r2[0]), "unit args error")
         // The legacy unit conversion route is untouched.
         let r3 = lineResults("10 km to m")
-        if case .number(let v, let u) = r3[0] {
+        if case .number(let v, let u, _, _) = r3[0] {
             try expectEqual(v, 10000, "conversion value unchanged")
             try expectEqual(u, "m", "conversion unit unchanged")
         } else {

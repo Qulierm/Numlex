@@ -16,7 +16,7 @@ private func expectRich(_ line: String, _ value: Double, _ unit: String,
                         tolerance: Double = 0.0001,
                         rates: Rates = Rates()) throws {
     guard let r = richEval(line, rates: rates),
-          case .number(let v, let u) = r else {
+          case .number(let v, let u, _, _) = r else {
         throw CaseFailure(message: "\(line) must be a conversion, got \(String(describing: richEval(line, rates: rates)))",
                           location: "RichConversionCases")
     }
@@ -215,7 +215,7 @@ public let richConversionCases: [EngineCase] = [
         try expectRich("-5 C to F", 23, "F°")
                 // Multiple `to` words are not a conversion: the line falls back
         // to expression evaluation exactly like the legacy engine.
-        guard let mm = richEval("5 m to m to m"), case .number(let mmv, _) = mm else {
+        guard let mm = richEval("5 m to m to m"), case .number(let mmv, _, _, _) = mm else {
             throw CaseFailure(message: "5 m to m to m must evaluate as expression",
                               location: "RichConversionCases")
         }
@@ -233,11 +233,11 @@ public let richConversionCases: [EngineCase] = [
 
     EngineCase("rich-not-conversions") {
         // Compact suffixes stay magnitudes.
-        guard let a = richEval("5m"), case .number(let va, _) = a else {
+        guard let a = richEval("5m"), case .number(let va, _, _, _) = a else {
             throw CaseFailure(message: "5m must evaluate", location: "RichConversionCases")
         }
         try expectClose(va, 5_000_000, 0, "5m = 5e6")
-        guard let b = richEval("2.5k"), case .number(let vb, _) = b else {
+        guard let b = richEval("2.5k"), case .number(let vb, _, _, _) = b else {
             throw CaseFailure(message: "2.5k must evaluate", location: "RichConversionCases")
         }
         try expectClose(vb, 2500, 0, "2.5k = 2500")

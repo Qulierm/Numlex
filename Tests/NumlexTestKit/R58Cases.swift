@@ -40,7 +40,7 @@ private func r58IDs(_ n: Int) -> [UUID] { (0..<n).map { _ in UUID() } }
 /// number (every inequality below then fails loudly — never a silent
 /// pass through Optional promotion).
 private func r58Number(_ lines: [SheetLine], _ i: Int) -> Double {
-    if case .number(let v, nil) = lines[i].result { return v }
+    if case .number(let v, nil, _, _) = lines[i].result { return v }
     return .nan
 }
 
@@ -168,7 +168,7 @@ public let r58Cases: [EngineCase] = [
         // boundary), and later bare `total` lines stay ordinary too —
         // no flag anywhere, no reset anywhere.
         let lines = r58Sheet("total = 5\n3\ntotal")
-        if case .variable(let name, let v) = lines[0].result {
+        if case .variable(let name, let v, _, _) = lines[0].result {
             try expectEqual(name, "total", "assignment kept")
             try expectEqual(v, 5, "assigned value")
         } else {

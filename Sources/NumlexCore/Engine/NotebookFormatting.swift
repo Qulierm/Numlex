@@ -89,7 +89,7 @@ public enum NotebookFormatting {
                                           now: Date(), calendar: Calendar.current,
                                           context: context) {
                 switch result {
-                case .number(_, .none), .variable, .boolean, .error:
+                case .number(_, .none, _, _), .variable, .boolean, .error:
                     out.append(canonicalMathText(line))
                 case .money:
                     // A money result that is NOT in natural shape (a
@@ -98,7 +98,7 @@ public enum NotebookFormatting {
                     // operators canonicalized, every other glyph (names,
                     // markers, prose) byte-identical.
                     out.append(naturalOperatorCanonical(line).text)
-                case .number(_, .some), .date, .blank, .skip, .title, .brokenToken:
+                case .number(_, .some, _, _), .date, .blank, .skip, .title, .brokenToken:
                     // Conversions and date lines are preserved
                     // byte-identical: their prose and glyph placement
                     // (unit words, month names) have no caret map.
@@ -140,7 +140,7 @@ public enum NotebookFormatting {
                              decimalPlaces: decimalPlaces,
                              now: Date(), calendar: Calendar.current,
                              context: context) {
-        case .number(_, let unit):
+        case .number(_, let unit, _, _):
             return unit == nil
         case .variable, .boolean, .error:
             return true
@@ -490,10 +490,35 @@ public enum NotebookFormatting {
     // MARK: - Re-emitter
 
     private static func reemit(_ toks: [Tok], replaceStar: Bool) -> String {
+        // r83: for each token, the last BINARY operator at paren depth
+        // 0 before it — the spaced-terminal-`%` conversion (`20/200 %`)
+        // is only a conversion when the preceding chain's top level is
+        // a division; the space is what distinguishes it from the
+        // postfix `20/200%` (percent binds to the last number).
+        var lastTopOps: [String?] = []
+        lastTopOps.reserveCapacity(toks.count)
+        var depth = 0
+        var lastTop: String? = nil
+        for t in toks {
+            lastTopOps.append(lastTop)
+            switch t.kind {
+            case .parenOpen:
+                depth += 1
+            case .parenClose:
+                if depth > 0 { depth -= 1 }
+            case .op:
+                if depth == 0 { lastTop = t.text }
+            default:
+                break
+            }
+        }
         var out = ""
         var lastWasOp = false
         var justUnary = false
-        for t in toks {
+        let hasWordInLine = toks.contains {
+            $0.kind == .text && $0.text.contains(where: { $0.isLetter })
+        }
+        for (idx, t) in toks.enumerated() {
             switch t.kind {
             case .op:
                 let glyph = (t.text == "*" && replaceStar) ? "×" : t.text
@@ -518,7 +543,28 @@ public enum NotebookFormatting {
                 lastWasOp = false
                 justUnary = false
             case .percent:
-                if !lastWasOp, out.hasSuffix(" ") { out.removeLast() }
+                // r83: a TERMINAL ` %` whose preceding chain ends at
+                // top level with a division KEEPS its space (`20/200 %`
+                // converts the whole division to a percent; `2/3 %`
+                // likewise) — the space is semantic and is what keeps
+                // the line distinct from the postfix `20/200%` (where
+                // the percent binds to the last number). Every other
+                // space before `%` (a plain literal `50 %`, a
+                // parenthesized primary, a non-terminal `%`) is dropped
+                // exactly as before.
+                let isLast = idx == toks.count - 1
+                // A word anywhere in the line (`1/3 as %`) means this
+                // is a phrase, not the spaced division conversion —
+                // the space there is ordinary, not semantic.
+                let terminalDivision = isLast
+                    && t.wsBefore
+                    && !hasWordInLine
+                    && (lastTopOps[idx] == "/" || lastTopOps[idx] == "÷")
+                if terminalDivision {
+                    if !out.isEmpty && !out.hasSuffix(" ") { out.append(" ") }
+                } else {
+                    if !lastWasOp, out.hasSuffix(" ") { out.removeLast() }
+                }
                 out.append("%")
                 lastWasOp = false
                 justUnary = false

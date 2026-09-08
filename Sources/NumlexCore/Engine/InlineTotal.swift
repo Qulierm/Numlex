@@ -68,9 +68,9 @@ public enum InlineTotal {
     public static func contribution(of result: LineResult, isTotalRow: Bool) -> Double? {
         guard !isTotalRow else { return nil }
         switch result {
-        case .number(let v, nil) where v.isFinite:
+        case .number(let v, nil, _, _) where v.isFinite:
             return v
-        case .variable(_, let v) where v.isFinite:
+        case .variable(_, let v, _, _) where v.isFinite:
             return v
         default:
             return nil

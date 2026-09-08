@@ -29,7 +29,7 @@ private func applyEdit(_ doc: String, _ replacement: String,
 
 private func evalOne(_ line: String) throws -> (Double, String?) {
     var v: [String: Double] = [:]
-    guard case .number(let value, let unit)? = evalLine(line,
+    guard case .number(let value, let unit, _, _)? = evalLine(line,
                                                        variables: &v,
                                                        rates: Rates(),
                                                        decimalPlaces: 7)
@@ -161,8 +161,8 @@ public let spaceTypingCases: [EngineCase] = [
         var vars: [String: Double] = [:]
         let rows = evaluateSheet(doc, variables: &vars, rates: Rates(),
                                  decimalPlaces: 7)
-        guard case .number(let v1, let u1) = rows[0].result,
-              case .number(let v2, nil) = rows[1].result else {
+        guard case .number(let v1, let u1, _, _) = rows[0].result,
+              case .number(let v2, nil, _, _) = rows[1].result else {
             throw CaseFailure(message: "rows must evaluate",
                               location: "SpaceTypingCases")
         }

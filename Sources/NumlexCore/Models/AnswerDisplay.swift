@@ -92,6 +92,40 @@ public enum AnswerDisplay {
     /// - currency/money: the shared fixed `formatMoney` presentation;
     /// - date: `DateArithmetic.display`; broken token: `Line N`;
     /// - `Rates unavailable`: exactly that text.
+    /// r83: the locale-aware string of a SEMANTIC numeric value at the
+    /// effective decimals — the ONE shared kinded presentation (answer
+    /// copy, token capsule display, token insertion text):
+    /// - plain: the number (plus `<unit>` when the unit renders);
+    /// - percent: the numeric component ratio × 100 with `%` glued;
+    /// - fraction: the reduced rational verbatim (`1/5`);
+    /// - multiplier: the factor with `x` glued (`1.5x`).
+    public static func formatKinded(_ value: Double, unit: String?,
+                                    kind: NumericKind, fraction: Rational?,
+                                    decimalPlaces: Int,
+                                    context: NumberFormatContext) -> String {
+        switch kind {
+        case .plain:
+            let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
+                                       context: context.withoutCompactNotation)
+            if let u = unit { return "\(s) \(u)" }
+            return s
+        case .percent:
+            let s = formatDisplayValue(value * 100, decimalPlaces: decimalPlaces,
+                                       context: context.withoutCompactNotation)
+            return "\(s)%"
+        case .fraction:
+            if let r = fraction {
+                return "\(r.numerator)/\(r.denominator)"
+            }
+            return formatDisplayValue(value, decimalPlaces: decimalPlaces,
+                                      context: context.withoutCompactNotation)
+        case .multiplier:
+            let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
+                                       context: context.withoutCompactNotation)
+            return "\(s)x"
+        }
+    }
+
     public static func text(for result: LineResult, decimalPlaces: Int) -> String? {
         text(for: result, decimalPlaces: decimalPlaces, context: .legacy)
     }
@@ -106,20 +140,21 @@ public enum AnswerDisplay {
         switch result {
         case .blank, .skip, .title:
             return nil
-        case .number(let v, let unit):
+        case .number(let v, let unit, let kind, let fraction):
             if let u = unit, isCurrencyCode(u) {
                 return formatMoney(v, code: u, context: context)
             }
-            let s = formatDisplayValue(v, decimalPlaces: decimalPlaces,
-                                       context: context.withoutCompactNotation)
-            if let u = unit { return "\(s) \(u)" }
-            return s
+            // r83: the ONE shared kinded presentation.
+            return formatKinded(v, unit: unit, kind: kind, fraction: fraction,
+                                decimalPlaces: decimalPlaces, context: context)
         case .boolean(let b):
             // r82: booleans copy exactly as their lowercase word.
             return b ? "true" : "false"
-        case .variable(_, let v):
-            return formatDisplayValue(v, decimalPlaces: decimalPlaces,
-                                      context: context.withoutCompactNotation)
+        case .variable(_, let v, let kind, let fraction):
+            // r83: an assigned value keeps its semantic kind on display
+            // (`x = 10% + 20%` shows `30%`).
+            return formatKinded(v, unit: nil, kind: kind, fraction: fraction,
+                                decimalPlaces: decimalPlaces, context: context)
         case .money(let v, let code):
             return formatMoney(v, code: code, context: context)
         case .date(let y, let m, let d, let showYear):
@@ -164,13 +199,28 @@ public enum AnswerDisplay {
             return msg == "Rates unavailable"
                 ? Menu(showsActions: true, showsRounding: false)
                 : nil
-        case .number(_, let unit):
+        case .number(_, let unit, let kind, _):
             if let u = unit, isCurrencyCode(u) {
                 return Menu(showsActions: true, showsRounding: false)
             }
-            return Menu(showsActions: true, showsRounding: true)
-        case .variable:
-            return Menu(showsActions: true, showsRounding: true)
+            switch kind {
+            case .plain, .percent, .multiplier:
+                // r83: percent and multiplier answers round their
+                // DISPLAYED numeric component (the percent number or
+                // the factor) — the same 0...10 slider as plain numbers.
+                return Menu(showsActions: true, showsRounding: true)
+            case .fraction:
+                // r83: a fraction is Copy/Delete only — a reduced
+                // rational has no decimals to choose.
+                return Menu(showsActions: true, showsRounding: false)
+            }
+        case .variable(_, _, let kind, _):
+            switch kind {
+            case .plain, .percent, .multiplier:
+                return Menu(showsActions: true, showsRounding: true)
+            case .fraction:
+                return Menu(showsActions: true, showsRounding: false)
+            }
         case .boolean:
             // r82: booleans offer Copy Answer + Delete Line only —
             // there is nothing to round on a true/false.

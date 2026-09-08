@@ -131,7 +131,7 @@ public let moneyCases: [EngineCase] = [
             if case .money? = r {
                 try expect(false, "malformed money returned money: \(bad)")
             }
-            if case .number(let v, nil)? = r {
+            if case .number(let v, nil, _, _)? = r {
                 try expect(false, "malformed money fell to a number: \(bad) → \(v)")
             }
         }
@@ -180,37 +180,37 @@ public let moneyCases: [EngineCase] = [
 
     EngineCase("money-symbol-conversions") {
         let r = ratesUSD()
-        if case .number(let v, let u)? = mLine("$100 to EUR", rates: r) {
+        if case .number(let v, let u, _, _)? = mLine("$100 to EUR", rates: r) {
             try expectClose(v, 110, 1e-9, "$100 to EUR")
             try expectEqual(u ?? "", "EUR")
             try expectEqual(formatQuantity(v, unit: u, decimalPlaces: 7), "€110.00", "money display")
         } else { try expect(false, "$100 to EUR") }
-        if case .number(let v, let u)? = mLine("€100 in USD", rates: r) {
+        if case .number(let v, let u, _, _)? = mLine("€100 in USD", rates: r) {
             try expectClose(v, 100 / 1.1, 1e-9, "€100 in USD")
             try expectEqual(u ?? "", "USD")
         } else { try expect(false, "€100 in USD") }
-        if case .number(let v, _)? = mLine("$3,740.00 in EUR", rates: r) {
+        if case .number(let v, _, _, _)? = mLine("$3,740.00 in EUR", rates: r) {
             try expectClose(v, 4114, 1e-9, "$3,740.00 in EUR")
         } else { try expect(false, "$3,740.00 in EUR") }
-        if case .number(let v, let u)? = mLine("100 USD in JPY", rates: r) {
+        if case .number(let v, let u, _, _)? = mLine("100 USD in JPY", rates: r) {
             try expectClose(v, 15000, 1e-9, "100 USD in JPY")
             try expectEqual(u ?? "", "JPY")
         } else { try expect(false, "100 USD in JPY") }
-        if case .number(let v, let u)? = mLine("100 JPY to USD", rates: r) {
+        if case .number(let v, let u, _, _)? = mLine("100 JPY to USD", rates: r) {
             try expectClose(v, 100 / 150, 1e-9, "100 JPY to USD")
             try expectEqual(u ?? "", "USD")
         } else { try expect(false, "100 JPY to USD") }
     },
 
     EngineCase("money-in-works-for-measurements-too") {
-        if case .number(let v, let u)? = mLine("5 m in cm") {
+        if case .number(let v, let u, _, _)? = mLine("5 m in cm") {
             try expectClose(v, 500, 1e-9, "5 m in cm")
             try expectEqual(u ?? "", "cm")
         } else { try expect(false, "5 m in cm") }
     },
 
     EngineCase("money-inch-unit-survives-in-keyword") {
-        if case .number(let v, _)? = mLine("3 in to cm") {
+        if case .number(let v, _, _, _)? = mLine("3 in to cm") {
             try expectClose(v, 7.62, 1e-9, "3 inches to cm")
         } else { try expect(false, "3 in to cm") }
     },
@@ -222,7 +222,7 @@ public let moneyCases: [EngineCase] = [
     },
 
     EngineCase("money-conversion-regression-huge-mass") {
-        if case .number(let v, let u)? = mLine("50000000000000 kg to mg") {
+        if case .number(let v, let u, _, _)? = mLine("50000000000000 kg to mg") {
             try expectClose(v, 5e19, 1.0, "5e13 kg → mg")
             try expectEqual(u ?? "", "mg")
         } else { try expect(false, "huge mass conversion") }
@@ -238,7 +238,7 @@ public let moneyCases: [EngineCase] = [
                                     location: (src as NSString).length + 1)]
         let (lines, tokens) = resolveSheet(content: content, lineIDs: ids, references: refs,
                                            rates: ratesUSD(), decimalPlaces: 7)
-        if case .number(let v, let u) = lines[1].result {
+        if case .number(let v, let u, _, _) = lines[1].result {
             try expectClose(v, 3740, 1e-9, "bare money token")
             try expectEqual(u ?? "", "USD")
         } else { try expect(false, "bare money token line") }
@@ -255,7 +255,7 @@ public let moneyCases: [EngineCase] = [
                                     location: (src as NSString).length + 1)]
         let (lines, _) = resolveSheet(content: content, lineIDs: ids, references: refs,
                                       rates: ratesUSD(), decimalPlaces: 7)
-        if case .number(let v, let u) = lines[1].result {
+        if case .number(let v, let u, _, _) = lines[1].result {
             try expectClose(v, 4114, 1e-9, "token in EUR at live rate")
             try expectEqual(u ?? "", "EUR")
             try expectEqual(formatQuantity(v, unit: u, decimalPlaces: 7),
@@ -267,7 +267,7 @@ public let moneyCases: [EngineCase] = [
                                      location: (src as NSString).length + 1)]
         let (lines2, _) = resolveSheet(content: content2, lineIDs: ids, references: refs2,
                                        rates: ratesUSD(), decimalPlaces: 7)
-        if case .number(let v, _) = lines2[1].result {
+        if case .number(let v, _, _, _) = lines2[1].result {
             try expectClose(v, 4114, 1e-9, "token to EUR")
         } else { try expect(false, "token to EUR line") }
     },
@@ -280,7 +280,7 @@ public let moneyCases: [EngineCase] = [
                                     location: (src as NSString).length + 1)]
         let (lines, _) = resolveSheet(content: content, lineIDs: ids, references: refs,
                                       rates: ratesUSD(), decimalPlaces: 7)
-        if case .number(let v, let u) = lines[1].result {
+        if case .number(let v, let u, _, _) = lines[1].result {
             try expectClose(v, 3740 * 1.1, 1e-6, "moneyToken + 10% tip")
             try expectEqual(u ?? "", "USD", "unit carried")
         } else { try expect(false, "moneyToken + 10% tip line") }

@@ -8,6 +8,14 @@ public struct TokenResolution: Equatable, Sendable {
         /// The source line currently evaluates to a finite number or a
         /// variable: the token is active and shows the full quantity.
         case active(value: Double, unit: String?, display: String)
+        /// r83: an active token whose answer carries a SEMANTIC kind —
+        /// a percent (`20%`), a fraction (`1/5`) or a multiplier
+        /// (`1.5x`). The display is the kinded string and the kind
+        /// rides along so expressions treat the token contextually
+        /// (`200 + TOKEN` reads the percent like the `200 + 20%`
+        /// literal) and copies stay kinded.
+        case activeKinded(value: Double, unit: String?, kind: NumericKind,
+                          fraction: Rational?, display: String)
         /// r82: the source line evaluates to a boolean — a DISTINCT
         /// resolution (never a 0/1 Double): the capsule shows the
         /// lowercase word and the token joins logical expressions.
@@ -110,7 +118,7 @@ public func resolveSheet(
         var d: [String: Double] = [:]
         for e in env.entries {
             switch e.qty {
-            case .scalar(let v) where v.isFinite: d[e.display] = v
+            case .scalar(let v, _, _) where v.isFinite: d[e.display] = v
             case .money(let v, _) where v.isFinite: d[e.display] = v
             default: break
             }
@@ -184,21 +192,32 @@ public func resolveSheet(
                 continue
             }
             switch src {
-            case .number(let v, let u) where v.isFinite:
+            case .number(let v, let u, let kind, let fraction) where v.isFinite:
                 // The shared quantity display: currency units render
                 // through the money presentation (`$600.00`), every
-                // other unit keeps `<value> <unit>`.
-                let display = formatQuantity(v, unit: u, decimalPlaces: decimalPlaces,
-                                                      context: context)
-                tokenStates[docPos] = .active(value: v, unit: u, display: display)
-                quantities.append(Qty(v: v, unit: u))
+                // other unit keeps `<value> <unit>`. r83: a SEMANTIC
+                // kind rides along with its kinded display (`20%`,
+                // `1/5`, `1.5x`).
+                if kind != .plain {
+                    let display = AnswerDisplay.formatKinded(v, unit: u,
+                                                              kind: kind, fraction: fraction,
+                                                              decimalPlaces: decimalPlaces,
+                                                              context: context)
+                    tokenStates[docPos] = .activeKinded(value: v, unit: u, kind: kind,
+                                                        fraction: fraction, display: display)
+                } else {
+                    let display = formatQuantity(v, unit: u, decimalPlaces: decimalPlaces,
+                                                          context: context)
+                    tokenStates[docPos] = .active(value: v, unit: u, display: display)
+                }
+                quantities.append(Qty(v: v, unit: u, kind: kind, fraction: fraction))
             case .money(let v, let code) where v.isFinite:
                 // A money source is a live quantity carrying the ISO
                 // code — tokenizable and convertible (`<token> in EUR`).
                 let display = formatMoney(v, code: code, context: context)
                 tokenStates[docPos] = .active(value: v, unit: code, display: display)
                 quantities.append(Qty(v: v, unit: code))
-            case .variable(_, let v) where v.isFinite:
+            case .variable(_, let v, _, _) where v.isFinite:
                 // A variable source is a unitless quantity.
                 let display = formatDisplayValue(v, decimalPlaces: decimalPlaces,
                                                   context: context)
@@ -236,6 +255,13 @@ public func resolveSheet(
                 if let b = q.boolValue {
                     return .boolean(value: b)
                 }
+                // r83: a percent/fraction/multiplier token answers
+                // with its semantic kind (displayed `20%`, `1/5`,
+                // `1.5x`), never as a plain 0.2/0.2/1.5.
+                if q.kind != .plain || q.fraction != nil {
+                    return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces),
+                                   unit: q.unit, kind: q.kind, fraction: q.fraction)
+                }
                 return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
             }
         }
@@ -250,6 +276,74 @@ public func resolveSheet(
                 quantities[k].map { (pos, $0) }
             }
         )
+
+        // r83: a percentage phrase with a marker standing in an
+        // operand (`TOKEN is what % of 200`, `15% of TOKEN`,
+        // `TOKEN as fraction`). Markers become word placeholders so
+        // the grammar sees them as named operands; the token's OWN
+        // kind (percent/multiplier/fraction) decides the percent-ish
+        // gates, exactly like a named value. A gate failure (a plain
+        // token in a percent slot) falls through to the routes below,
+        // which read the line exactly as before.
+        var subLine = line
+        for (k, pos) in markerPos.enumerated().reversed() {
+            subLine = (subLine as NSString)
+                .replacingCharacters(in: NSRange(location: pos, length: 1),
+                                     with: "r83tok\(k)")
+        }
+        if let m = PercentageGrammar.match(line: subLine, env: env) {
+            var ops: [PercentageGrammar.OperandValue] = []
+            var failed = false
+            for p in m.operandPieces {
+                if p.isWord, let w = p.word(), w.hasPrefix("r83tok"),
+                   let k = Int(w.dropFirst("r83tok".count)) {
+                    guard let q = quantities[k] else { failed = true; break }
+                    let currency = q.unit.flatMap { isCurrencyCode($0) ? $0 : nil }
+                    ops.append(PercentageGrammar.OperandValue(
+                        value: q.v, kind: q.kind,
+                        shape: shapeForTokenKind(q.kind),
+                        currency: currency, fraction: q.fraction))
+                } else {
+                    let named: String? = p.isWord ? p.text : nil
+                    guard let v = PercentageGrammar.operandValue(
+                            p.text, named: named, env: env, context: context) else {
+                        failed = true
+                        break
+                    }
+                    ops.append(v)
+                }
+            }
+            if failed {
+                return .error(message: "Invalid reference")
+            }
+            if let r = m.form.eval(ops) {
+                switch r {
+                case .number(let v, let u, let k, let f):
+                    guard v.isFinite else { return .error(message: "Invalid expression") }
+                    return .number(value: roundResult(v, decimalPlaces: decimalPlaces),
+                                   unit: u, kind: k, fraction: f)
+                case .money(let v, let c):
+                    return .money(value: roundResult(v, decimalPlaces: decimalPlaces), code: c)
+                default:
+                    break
+                }
+            }
+            // A matched form whose gate failed: fall through — the
+            // routes below read the line exactly as they always did.
+        } else {
+            // A DANGLING phrase (missing value operand) fails safely
+            // instead of degrading to the token-expression routes.
+            let pcs = PercentageGrammar.pieces(of: subLine) ?? []
+            let dangling = PercentageGrammar.forms(env: env).contains {
+                if case .dangling = PercentageGrammar.matchResult(form: $0, pcs: pcs, env: env) {
+                    return true
+                }
+                return false
+            }
+            if dangling {
+                return .error(message: "Invalid expression")
+            }
+        }
 
         // Conversion shape: exactly one marker, then `to <unit>` or
         // `in <unit>` (identical semantics).
@@ -310,7 +404,7 @@ public func resolveSheet(
                     var tvars: [String: TypedScalar] = [:]
                     for e in env.entries {
                         switch e.qty {
-                        case .scalar(let v) where v.isFinite: tvars[e.display] = .number(v)
+                        case .scalar(let v, _, _) where v.isFinite: tvars[e.display] = .number(v)
                         case .bool(let b): tvars[e.display] = .bool(b)
                         default: break
                         }
@@ -330,9 +424,10 @@ public func resolveSheet(
                         case .boolean(let b):
                             env.set(display: lhs, qty: .bool(b))
                             return .boolean(value: b)
-                        case .number(let v, nil):
+                        case .number(let v, nil, let kind, let fraction):
                             // A conditional value branch may pick a
-                            // scalar: record it like any assignment.
+                            // scalar: record it like any assignment
+                            // (r83: with its semantic kind).
                             env.set(display: lhs, qty: .scalar(v))
                             return .variable(name: lhs, value: v)
                         default:
@@ -399,7 +494,7 @@ public func resolveSheet(
             var tvars: [String: TypedScalar] = [:]
             for e in env.entries {
                 switch e.qty {
-                case .scalar(let v) where v.isFinite: tvars[e.display] = .number(v)
+                case .scalar(let v, _, _) where v.isFinite: tvars[e.display] = .number(v)
                 case .bool(let b): tvars[e.display] = .bool(b)
                 default: break
                 }
@@ -457,6 +552,13 @@ public func resolveSheet(
             // the shared `formatQuantity` renders them through
             // `formatMoney` (`$920.00`), exactly like a bare money
             // token — one result shape for every token quantity.
+            // r83: semantic kinds ride the result (`TOKEN + TOKEN` =
+            // 40% when both are 20% tokens; `200 + TOKEN` stays a
+            // plain 220 contextual sum).
+            if q.kind != .plain || q.fraction != nil {
+                return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces),
+                               unit: q.unit, kind: q.kind, fraction: q.fraction)
+            }
             return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
         } catch {
             return .error(message: "Invalid expression")
@@ -550,9 +652,10 @@ private func typedBoolResult(text: String,
     let expr = replacingTokenMarkers(text)
     let v = try evaluateTypedExpression(expr, variables: variables, context: context)
     switch v {
-    case .number(let n):
+    case .number(let n, let kind):
         guard n.isFinite else { throw ParseError.nonFiniteResult }
-        return .number(value: roundResult(n, decimalPlaces: decimalPlaces), unit: nil)
+        return LineResult.number(value: roundResult(n, decimalPlaces: decimalPlaces),
+                                 unit: nil, kind: kind, fraction: nil)
     case .bool(let b):
         return .boolean(value: b)
     }
@@ -564,10 +667,30 @@ private func typedBoolResult(text: String,
 struct Qty: Equatable {
     var v: Double
     var unit: String?
+    /// r83: the semantic kind of the quantity. A percent-kind token
+    /// is CONTEXTUAL in additive expressions (exactly like a `p%`
+    /// literal: `200 + TOKEN` = 220 when TOKEN = 20%); multiplier and
+    /// fraction kinds ride along for their kinded displays.
+    var kind: NumericKind = .plain
+    /// r83: the reduced rational of a fraction-kind quantity.
+    var fraction: Rational? = nil
     /// r82: non-nil when the token is a BOOLEAN quantity — `v` is
     /// unused (0) and the token can never join unit algebra; it
     /// participates only in the typed boolean engine.
     var boolValue: Bool? = nil
+}
+
+/// r83: the grammar shape of a token quantity's kind — a percent-kind
+/// token is a percent-ish magnitude in the phrase gates (`TOKEN of
+/// 200` works for a 20% token), a fraction-kind token a fraction, a
+/// multiplier-kind token a multiplier.
+func shapeForTokenKind(_ kind: NumericKind) -> OperandShape {
+    switch kind {
+    case .percent: return .percent
+    case .multiplier: return .multiplier
+    case .fraction: return .fraction
+    case .plain: return .plain
+    }
 }
 
 /// Recursive-descent evaluator for a line containing one or more
@@ -660,13 +783,15 @@ enum TokenExpr {
                 guard r.isFinite else { throw ExprError.incompatibleUnits }
                 return PE(q: Qty(v: r, unit: v.q.unit), purePercent: false)
             }
-            // A reference token.
+            // A reference token. r83: a percent-kind token is
+            // CONTEXTUAL in additive expressions exactly like a `p%`
+            // literal (`200 + TOKEN` = 220 when TOKEN = 20%).
             skipWS()
             if i < ns.length, ns.character(at: i) == answerTokenMarkerUTF16 {
                 let pos = i
                 i += 1
                 guard let q = markerQuantities[pos] else { throw ExprError.invalid }
-                return PE(q: q, purePercent: false)
+                return PE(q: q, purePercent: q.kind == .percent)
             }
             guard let c = nextChar() else { throw ExprError.invalid }
             if c == 0x28 { // '('
@@ -695,6 +820,16 @@ enum TokenExpr {
                     pct += 1
                 }
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
+                // r83: the multiplier suffix `1.5x` (no letter/digit
+                // after it — `1.5xy` is a variable, not a factor).
+                if pct == 0, let p = nextChar(), (p == 0x78 || p == 0x58) {
+                    let j = i + 1
+                    if j >= ns.length
+                        || !(isLetter16(ns.character(at: j)) || isDigit16(ns.character(at: j))) {
+                        i = j
+                        return PE(q: Qty(v: v, unit: nil, kind: .multiplier), purePercent: false)
+                    }
+                }
                 // Postfix marker: `240$`, `2.5K$`, `100zł` — a
                 // shared-table marker glued right after the amount (no
                 // digit after it, `45$5` is not a marker) carries the
@@ -702,7 +837,9 @@ enum TokenExpr {
                 if pct == 0, let code = parsePostfixMarker() {
                     return PE(q: Qty(v: v, unit: code), purePercent: false)
                 }
-                return PE(q: Qty(v: v, unit: nil), purePercent: pct > 0)
+                return PE(q: Qty(v: v, unit: nil,
+                                 kind: pct > 0 ? .percent : .plain),
+                          purePercent: pct > 0)
             }
             if isLetter16(c) || c == 0x5F {
                 var j = i
@@ -876,15 +1013,28 @@ enum TokenExpr {
             let bq = b.q
             switch op {
             case "+", "-":
-                if b.purePercent {
-                    // Contextual percent: `base ± base×p/100` — the
-                    // base is the accumulated left quantity (unit kept,
-                    // so a money token plus `10% tip` stays money).
+                // r83: semantic percent rules — the SAME rules as the
+                // line engine. PERCENT MODE: the accumulated side is a
+                // percent (or the right side is not) — every operand
+                // adds its RAW ratio (`T1 + T2` = 30%, `10% + 100` =
+                // 100.1): the result stays a percent. CONTEXTUAL:
+                // the accumulated side is plain/multiplier and the
+                // RIGHT operand is a percent — a fraction of the
+                // accumulated base (`200 + TOKEN` = 220), the result
+                // keeps the accumulated kind.
+                if aq.kind == .percent || bq.kind == .percent {
+                    if aq.kind == .percent || bq.kind != .percent {
+                        let v = (op == "+") ? aq.v + bq.v : aq.v - bq.v
+                        guard v.isFinite else { throw ExprError.incompatibleUnits }
+                        return PE(q: Qty(v: v, unit: aq.unit, kind: .percent),
+                                  purePercent: true)
+                    }
                     let v = (op == "+")
                         ? aq.v + aq.v * bq.v
                         : aq.v - aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return PE(q: Qty(v: v, unit: aq.unit), purePercent: false)
+                    return PE(q: Qty(v: v, unit: aq.unit, kind: aq.kind),
+                              purePercent: false)
                 }
                 if aq.unit == nil && bq.unit == nil {
                     let v = (op == "+") ? aq.v + bq.v : aq.v - bq.v

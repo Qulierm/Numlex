@@ -238,11 +238,11 @@ private func bodySingleIdReuse() throws {
 
 private func bodyMultiwordScalar() throws {
     let lines = aSheet(["a b = 5 + 3", "a b × 2", "a b"])
-    if case .variable(let name, let v) = lines[0].result {
+    if case .variable(let name, let v, _, _) = lines[0].result {
         try expectEqual(name, "a b", "multiword scalar name")
         try expectEqual(v, 8, "a b = 8")
     } else { try expect(false, "a b = 5 + 3 is a variable assignment") }
-    if case .number(let v, let u) = lines[1].result {
+    if case .number(let v, let u, _, _) = lines[1].result {
         try expectEqual(v, 16, "a b × 2 = 16")
         try expect(u == nil, "unitless result")
     } else { try expect(false, "a b × 2 is a number") }
@@ -259,11 +259,11 @@ private func bodyISO() throws {
 private func bodyNamedConversion() throws {
     let lines = aSheet(["monthly rent = $100", "monthly rent in EUR",
                         "monthly rent to EUR"])
-    if case .number(let v, let u) = lines[1].result {
+    if case .number(let v, let u, _, _) = lines[1].result {
         try expectClose(v, 110, 1e-9, "100 USD × 1.1 = 110 EUR")
         try expectEqual(u ?? "", "EUR", "unit EUR")
     } else { try expect(false, "named money in EUR converts via rates") }
-    if case .number(let v, let u) = lines[2].result {
+    if case .number(let v, let u, _, _) = lines[2].result {
         try expectClose(v, 110, 1e-9, "legacy `to` keyword")
         try expectEqual(u ?? "", "EUR", "unit EUR")
     } else { try expect(false, "named money to EUR converts via rates") }
@@ -278,7 +278,7 @@ private func bodyToken() throws {
                                 location: mDoc)]
     let (lines, _) = resolveSheet(content: content, lineIDs: ids,
                                   references: refs, rates: aRates(), decimalPlaces: 7)
-    if case .number(let v, let u) = lines[1].result {
+    if case .number(let v, let u, _, _) = lines[1].result {
         try expectClose(v, 30000, 1e-9, "token from assignment × 12")
         try expectEqual(u ?? "", "USD", "currency carried")
     } else if case .money(let v, let c) = lines[1].result {
@@ -288,7 +288,7 @@ private func bodyToken() throws {
     let content2 = src + "\n" + M + " in EUR"
     let (lines2, _) = resolveSheet(content: content2, lineIDs: ids,
                                    references: refs, rates: aRates(), decimalPlaces: 7)
-    if case .number(let v, let u) = lines2[1].result {
+    if case .number(let v, let u, _, _) = lines2[1].result {
         try expectClose(v, 2750, 1e-6, "2500 × 1.1 = 2750 EUR")
         try expectEqual(u ?? "", "EUR", "unit EUR")
         try expectEqual(formatQuantity(v, unit: u, decimalPlaces: 7),
@@ -300,7 +300,7 @@ private func bodyToken() throws {
                                  location: (src3 as NSString).length + 1)]
     let (lines3, _) = resolveSheet(content: content3, lineIDs: ids,
                                    references: refs3, rates: aRates(), decimalPlaces: 7)
-    if case .number(let v, _) = lines3[1].result {
+    if case .number(let v, _, _, _) = lines3[1].result {
         try expectClose(v, 3300, 1e-6, "edited source updates the token")
     } else { try expect(false, "edited source token line") }
     // Broken: the reference's source line id matches no line.

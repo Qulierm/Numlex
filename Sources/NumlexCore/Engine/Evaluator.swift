@@ -129,6 +129,26 @@ private func isValidIdentifier(_ name: String) -> Bool {
     return regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
 }
 
+/// r83: the typed variable table for the kind-aware engines: every
+/// finite scalar carries its semantic kind (percent/multiplier
+/// propagate contextually), booleans their real value; money entries
+/// are ABSENT (they fail the residual guard and error safely, exactly
+/// like the legacy `[String: Double]` projection).
+func typedTable(_ env: TypedEnv) -> [String: TypedScalar] {
+    var t: [String: TypedScalar] = [:]
+    for e in env.entries {
+        switch e.qty {
+        case .scalar(let v, let k, _) where v.isFinite:
+            t[e.display] = .number(value: v, kind: k)
+        case .bool(let b):
+            t[e.display] = .bool(b)
+        default:
+            break
+        }
+    }
+    return t
+}
+
 private func tryEvaluateCleaned(_ line: String, variables: [String: Double],
                              context: NumberFormatContext = .legacy) -> Double? {
     // Replace unknown words with empty
@@ -183,10 +203,13 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
     }
     if right.isEmpty { return .error(message: "Missing expression") }
     do {
-        let raw = try evaluateExpression(right, variables: env.scalarDict(), context: context)
+        // r83: the kind-aware engine — a percent/multiplier right-hand
+        // side (`x = 10% + 20%`, `x = 1.5x`) records its semantic kind
+        // in the environment and the displayed answer.
+        let (raw, kind) = try evaluateExpressionKinded(right, variables: typedTable(env), context: context)
         let v = roundResult(raw, decimalPlaces: decimalPlaces)
-        env.set(display: left, qty: .scalar(v))
-        return .variable(name: left, value: v)
+        env.set(display: left, qty: .scalar(value: v, kind: kind, fraction: nil))
+        return .variable(name: left, value: v, kind: kind, fraction: nil)
     } catch {
         // r47: a function-shaped RHS is STRICT — it never degrades to a
         // word-stripped parenthesized operand (no `(9)` from `sqr(9)`)
@@ -205,7 +228,7 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
     }
 }
 
-private func evalFreeExpression(line: String, variables: [String: Double], decimalPlaces: Int,
+private func evalFreeExpression(line: String, variables: [String: TypedScalar], decimalPlaces: Int,
                                          context: NumberFormatContext = .legacy) -> LineResult? {
     let trimmed = normalizeExprCorrect(line.trimmingCharacters(in: .whitespaces), context: context)
     if trimmed.isEmpty { return nil }
@@ -219,8 +242,12 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
         }
     }
     do {
-        let raw = try evaluateExpression(trimmed, variables: variables, context: context)
-        return .number(value: roundResult(raw, decimalPlaces: decimalPlaces), unit: nil)
+        // r83: kind-aware — a percent mode (`10% + 20%` = 30%) or a
+        // multiplier literal (`1.5x`) keeps its semantic kind on the
+        // result; the plain projection keeps the legacy value.
+        let (raw, kind) = try evaluateExpressionKinded(trimmed, variables: variables, context: context)
+        return .number(value: roundResult(raw, decimalPlaces: decimalPlaces),
+                       unit: nil, kind: kind, fraction: nil)
     } catch {
         // r47: a function-shaped line is STRICT on the free-expression
         // route too: unknown, malformed or domain-failing calls never
@@ -231,7 +258,10 @@ private func evalFreeExpression(line: String, variables: [String: Double], decim
         if FunctionCalls.hasCallHead(line) {
             return .error(message: "Invalid expression")
         }
-        if let cleaned = tryEvaluateCleaned(trimmed, variables: variables, context: context) {
+        let doubles = variables.compactMapValues { entry in
+            if case .number(let v, _) = entry, v.isFinite { return v } else { return nil }
+        }
+        if let cleaned = tryEvaluateCleaned(trimmed, variables: doubles, context: context) {
             return .number(value: roundResult(cleaned, decimalPlaces: decimalPlaces), unit: nil)
         }
         return .error(message: "Invalid expression")
@@ -269,7 +299,7 @@ func strictExprCore(_ line: String,
     var codes: Set<String> = []
     for e in env.entries {
         switch e.qty {
-        case .scalar(let v) where v.isFinite:
+        case .scalar(let v, _, _) where v.isFinite:
             vars[e.display] = v
         case .money(let v, _) where v.isFinite:
             vars[e.display] = v
@@ -279,7 +309,7 @@ func strictExprCore(_ line: String,
     }
     for (idx, m) in matches.enumerated() {
         switch m.entry.qty {
-        case .scalar(let v) where v.isFinite:
+        case .scalar(let v, _, _) where v.isFinite:
             vars[namePlaceholder(idx)] = v
         case .money(let v, let c) where v.isFinite:
             vars[namePlaceholder(idx)] = v
@@ -486,6 +516,27 @@ func evalLineTyped(_ line: String,
     if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces, context: context) {
         return conv
     }
+    // r83: percentage phrase forms (`15% of 490`, `100 is 50% of
+    // what`, `30% off 200`, `2/10 as fraction`, `10 to 15 as x`, the
+    // terminal spaced-% conversion `20/200 %`). Runs BEFORE the
+    // money/boolean stages so a strict phrase reading is never killed
+    // by a shape check, and BEFORE the assignment fallback; assignment
+    // lines are owned by the assignment routes (their phrase
+    // right-hand sides are handled inside them — `x = 20/200 %` must
+    // never be read as the spaced conversion of `x = 20/200`). A
+    // matched form that FAILS is surfaced as an error; a gate failure
+    // (`500 of 200` with a plain left operand) falls through untouched
+    // to the legacy routes, exactly as before r83.
+    if !BooleanLogic.hasAssignment(line), PercentageGrammar.percentShape(line, env: env) {
+        switch PercentageGrammar.percentOutcome(line, env: env, context: context) {
+        case .value(let r):
+            return r
+        case .error(let m):
+            return .error(message: m)
+        case .notPercent:
+            break
+        }
+    }
     // Named assignment (any valid LHS, money right-hand side, a
     // multiword name with a scalar right-hand side, or — r82 — ANY
     // valid LHS with a boolean right-hand side): the answer is the
@@ -500,17 +551,16 @@ func evalLineTyped(_ line: String,
         case .money(let v, let c):
             env.set(display: a.name, qty: .money(v, code: c))
             return .money(value: v, code: c)
-        case .scalar(let v) where a.name.contains(" "):
-            env.set(display: a.name, qty: .scalar(v))
-            return .variable(name: a.name, value: v)
-        case .scalar(let v):
+        case .scalar(let v, let kind, let fraction) where a.name.contains(" "):
+            env.set(display: a.name, qty: .scalar(value: v, kind: kind, fraction: fraction))
+            return .variable(name: a.name, value: v, kind: kind, fraction: fraction)
+        case .scalar(let v, let kind, let fraction):
             // r82: a single identifier that earned its scalar through
             // the boolean/conditional route (`x = if … then … else …`)
-            // is recorded like any named value. (Legacy single-
-            // identifier scalar assignments never produce this case —
-            // they keep the path below.)
-            env.set(display: a.name, qty: .scalar(v))
-            return .variable(name: a.name, value: v)
+            // is recorded like any named value (r83: with its semantic
+            // kind — a percent/multiplier right-hand side propagates).
+            env.set(display: a.name, qty: .scalar(value: v, kind: kind, fraction: fraction))
+            return .variable(name: a.name, value: v, kind: kind, fraction: fraction)
         case .bool(let b):
             // r82: a boolean right-hand side (single- OR multiword
             // LHS) records a real boolean — never a 0/1 scalar.
@@ -568,7 +618,7 @@ func evalLineTyped(_ line: String,
     if BooleanLogic.hasAssignment(line) {
         return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces, context: context)
     }
-    return evalFreeExpression(line: line, variables: env.scalarDict(), decimalPlaces: decimalPlaces, context: context)
+    return evalFreeExpression(line: line, variables: typedTable(env), decimalPlaces: decimalPlaces, context: context)
 }
 
 // MARK: - Backward-compatible public wrappers

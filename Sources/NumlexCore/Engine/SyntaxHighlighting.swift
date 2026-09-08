@@ -131,10 +131,10 @@ public enum SyntaxClassifier {
                 // Skip/prose: a trailing-colon label line keeps an
                 // explicit label span; everything else keeps none.
                 spans = labelSpans(line)
-            case .number(_, .some):
+            case .number(_, .some, _, _):
                 isMath = true
                 spans = conversionSpans(line, context: context)
-            case .number(_, .none):
+            case .number(_, .none, _, _):
                 isMath = true
                 spans = isNatural
                     ? naturalSpans(line, env: env, context: context)
@@ -145,8 +145,14 @@ public enum SyntaxClassifier {
                         // specifiers, comparison operators, boolean
                         // names) instead of the lexical expression one.
                         ? booleanSpans(line, env: env, context: context)
-                        : expressionSpans(line, variables: env.scalarDict(), context: context)
-            case .variable(let name, _):
+                        : PercentageGrammar.percentShape(line, env: env)
+                            // r83: a percentage phrase line (`15% of
+                            // 490`, `100 is 50% of what`) keeps the
+                            // phrase palette — live phrase keywords as
+                            // specifiers, operands as numbers/variables.
+                            ? percentageSpans(line, env: env, context: context)
+                            : expressionSpans(line, variables: env.scalarDict(), context: context)
+            case .variable(let name, _, _, _):
                 isMath = true
                 spans = isNatural || name.contains(" ")
                     ? naturalSpans(line, env: env, context: context)
@@ -556,6 +562,63 @@ public enum SyntaxClassifier {
             }) {
                 continue
             }
+            spans.append(SyntaxSpan(role: .specifier, range: m))
+        }
+        return spans
+    }
+
+    /// r83: a percentage phrase line (`15% of 490`, `100 is 50% of
+    /// what`, `2/10 as fraction`, `10 to 15 as x`): operand literals
+    /// (numbers, fractions, the glued `%`, currency amounts) keep the
+    /// number role; declared named operands (compound and single
+    /// identifiers) keep the variable role; the LIVE phrase keywords
+    /// take the specifier role. Active variables named like keywords
+    /// keep the variable read; a suffix `x` glued to a literal (`1.5x`)
+    /// is not a keyword; the `%`/operator glyphs stay base — the same
+    /// convention as the boolean palette.
+    private static func percentageSpans(_ line: String,
+                                        env: TypedEnv,
+                                        context: NumberFormatContext) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(Self.numberPattern(context), in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        // Money operand runs: a shared currency marker glued (or
+        // one-spaced) in front of an amount (`$500`, `€1,200`).
+        func esc(_ str: String) -> String {
+            str.unicodeScalars.map { c -> String in
+                "\\.\\[\\](){}*+?|^$-".unicodeScalars.contains(c)
+                    ? "\\\(String(Character(c)))" : String(Character(c))
+            }.joined()
+        }
+        let markerAlt = CurrencyPresentation.orderedMarkers
+            .sorted { $0.count > $1.count }
+            .map(esc)
+            .joined(separator: "|")
+        if !markerAlt.isEmpty {
+            let moneyPattern = "(?:\(markerAlt))\\s*(?:\(Self.numberPattern(context)))"
+            for m in matches(moneyPattern, in: ns) {
+                spans.append(SyntaxSpan(role: .number, range: m))
+            }
+        }
+        // Declared named operands: compound names through the shared
+        // matcher, single identifiers through the environment.
+        for m in NamedValues.matches(in: line, env: env) {
+            spans.append(SyntaxSpan(role: .variable, range: m.range))
+        }
+        for m in matches(#"[A-Za-z_]\w*"#, in: ns)
+        where env.entry(display: ns.substring(with: m)) != nil {
+            spans.append(SyntaxSpan(role: .variable, range: m))
+        }
+        // The phrase keywords, whole-word and case-insensitive, live in
+        // the environment (an `of = 5` assignment keeps its variable
+        // read); a suffix `x` after a literal is excluded by the
+        // lookbehind.
+        let keywordPattern = "(?i)(?<![A-Za-z0-9_])(?:of|on|off|is|what|as|a|to|percent|percentage|fraction|x|multiple|multiplier|if)(?![A-Za-z0-9_])"
+        for m in matches(keywordPattern, in: ns) {
+            let word = ns.substring(with: m).lowercased()
+            guard PercentageGrammar.keywordLive(word, env: env) else { continue }
             spans.append(SyntaxSpan(role: .specifier, range: m))
         }
         return spans

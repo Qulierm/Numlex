@@ -90,7 +90,7 @@ public enum InputFormatting {
                                           now: Date(), calendar: Calendar.current,
                                           context: context) {
                 switch res {
-                case .number(let v, _): kind = .math; groupable = v.isFinite
+                case .number(let v, _, _, _): kind = .math; groupable = v.isFinite
                 case .variable: kind = .math; groupable = true
                 case .money(let v, _): kind = .money; groupable = v.isFinite
                 case .error: kind = .math

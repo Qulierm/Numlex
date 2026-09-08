@@ -133,7 +133,10 @@ public enum NaturalCalculation {
     /// The evaluated quantity of a named value.
     public enum AssignmentValue: Equatable {
         case money(value: Double, code: String)
-        case scalar(Double)
+        /// r83: the assigned scalar with its SEMANTIC kind (a percent/
+        /// multiplier/fraction right-hand side propagates the kind into
+        /// the environment and the displayed answer).
+        case scalar(value: Double, kind: NumericKind, fraction: Rational?)
         /// r82: a boolean right-hand side (`flag = 2 < 3`).
         case bool(Bool)
         /// r82: a boolean-looking right-hand side the strict engine
@@ -163,6 +166,26 @@ public enum NaturalCalculation {
         case .malformed, .none:
             break
         }
+        // r83: a percentage phrase right-hand side (`x = 20% of 500`,
+        // `x = 20/200 %`, `x = 1.5x`) records its semantic kind —
+        // checked before the boolean stage so a phrase never degrades
+        // to a boolean read (and the two grammars never overlap: a
+        // boolean-looking line matches no phrase form).
+        switch PercentageGrammar.percentOutcome(rhsRaw, env: env, context: context) {
+        case .value(let r):
+            switch r {
+            case .number(let v, nil, let kind, let fraction):
+                return (name, .scalar(value: v, kind: kind, fraction: fraction))
+            case .money(let v, let code):
+                return (name, .money(value: v, code: code))
+            default:
+                break
+            }
+        case .error(let m):
+            return (name, .error(m))
+        case .notPercent:
+            break
+        }
         // r82: a boolean-looking right-hand side (explicit syntax, a
         // logical word, or a boolean name) is decided by the ONE
         // shared typed engine — conditional values included. A scalar
@@ -175,8 +198,8 @@ public enum NaturalCalculation {
                 switch r {
                 case .boolean(let b):
                     return (name, .bool(b))
-                case .number(let v, nil):
-                    return (name, .scalar(v))
+                case .number(let v, nil, let kind, let fraction):
+                    return (name, .scalar(value: v, kind: kind, fraction: fraction))
                 default:
                     break
                 }
@@ -191,7 +214,7 @@ public enum NaturalCalculation {
             if let c = codes.first {
                 return (name, .money(value: v, code: c))
             }
-            return (name, .scalar(v))
+            return (name, .scalar(value: v, kind: .plain, fraction: nil))
         }
         return nil
     }
@@ -294,7 +317,7 @@ public enum NaturalCalculation {
         var placeholderVars: [String: Double] = [:]
         for e in env.entries {
             switch e.qty {
-            case .scalar(let v) where v.isFinite:
+            case .scalar(let v, _, _) where v.isFinite:
                 placeholderVars[e.display] = v
             case .money(let v, _) where v.isFinite:
                 // A single-word money name may appear as a plain word
@@ -308,7 +331,7 @@ public enum NaturalCalculation {
         let matches = NamedValues.matches(in: cleaned, env: env)
         for (idx, m) in matches.enumerated() {
             switch m.entry.qty {
-            case .scalar(let v) where v.isFinite:
+            case .scalar(let v, _, _) where v.isFinite:
                 // r53: every match (scalar AND money) is substituted
                 // with a placeholder below, so the placeholder itself
                 // must carry the value — exactly like `strictExprCore`.
@@ -501,5 +524,12 @@ public enum NaturalCalculation {
         return tokenUnits.allSatisfy { unit in
             unit == nil || isCurrencyCode(unit)
         }
+    }
+}
+
+extension NaturalCalculation.AssignmentValue {
+    /// The plain-scalar factory (pre-r83 call-site compatibility).
+    public static func scalar(_ value: Double) -> NaturalCalculation.AssignmentValue {
+        .scalar(value: value, kind: .plain, fraction: nil)
     }
 }

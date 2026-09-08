@@ -20,7 +20,7 @@ private func expectConv(_ line: String, _ value: Double, _ unit: String,
         throw CaseFailure(message: "line must evaluate: \(line)",
                           location: "R32Cases")
     }
-    guard case .number(let v, let u) = r else {
+    guard case .number(let v, let u, _, _) = r else {
         throw CaseFailure(message: "\(line) must be a conversion, got \(r)",
                           location: "R32Cases")
     }
@@ -211,7 +211,7 @@ public let r32Cases: [EngineCase] = [
                                            rates: Rates(), decimalPlaces: 7)
         // The token expression returns the money quantity as a number
         // carrying the ISO currency unit (the token live path).
-        guard case .number(let v, let unit) = lines[1].result else {
+        guard case .number(let v, let unit, _, _) = lines[1].result else {
             throw CaseFailure(message: "token money line, got \(lines[1].result)",
                               location: "R32Cases")
         }

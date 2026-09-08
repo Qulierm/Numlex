@@ -288,7 +288,7 @@ public let r73Cases: [EngineCase] = {
         // Line 2 is a .variable (the named cost) — two numeric rows.
         var saw = 0
         for row in rows {
-            if case .number(let v, _) = row.result, v.isFinite { saw += 1 }
+            if case .number(let v, _, _, _) = row.result, v.isFinite { saw += 1 }
         }
         try expect(saw == 2, "WEST sheet numeric rows: \(saw)")
         try expect(wvars["cost"] == 2.5, "WEST money-less named value")
@@ -304,14 +304,14 @@ public let r73Cases: [EngineCase] = {
         var sawNA = 0
         var naValues: [Double] = []
         for row in rowsNA {
-            if case .number(let v, _) = row.result, v.isFinite {
+            if case .number(let v, _, _, _) = row.result, v.isFinite {
                 sawNA += 1
                 naValues.append(v)
             }
         }
         var westValues: [Double] = []
         for row in rows {
-            if case .number(let v, _) = row.result, v.isFinite { westValues.append(v) }
+            if case .number(let v, _, _, _) = row.result, v.isFinite { westValues.append(v) }
         }
         try expect(!naValues.contains(2.5),
                    "NA sheet never reads the line as 1.5+1: \(naValues)")

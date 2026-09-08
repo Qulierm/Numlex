@@ -651,7 +651,7 @@ public let r55Cases: [EngineCase] = [
                                     refs: [AnswerReference(sourceLineID: u0, labelLine: 1,
                                                            location: 18)],
                                     weather: r55Context())
-        if case .number(let v, let u) = lines[1].result {
+        if case .number(let v, let u, _, _) = lines[1].result {
             try expectClose(v, 65.3, 1e-9, "18.5 C in F")
             try expectEqual(u, "F°", "fahrenheit label")
         } else {
@@ -663,7 +663,7 @@ public let r55Cases: [EngineCase] = [
     EngineCase("r55-weather-excluded-from-total") {
         // The summary bar sums only unitless numbers; a unit-bearing
         // weather result is structurally excluded.
-        if case .number(_, let u) = r55Results("weather in London",
+        if case .number(_, let u, _, _) = r55Results("weather in London",
                                                weather: r55Context())[0] {
             try expect(u != nil, "weather carries its unit", "unit")
             try expectEqual(u, "C°", "celsius label")

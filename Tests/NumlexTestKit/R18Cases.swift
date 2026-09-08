@@ -16,7 +16,7 @@ private func e18(_ line: String) -> LineResult? {
 
 private func isMoney(_ r: LineResult?, code: String? = nil) -> Bool {
     if case .some(.money) = r { return true }
-    if case .some(.number(_, let u)) = r {
+    if case .some(.number(_, let u, _, _)) = r {
         return code == nil
             || (u != nil && isCurrencyCode(u) && u!.uppercased() == code)
     }
@@ -27,7 +27,7 @@ private func moneyValue(_ r: LineResult?) -> Double? {
     guard let r else { return nil }
     switch r {
     case .money(let v, _): return v
-    case .number(let v, let u) where isCurrencyCode(u): return v
+    case .number(let v, let u, _, _) where isCurrencyCode(u): return v
     default: return nil
     }
 }

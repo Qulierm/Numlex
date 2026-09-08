@@ -568,7 +568,14 @@ private struct ConstantsSettingsTab: View {
     /// preference for DISPLAY only; money uses the shared presentation.
     private func preview(_ qty: TypedQty) -> String {
         switch qty {
-        case .scalar(let v):
+        case .scalar(let v, let kind, let fraction):
+            // r83: a constant holding a semantic kind previews with its
+            // kinded string (`t = 10% + 20%` previews `30%`).
+            if kind != .plain {
+                return AnswerDisplay.formatKinded(v, unit: nil, kind: kind, fraction: fraction,
+                                                  decimalPlaces: model.settings.decimalPlaces,
+                                                  context: model.numberContext)
+            }
             return formatDisplayValue(v, decimalPlaces: model.settings.decimalPlaces,
                                       context: model.numberContext)
         case .money(let v, let code):

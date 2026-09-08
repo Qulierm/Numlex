@@ -137,7 +137,7 @@ private func bodyMalformed() throws {
         if case .error? = r {
             try expect(false, "prose must not error: \(prose)")
         }
-        if case .number(let v, nil)? = r {
+        if case .number(let v, nil, _, _)? = r {
             try expect(false, "prose must not be a number: \(prose) → \(v)")
         }
     }

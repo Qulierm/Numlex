@@ -45,7 +45,7 @@ private func r82IsBool(_ r: LineResult, _ b: Bool, _ what: String) throws {
 }
 
 private func r82IsNumber(_ r: LineResult, _ v: Double, _ what: String) throws {
-    guard case .number(let n, _) = r, n == v else {
+    guard case .number(let n, _, _, _) = r, n == v else {
         throw CaseFailure(message: "\(what): expected \(v), got \(r)",
                           location: "R82Cases")
     }
@@ -56,8 +56,8 @@ private func r82IsNumber(_ r: LineResult, _ v: Double, _ what: String) throws {
 /// value branches and multiword names alike).
 private func r82IsScalar(_ r: LineResult, _ v: Double, _ what: String) throws {
     switch r {
-    case .number(let n, nil) where n == v: return
-    case .variable(_, let n) where n == v: return
+    case .number(let n, nil, _, _) where n == v: return
+    case .variable(_, let n, _, _) where n == v: return
     default:
         throw CaseFailure(message: "\(what): expected scalar \(v), got \(r)",
                           location: "R82Cases")

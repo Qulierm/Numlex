@@ -227,7 +227,7 @@ public enum BooleanLogic {
         var vars: [String: TypedScalar] = [:]
         for e in env.entries {
             switch e.qty {
-            case .scalar(let v) where v.isFinite: vars[e.display] = .number(v)
+            case .scalar(let v, _, _) where v.isFinite: vars[e.display] = .number(v)
             case .bool(let b): vars[e.display] = .bool(b)
             default: break
             }
@@ -235,7 +235,7 @@ public enum BooleanLogic {
         var expr = trimmed
         for (idx, m) in matches.enumerated() {
             switch m.entry.qty {
-            case .scalar(let v) where v.isFinite: vars[namePlaceholder(idx)] = .number(v)
+            case .scalar(let v, _, _) where v.isFinite: vars[namePlaceholder(idx)] = .number(v)
             case .bool(let b): vars[namePlaceholder(idx)] = .bool(b)
             default: break
             }
@@ -385,9 +385,9 @@ public enum BooleanLogic {
                     case .boolean(let b):
                         env.set(display: t, qty: .bool(b))
                         return .boolean(value: b)
-                    case .number(let v, nil):
-                        env.set(display: t, qty: .scalar(v))
-                        return .variable(name: t, value: v)
+                    case .number(let v, nil, let kind, let fraction):
+                        env.set(display: t, qty: .scalar(value: v, kind: kind, fraction: fraction))
+                        return .variable(name: t, value: v, kind: kind, fraction: fraction)
                     default:
                         break
                     }
@@ -415,7 +415,7 @@ public enum BooleanLogic {
         var vars: [String: TypedScalar] = [:]
         for e in env.entries {
             switch e.qty {
-            case .scalar(let v) where v.isFinite: vars[e.display] = .number(v)
+            case .scalar(let v, _, _) where v.isFinite: vars[e.display] = .number(v)
             case .bool(let b): vars[e.display] = .bool(b)
             default: break
             }
@@ -423,7 +423,7 @@ public enum BooleanLogic {
         var expr = text
         for (idx, m) in matches.enumerated() {
             switch m.entry.qty {
-            case .scalar(let v) where v.isFinite: vars[namePlaceholder(idx)] = .number(v)
+            case .scalar(let v, _, _) where v.isFinite: vars[namePlaceholder(idx)] = .number(v)
             case .bool(let b): vars[namePlaceholder(idx)] = .bool(b)
             default: break
             }
@@ -433,7 +433,7 @@ public enum BooleanLogic {
         }
         if let v = try? evaluateTypedExpression(expr, variables: vars, context: context) {
             switch v {
-            case .number(let n) where n.isFinite:
+            case .number(let n, _) where n.isFinite:
                 return .number(value: n, unit: nil)
             case .bool(let b):
                 return .boolean(value: b)

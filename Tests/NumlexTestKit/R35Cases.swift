@@ -68,7 +68,7 @@ public let r35Cases: [EngineCase] = [
             guard case .valid(let q) = r.status else {
                 preconditionFailure("row \(r.name) not valid: \(r.status)")
             }
-            if case .scalar(let v) = q { precondition(v == 0) } else {
+            if case .scalar(let v, _, _) = q { precondition(v == 0) } else {
                 preconditionFailure("row \(r.name) non-scalar")
             }
         }

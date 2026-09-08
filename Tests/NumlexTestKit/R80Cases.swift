@@ -197,7 +197,7 @@ public let r80Cases: [EngineCase] = [
             try expectEqual(p.caret, 5, "caret \(caret): caret right after the marker")
             // The source line still ANSWERS (no self-cycle): 7×8 = 56.
             let lines = r80Lines(p.content)
-            guard case .number(let v, let u) = lines[0].result, u == nil else {
+            guard case .number(let v, let u, _, _) = lines[0].result, u == nil else {
                 throw CaseFailure(message: "caret \(caret): source line lost its result")
             }
             try expectEqual(v, 56.0, "caret \(caret): the source line still evaluates 56")
@@ -226,7 +226,7 @@ public let r80Cases: [EngineCase] = [
         try expectEqual(p.lineIDs[3], ids[2], "line 3 keeps its ID")
         try expectEqual(p.caret, 7, "caret right after the marker on the new line")
         let lines = r80Lines(p.content)
-        guard case .number(let v, let u) = lines[1].result, u == nil else {
+        guard case .number(let v, let u, _, _) = lines[1].result, u == nil else {
             throw CaseFailure(message: "the source line lost its result")
         }
         try expectEqual(v, 56.0, "7×8 still answers 56 after the same-line mint")
@@ -306,7 +306,7 @@ public let r80Cases: [EngineCase] = [
             throw CaseFailure(message: "a marker landed inside the source line at \(i)")
         }
         try expectEqual(ns.character(at: 4), 0xFFFC, "the marker sits on the new line")
-        guard case .number(let v, _) = r80Lines(p.content)[0].result else {
+        guard case .number(let v, _, _, _) = r80Lines(p.content)[0].result else {
             throw CaseFailure(message: "the source line's result broke")
         }
         try expectEqual(v, 56.0, "the source answers 56 — no circular token")

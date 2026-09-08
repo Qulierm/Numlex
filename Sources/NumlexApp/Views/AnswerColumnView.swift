@@ -287,7 +287,7 @@ struct AnswerColumnView: View {
         // unchanged.)
         let numeric = rows.compactMap { line -> Double? in
             guard !line.isTotal else { return nil }
-            if case .number(let v, let u) = line.result, u == nil { return v } else { return nil }
+            if case .number(let v, let u, _, _) = line.result, u == nil { return v } else { return nil }
         }
         guard !numeric.isEmpty else { return nil }
         var sum = numeric.reduce(0, +)
@@ -530,7 +530,7 @@ struct AnswerColumnView: View {
             switch row {
             case .blank, .skip, .title(_):
                 Color.clear
-            case .number(let v, let unit):
+            case .number(let v, let unit, let kind, let fraction):
                 if let u = unit, isCurrencyCode(u) {
                     // Currency results render as ONE money string
                     // (`$600.00`, `€107.64`) — symbol and value share
@@ -544,22 +544,32 @@ struct AnswerColumnView: View {
                     // value semibold — same face, size and adaptive base
                     // color, only the weight changes, and only for this
                     // row (normal numeric answers stay regular).
+                    // r83: a semantic kind renders its ONE kinded string
+                    // (`40%`, `1/5`, `1.5x`); a plain unit keeps the
+                    // separate same-weight unit run.
                     let totalWeight: Font.Weight = line.isTotal ? .semibold : .regular
-                    HStack(spacing: 5) {
-                        Text(formatDisplayValue(v, decimalPlaces: places, context: numberContext))
-                            .font(palette.swiftUIFont(fontSize, weight: totalWeight))
-                            // Every answer/result glyph is the fixed dark
-                            // base (Design.baseText) regular on the light
-                            // panel, per the r36 light theme.
-                            .foregroundStyle(Color(nsColor: Design.baseText))
-                            .lineLimit(1)
-                        if let u = unit {
+                    if kind == .plain, let u = unit {
+                        HStack(spacing: 5) {
+                            Text(formatDisplayValue(v, decimalPlaces: places, context: numberContext))
+                                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                                // Every answer/result glyph is the fixed
+                                // dark base (Design.baseText) regular on
+                                // the light panel, per the r36 light theme.
+                                .foregroundStyle(Color(nsColor: Design.baseText))
+                                .lineLimit(1)
                             // Units are full answer content: exactly the
                             // same size, weight and baseline as the value.
                             Text(u)
                                 .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                                 .foregroundStyle(Color(nsColor: Design.baseText))
                         }
+                    } else {
+                        Text(AnswerDisplay.formatKinded(
+                            v, unit: nil, kind: kind, fraction: fraction,
+                            decimalPlaces: places, context: numberContext))
+                            .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                            .foregroundStyle(Color(nsColor: Design.baseText))
+                            .lineLimit(1)
                     }
                 }
             case .money(let v, let code):
@@ -577,10 +587,12 @@ struct AnswerColumnView: View {
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
-            case .variable(_, let v):
+            case .variable(_, let v, let kind, let fraction):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
-                Text(formatDisplayValue(v, decimalPlaces: places, context: numberContext))
+                // r83: a semantic kind renders its kinded string.
+                Text(AnswerDisplay.formatKinded(v, unit: nil, kind: kind, fraction: fraction,
+                                                decimalPlaces: places, context: numberContext))
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)

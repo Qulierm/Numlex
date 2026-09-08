@@ -69,7 +69,7 @@ public let r19OperatorCases: [EngineCase] = [
         try expect19(line19("5`5", off) == nil, "backtick off: literal (line errors)")
         var v = [String: Double]()
         let r = evalLine("5 + 5", variables: &v, rates: r19Rates(), decimalPlaces: 7)
-        if case .number(let x, _) = r { try expect19(x == 10, "transformed backtick line evaluates") }
+        if case .number(let x, _, _, _) = r { try expect19(x == 10, "transformed backtick line evaluates") }
         else { throw CaseFailure(message: "backtick line result \(r)", location: "R19Cases") }
     },
     EngineCase("r19-op-quick-operators") {
@@ -103,7 +103,7 @@ public let r19OperatorCases: [EngineCase] = [
         let cases: [(String, Double)] = [("5 + 5", 10), ("5 - 5", 0), ("5 × 5", 25), ("5 ÷ 5", 1)]
         for (line, want) in cases {
             let r = evalLine(line, variables: &v, rates: r19Rates(), decimalPlaces: 7)
-            if case .number(let x, let u) = r, u == nil {
+            if case .number(let x, let u, _, _) = r, u == nil {
                 try expectClose(x, want, 1e-9, "eval \(line)")
             } else {
                 throw CaseFailure(message: "eval \(line) -> \(r)", location: "R19Cases")

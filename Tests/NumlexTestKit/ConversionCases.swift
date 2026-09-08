@@ -21,7 +21,7 @@ private func expectConversion(_ line: String, _ value: Double, _ unit: String,
                               rates: Rates = Rates(),
                               tolerance: Double = 0.0001) throws {
     let r = try evalConv(line, rates: rates)
-    guard case .number(let v, let u) = r else {
+    guard case .number(let v, let u, _, _) = r else {
         throw CaseFailure(message: "\(line) must be a conversion, got \(r)",
                           location: "ConversionCases")
     }
@@ -137,13 +137,13 @@ public let conversionCases: [EngineCase] = [
     EngineCase("conversion-compact-suffix-still-magnitude") {
         // No whitespace after the number: never a conversion shape.
         let compact = try evalConv("5m")
-        guard case .number(let v, nil) = compact else {
+        guard case .number(let v, nil, _, _) = compact else {
             throw CaseFailure(message: "5m must be magnitude, got \(compact)",
                               location: "ConversionCases")
         }
         try expectEqual(v, 5_000_000, "5m value")
         let k = try evalConv("2.5k")
-        guard case .number(let vk, nil) = k else {
+        guard case .number(let vk, nil, _, _) = k else {
             throw CaseFailure(message: "2.5k must be magnitude, got \(k)",
                               location: "ConversionCases")
         }

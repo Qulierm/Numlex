@@ -45,7 +45,7 @@ private func r57IDs(_ n: Int) -> [UUID] { (0..<n).map { _ in UUID() } }
 /// number (every inequality below then fails loudly — never a silent
 /// pass through Optional promotion).
 private func r57Number(_ lines: [SheetLine], _ i: Int) -> Double {
-    if case .number(let v, nil) = lines[i].result { return v }
+    if case .number(let v, nil, _, _) = lines[i].result { return v }
     return .nan
 }
 
@@ -117,7 +117,7 @@ public let r57Cases: [EngineCase] = [
 
     EngineCase("r57-assignments-contribute") {
         let lines = r57Sheet("x = 10\nx + 5\ntotal")
-        if case .variable(let name, let v) = lines[0].result {
+        if case .variable(let name, let v, _, _) = lines[0].result {
             try expectEqual(name, "x", "assignment name")
             try expectEqual(v, 10, "assignment value")
         } else {
@@ -251,7 +251,7 @@ public let r57Cases: [EngineCase] = [
         // An active variable named `total` wins over the command, so
         // existing notebooks keep working; `total = 5` is ordinary.
         let lines = r57Sheet("total = 5\ntotal")
-        if case .variable(let name, let v) = lines[0].result {
+        if case .variable(let name, let v, _, _) = lines[0].result {
             try expectEqual(name, "total", "assignment kept")
             try expectEqual(v, 5, "assigned value")
         } else {
@@ -283,7 +283,7 @@ public let r57Cases: [EngineCase] = [
         try expect(lines[5].isTotal, "flag")
         let withWeather = r57Sheet("weather in London\n10\ntotal",
                                    weather: r57London(20))
-        if case .number(let wv, let wu) = withWeather[0].result {
+        if case .number(let wv, let wu, _, _) = withWeather[0].result {
             try expectEqual(wv, 20, "weather ready")
             try expectEqual(wu, WeatherQuery.celsiusUnitLabel, "weather unit")
         } else {

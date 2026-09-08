@@ -101,7 +101,7 @@ public let r62Cases: [EngineCase] = [
         // same-line branch mints on a new line below the source).
         let content = "1+1\n"
         let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 4)
-        guard case .number(let v, let u) = lines[0].result, u == nil, v == 2
+        guard case .number(let v, let u, _, _) = lines[0].result, u == nil, v == 2
         else { return try expect(false, "sanity: 1+1 is a unitless number") }
         guard let plan else { return try expect(false, "number row plans a token") }
         try expectEqual(plan.content, content + WM,
@@ -135,7 +135,7 @@ public let r62Cases: [EngineCase] = [
     EngineCase("r62-mint-unit-row") {
         let content = "10 km in m\n"
         let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 11)
-        guard case .number(_, let u) = lines[0].result, u != nil
+        guard case .number(_, let u, _, _) = lines[0].result, u != nil
         else { return try expect(false, "sanity: conversion row carries a unit") }
         guard let plan else { return try expect(false, "unit row plans a token") }
         try expectEqual(plan.content, content + WM, "marker at the line-2 caret")
@@ -154,7 +154,7 @@ public let r62Cases: [EngineCase] = [
             latitude: 51.5074, longitude: -0.1278,
             temperatureCelsius: 18.5, fetchedAt: Date())])
         let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 18, weather: weather)
-        guard case .number(_, let u) = lines[0].result, u != nil
+        guard case .number(_, let u, _, _) = lines[0].result, u != nil
         else { return try expect(false, "sanity: weather row is a unit number") }
         guard let plan else { return try expect(false, "weather row plans a token") }
         try expectEqual(plan.content, content + WM, "marker at the line-2 caret")
@@ -320,7 +320,7 @@ public let r62Cases: [EngineCase] = [
         // canonical flow (Return, then double-click) and must still work.
         let content = "7×8\n"
         let (plan, lines) = r62Plan(content, sourceLineIndex: 0, caret: 4)
-        guard case .number(let v, let u) = lines[0].result, u == nil, v == 56
+        guard case .number(let v, let u, _, _) = lines[0].result, u == nil, v == 56
         else { return try expect(false, "sanity: 7×8 answers 56") }
         guard let plan else {
             return try expect(false, "a cross-line caret on line 1 still plans the token")

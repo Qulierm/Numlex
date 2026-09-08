@@ -1,14 +1,39 @@
 import Foundation
 
 /// One quantity a named value can carry. Unitless scalars keep the
-/// legacy variable semantics; money carries its ISO fiat code so later
-/// lines preserve the currency; r82: a boolean carries a real `Bool`
-/// (never a numeric 1/0) for comparison/logical lines and conditional
-/// assignments.
+/// legacy variable semantics; r83: a scalar carries its SEMANTIC kind
+/// (plain/percent/fraction/multiplier) plus the reduced rational for
+/// fractions — assignments and constants propagate the kind top-down
+/// (`x = 10% + 20%` records a percent-typed value); money carries its
+/// ISO fiat code so later lines preserve the currency; r82: a boolean
+/// carries a real `Bool` (never a numeric 1/0) for comparison/logical
+/// lines and conditional assignments.
 public enum TypedQty: Equatable, Sendable {
-    case scalar(Double)
+    case scalar(value: Double, kind: NumericKind, fraction: Rational?)
     case money(Double, code: String)
     case bool(Bool)
+}
+
+extension TypedQty {
+    /// r83: the plain-scalar factory — pre-r83 call sites (`qty:
+    /// .scalar(v)`) keep their exact semantics through this shape.
+    public static func scalar(_ value: Double) -> TypedQty {
+        .scalar(value: value, kind: .plain, fraction: nil)
+    }
+    /// The scalar's semantic kind (plain for money/boolean).
+    public var numericKind: NumericKind {
+        switch self {
+        case .scalar(_, let kind, _): return kind
+        default: return .plain
+        }
+    }
+    /// The reduced rational of a fraction scalar (nil otherwise).
+    public var fractionValue: Rational? {
+        switch self {
+        case .scalar(_, .fraction, let r): return r
+        default: return nil
+        }
+    }
 }
 
 /// Canonical name key: casefolded, whitespace-collapsed. `Monthly Rent`
@@ -96,7 +121,7 @@ public struct TypedEnv: Equatable {
     public func scalarDict() -> [String: Double] {
         var d: [String: Double] = [:]
         for e in entries {
-            if case .scalar(let v) = e.qty, v.isFinite { d[e.display] = v }
+            if case .scalar(let v, _, _) = e.qty, v.isFinite { d[e.display] = v }
         }
         return d
     }

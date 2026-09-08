@@ -81,7 +81,7 @@ public enum PreviousAnswerPlan {
     /// the line that uses it).
     public static func isAnswerable(_ result: LineResult) -> Bool {
         switch result {
-        case .number(let v, _): return v.isFinite
+        case .number(let v, _, _, _): return v.isFinite
         case .variable: return true
         case .money(let v, _): return v.isFinite
         case .boolean: return false

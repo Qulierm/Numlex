@@ -14,7 +14,7 @@ public let formatCases: [EngineCase] = [
         let a = evalLine("12+30*2", variables: &v, rates: Rates(), decimalPlaces: 7)
         var v2: [String: Double] = [:]
         let b = evalLine("12 + 30 × 2", variables: &v2, rates: Rates(), decimalPlaces: 7)
-        guard case .number(let av, nil) = a, case .number(let bv, nil) = b else {
+        guard case .number(let av, nil, _, _) = a, case .number(let bv, nil, _, _) = b else {
             throw CaseFailure(message: "× expression must evaluate", location: "FormatCases")
         }
         try expectEqual(av, 72.0, "12+30*2")
@@ -29,7 +29,7 @@ public let formatCases: [EngineCase] = [
         var v: [String: Double] = [:]
         _ = evalLine("x = 5", variables: &v, rates: Rates(), decimalPlaces: 7)
         let r = evalLine("x × -2", variables: &v, rates: Rates(), decimalPlaces: 7)
-        guard case .number(let val, nil) = r else { throw CaseFailure(message: "x × -2 must evaluate", location: "FormatCases") }
+        guard case .number(let val, nil, _, _) = r else { throw CaseFailure(message: "x × -2 must evaluate", location: "FormatCases") }
         try expectEqual(val, -10.0, "x = 5, x × -2")
     },
 
@@ -159,7 +159,7 @@ public let formatCases: [EngineCase] = [
         ]
         for (expr, expected) in pairs {
             var v: [String: Double] = [:]
-            guard case .number(let value, nil)? = evalLine(expr, variables: &v, rates: Rates(), decimalPlaces: 7) else {
+            guard case .number(let value, nil, _, _)? = evalLine(expr, variables: &v, rates: Rates(), decimalPlaces: 7) else {
                 throw CaseFailure(message: "\(expr) must evaluate", location: "FormatCases")
             }
             try expectEqual(value, expected, expr)
