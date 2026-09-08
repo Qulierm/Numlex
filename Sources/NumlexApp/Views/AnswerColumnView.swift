@@ -81,8 +81,11 @@ struct AnswerColumnView: View {
     /// Blank/title/skip/error/broken/date never outline.
     private func isHighlightable(_ result: LineResult) -> Bool {
         switch result {
-        case .number, .variable, .money, .boolean:
+        case .number, .variable, .variableInt, .integer, .money, .boolean, .location:
             return true
+        case .dms:
+            // r85: DMS answers are not token sources — no outline.
+            return false
         case .blank, .skip, .title, .date, .brokenToken, .error:
             return false
         }
@@ -572,6 +575,27 @@ struct AnswerColumnView: View {
                             .lineLimit(1)
                     }
                 }
+            case .integer(let v, let radix), .variableInt(_, let v, let radix):
+                // r85: base rows render the EXACT base text — no
+                // compact notation, no decimal rounding.
+                let s = radix == 10
+                    ? IntLiteral.formatDecimal(v, context: numberContext)
+                    : IntLiteral.format(v, radix: radix)
+                Text(s)
+                    .font(palette.swiftUIFont(fontSize, weight: line.isTotal ? .semibold : .regular))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .location(_, _, let c):
+                // r85: the retypeable coordinate pair.
+                Text(GeoPresentation.coordinateText(c, context: numberContext))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .dms(let p):
+                Text(DMSTools.display(p, context: numberContext))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
             case .money(let v, let code):
                 // Natural money: shared presentation (`$600.00`),
                 // dark-base regular, never enters the numeric Total.
@@ -618,6 +642,12 @@ struct AnswerColumnView: View {
                     // time), never an answer: no copy, no rounding, no
                     // token, never in the Total.
                     Text(L10n.t("weatherUnavailable", language: language))
+                        .font(Design.labelSmall)
+                        .foregroundStyle(.secondary)
+                } else if GeoQueryParse.isUnavailableMessage(msg) {
+                    // r85: terminal geocode failure with no cache —
+                    // the same quiet localized status as weather.
+                    Text(L10n.t("locationUnavailable", language: language))
                         .font(Design.labelSmall)
                         .foregroundStyle(.secondary)
                 } else if msg == "Rates unavailable" {

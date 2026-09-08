@@ -57,7 +57,9 @@ public let r47Cases: [EngineCase] = [
     // MARK: 1. Central registry
 
     EngineCase("r47-registry-table") {
-        try expectEqual(MathFunctions.knownNames.count, 19, "19 builtins")
+        // r85: int/bin/oct/hex joined the registry (exact base
+        // functions) — the pinned table count moves 19 -> 23.
+        try expectEqual(MathFunctions.knownNames.count, 23, "23 builtins")
         for name in ["sqrt", "abs", "round", "min", "max", "sum", "average",
                      "pow", "ln", "log", "log10", "sin", "cos", "tan",
                      "asin", "acos", "atan", "radians", "degrees"] {

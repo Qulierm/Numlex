@@ -786,6 +786,10 @@ private struct ConstantsSettingsTab: View {
                                       context: model.numberContext)
         case .money(let v, let code):
             return formatMoney(v, code: code, context: model.numberContext)
+        case .integer(let v, let r):
+            // r85: an exact integer constant previews its base text.
+            if r == 10 { return IntLiteral.formatDecimal(v, context: model.numberContext) }
+            return IntLiteral.format(v, radix: r)
         case .bool(let b):
             // r82: a boolean constant expression previews as its word.
             return b ? "true" : "false"

@@ -17,6 +17,10 @@ public enum TypedQty: Equatable, Sendable {
     /// values are per-pass only: they are re-derived from the sheet
     /// text on every evaluation and are never persisted.
     case quantity(Quantity)
+    /// r85: an exact integer (full Int64) with its presentation
+    /// radix — per-pass only, never persisted. Joins the exact lane:
+    /// base conversions, bitwise operators and checked arithmetic.
+    case integer(value: Int64, radix: Int)
 }
 
 extension TypedQty {

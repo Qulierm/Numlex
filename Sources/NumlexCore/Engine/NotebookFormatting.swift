@@ -91,6 +91,14 @@ public enum NotebookFormatting {
                 switch result {
                 case .number(_, .none, _, _), .variable, .boolean, .error:
                     out.append(canonicalMathText(line))
+                case .integer, .variableInt:
+                    // r85: base rows keep their EXACT source text
+                    // (radix prefixes, bitwise glyphs, underscore
+                    // digit runs have no canonical re-spelling).
+                    out.append(line)
+                case .location, .dms:
+                    // r85: coordinate/DMS rows keep their exact text.
+                    out.append(line)
                 case .money:
                     // A money result that is NOT in natural shape (a
                     // reference to a single-identifier money name like
@@ -142,8 +150,10 @@ public enum NotebookFormatting {
                              context: context) {
         case .number(_, let unit, _, _):
             return unit == nil
-        case .variable, .boolean, .error:
+        case .variable, .variableInt, .integer, .boolean, .error:
             return true
+        case .location, .dms:
+            return false
         case .money, .date, .blank, .skip, .title, .brokenToken, .none:
             // Money/date lines keep their exact typed form.
             return false

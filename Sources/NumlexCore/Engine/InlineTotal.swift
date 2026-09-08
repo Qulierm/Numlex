@@ -72,6 +72,15 @@ public enum InlineTotal {
             return v
         case .variable(_, let v, _, _) where v.isFinite:
             return v
+        case .integer(let v, _):
+            // r85: exact rows contribute their deterministic Double
+            // projection (exact while |v| <= 2^53).
+            return Double(v)
+        case .variableInt(_, let v, _):
+            return Double(v)
+        // r85: coordinates and DMS never enter totals.
+        case .location, .dms:
+            return nil
         default:
             return nil
         }

@@ -145,7 +145,13 @@ public let r82Cases: [EngineCase] = [
         try r82IsError(r82Lines("true % 10")[0].result, "true % 10")
         try r82IsError(r82Lines("sqrt(true)")[0].result, "sqrt(true)")
         try r82IsError(r82Lines("true and 1")[0].result, "and with scalar")
-        try r82IsError(r82Lines("1 and 2")[0].result, "and with scalars")
+        // r85: int AND/OR int is BITWISE — `1 and 2` = 0 (the exact
+        // lane owns integer-shaped and/or lines; the mixed bool/int
+        // case above stays a strict error).
+        let andBits = r82Lines("1 and 2")[0].result
+        guard case .integer(let v, let r) = andBits, v == 0, r == 10 else {
+            throw CaseFailure(message: "1 and 2 = 0 (bitwise, r85), got \(andBits)")
+        }
         // A conditional branch with a boolean VALUE is fine; a branch
         // with an unknown word is not.
         try r82IsError(r82Lines("if true then butter else 2")[0].result, "prose branch")

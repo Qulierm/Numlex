@@ -20,6 +20,17 @@ public struct TokenResolution: Equatable, Sendable {
         /// resolution (never a 0/1 Double): the capsule shows the
         /// lowercase word and the token joins logical expressions.
         case activeBool(value: Bool, display: String)
+        /// r85: the source line is an EXACT base answer — the capsule
+        /// shows the base text and the token participates in bitwise
+        /// and base-conversion expressions with its exact Int64
+        /// (never a Double as truth).
+        case activeInteger(value: Int64, radix: Int, display: String)
+        /// r85: the source line is a location answer — the token is a
+        /// coordinate (a distance-query operand).
+        case activeCoordinate(coordinate: GeoCoordinate,
+                              placeName: String,
+                              country: String?,
+                              display: String)
         /// The source line is missing or invalid: the token stays in
         /// place, inactive, displaying its remembered label.
         case broken(line: Int)
@@ -62,13 +73,14 @@ public func resolveSheet(
     decimalPlaces: Int,
     constants: [UserConstant] = [],
     weather: WeatherContext = .empty,
+    geo: GeoContext = .empty,
     context: NumberFormatContext = .legacy,
     unitContext: UnitContext = .builtIns
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
-                 constants: constants, weather: weather, context: context,
+                 constants: constants, weather: weather, geo: geo, context: context,
                  unitContext: unitContext)
 }
 
@@ -87,6 +99,7 @@ public func resolveSheet(
     calendar: Calendar,
     constants: [UserConstant] = [],
     weather: WeatherContext = .empty,
+    geo: GeoContext = .empty,
     context: NumberFormatContext = .legacy,
     unitContext: UnitContext = .builtIns
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
@@ -140,6 +153,7 @@ public func resolveSheet(
         if line.hasPrefix("//") { return .blank }
         if let eval = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
                                     now: now, calendar: calendar, weather: weather,
+                                    geo: geo,
                                     context: context, unitContext: unitContext) {
             return eval
         }
@@ -233,6 +247,30 @@ public func resolveSheet(
                 let display = b ? "true" : "false"
                 tokenStates[docPos] = .activeBool(value: b, display: display)
                 quantities.append(Qty(v: 0, unit: nil, boolValue: b))
+            case .integer(let v, let radix):
+                // r85: an EXACT base token — its Int64 value rides
+                // alongside (the token algebra runs the exact engine)
+                // and a plain-Double quantity is provided for the
+                // ordinary arithmetic fallback.
+                let display = radix == 10
+                    ? IntLiteral.formatDecimal(v, context: context)
+                    : IntLiteral.format(v, radix: radix)
+                tokenStates[docPos] = .activeInteger(value: v, radix: radix, display: display)
+                quantities.append(Qty(v: Double(v), unit: nil))
+            case .variableInt(_, let v, let radix):
+                let display = radix == 10
+                    ? IntLiteral.formatDecimal(v, context: context)
+                    : IntLiteral.format(v, radix: radix)
+                tokenStates[docPos] = .activeInteger(value: v, radix: radix, display: display)
+                quantities.append(Qty(v: Double(v), unit: nil))
+            case .location(let name, let country, let coord):
+                // r85: a coordinate token (a distance-query operand).
+                let display = GeoPresentation.coordinateText(coord, context: context)
+                tokenStates[docPos] = .activeCoordinate(coordinate: coord,
+                                                        placeName: name,
+                                                        country: country,
+                                                        display: display)
+                quantities.append(nil)
             default:
                 // Error, blank, prose, non-finite: the token is inactive.
                 tokenStates[docPos] = .broken(line: ref.labelLine)
@@ -250,6 +288,16 @@ public func resolveSheet(
         if isBare {
             if anyBroken {
                 return .brokenToken(line: refsHere[0]?.labelLine ?? 1)
+            }
+            // r85: a bare base or location token shows the FULL source
+            // answer (the exact base text / the coordinate pair), never
+            // a Decimal approximation.
+            let st0 = tokenStates[docStart + markerPos[0]]
+            if case .activeInteger(let v, let radix, _) = st0 {
+                return .integer(value: v, radix: radix)
+            }
+            if case .activeCoordinate(let c, let name, let country, _) = st0 {
+                return .location(name: name, country: country, coordinate: c)
             }
             if let q = quantities[0] {
                 // r82: a bare boolean token shows its lowercase word
@@ -492,6 +540,15 @@ public func resolveSheet(
         // deterministically, and unit/money tokens can never coerce
         // into a boolean context. Non-boolean token lines keep the
         // legacy routes byte-for-byte.
+        // r85: a STRONG-trigger base line (radix literal, base
+        // phrase/function, bitwise glyph, xor) or a `distance between`
+        // geo query with coordinate tokens — exact Int64 / pure geo
+        // math, never the boolean engine and never a Double.
+        if let r85 = r85TokenPass(line: line, markerPos: markerPos, docStart: docStart,
+                                  tokenStates: tokenStates, env: env, geo: geo,
+                                  context: context, decimalPlaces: decimalPlaces) {
+            return r85
+        }
         let hasBoolToken = quantities.contains { $0?.boolValue != nil }
         if BooleanLogic.isBoolLikely(line, env: env) || hasBoolToken {
             var tvars: [String: TypedScalar] = [:]
@@ -513,6 +570,15 @@ public func resolveSheet(
                     decimalPlaces: decimalPlaces,
                     context: context) {
                 return r
+            }
+            // r85: `TOKEN and 5` / `TOKEN | 3` — a word-form bitwise
+            // line the boolean engine cannot type: the exact engine
+            // owns it when its WEAK trigger is present.
+            if let r85 = r85TokenPass(line: line, markerPos: markerPos, docStart: docStart,
+                                      tokenStates: tokenStates, env: env, geo: geo,
+                                      context: context, decimalPlaces: decimalPlaces,
+                                      weakOnly: true) {
+                return r85
             }
             return .error(message: "Invalid expression")
         }
@@ -564,6 +630,15 @@ public func resolveSheet(
             }
             return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
         } catch {
+            // r85: a bitwise/base line TokenExpr cannot type joins the
+            // exact engine (weak trigger only — strong lines were
+            // owned above and never reach this fallback).
+            if let r85 = r85TokenPass(line: line, markerPos: markerPos, docStart: docStart,
+                                      tokenStates: tokenStates, env: env, geo: geo,
+                                      context: context, decimalPlaces: decimalPlaces,
+                                      weakOnly: true) {
+                return r85
+            }
             return .error(message: "Invalid expression")
         }
     }
@@ -1123,3 +1198,191 @@ enum TokenExpr {
 /// The shared currency marker table (one file-scope copy,
 /// longest-first) used by the token expression parser.
 private let tokenMarkerTable = CurrencyPresentation.orderedMarkers
+
+
+// MARK: - r85: exact integer / geo token passes
+
+/// r85: the token-line routes the exact engines own.
+///
+/// STRONG pass (weakOnly = false): the line carries a radix literal,
+/// a base phrase, a base function, a bitwise glyph or `xor` — markers
+/// become collision-proof placeholders feeding `IntegerEngine` with
+/// the tokens' EXACT Int64 values (never a Double as truth); or the
+/// line is a `distance between` geo query whose endpoints are
+/// coordinate tokens (plus plain places/coordinate pairs resolved
+/// through the shared geo context).
+///
+/// WEAK pass (weakOnly = true): a word `and`/`or` line whose boolean
+/// route failed — the exact engine takes it when its weak trigger
+/// holds. A base/location marker in a shape neither engine owns
+/// returns nil and the line keeps the ordinary token outcome.
+private func r85TokenPass(
+    line: String,
+    markerPos: [Int],
+    docStart: Int,
+    tokenStates: [Int: TokenResolution.State],
+    env: TypedEnv,
+    geo: GeoContext,
+    context: NumberFormatContext,
+    decimalPlaces: Int,
+    weakOnly: Bool = false
+) -> LineResult? {
+    // The geo distance pass needs no integer content — it owns its
+    // shape independently of the integer triggers.
+    if let g = r85TokenGeoDistance(line: line, markerPos: markerPos, docStart: docStart,
+                                   tokenStates: tokenStates, env: env, geo: geo,
+                                   context: context, decimalPlaces: decimalPlaces) {
+        return g
+    }
+    let strong = IntegerLane.hasStrongTrigger(line, env: env)
+    if weakOnly {
+        guard !strong, IntegerLane.hasWeakTrigger(line, env: env) else { return nil }
+    } else {
+        guard strong else { return nil }
+    }
+    // Replace each marker by its collision-proof placeholder and
+    // gather the EXACT integer values (a non-integer marker in an
+    // integer line invalidates the pass — the ordinary routes decide).
+    var work = NSMutableString(string: line)
+    var vars = IntegerLane.varTable(env)
+    var varRadixes = IntegerLane.varRadixTable(env)
+    var intTokens = 0
+    let int64max = 9_223_372_036_854_775_807.0
+    for (k, pos) in markerPos.enumerated() {
+        guard let st = tokenStates[docStart + pos] else { return nil }
+        // A base/variable token contributes its EXACT Int64.
+        if case .activeInteger(let v, let radix, _) = st {
+            vars[namePlaceholder(k)] = .int(v)
+            if radix != 10 { varRadixes[namePlaceholder(k)] = radix }
+            intTokens += 1
+            work.replaceCharacters(in: NSRange(location: pos, length: 1),
+                                   with: namePlaceholder(k))
+            continue
+        }
+        // A unitless whole-number token joins as an exact integer
+        // (the exact lane is Int64 end-to-end; anything else
+        // invalidates the pass and the ordinary routes decide).
+        if case .active(let v, let unit, _) = st, unit == nil {
+            guard v.isFinite, v == v.rounded(), abs(v) <= int64max else { return nil }
+            vars[namePlaceholder(k)] = .int(Int64(v))
+            intTokens += 1
+            work.replaceCharacters(in: NSRange(location: pos, length: 1),
+                                   with: namePlaceholder(k))
+            continue
+        }
+        return nil
+    }
+    guard intTokens > 0 || strong else { return nil }
+    let normalized = normalizeExprCorrect((work as String).trimmingCharacters(in: .whitespaces),
+                                          context: context)
+    do {
+        let r = try IntegerEngine.evaluate(normalized, vars: vars,
+                                           varRadixes: varRadixes)
+        switch r {
+        case .integer(let v, let radix):
+            return .integer(value: v, radix: radix)
+        case .scalar(let d):
+            guard d.isFinite else { return nil }
+            return .number(value: roundResult(d, decimalPlaces: 10), unit: nil)
+        case .boolean(let b):
+            return .boolean(value: b)
+        }
+    } catch {
+        return strong ? .error(message: "Invalid expression") : nil
+    }
+}
+
+/// r85: `distance between <endpoint> and <endpoint>` where each
+/// endpoint is a coordinate token, a plain place (resolved through
+/// the shared geo context) or an explicit coordinate pair. A broken
+/// or non-coordinate token, or an unresolvable place, is a visible
+/// error; a still-loading place keeps the line quiet (skip).
+private func r85TokenGeoDistance(
+    line: String,
+    markerPos: [Int],
+    docStart: Int,
+    tokenStates: [Int: TokenResolution.State],
+    env: TypedEnv,
+    geo: GeoContext,
+    context: NumberFormatContext,
+    decimalPlaces: Int
+) -> LineResult? {
+    guard !markerPos.isEmpty else { return nil }
+    let nsLine = line as NSString
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let lower = trimmed.lowercased()
+    guard lower.hasPrefix("distance between") else { return nil }
+    let lineStart = (line as NSString).range(of: trimmed, options: [.literal]).location
+    let restStart = lineStart + ("distance between" as NSString).length
+    let rest = String(trimmed.dropFirst("distance between".count))
+    let ns = rest as NSString
+    var lo = 0
+    var candidates: [Int] = []
+    while true {
+        let r = ns.range(of: " and ", options: [.caseInsensitive],
+                         range: NSRange(location: lo, length: ns.length - lo))
+        if r.location == NSNotFound { break }
+        lo = r.location + 1
+        candidates.append(r.location)
+    }
+    guard let last = candidates.last else { return nil }
+    let rawA = String(ns.substring(to: last))
+    let rawB = String(ns.substring(from: last + 5))
+    let sideA = rawA.trimmingCharacters(in: .whitespaces)
+    let sideB = rawB.trimmingCharacters(in: .whitespaces)
+    guard !sideA.isEmpty, !sideB.isEmpty else { return nil }
+
+    // A rest-coordinate `q` maps to the line position
+    // `restStart + q`; side A spans rest [0..<last], side B the tail.
+    func markerIn(raw: String, rawIsA: Bool) -> Int? {
+        let base = rawIsA ? 0 : last + 5
+        for pos in markerPos {
+            let q = pos - restStart
+            if q >= base {
+                let rel = q - base
+                if rel < raw.utf16.count { return pos }
+            }
+        }
+        return nil
+    }
+    enum Res { case known(GeoCoordinate); case loading; case failed }
+    func resolve(_ side: String, raw: String, rawIsA: Bool) -> Res {
+        // Exactly one marker and nothing else: a coordinate token.
+        if let m = markerIn(raw: raw, rawIsA: rawIsA) {
+            let restAfterMarker = (raw as NSString)
+                .replacingCharacters(in: NSRange(location: m - (rawIsA ? 0 : last + 5), length: 1), with: "")
+            guard restAfterMarker.trimmingCharacters(in: .whitespaces).isEmpty else {
+                return .failed // a token glued to words is not an endpoint
+            }
+            guard let st = tokenStates[docStart + m] else { return .failed }
+            switch st {
+            case .activeCoordinate(let c, _, _, _): return .known(c)
+            case .broken: return .failed
+            default: return .failed // numbers/booleans are not coordinates
+            }
+        }
+        guard let e = GeoQueryParse.endpoint(side, context: context) else {
+            return .failed
+        }
+        switch e {
+        case .coordinate(let c): return .known(c)
+        case .place(let key, _):
+            if let snap = geo.snapshots[key], snap.isValid { return .known(snap.coordinate) }
+            if geo.pendingKeys.contains(key) { return .loading }
+            return .failed
+        }
+    }
+    let ra = resolve(sideA, raw: rawA, rawIsA: true)
+    let rb = resolve(sideB, raw: rawB, rawIsA: false)
+    if case .failed = ra { return .error(message: geoUnavailableMessage) }
+    if case .failed = rb { return .error(message: geoUnavailableMessage) }
+    guard case .known(let ca) = ra, case .known(let cb) = rb else {
+        return .skip
+    }
+    let d = Haversine.meters(between: ca, and: cb)
+    if d >= 1000 {
+        return .number(value: roundResult(d / 1000, decimalPlaces: max(decimalPlaces, 10)),
+                       unit: "km")
+    }
+    return .number(value: roundResult(d, decimalPlaces: decimalPlaces), unit: "m")
+}

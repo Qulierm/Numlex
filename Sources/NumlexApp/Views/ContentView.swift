@@ -61,6 +61,15 @@ struct ContentView: View {
         return (sheet?.id.uuidString ?? "none") + "\n" + sig
     }
 
+    /// r85: the geography refresh identity — the same formula as the
+    /// weather one, over the geo query set.
+    private var geoTaskID: String {
+        let sheet = model.selectedSheet
+        let sig = GeoQueryParse.signature(
+            for: GeoQueryParse.scanQueries(in: sheet?.content ?? ""))
+        return (sheet?.id.uuidString ?? "none") + "\n" + sig
+    }
+
     /// r43: the editor construction for the detail pane, extracted as a
     /// method ONLY to keep `body` inside the type-checker's budget — the
     /// emitted view tree is identical to the inline initializer.
@@ -154,6 +163,9 @@ struct ContentView: View {
                 // editor and answer evaluations below — the two can
                 // never render different snapshots in one frame.
                 let weatherContext = model.weatherContext
+                // r85: ONE geo context per body pass, shared by the
+                // editor and answer evaluations below.
+                let geoContext = model.geoContext
                 GeometryReader { _ in
                     let settings = model.settings
                     let sheet = model.selectedSheet
@@ -168,6 +180,7 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants,
                         weather: weatherContext,
+                        geo: geoContext,
                         context: model.numberContext,
                         unitContext: model.unitContext
                     )
@@ -214,6 +227,7 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants,
                         weather: weatherContext,
+                        geo: geoContext,
                         context: model.numberContext,
                         unitContext: model.unitContext
                     ).lines
@@ -371,6 +385,13 @@ struct ContentView: View {
             let content = model.selectedSheet?.content ?? ""
             guard let sheetID = model.selectedSheet?.id else { return }
             await model.refreshWeather(content: content, sheetID: sheetID)
+        }
+        // r85: geography refresh trigger — same debounce/cancel
+        // discipline as the weather one, geocoding only.
+        .task(id: geoTaskID) {
+            let content = model.selectedSheet?.content ?? ""
+            guard let sheetID = model.selectedSheet?.id else { return }
+            await model.refreshGeo(content: content, sheetID: sheetID)
         }
         .onAppear {
             Task { @MainActor in

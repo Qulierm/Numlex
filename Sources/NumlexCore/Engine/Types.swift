@@ -214,6 +214,11 @@ public enum LineResult: Equatable, Sendable {
     /// = 10% + 20%` records a percent-typed value in the environment
     /// and displays `30%`).
     case variable(name: String, value: Double, kind: NumericKind, fraction: Rational?)
+    /// r85: an assignment whose value is an EXACT Int64 (a base
+    /// literal or an integer expression): the environment records the
+    /// exact integer (with its presentation radix) and later lines
+    /// use it in the exact lane; display is the canonical radix text.
+    case variableInt(name: String, value: Int64, radix: Int)
     /// A natural money line (`$3k earnings ÷ 5 people`, `lunch was $55
     /// + 25% tip`): the value carries full engine precision and an ISO
     /// currency code; the display is the shared money presentation
@@ -230,6 +235,26 @@ public enum LineResult: Equatable, Sendable {
     /// or the rounding slider, and is excluded from previous-answer
     /// (numeric) planning.
     case boolean(value: Bool)
+    /// r85: an EXACT integer answer (base/binary/hex expressions,
+    /// bitwise operations and base conversions). `value` is the full
+    /// Int64 — never a Double as truth — and `radix` (2/8/10/16) the
+    /// presentation radix: the explicit converter's radix, else the
+    /// first non-decimal radix of the line, else decimal. Renders and
+    /// copies as the canonical radix text (no decimal rounding menu);
+    /// contributes its exact value to totals (deterministic) and is
+    /// tokenizable. Never persisted as a schema: re-derived per pass.
+    case integer(value: Int64, radix: Int)
+    /// r85: a `location of <place>` answer: the resolved place's
+    /// coordinate plus its resolved name. Renders and copies the
+    /// retypeable `lat° N, lon° E` pair (decimal-comma modes use `;`
+    /// as the pair separator so Copy stays retypeable). Copy/Delete
+    /// only, never in totals or the previous-answer chain, tokenizable
+    /// as a coordinate (a distance-query operand).
+    case location(name: String, country: String?, coordinate: GeoCoordinate)
+    /// r85: a `… as DMS` answer: the decimal degree split into
+    /// degrees/minutes/seconds. Renders/copies `156° 44′ 31.2″`
+    /// (locale-aware seconds decimal). Copy/Delete only.
+    case dms(DMSParts)
     /// A line that is ONLY an inactive reference token (its source line
     /// was deleted or stopped evaluating to a number/variable). The token
     /// stays in place in the editor; the line displays the remembered
@@ -289,6 +314,14 @@ extension LineResult {
         switch self {
         case .number(let v, let u, _, _):
             return (u == nil || isCurrencyCode(u)) && v.isFinite ? v : nil
+        case .integer(let v, _):
+            // Deterministic: the nearest Double of the exact value
+            // (exact while |v| <= 2^53; beyond that the DOUBLE is the
+            // documented total contribution — never a second exact
+            // total exists, so nothing is silently corrupted).
+            return Double(v)
+        case .variableInt(_, let v, _):
+            return Double(v)
         case .variable(_, let v, _, _):
             return v.isFinite ? v : nil
         case .money(let v, _):

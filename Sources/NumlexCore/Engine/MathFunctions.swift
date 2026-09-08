@@ -47,6 +47,14 @@ public enum MathFunctions {
         ("atan", 1, 1),
         ("radians", 1, 1),
         ("degrees", 1, 1),
+        // r85: the base functions. In the exact lane they return
+        // exact Int64s with their presentation radix (int/bin/oct/
+        // hex); on the legacy Double path (the direct scalar API) they
+        // project to their strict integer value.
+        ("int", 1, 1),
+        ("bin", 1, 1),
+        ("oct", 1, 1),
+        ("hex", 1, 1),
     ]
 
     /// Every known builtin name (lowercased). Membership is the shared
@@ -218,6 +226,18 @@ public enum MathFunctions {
             return try checked(key) { args[0] * Double.pi / 180 }
         case "degrees":
             return try checked(key) { args[0] * 180 / Double.pi }
+        case "int", "bin", "oct", "hex":
+            // r85: the exact lane presents these in their radix; the
+            // legacy Double path returns the strict integer value (a
+            // non-integer argument is a domain error, mirroring the
+            // exact lane's strictness).
+            let x = args[0]
+            guard x.isFinite, x == x.rounded(),
+                  x >= Double(Int64.min) + 1, x <= Double(Int64.max) - 1,
+                  Int64(exactly: x) != nil else {
+                throw MathFunctionError.domain(name: key, detail: "argument must be an exact integer")
+            }
+            return x
         default:
             throw MathFunctionError.domain(name: name, detail: "unknown function")
         }

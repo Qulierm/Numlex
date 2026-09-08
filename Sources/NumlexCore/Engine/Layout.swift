@@ -165,6 +165,7 @@ public enum TotalDivider {
             return false
         case .error(let message):
             return WeatherQuery.isUnavailableMessage(message)
+                || GeoQueryParse.isUnavailableMessage(message)
                 || message == "Rates unavailable"
         default:
             return true

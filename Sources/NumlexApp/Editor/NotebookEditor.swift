@@ -968,6 +968,14 @@ final class NotebookEditorCoordinator: NSObject {
             case .activeBool(_, let display):
                 label = display
                 active = true
+            case .activeInteger(_, _, let display):
+                // r85: a base answer token shows its exact base text.
+                label = display
+                active = true
+            case .activeCoordinate(_, _, _, let display):
+                // r85: a coordinate token shows the retypeable pair.
+                label = display
+                active = true
             case .broken(let line):
                 label = "Line \(line)"
                 active = false
@@ -994,6 +1002,8 @@ final class NotebookEditorCoordinator: NSObject {
             case .active(_, _, let d): display = d
             case .activeKinded(_, _, _, _, let d): display = d
             case .activeBool(_, let d): display = d
+            case .activeInteger(_, _, let d): display = d
+            case .activeCoordinate(_, _, _, let d): display = d
             case .broken(let n): display = "Line \(n)"
             case nil: display = "Line \(ref.labelLine)"
             }

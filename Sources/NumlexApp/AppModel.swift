@@ -578,7 +578,7 @@ final class AppModel {
             op: key, rates: rates, decimalPlaces: settings.decimalPlaces,
             references: sheet.references,
             constants: settings.customConstants,
-            weather: weatherContext
+            weather: weatherContext, geo: geoContext
         ) else { return false }
         // Honor the operator settings in the inserted text, and apply
         // the pure insertion: marker + separator + operator lands at
@@ -962,6 +962,22 @@ final class AppModel {
     /// durable cache is the separate `weather.json` owned by
     /// `WeatherRefresher.shared`.
     var weatherSnapshots: [String: WeatherSnapshot] = [:]
+    // r85: the published GEOGRAPHY state, keyed by BARE place key.
+    // The persistent cache is the separate `locations.json` owned by
+    // `GeoStore` (geocode-only: place coordinates, nothing else).
+    var geoSnapshots: [String: GeoSnapshot] = [:]
+    /// Place queries with no cache yet (render quiet, never a spinner).
+    var geoPending: Set<String> = []
+    /// Places with a terminal failure AND no cached snapshot (render
+    /// the localized `Location unavailable` status).
+    var geoFailed: Set<String> = []
+
+    /// r85: the pure evaluation context for the current render.
+    var geoContext: GeoContext {
+        GeoContext(snapshots: geoSnapshots,
+                   pendingKeys: geoPending,
+                   failedKeys: geoFailed)
+    }
     /// Requested queries with no cache yet (render quiet, never a
     /// spinner or an error).
     var weatherPending: Set<String> = []
@@ -1042,4 +1058,68 @@ final class AppModel {
             }
         }
     }
+
+    // MARK: - Geography (r85)
+
+    /// r85: refreshes place coordinates for the given sheet content —
+    /// the mirror of `refreshWeather`, geocoding ONLY. Place keys are
+    /// the BARE canonical keys (the query kinds strip their prefix).
+    @MainActor
+    func refreshGeo(content: String, sheetID: UUID) async {
+        let queries = GeoQueryParse.scanQueries(in: content)
+        var placeKeys: [String: String] = [:] // bare key -> display place
+        for q in queries {
+            switch q.kind {
+            case .location, .latitude, .longitude:
+                let bare = String(q.key.dropFirst(4))
+                if let d = q.placeDisplay { placeKeys[bare] = d }
+            case .distance(let a, let b):
+                for e in [a, b] {
+                    if case .place(let k, let d) = e { placeKeys[k] = d }
+                }
+            }
+        }
+        let keys = Set(placeKeys.keys)
+        for k in geoSnapshots.keys where !keys.contains(k) {
+            geoSnapshots.removeValue(forKey: k)
+        }
+        geoPending = geoPending.intersection(keys)
+        geoFailed = geoFailed.intersection(keys)
+        guard !keys.isEmpty else { return }
+        guard selectedSheet?.id == sheetID else { return }
+        for (k, d) in placeKeys {
+            if let s = await GeoRefresher.shared.cachedSnapshot(forPlaceKey: k) {
+                guard selectedSheet?.id == sheetID else { return }
+                geoSnapshots[k] = s
+                geoPending.remove(k)
+                geoFailed.remove(k)
+            } else if geoSnapshots[k] == nil {
+                geoPending.insert(k)
+            }
+        }
+        // Debounce: each keystroke cancels this run before any fetch.
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled, selectedSheet?.id == sheetID else { return }
+        await withTaskGroup(of: (String, GeoSnapshot?).self) { group in
+            for (k, d) in placeKeys {
+                let stale = await GeoRefresher.shared.isStale(k)
+                if !stale, geoSnapshots[k] != nil { continue }
+                group.addTask { [key = k, display = d] in
+                    let s = await GeoRefresher.shared.refresh(displayPlace: display, placeKey: key)
+                    return (key, s)
+                }
+            }
+            for await (key, snap) in group {
+                guard !Task.isCancelled, self.selectedSheet?.id == sheetID else { continue }
+                self.geoPending.remove(key)
+                if let s = snap {
+                    self.geoSnapshots[key] = s
+                    self.geoFailed.remove(key)
+                } else if self.geoSnapshots[key] == nil {
+                    self.geoFailed.insert(key)
+                }
+            }
+        }
+    }
+
 }

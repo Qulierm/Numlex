@@ -150,6 +150,23 @@ public enum AnswerDisplay {
         case .boolean(let b):
             // r82: booleans copy exactly as their lowercase word.
             return b ? "true" : "false"
+        case .integer(let v, let radix):
+            // r85: the EXACT base text — no decimal rounding, no
+            // compact notation. Decimal rows use the context's
+            // grouping; radix rows are the canonical compact form.
+            if radix == 10 { return IntLiteral.formatDecimal(v, context: context) }
+            return IntLiteral.format(v, radix: radix)
+        case .variableInt(_, let v, let radix):
+            // Negative values present in decimal (signed-magnitude).
+            if radix == 10 || v < 0 { return IntLiteral.formatDecimal(v, context: context) }
+            return IntLiteral.format(v, radix: radix)
+        case .location(_, _, let c):
+            // r85: the retypeable coordinate pair — dot-decimal modes
+            // separate the pair with a comma, decimal-comma modes with
+            // `;` so the copied pair is retypeable in every mode.
+            return GeoPresentation.coordinateText(c, context: context)
+        case .dms(let p):
+            return DMSTools.display(p, context: context)
         case .variable(_, let v, let kind, let fraction):
             // r83: an assigned value keeps its semantic kind on display
             // (`x = 10% + 20%` shows `30%`).
@@ -165,7 +182,9 @@ public enum AnswerDisplay {
             // r55: `Weather unavailable` renders in the view (localized)
             // but is never copied — like other quiet errors it has no
             // clipboard text.
-            if WeatherQuery.isUnavailableMessage(msg) { return nil }
+            if WeatherQuery.isUnavailableMessage(msg) || GeoQueryParse.isUnavailableMessage(msg) {
+                return nil
+            }
             return msg == "Rates unavailable" ? "Rates unavailable" : nil
         }
     }
@@ -224,6 +243,13 @@ public enum AnswerDisplay {
         case .boolean:
             // r82: booleans offer Copy Answer + Delete Line only —
             // there is nothing to round on a true/false.
+            return Menu(showsActions: true, showsRounding: false)
+        case .integer, .variableInt:
+            // r85: base answers are Copy/Delete only — an exact
+            // Int64 has no decimals to round.
+            return Menu(showsActions: true, showsRounding: false)
+        case .location, .dms:
+            // r85: coordinate and DMS answers are Copy/Delete only.
             return Menu(showsActions: true, showsRounding: false)
         case .money, .date, .brokenToken:
             return Menu(showsActions: true, showsRounding: false)

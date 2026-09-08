@@ -202,6 +202,15 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
         return .error(message: "Cannot assign to constant")
     }
     if right.isEmpty { return .error(message: "Missing expression") }
+    // r85: an exact integer right-hand side (radix literal, bitwise
+    // expression, base converter) is recorded as the full Int64.
+    if IntegerLane.hasStrongTrigger(rightRaw, env: env)
+        || IntegerLane.hasWeakTrigger(rightRaw, env: env),
+       let ir = IntegerLane.tryLine(right, env: env, context: context, decimalPlaces: decimalPlaces),
+       case .integer(let v, let radix) = ir {
+        env.set(display: left, qty: .integer(value: v, radix: radix))
+        return .variableInt(name: left, value: v, radix: radix)
+    }
     do {
         // r83: the kind-aware engine — a percent/multiplier right-hand
         // side (`x = 10% + 20%`, `x = 1.5x`) records its semantic kind
@@ -410,8 +419,8 @@ private func evalNamedLine(_ line: String,
                                unit: to.unit.label)
             }
             return .error(message: "Invalid conversion")
-        case .scalar, .bool, .quantity:
-            break  // unitless/boolean/quantity name: not convertible here
+        case .scalar, .bool, .quantity, .integer:
+            break  // unitless/boolean/quantity/integer name: not convertible here
         }
     }
     // 2. Named reference expression: `monthly rent × 12`,
@@ -495,6 +504,7 @@ func evalLineTyped(_ line: String,
                    now: Date,
                    calendar: Calendar,
                    weather: WeatherContext = .empty,
+                   geo: GeoContext = .empty,
                    context: NumberFormatContext = .legacy,
                    unitContext: UnitContext = .builtIns) -> LineResult? {
     // r55: weather detection runs FIRST so `weather in London` can
@@ -505,6 +515,15 @@ func evalLineTyped(_ line: String,
     if let query = WeatherQuery.parse(line) {
         return evalWeatherLine(query, weather: weather, decimalPlaces: decimalPlaces)
     }
+    // r85: the geography query lane (`location of`, `latitude of`,
+    // `longitude of`, `distance between`) — the strict grammar owns
+    // the line, the snapshot context answers immediately (a cached
+    // coordinate resolves synchronously), a still-loading place is
+    // `.skip` and a failed/unresolvable place is the localized
+    // `Location unavailable` line.
+    if let gq = GeoQueryParse.parse(line, context: context) {
+        return evalGeoLine(gq, geo: geo, decimalPlaces: decimalPlaces, context: context)
+    }
     // r33: assignment to an ACTIVE global constant is a visible error on
     // EVERY route (single identifier, multiword natural, money RHS,
     // boolean RHS) — no fallback, no partial mutation. Constants never
@@ -513,6 +532,18 @@ func evalLineTyped(_ line: String,
     if BooleanLogic.hasAssignment(line), let lhs = assignmentLHSName(line),
        env.isConstant(display: lhs) {
         return .error(message: "Cannot assign to constant")
+    }
+    // r85: the exact integer lane — radix literals (`0x1F`, `0b101`,
+    // `0o17`), base converters (`256 as hex`, `0x9F31 to decimal`,
+    // `bin(99)`), bitwise operations (`& | xor << >>`, contextual
+    // word and/or) and the base functions. Strong-trigger lines are
+    // shape-owned: their failure is a visible error, never word
+    // stripping. Runs before every unit/phrase lane: none of those
+    // shapes carries a radix literal or bitwise glyph.
+    if !BooleanLogic.hasAssignment(line),
+       let i85 = IntegerLane.tryLine(line, env: env, context: context,
+                                     decimalPlaces: decimalPlaces) {
+        return i85
     }
     // r84: the PPI phrase lane (`1 cm in px at 326 ppi`,
     // `100 px at 326 ppi in cm`) runs FIRST: pixels are not a physical
@@ -524,6 +555,14 @@ func evalLineTyped(_ line: String,
                                            decimalPlaces: decimalPlaces,
                                            env: env) {
         return px
+    }
+    // r85: the DMS / degree lane — a STRUCTURAL trigger only (the
+    // `as DMS` / `as decimal` phrases, a prime/double-prime component,
+    // or a clean `<number>° [NSEW]` shape) so prose merely mentioning
+    // `°` always falls through. Owned lines that do not parse are a
+    // visible error.
+    if !BooleanLogic.hasAssignment(line), let dms = DMSParse.tryLine(line, context: context) {
+        return dms
     }
     // r84: the cooking-density phrase lane (`200 g of flour to ml`,
     // `1 cup of honey to g`) — the `of` reading is multiplication in
@@ -619,6 +658,11 @@ func evalLineTyped(_ line: String,
             return .number(value: roundResult(q.value,
                                               decimalPlaces: max(decimalPlaces, 10)),
                            unit: q.display.label, kind: .plain, fraction: nil)
+        case .intValue(let v, let radix):
+            // r85: an exact integer right-hand side records the
+            // full Int64 with its presentation radix.
+            env.set(display: a.name, qty: .integer(value: v, radix: radix))
+            return .variableInt(name: a.name, value: v, radix: radix)
         case .scalar(let v, let kind, let fraction) where a.name.contains(" "):
             env.set(display: a.name, qty: .scalar(value: v, kind: kind, fraction: fraction))
             return .variable(name: a.name, value: v, kind: kind, fraction: fraction)
@@ -691,12 +735,12 @@ func evalLineTyped(_ line: String,
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
              now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
-             context: context, unitContext: unitContext)
+             geo: geo, context: context, unitContext: unitContext)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
@@ -709,13 +753,14 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates,
                      decimalPlaces: Int, now: Date, calendar: Calendar,
                      constants: [UserConstant] = [], weather: WeatherContext = .empty,
+                     geo: GeoContext = .empty,
                      context: NumberFormatContext = .legacy,
                      unitContext: UnitContext = .builtIns) -> LineResult? {
     var env = TypedEnv(seed: variables)
     env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
-                               now: now, calendar: calendar, weather: weather,
+                               now: now, calendar: calendar, weather: weather, geo: geo,
                                context: context, unitContext: unitContext)
     if result != nil {
         for (k, v) in env.scalarDict() { variables[k] = v }
@@ -734,10 +779,10 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
                   now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
-                  context: context, unitContext: unitContext)
+                  geo: geo, context: context, unitContext: unitContext)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -747,6 +792,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
 public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates,
                           decimalPlaces: Int, now: Date, calendar: Calendar,
                           constants: [UserConstant] = [], weather: WeatherContext = .empty,
+                          geo: GeoContext = .empty,
                           context: NumberFormatContext = .legacy,
                           unitContext: UnitContext = .builtIns) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
@@ -775,6 +821,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
         } else if let eval = evalLineTyped(line, env: &env, rates: rates,
                                            decimalPlaces: decimalPlaces,
                                            now: now, calendar: calendar, weather: weather,
+                                           geo: geo,
                                            context: context, unitContext: unitContext) {
             result = eval
         } else {

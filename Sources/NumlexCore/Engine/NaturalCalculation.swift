@@ -143,6 +143,10 @@ public enum NaturalCalculation {
         /// rejected — surfaced verbatim, never degraded to the
         /// numeric/money routes (a money name can never silently
         /// become the assignment's value in a boolean context).
+        /// r85: an exact Int64 right-hand side (base literals, bitwise
+        /// expressions, base converters) — the environment records the
+        /// exact integer with its presentation radix.
+        case intValue(value: Int64, radix: Int)
         case error(String)
         /// r84: a mixed-unit right-hand side (`x = 1 km + 2 km`).
         case quantity(Quantity)
@@ -165,6 +169,14 @@ public enum NaturalCalculation {
         guard let name = naturalLHS(lhsRaw) else { return nil }
         let rhsRaw = split.rhs
         guard BooleanLogic.assignmentSplit(rhsRaw) == nil else { return nil }
+        // r85: an exact integer right-hand side (radix literals,
+        // bitwise expressions, base converters) records the EXACT
+        // Int64 — never a Double projection.
+        if IntegerLane.hasStrongTrigger(rhsRaw, env: env),
+           let ir = IntegerLane.tryLine(rhsRaw, env: env, context: context, decimalPlaces: 10),
+           case .integer(let v, let radix) = ir {
+            return (name, .intValue(value: v, radix: radix))
+        }
         // A money right-hand side is always recorded as money.
         switch moneyOutcome(rhsRaw, env: env, context: context) {
         case .money(let v, let c):

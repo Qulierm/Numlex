@@ -173,6 +173,17 @@ public enum SyntaxClassifier {
             case .money:
                 isMath = true
                 spans = naturalSpans(line, env: env, context: context)
+            case .integer, .variableInt:
+                // r85: base rows render like ordinary expressions
+                // (numbers incl. radix literals, operators) until the
+                // dedicated base palette lands.
+                isMath = true
+                spans = expressionSpans(line, variables: env.scalarDict(), context: context)
+            case .location, .dms:
+                // r85: geo/DMS rows take the geo palette (task-7
+                // placeholder: specifier words + place spans).
+                isMath = true
+                spans = geoSpans(line, context: context)
             case .boolean:
                 isMath = true
                 spans = booleanSpans(line, env: env, context: context)
@@ -782,6 +793,124 @@ public enum SyntaxClassifier {
             }
         }
         return spans
+    }
+
+    // MARK: - r85: base / geo palette
+
+    /// The r85 palette for base (integer) and geography rows. Base
+    /// rows: radix literals (`0x…`, `0b…`, `0o…`) as numbers, bitwise
+    /// glyphs (`&`, `|`, `<<`, `>>`) and the word operators `xor` (and
+    /// `and`/`or` only when numeric math actually neighbors them) as
+    /// operators, ordinary numbers and known names through the
+    /// expression path. Geo rows: the query keywords (`location of`,
+    /// `latitude of`, `longitude of`, `distance between`, `as DMS`,
+    /// `as decimal`) as specifiers, quoted place names and DMS/degree
+    /// numbers as their roles. Deterministic.
+    private static func geoSpans(_ line: String, context: NumberFormatContext) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        let lower = line.lowercased()
+        let isGeoLine = lower.contains("location of") || lower.contains("latitude of")
+            || lower.contains("longitude of") || lower.contains("distance between")
+            || lower.contains(" as dms") || lower.contains(" as decimal")
+        // Radix literals are numbers.
+        let radixSpans = matches(#"\b0[xbo][0-9a-zA-Z]*[0-9a-zA-Z]?"#, in: ns)
+            .map { SyntaxSpan(role: .number, range: $0) }
+        spans.append(contentsOf: radixSpans)
+        // Bitwise glyphs are operators.
+        for m in matches("<<<|>>>|&|\\|", in: ns) {
+            // `<<`/`>>` first: the alternation prefers the longest at
+            // each position via the scan.
+            spans.append(SyntaxSpan(role: .operatorGlyph, range: m))
+        }
+        // Word operators: `xor` always (it is a base word); `and`/`or`
+        // only when a number actually neighbors the word on both sides.
+        for m in matches(#"\b(xor|and|or)\b"#, in: ns) {
+            let w = ns.substring(with: m)
+            if w == "xor" || wordHasMathNeighbors(line: line, range: m) {
+                spans.append(SyntaxSpan(role: .operatorGlyph, range: m))
+            }
+        }
+        // Ordinary numbers (and degree/DMS numbers) and known names.
+        for sp in expressionSpans(line, variables: [:], context: context) {
+            if sp.role == .number {
+                let extended = extendOverDegreeGlyphs(sp.range, in: line)
+                guard !spans.contains(where: { overlaps($0.range, extended) }) else { continue }
+                spans.append(SyntaxSpan(role: .number, range: extended))
+            }
+        }
+        guard isGeoLine else { return spans }
+        // Geo keywords are specifiers.
+        let keywords = ["location of", "latitude of", "longitude of",
+                        "distance between", "as dms", "as decimal"]
+        for kw in keywords {
+            var from = 0
+            while true {
+                let r = ns.range(of: kw, options: [.caseInsensitive],
+                                 range: NSRange(location: from, length: ns.length - from))
+                if r.location == NSNotFound { break }
+                if quoteParityZero(line, before: r.location) {
+                    spans.append(SyntaxSpan(role: .specifier, range: r))
+                }
+                from = r.location + r.length
+            }
+        }
+        // Quoted place names are conversion spans.
+        var from = 0
+        while true {
+            let r = ns.range(of: "\"", range: NSRange(location: from, length: ns.length - from))
+            if r.location == NSNotFound { break }
+            let r2 = ns.range(of: "\"",
+                              range: NSRange(location: r.location + 1,
+                                             length: ns.length - r.location - 1))
+            if r2.location == NSNotFound { break }
+            let inner = NSRange(location: r.location + 1, length: r2.location - r.location - 1)
+            spans.append(SyntaxSpan(role: .conversion, range: inner))
+            from = r2.location + 1
+        }
+        return spans
+    }
+
+    /// `true` when a number (digit, `0x…`, `(`, `.`) touches the word
+    /// at `range` on both sides — the `and`/`or` operator test.
+    private static func wordHasMathNeighbors(line: String, range: NSRange) -> Bool {
+        let ns = line as NSString
+        func isMathChar(_ c: UInt16) -> Bool {
+            (c >= 48 && c <= 57) || c == 40 || c == 41 || c == 46
+                || c == 120 // x (hex digit / 0x prefix)
+        }
+        let before = range.location > 0
+            ? ns.character(at: range.location - 1) : 0
+        let afterIdx = range.location + range.length
+        let after = afterIdx < ns.length ? ns.character(at: afterIdx) : 0
+        return isMathChar(before) && isMathChar(after)
+    }
+
+    private static func overlaps(_ a: NSRange, _ b: NSRange) -> Bool {
+        let aEnd = a.location + a.length
+        let bEnd = b.location + b.length
+        return a.location < bEnd && b.location < aEnd
+    }
+
+    /// Grows a number span to cover a directly-attached degree/prime
+    /// glyph (`48.8566°`, `31.2″`).
+    private static func extendOverDegreeGlyphs(_ r: NSRange, in line: String) -> NSRange {
+        let ns = line as NSString
+        var end = r.location + r.length
+        while end < ns.length {
+            let c = ns.character(at: end)
+            if c == 0x00B0 || c == 0x2032 || c == 0x2033 { end += 1 } else { break }
+        }
+        return NSRange(location: r.location, length: end - r.location)
+    }
+
+    /// Whether the character at `before` is outside any double quote
+    /// pair (even quote count before it).
+    private static func quoteParityZero(_ s: String, before: Int) -> Bool {
+        var q = 0
+        let chars = Array(s)
+        for i in 0..<min(before, chars.count) where chars[i] == "\u{0022}" { q += 1 }
+        return q % 2 == 0
     }
 
     /// The unit-word range inside a quantity literal's NSRange (the

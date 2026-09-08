@@ -46,6 +46,7 @@ public enum PreviousAnswerPlan {
         references: [AnswerReference] = [],
         constants: [UserConstant] = [],
         weather: WeatherContext = .empty,
+        geo: GeoContext = .empty,
         context: NumberFormatContext = .legacy
     ) -> Plan? {
         guard operators.contains(op) else { return nil }
@@ -61,7 +62,7 @@ public enum PreviousAnswerPlan {
         let resolved = resolveSheet(
             content: content, lineIDs: lineIDs, references: references,
             rates: rates, decimalPlaces: decimalPlaces,
-            constants: constants, weather: weather, context: context
+            constants: constants, weather: weather, geo: geo, context: context
         )
         for i in stride(from: caretLine - 1, through: 0, by: -1) {
             guard resolved.lines.indices.contains(i) else { continue }
@@ -83,8 +84,11 @@ public enum PreviousAnswerPlan {
         switch result {
         case .number(let v, _, _, _): return v.isFinite
         case .variable: return true
+        case .variableInt: return true
+        case .integer: return true
         case .money(let v, _): return v.isFinite
         case .boolean: return false
+        case .location, .dms: return false
         case .blank, .skip, .title, .date, .brokenToken, .error: return false
         }
     }

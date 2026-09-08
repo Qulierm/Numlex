@@ -92,6 +92,11 @@ public enum InputFormatting {
                 switch res {
                 case .number(let v, _, _, _): kind = .math; groupable = v.isFinite
                 case .variable: kind = .math; groupable = true
+                case .variableInt, .integer:
+                    // r85: base rows take the math pass (spacing,
+                    // glyph) but are NEVER grouped — radix literal
+                    // text is byte-stable through the input pipeline.
+                    kind = .math
                 case .money(let v, _): kind = .money; groupable = v.isFinite
                 case .error: kind = .math
                 default: break
@@ -155,6 +160,25 @@ public enum InputFormatting {
                 guard ch == 0x70 || ch == 0x6D || ch == 0x78 || ch == 0x64 else { continue }
                 guard i > 0, i + 1 < c.count else { continue }
                 let l = c[i - 1], r = c[i + 1]
+                // r85: `x` inside a radix literal (`0x1F`) must never
+                // become ×. A `0` immediately before the x is a
+                // literal prefix when it is NOT itself part of a
+                // longer digit run (`10x5` is a true multiply: the
+                // `0` sits after a `1`).
+                if ch == 0x78 {
+                    if l == 0x78 || l == 0x58 { continue }
+                    if l == 0x30 {
+                        if i >= 2 {
+                            let b = c[i - 2]
+                            if (0x30...0x39).contains(b) { /* digit run: real multiply */ }
+                            else { continue }  // `0x` prefix at/after a boundary
+                        } else {
+                            continue  // line starts `0x`
+                        }
+                    }
+                    let isDigit = { (v: unichar) in (0x30...0x39).contains(v) }
+                    guard isDigit(l) || isDigit(r) else { continue }
+                }
                 guard l >= 0x30, l <= 0x39, r >= 0x30, r <= 0x39 else { continue }
                 // Digit-bounded completion: the left digit must not be
                 // part of an identifier (`a5m3`, `x12p4y` stay
