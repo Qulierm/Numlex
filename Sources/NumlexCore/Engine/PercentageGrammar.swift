@@ -725,11 +725,17 @@ public enum PercentageGrammar {
     /// route passes its marker placeholder table).
     public static func percentOutcome(_ line: String, env: TypedEnv,
                                       context: NumberFormatContext,
-                                      table: [String: TypedScalar]? = nil) -> Outcome {
+                                      table: [String: TypedScalar]? = nil,
+                                      unitContext: UnitContext = .builtIns) -> Outcome {
         // The terminal conversion is checked first: it is the most
         // specific reading of a trailing ` %`.
         if let t = spacedTerminalPercent(line: line, env: env, context: context, table: table) {
             return t
+        }
+        // r84: a line owned by the mixed-unit stage (`50% of 200 km`)
+        // is NEVER a percentage phrase: the unit algebra decides it.
+        if MixedUnitLine.shape(line, context: context, unitContext: unitContext, env: env) {
+            return .notPercent
         }
         guard let pcs = pieces(of: line), !pcs.isEmpty else { return .notPercent }
         var dangling = false

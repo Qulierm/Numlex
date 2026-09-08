@@ -73,6 +73,14 @@ public enum UnitFamily: Hashable, Sendable, CaseIterable {
     case luminousIntensity
     case luminousFlux
     case fuel
+    /// r84: display pixels — an independent dimension (vector zero,
+    /// family `.pixels`): pixels never convert to lengths by
+    /// themselves; the ONLY bridge is an explicit PPI phrase
+    /// (`1 cm in px at 326 ppi`).
+    case pixels
+    /// r84: mass density (kg/m³) — the cooking-density lane converts
+    /// mass<->volume through an ingredient's approximate density.
+    case density
 }
 
 /// The finite-transform kind of a unit. Everything that is not a pure

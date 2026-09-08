@@ -144,6 +144,8 @@ public enum NaturalCalculation {
         /// numeric/money routes (a money name can never silently
         /// become the assignment's value in a boolean context).
         case error(String)
+        /// r84: a mixed-unit right-hand side (`x = 1 km + 2 km`).
+        case quantity(Quantity)
     }
 
     /// A named assignment: `<name> = <money expression>` (and, for
@@ -153,7 +155,11 @@ public enum NaturalCalculation {
     /// the line is not a natural assignment (or the right-hand side is
     /// malformed). The caller records the name in the environment.
     public static func tryAssignment(line: String, env: TypedEnv,
-                                   context: NumberFormatContext = .legacy) -> (name: String, value: AssignmentValue)? {
+                                   context: NumberFormatContext = .legacy,
+                                   rates: Rates = Rates(),
+                                   unitContext: UnitContext = .builtIns,
+                                   now: Date = Date(),
+                                   calendar: Calendar = .current) -> (name: String, value: AssignmentValue)? {
         guard let split = BooleanLogic.assignmentSplit(line) else { return nil }
         let lhsRaw = split.lhs
         guard let name = naturalLHS(lhsRaw) else { return nil }
@@ -185,6 +191,19 @@ public enum NaturalCalculation {
             return (name, .error(m))
         case .notPercent:
             break
+        }
+        // r84: a mixed-unit right-hand side (`x = 1 km + 2 km`,
+        // `speed = 90 km / 3 day`) evaluates in the unit algebra and
+        // records the quantity; a shape-owned right-hand side that
+        // fails is a strict error.
+        if MixedUnitLine.shape(rhsRaw, context: context, unitContext: unitContext, env: env,
+                               now: now, calendar: calendar) {
+            if let q = MixedUnitLine.evaluate(rhsRaw, env: env, context: context,
+                                              rates: rates, unitContext: unitContext,
+                                              now: now, calendar: calendar) {
+                return (name, .quantity(q))
+            }
+            return (name, .error("Invalid expression"))
         }
         // r82: a boolean-looking right-hand side (explicit syntax, a
         // logical word, or a boolean name) is decided by the ONE

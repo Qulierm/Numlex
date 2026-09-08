@@ -84,6 +84,23 @@ extension UnitCatalog {
         lin("rod", .L, 5.0292, "rod", ["rod", "rods", "pole", "poles"], [])
         lin("chain", .L, 20.1168, "chain", ["chain", "chains"], [])
         lin("furlong", .L, 201.168, "furlong", ["furlong", "furlongs", "fur"], [])
+        // MARK: Pixels (r84 — independent dimension; the ONLY bridge
+        // to lengths is an explicit PPI phrase, see PixelConversion).
+        lin("pixel", .zero, 1, "px",
+            ["px", "pixel", "pixels"], [], family: .pixels)
+
+        // MARK: Density (base kg/m³) — r84: the cooking-density lane
+        // (`200 g of flour to ml`) converts through these units.
+        let densityVec = DimensionVector(l: 3, m: 1, t: -3)
+        lin("density-kg-m3", densityVec, 1, "kg/m³",
+            ["kg/m³", "kg/m3", "kilogram per cubic meter"], [], family: .density)
+        lin("density-g-l", densityVec, 1, "g/L",
+            ["g/L", "g/l", "gram per liter"], [], family: .density)
+        lin("density-g-cm3", densityVec, 1000, "g/cm³",
+            ["g/cm³", "g/cm3", "g/mL", "g/ml", "gram per milliliter"], [], family: .density)
+        lin("density-lb-ft3", densityVec, 16.018463, "lb/ft³",
+            ["lb/ft³", "lb/ft3", "pound per cubic foot"], [], family: .density)
+
         // Typographic point — the label is qualified so it never
         // collides with the US pint `pt`.
         lin("type-point", .L, 0.0254 / 72.0, "pt (type)",

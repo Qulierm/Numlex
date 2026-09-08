@@ -62,12 +62,14 @@ public func resolveSheet(
     decimalPlaces: Int,
     constants: [UserConstant] = [],
     weather: WeatherContext = .empty,
-    context: NumberFormatContext = .legacy
+    context: NumberFormatContext = .legacy,
+    unitContext: UnitContext = .builtIns
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
-                 constants: constants, weather: weather, context: context)
+                 constants: constants, weather: weather, context: context,
+                 unitContext: unitContext)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -85,7 +87,8 @@ public func resolveSheet(
     calendar: Calendar,
     constants: [UserConstant] = [],
     weather: WeatherContext = .empty,
-    context: NumberFormatContext = .legacy
+    context: NumberFormatContext = .legacy,
+    unitContext: UnitContext = .builtIns
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -137,7 +140,7 @@ public func resolveSheet(
         if line.hasPrefix("//") { return .blank }
         if let eval = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
                                     now: now, calendar: calendar, weather: weather,
-                                    context: context) {
+                                    context: context, unitContext: unitContext) {
             return eval
         }
         return .skip
@@ -350,15 +353,15 @@ public func resolveSheet(
         if markerPos.count == 1,
            let toWord = tokenConversionShape(line: line, markerAt: markerPos[0]),
            let q = quantities[0] {
-            if let (v, unit) = convertTokenQuantity(value: q.v, fromLabel: q.unit, to: toWord, rates: rates) {
+            if let (v, unit) = convertTokenQuantity(value: q.v, fromLabel: q.unit, to: toWord, rates: rates, context: unitContext) {
                 return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: unit)
             }
             // A currency pair the rate table cannot answer keeps the
             // explicit white `Rates unavailable` state.
-            let targetIsCurrency = UnitCatalog.resolveExpression(toWord).map { p in
+            let targetIsCurrency = unitContext.resolveExpression(toWord).map { p in
                 if case .currency = p.unit.kind { return true } else { return false }
             } ?? false
-            let fromIsCurrency = q.unit.flatMap { unitExpr(byLabel: $0).map { p in
+            let fromIsCurrency = q.unit.flatMap { unitExpr(byLabel: $0, context: unitContext).map { p in
                 if case .currency = p.kind { return true } else { return false }
             } } ?? false
             if fromIsCurrency, targetIsCurrency {
@@ -457,7 +460,7 @@ public func resolveSheet(
                 }
                 do {
                     let q = try TokenExpr.evaluate(rhs, markerQuantities: rhsMap, vars: varsAll(),
-                                             context: context)
+                                             context: context, unitContext: unitContext)
                     guard q.unit == nil else { return .error(message: "Units cannot be assigned") }
                     env.set(display: lhs, qty: .scalar(q.v))
                     return .variable(name: lhs, value: roundResult(q.v, decimalPlaces: decimalPlaces))
@@ -547,7 +550,7 @@ public func resolveSheet(
         }
         do {
             let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: varsAll(),
-                                            context: context)
+                                            context: context, unitContext: unitContext)
             // Currency units are carried as the quantity's unit label:
             // the shared `formatQuantity` renders them through
             // `formatMoney` (`$920.00`), exactly like a bare money
@@ -714,7 +717,8 @@ enum TokenExpr {
     static func evaluate(_ line: String,
                          markerQuantities: [Int: Qty],
                          vars: [String: Double],
-                         context: NumberFormatContext = .legacy) throws -> Qty {
+                         context: NumberFormatContext = .legacy,
+                         unitContext: UnitContext = .builtIns) throws -> Qty {
         let ns = line as NSString
         var i = 0
 
@@ -1044,7 +1048,8 @@ enum TokenExpr {
                 guard let ua = aq.unit, let ub = bq.unit, sameQuantityUnit(ua, ub) else {
                     throw ExprError.incompatibleUnits
                 }
-                guard let vb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua) else {
+                guard let vb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua,
+                                                   context: unitContext) else {
                     throw ExprError.incompatibleUnits
                 }
                 let v = (op == "+") ? aq.v + vb : aq.v - vb
@@ -1085,9 +1090,10 @@ enum TokenExpr {
                     // inverse here: hidden generic error.
                     throw ExprError.incompatibleUnits
                 }
-                if let ua = aq.unit, let ub = bq.unit, sameQuantityUnit(ua, ub) {
+                if let ua = aq.unit, let ub = bq.unit, sameQuantityUnit(ua, ub, context: unitContext) {
                     // Same-unit ratio: unitless.
-                    guard let bb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua), bb != 0 else {
+                    guard let bb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua,
+                                                       context: unitContext), bb != 0 else {
                         throw ExprError.divisionByZero
                     }
                     let v = aq.v / bb

@@ -84,6 +84,7 @@ struct ContentView: View {
             appAppearance: settings.appearance,
             constants: settings.customConstants,
             numberContext: model.numberContext,
+            unitContext: model.unitContext,
             onPreviousAnswerTrigger: { key, caret in
                 model.insertPreviousAnswer(key: key, at: caret)
             },
@@ -167,7 +168,8 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants,
                         weather: weatherContext,
-                        context: model.numberContext
+                        context: model.numberContext,
+                        unitContext: model.unitContext
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's
@@ -212,7 +214,8 @@ struct ContentView: View {
                         decimalPlaces: settings.decimalPlaces,
                         constants: settings.customConstants,
                         weather: weatherContext,
-                        context: model.numberContext
+                        context: model.numberContext,
+                        unitContext: model.unitContext
                     ).lines
                 }()
                 // r77b: per-line result state for the answer-appearance

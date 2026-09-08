@@ -410,8 +410,8 @@ private func evalNamedLine(_ line: String,
                                unit: to.unit.label)
             }
             return .error(message: "Invalid conversion")
-        case .scalar, .bool:
-            break  // unitless/boolean name: not convertible, fall to reference
+        case .scalar, .bool, .quantity:
+            break  // unitless/boolean/quantity name: not convertible here
         }
     }
     // 2. Named reference expression: `monthly rent × 12`,
@@ -495,7 +495,8 @@ func evalLineTyped(_ line: String,
                    now: Date,
                    calendar: Calendar,
                    weather: WeatherContext = .empty,
-                   context: NumberFormatContext = .legacy) -> LineResult? {
+                   context: NumberFormatContext = .legacy,
+                   unitContext: UnitContext = .builtIns) -> LineResult? {
     // r55: weather detection runs FIRST so `weather in London` can
     // never be misclassified as conversion or prose — but ONLY the
     // strict grammar activates it, the environment is never mutated,
@@ -513,7 +514,66 @@ func evalLineTyped(_ line: String,
        env.isConstant(display: lhs) {
         return .error(message: "Cannot assign to constant")
     }
-    if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces, context: context) {
+    // r84: the PPI phrase lane (`1 cm in px at 326 ppi`,
+    // `100 px at 326 ppi in cm`) runs FIRST: pixels are not a physical
+    // length, and the phrase shape is stricter than the mixed-unit
+    // shape it would otherwise fall into.
+    if !BooleanLogic.hasAssignment(line),
+       let px = PixelConversion.tryConvert(line, context: context,
+                                           unitContext: unitContext,
+                                           decimalPlaces: decimalPlaces,
+                                           env: env) {
+        return px
+    }
+    // r84: the cooking-density phrase lane (`200 g of flour to ml`,
+    // `1 cup of honey to g`) — the `of` reading is multiplication in
+    // the mixed stage, so this lane must own its shape first.
+    if !BooleanLogic.hasAssignment(line),
+       let dens = DensityConversion.tryConvert(line, context: context,
+                                               unitContext: unitContext,
+                                               decimalPlaces: decimalPlaces,
+                                               env: env) {
+        return dens
+    }
+    // r84: the rate phrase (`10 km in 45 min`, `45 min in 10 km`,
+    // `1 Gbit in 5 s`) and the price-per-unit phrase (`2.5 kg at €3
+    // per kg`) own their exact shapes before the mixed stage — the
+    // mixed shape cannot see the `in` phrase, and money symbols stop
+    // the mixed scanner.
+    if !BooleanLogic.hasAssignment(line),
+       let rate = RatePhrases.tryRatePhrase(line, context: context,
+                                            unitContext: unitContext,
+                                            decimalPlaces: decimalPlaces,
+                                            env: env) {
+        return rate
+    }
+    if !BooleanLogic.hasAssignment(line),
+       let price = RatePhrases.tryPricePhrase(line, context: context,
+                                              unitContext: unitContext,
+                                              decimalPlaces: decimalPlaces) {
+        return price
+    }
+    // r84: mixed-unit expressions (`1 km + 1000 m`, `300 + 20 km`,
+    // `10 m × 10 m`, `90 km / 3 day`, `300 km / 2.5 hours in mph`).
+    // Runs BEFORE the conversion lane so a
+    // shape-owned line (it tokenizes cleanly and contains a
+    // `<number>␣<unit>` literal) is decided by the unit algebra — a
+    // shape-owned line that fails to parse is a visible error and
+    // NEVER degrades to word stripping. The specific PPI/pace/rate
+    // phrases (r84) run before this stage.
+    if !BooleanLogic.hasAssignment(line),
+       MixedUnitLine.shape(line, context: context, unitContext: unitContext, env: env,
+                           now: now, calendar: calendar) {
+        if let q = MixedUnitLine.evaluate(line, env: env, context: context,
+                                          rates: rates, unitContext: unitContext,
+                                          now: now, calendar: calendar) {
+            return .number(value: roundResult(q.value,
+                                              decimalPlaces: max(decimalPlaces, 10)),
+                           unit: q.display.label, kind: .plain, fraction: nil)
+        }
+        return .error(message: "Invalid expression")
+    }
+    if let conv = tryConversion(line, rates: rates, decimalPlaces: decimalPlaces, context: context, unitContext: unitContext) {
         return conv
     }
     // r83: percentage phrase forms (`15% of 490`, `100 is 50% of
@@ -528,7 +588,8 @@ func evalLineTyped(_ line: String,
     // (`500 of 200` with a plain left operand) falls through untouched
     // to the legacy routes, exactly as before r83.
     if !BooleanLogic.hasAssignment(line), PercentageGrammar.percentShape(line, env: env) {
-        switch PercentageGrammar.percentOutcome(line, env: env, context: context) {
+        switch PercentageGrammar.percentOutcome(line, env: env, context: context,
+                                                unitContext: unitContext) {
         case .value(let r):
             return r
         case .error(let m):
@@ -542,7 +603,8 @@ func evalLineTyped(_ line: String,
     // valid LHS with a boolean right-hand side): the answer is the
     // assigned quantity and the name is recorded typed.
     if BooleanLogic.hasAssignment(line),
-       let a = NaturalCalculation.tryAssignment(line: line, env: env, context: context) {
+       let a = NaturalCalculation.tryAssignment(line: line, env: env, context: context,
+                                                rates: rates, unitContext: unitContext) {
         switch a.value {
         case .error(let m):
             // r82: a rejected boolean-looking right-hand side fails
@@ -551,6 +613,12 @@ func evalLineTyped(_ line: String,
         case .money(let v, let c):
             env.set(display: a.name, qty: .money(v, code: c))
             return .money(value: v, code: c)
+        case .quantity(let q):
+            // r84: a unit-bearing right-hand side records a quantity.
+            env.set(display: a.name, qty: .quantity(q))
+            return .number(value: roundResult(q.value,
+                                              decimalPlaces: max(decimalPlaces, 10)),
+                           unit: q.display.label, kind: .plain, fraction: nil)
         case .scalar(let v, let kind, let fraction) where a.name.contains(" "):
             env.set(display: a.name, qty: .scalar(value: v, kind: kind, fraction: fraction))
             return .variable(name: a.name, value: v, kind: kind, fraction: fraction)
@@ -623,12 +691,12 @@ func evalLineTyped(_ line: String,
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
              now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
-             context: context)
+             context: context, unitContext: unitContext)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
@@ -641,13 +709,14 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates,
                      decimalPlaces: Int, now: Date, calendar: Calendar,
                      constants: [UserConstant] = [], weather: WeatherContext = .empty,
-                     context: NumberFormatContext = .legacy) -> LineResult? {
+                     context: NumberFormatContext = .legacy,
+                     unitContext: UnitContext = .builtIns) -> LineResult? {
     var env = TypedEnv(seed: variables)
     env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
                                now: now, calendar: calendar, weather: weather,
-                               context: context)
+                               context: context, unitContext: unitContext)
     if result != nil {
         for (k, v) in env.scalarDict() { variables[k] = v }
     }
@@ -665,10 +734,10 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
                   now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
-                  context: context)
+                  context: context, unitContext: unitContext)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -678,7 +747,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
 public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates,
                           decimalPlaces: Int, now: Date, calendar: Calendar,
                           constants: [UserConstant] = [], weather: WeatherContext = .empty,
-                          context: NumberFormatContext = .legacy) -> [SheetLine] {
+                          context: NumberFormatContext = .legacy,
+                          unitContext: UnitContext = .builtIns) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
@@ -705,7 +775,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
         } else if let eval = evalLineTyped(line, env: &env, rates: rates,
                                            decimalPlaces: decimalPlaces,
                                            now: now, calendar: calendar, weather: weather,
-                                           context: context) {
+                                           context: context, unitContext: unitContext) {
             result = eval
         } else {
             result = .skip

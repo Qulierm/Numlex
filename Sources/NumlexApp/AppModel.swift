@@ -63,6 +63,15 @@ final class AppModel {
                                     locale: Locale(identifier: localeID))
     }
 
+    /// r84: the app's ONE unit context: the built-in `UnitCatalog`
+    /// plus the ACTIVE custom units from the global settings (the
+    /// resolver runs per pass; `.builtIns` when nothing is active, so
+    /// pre-r84 behavior is byte-for-byte preserved).
+    var unitContext: UnitContext {
+        UnitResolver.resolve(settings.customUnits,
+                             constants: settings.customConstants).context
+    }
+
     /// The Numbers tab's pending region change, awaiting the
     /// reinterpretation confirmation: `nil` means no dialog is up. The
     /// examples are the first changed lines (source -> old -> new) of
@@ -102,12 +111,14 @@ final class AppModel {
                                         rates: rates,
                                         decimalPlaces: max(settings.decimalPlaces, 10),
                                         constants: settings.customConstants,
-                                        context: old)
+                                        context: old,
+                                        unitContext: unitContext)
             let rowsNew = evaluateSheet(sheet.content, variables: &newVars,
                                         rates: rates,
                                         decimalPlaces: max(settings.decimalPlaces, 10),
                                         constants: settings.customConstants,
-                                        context: new)
+                                        context: new,
+                                        unitContext: unitContext)
             let lines = sheet.content.components(separatedBy: "\n")
             for row in rowsOld where rowsNew.indices.contains(row.sourceLineIndex) {
                 let other = rowsNew[row.sourceLineIndex]
@@ -814,6 +825,36 @@ final class AppModel {
     func deleteConstant(id: UUID) {
         guard settings.customConstants.contains(where: { $0.id == id }) else { return }
         settings.customConstants.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// r84: appends (or inserts after a row) a fresh custom-unit row
+    /// with the next generated name and an EMPTY definition (the row
+    /// stays inert until both fields are filled). Returns the row ID
+    /// for focus handoff; nil at the limit.
+    func addUnitRow(after rowID: UUID? = nil) -> UUID? {
+        guard settings.customUnits.count < UnitResolver.maxRows else {
+            return nil
+        }
+        let taken = Set(settings.customUnits.map {
+            UnitResolver.normName($0.name)
+        })
+        let row = UserUnitDefinition(
+            name: UnitResolver.generatedUnitName(taken: taken),
+            definition: "")
+        if let rowID, let i = settings.customUnits.firstIndex(where: { $0.id == rowID }) {
+            settings.customUnits.insert(row, at: i + 1)
+        } else {
+            settings.customUnits.append(row)
+        }
+        persist()
+        return row.id
+    }
+
+    /// r84: removes one custom-unit row and persists.
+    func deleteUnitRow(id: UUID) {
+        guard settings.customUnits.contains(where: { $0.id == id }) else { return }
+        settings.customUnits.removeAll { $0.id == id }
         persist()
     }
 

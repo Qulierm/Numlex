@@ -64,7 +64,8 @@ public enum SyntaxClassifier {
                              rates: Rates,
                              decimalPlaces: Int,
                              constants: [UserConstant] = [],
-                             context: NumberFormatContext = .legacy) -> [[SyntaxSpan]] {
+                             context: NumberFormatContext = .legacy,
+                             unitContext: UnitContext = .builtIns) -> [[SyntaxSpan]] {
         var result: [[SyntaxSpan]] = []
         // ONE shared typed environment for the whole document — the same
         // flow `evaluateSheet` and the answer column use, so declared
@@ -122,7 +123,8 @@ public enum SyntaxClassifier {
             }
             let evaluation = evalLineTyped(line, env: &env,
                                            rates: rates, decimalPlaces: decimalPlaces,
-                                           now: Date(), calendar: Calendar.current)
+                                           now: Date(), calendar: Calendar.current,
+                                           unitContext: unitContext)
             let isNatural = lineIsNatural(line, env: env)
             var isMath = false
             let spans: [SyntaxSpan]
@@ -133,7 +135,18 @@ public enum SyntaxClassifier {
                 spans = labelSpans(line)
             case .number(_, .some, _, _):
                 isMath = true
-                spans = conversionSpans(line, context: context)
+                // r84: a mixed-unit line paints its OWN token roles
+                // (every quantity literal, unit word and operator) —
+                // the conversion painter only understands the
+                // single-value `N unit` shape.
+                spans = PixelConversion.match(line, context: context,
+                                              unitContext: unitContext, env: env) != nil
+                        || DensityConversion.match(line, context: context,
+                                                   unitContext: unitContext, env: env) != nil
+                        || MixedUnitLine.shape(line, context: context,
+                                              unitContext: unitContext, env: env)
+                    ? mixedUnitSpans(line, context: context, unitContext: unitContext, env: env)
+                    : conversionSpans(line, context: context)
             case .number(_, .none, _, _):
                 isMath = true
                 spans = isNatural
@@ -706,5 +719,86 @@ public enum SyntaxClassifier {
               m.numberOfRanges > group else { return nil }
         let g = m.range(at: group)
         return g.location == NSNotFound ? nil : g
+    }
+
+    // MARK: - Mixed-unit spans (r84)
+
+    /// The r84 token-role painting for a mixed-unit line: quantity
+    /// numbers paint `.number`, their unit words `.conversion` (the
+    /// same role weather and unit conversions paint), operators
+    /// `.operator`, and named word operands `.variable`.
+    static func mixedUnitSpans(_ line: String, context: NumberFormatContext,
+                               unitContext: UnitContext, env: TypedEnv) -> [SyntaxSpan] {
+        guard let tokens = MixedUnitScanner.tokenize(line, context: context,
+                                                     unitContext: unitContext, env: env)
+        else { return [] }
+        var spans: [SyntaxSpan] = []
+        for t in tokens {
+            switch t {
+            case .quantity(let q, range: let r):
+                // The literal paints as number + unit sub-spans (the
+                // legacy conversion painter's exact role layout).
+                if !q.display.label.isEmpty {
+                    let u = unitRange(of: q, in: line, tokenRange: r)
+                    // The number span stops BEFORE the space that
+                    // separates number and unit (`10 km` -> `10`).
+                    var numberEnd = u.location - r.location
+                    if numberEnd > 0,
+                       (line as NSString).character(at: u.location - 1) == 32 {
+                        numberEnd -= 1
+                    }
+                    if numberEnd > 0 {
+                        spans.append(SyntaxSpan(role: .number,
+                            range: NSRange(location: r.location, length: numberEnd)))
+                    }
+                    if u.length > 0 {
+                        spans.append(SyntaxSpan(role: .conversion, range: u))
+                    }
+                } else {
+                    spans.append(SyntaxSpan(role: .number, range: r))
+                }
+            case .number(_, range: let r):
+                spans.append(SyntaxSpan(role: .number, range: r))
+            case .unit(let u, range: let r):
+                // The unit WORD inside the token's span.
+                let wordStart = r.location + max(0, r.length - u.label.count)
+                spans.append(SyntaxSpan(role: .conversion,
+                                        range: NSRange(location: wordStart,
+                                                       length: u.label.count)))
+            case .op(_, range: let r):
+                spans.append(SyntaxSpan(role: .operatorGlyph, range: r))
+            case .paren(_, range: let r):
+                spans.append(SyntaxSpan(role: .operatorGlyph, range: r))
+            case .word(let w, range: let r):
+                if w == "to" || w == "in" || w == "as" {
+                    // The target keyword keeps the conversion role.
+                    spans.append(SyntaxSpan(role: .specifier, range: r))
+                } else if env.entry(display: w) != nil {
+                    // A known name is a variable.
+                    spans.append(SyntaxSpan(role: .variable, range: r))
+                }
+            case .percent(range: let r):
+                spans.append(SyntaxSpan(role: .operatorGlyph, range: r))
+            }
+        }
+        return spans
+    }
+
+    /// The unit-word range inside a quantity literal's NSRange (the
+    /// scanner's span may include one trailing whitespace character).
+    static func unitRange(of q: Quantity, in line: String,
+                          tokenRange r: NSRange) -> NSRange {
+        let start = r.location
+        var i = r.location + r.length
+        while i > start,
+              (line as NSString).character(at: i - 1) == 32 {
+            i -= 1
+        }
+        guard i - q.display.label.count >= start,
+              !q.display.label.isEmpty else {
+            return NSRange(location: r.location + r.length, length: 0)
+        }
+        return NSRange(location: i - q.display.label.count,
+                       length: q.display.label.count)
     }
 }

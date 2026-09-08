@@ -42,6 +42,10 @@ struct NotebookEditor: NSViewRepresentable {
     /// autoformat pass and the safe paste conversion all read this
     /// value (parsing and display can never drift).
     var numberContext: NumberFormatContext = .legacy
+    /// r84: the app's ONE unit context (built-ins + active custom
+    /// units) — the syntax classifier resolves custom unit names
+    /// through it exactly as evaluation does.
+    var unitContext: UnitContext = .builtIns
     var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// Editor scroll offset, top-down points in editor-content coordinates
     /// (0 = top of the document).
@@ -134,7 +138,8 @@ struct NotebookEditor: NSViewRepresentable {
             focusPosition: focusPosition,
             onFocusConsumed: onFocusConsumed,
             onTokenHoverChanged: onTokenHoverChanged,
-            numberContext: numberContext
+            numberContext: numberContext,
+            unitContext: unitContext
         )
     }
 }
@@ -162,6 +167,9 @@ final class NotebookEditorCoordinator: NSObject {
     var tokenStates: [TokenResolution] = []
     /// r73: the number context the coordinator's passes use.
     var numberContext: NumberFormatContext = .legacy
+    /// r84: the unit context the classifier pass uses (custom unit
+    /// names paint exactly as evaluation resolves them).
+    var unitContext: UnitContext = .builtIns
     /// The sheet's references, used only to build the internal clipboard
     /// representation of a copy.
     var tokenRefs: [AnswerReference] = []
@@ -588,7 +596,8 @@ final class NotebookEditorCoordinator: NSObject {
                 focusPosition: Int?,
                 onFocusConsumed: @escaping () -> Void,
                 onTokenHoverChanged: ((UUID?) -> Void)?,
-                numberContext: NumberFormatContext = .legacy) {
+                numberContext: NumberFormatContext = .legacy,
+                unitContext: UnitContext = .builtIns) {
         // r77c: editor rebind marker — the coordinator's sheet binding
         // must follow the model's selection; a stale binding is the
         // prime suspect for dropped double-click insertions.
@@ -599,6 +608,7 @@ final class NotebookEditorCoordinator: NSObject {
         }
         self.sheetID = sheetID
         self.numberContext = numberContext
+        self.unitContext = unitContext
         self.inputPrefs = inputPrefs
         self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
         self.onScroll = onScroll
@@ -857,7 +867,8 @@ final class NotebookEditorCoordinator: NSObject {
         // evaluator uses (hash heading, title).
         let spans = SyntaxClassifier.spans(for: text, rates: rates,
                                            decimalPlaces: decimalPlaces,
-                                           constants: constants)
+                                           constants: constants,
+                                           unitContext: unitContext)
 
         let font = palette.editorFont(size: fontSize)
         let base: [NSAttributedString.Key: Any] = [

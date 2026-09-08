@@ -404,6 +404,9 @@ private struct ConstantsSettingsTab: View {
     /// Focus target for the fresh row's name field (Add and
     /// Enter-in-Value land here for immediate overwrite).
     @FocusState private var focusedName: UUID?
+    /// r84: the page's section — the Constants table or the custom
+    /// Units table (same scaffold, same row grammar).
+    @State private var section = 0
 
     private var language: AppLanguage { model.settings.language }
 
@@ -415,11 +418,41 @@ private struct ConstantsSettingsTab: View {
                 .rows.map { ($0.id, $0) })
     }
 
+    /// r84: the custom-unit resolution for the Units section (the same
+    /// pure resolver the evaluation passes use).
+    private var unitResolution: [UUID: UnitResolver.ResolvedRow] {
+        Dictionary(uniqueKeysWithValues:
+            UnitResolver.resolve(model.settings.customUnits,
+                                 constants: model.settings.customConstants)
+                .rows.map { ($0.id, $0) })
+    }
+
     var body: some View {
         // r75: the SAME shared 20 pt page scaffold as every other tab;
         // r76: the table surface matches the restrained group surface
         // (no per-card glass in Settings at all).
         SettingsPage {
+            // r84: the page sections (Constants | Units) — the switch
+            // sits flush with the page insets like the tab content.
+            Picker("", selection: $section) {
+                Text(L10n.t("units.tab.constants", language: language)).tag(0)
+                Text(L10n.t("units.tab.units", language: language)).tag(1)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            if section == 0 {
+                constantsContent
+            } else {
+                unitsContent
+            }
+        }
+    }
+
+    // MARK: Constants section (the pre-r84 table, unchanged)
+
+    @ViewBuilder
+    private var constantsContent: some View {
+        Group {
             Text(L10n.t("constants.intro", language: language))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -477,6 +510,179 @@ private struct ConstantsSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: Units section (r84)
+
+    /// The custom-units table: the SAME restrained surface as the
+    /// constants table — Name + Definition + per-row status + trash,
+    /// with the Add Unit button and the 100 count in the footer.
+    @ViewBuilder
+    private var unitsContent: some View {
+        Group {
+            Text(L10n.t("units.intro", language: language))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text(L10n.t("units.name", language: language))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 132, alignment: .leading)
+                    Text(L10n.t("units.definition", language: language))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                Divider()
+
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach($model.settings.customUnits) { $row in
+                            unitRow($row)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+
+            HStack(spacing: 10) {
+                Button {
+                    if let id = model.addUnitRow() { focusedName = id }
+                } label: {
+                    Label(L10n.t("units.add", language: language),
+                          systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.settings.customUnits.count >= UnitResolver.maxRows)
+                Spacer()
+                Text("\(model.settings.customUnits.count) / \(UnitResolver.maxRows)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// One custom-unit row: Name + Definition fields (the definition
+    /// is either `<number> <unit…>` or the literal `new unit`), the
+    /// per-row status (a resolved preview for active rows), and the
+    /// borderless destructive trash. Enter in Definition adds the next
+    /// row when under the limit.
+    @ViewBuilder
+    private func unitRow(_ row: Binding<UserUnitDefinition>) -> some View {
+        HStack(spacing: 8) {
+            TextField(L10n.t("units.name", language: language),
+                      text: row.name)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .frame(width: 132)
+                .focused($focusedName, equals: row.id)
+            TextField(L10n.t("units.definition", language: language),
+                      text: row.definition)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .onSubmit {
+                    if model.settings.customUnits.count < UnitResolver.maxRows {
+                        if let id = model.addUnitRow(after: row.id) {
+                            focusedName = id
+                        }
+                    }
+                }
+            if let resolved = unitResolution[row.id] {
+                unitStatusView(resolved)
+            }
+            Button {
+                model.deleteUnitRow(id: row.id)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help(L10n.t("units.delete", language: language))
+            .accessibilityLabel(L10n.t("units.delete", language: language))
+        }
+    }
+
+    /// The per-row unit status: a green check plus the RESOLVED preview
+    /// for active rows (a linear multiple shows its value in the base
+    /// unit of its family; a new dimension shows the `new unit`
+    /// marker), a red warning plus the localized reason otherwise.
+    @ViewBuilder
+    private func unitStatusView(_ resolved: UnitResolver.ResolvedRow) -> some View {
+        HStack(spacing: 5) {
+            switch resolved.status {
+            case .active:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                if let expr = resolved.resolved {
+                    Text(unitPreview(expr))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            case .empty:
+                EmptyView()
+            case .incomplete, .invalidName, .duplicate, .builtInCollision,
+                 .constantCollision, .invalidDefinition, .unknownDependency,
+                 .cycle, .nonFinite, .exceedsLimit:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                Text(unitStatusText(resolved.status))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+        }
+        .frame(minWidth: 0)
+    }
+
+    private func unitStatusText(_ s: CustomUnitStatus) -> String {
+        switch s {
+        case .active, .empty: return ""
+        case .incomplete: return L10n.t("units.statusIncomplete", language: language)
+        case .invalidName: return L10n.t("units.statusInvalidName", language: language)
+        case .duplicate: return L10n.t("units.statusDuplicate", language: language)
+        case .builtInCollision: return L10n.t("units.statusBuiltIn", language: language)
+        case .constantCollision: return L10n.t("units.statusConstant", language: language)
+        case .invalidDefinition: return L10n.t("units.statusInvalidDefinition", language: language)
+        case .unknownDependency: return L10n.t("units.statusUnknown", language: language)
+        case .cycle: return L10n.t("units.statusCycle", language: language)
+        case .nonFinite: return L10n.t("units.statusNonFinite", language: language)
+        case .exceedsLimit: return L10n.t("units.statusLimit", language: language)
+        }
+    }
+
+    /// The resolved preview: a new-dimension unit shows the `new unit`
+    /// marker; a linear multiple shows `= <value> <base unit>` (the
+    /// base label is the catalog unit of the same family+vector with
+    /// the smallest scale, so `furlong` previews `= 201.17 m`).
+    private func unitPreview(_ expr: UnitExpr) -> String {
+        if expr.customAxis != nil {
+            return L10n.t("units.newUnit", language: language)
+        }
+        let base = UnitCatalog.all
+            .filter { $0.vector == expr.vector && $0.family == expr.family }
+            .min { $0.linearFactor ?? .greatestFiniteMagnitude
+                    < $1.linearFactor ?? .greatestFiniteMagnitude }
+        let label = base?.label ?? ""
+        let value = formatDisplayValue(expr.toBase,
+                                       decimalPlaces: model.settings.decimalPlaces,
+                                       context: model.numberContext)
+        return "= " + value + (label.isEmpty ? "" : " " + label)
     }
 
     /// One row: Name + Value fields (capped by the model on commit),
@@ -583,6 +789,11 @@ private struct ConstantsSettingsTab: View {
         case .bool(let b):
             // r82: a boolean constant expression previews as its word.
             return b ? "true" : "false"
+        case .quantity(let q):
+            // r84: a unit-bearing quantity previews as value + unit label.
+            let base = formatDisplayValue(q.value, decimalPlaces: model.settings.decimalPlaces,
+                                          context: model.numberContext)
+            return q.display.label.isEmpty ? base : base + " " + q.display.label
         }
     }
 }
@@ -888,7 +1099,8 @@ private struct StylingSettingsTab: View {
                 StylingPreview(
                     fontSize: model.settings.fontSize,
                     lineHeight: model.settings.lineHeight,
-                    styling: styling
+                    styling: styling,
+                    unitContext: model.unitContext
                 )
             }
         }
@@ -963,6 +1175,9 @@ private struct StylingPreview: View {
     let fontSize: Double
     let lineHeight: Double
     let styling: StylingPreferences
+    /// r84: the app's unit context — the preview classifier resolves
+    /// custom unit names exactly as the editor does.
+    let unitContext: UnitContext
 
     /// One demo row: editor text, the answer the app would show (nil =
     /// no answer row), and optional illustrative role overrides per
@@ -1091,7 +1306,8 @@ private struct StylingPreview: View {
             } else {
                 let spans = SyntaxClassifier.spans(for: line,
                                                    rates: Rates(base: "", rates: [:]),
-                                                   decimalPlaces: 10)
+                                                   decimalPlaces: 10,
+                                                   unitContext: unitContext)
                 for span in spans.flatMap({ $0 }) {
                     guard let color = palette.color(forRole: span.role),
                           span.range.location >= 0,

@@ -116,6 +116,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// (its defaults reproduce the legacy scale: system region is the
     /// OS locale, grouping on, compact off, paste conversion off).
     public var regional: RegionalNumberPreferences?
+    /// r84: the GLOBAL custom units (name + definition source rows),
+    /// available live in every sheet, app-global (never embedded in
+    /// `.nlx` exports). Bounded to `UnitResolver.maxRows` (100) by the
+    /// UI and classified per pass by `UnitResolver`.
+    public var customUnits: [UserUnitDefinition]
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -125,10 +130,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         lineNumbers: true,
         hideSidebarButtonWhenCollapsed: false,
         showTotalBar: true,
-        fontColor: "white"
-    )
+        fontColor: "white",
+        customUnits: []
+)
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = []) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -142,6 +148,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.customConstants = customConstants
         self.appearance = appearance
         self.regional = regional
+        self.customUnits = customUnits
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -179,6 +186,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // present block decodes per-key tolerantly (see
         // RegionalNumberPreferences).
         regional = (try? c.decodeIfPresent(RegionalNumberPreferences.self, forKey: .regional))
+        // r84: additive — pre-r84 stores carry no `customUnits` key
+        // and fall back to the empty list (StorePayload.version is NOT
+        // bumped; nothing is migrated).
+        customUnits = (try? c.decodeIfPresent([UserUnitDefinition].self, forKey: .customUnits)) ?? []
     }
 
     public var fontSize: Double {

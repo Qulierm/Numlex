@@ -12,6 +12,11 @@ public enum TypedQty: Equatable, Sendable {
     case scalar(value: Double, kind: NumericKind, fraction: Rational?)
     case money(Double, code: String)
     case bool(Bool)
+    /// r84: a unit-bearing quantity (its value rides in the display
+    /// unit's scale with its full vector/family identity). Quantity
+    /// values are per-pass only: they are re-derived from the sheet
+    /// text on every evaluation and are never persisted.
+    case quantity(Quantity)
 }
 
 extension TypedQty {

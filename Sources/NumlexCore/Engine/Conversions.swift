@@ -304,7 +304,8 @@ public func convertValue(_ value: Double,
 /// not matching the shape returns `nil` and keeps flowing into the
 /// assignment/expression evaluation.
 func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
-                   context: NumberFormatContext = .legacy) -> LineResult? {
+                   context: NumberFormatContext = .legacy,
+                   unitContext: UnitContext = .builtIns) -> LineResult? {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     guard let shape = conversionShape(trimmed, context: context) else { return nil }
     // r73: the number text is already context-scanned; re-canonicalize
@@ -317,11 +318,11 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
     // by a leading symbol source (`$100 to EUR`, `€100 in USD`).
     var from: UnitCatalog.ParsedExpr
     if let code = shape.symbolCode {
-        guard let symUnit = UnitCatalog.resolveExpression(code) else {
+        guard let symUnit = unitContext.resolveExpression(code) else {
             return .error(message: "Unknown units")
         }
         if let fromText = shape.fromText {
-            guard let explicit = UnitCatalog.resolveExpression(fromText) else {
+            guard let explicit = unitContext.resolveExpression(fromText) else {
                 return .error(message: "Unknown units")
             }
             // A text source must agree with the symbol's currency.
@@ -333,12 +334,12 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
         from = symUnit
     } else {
         guard let fromText = shape.fromText,
-              let resolved = UnitCatalog.resolveExpression(fromText) else {
+              let resolved = unitContext.resolveExpression(fromText) else {
             return .error(message: "Unknown units")
         }
         from = resolved
     }
-    guard let to = UnitCatalog.resolveExpression(shape.toText) else {
+    guard let to = unitContext.resolveExpression(shape.toText) else {
         return .error(message: "Unknown units")
     }
     if let (v, unit) = convertValue(num, from: from.unit, to: to.unit, rates: rates) {
@@ -360,8 +361,11 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
 /// Resolves a DISPLAY unit label (the `unit` carried by a `.number`
 /// result, e.g. `m`, `kg`, `C°`, `USD`, `km/h`) back to its unit
 /// expression. Returns nil for labels no unit owns.
-public func unitExpr(byLabel label: String) -> UnitExpr? {
-    UnitCatalog.resolveLabel(label)
+public func unitExpr(byLabel label: String,
+                     context: UnitContext = .builtIns) -> UnitExpr? {
+    // r84: custom display labels resolve through the per-pass context
+    // (which falls back to the built-in catalog).
+    context.resolveLabel(label)
 }
 
 /// Whether two display unit labels name the same quantity kind: both
@@ -369,11 +373,13 @@ public func unitExpr(byLabel label: String) -> UnitExpr? {
 /// quantities that the engine can convert WITHOUT extra context
 /// (same linear vector+family, or both temperature / both currency /
 /// both fuel forms of the same direction).
-public func sameQuantityUnit(_ a: String?, _ b: String?) -> Bool {
+public func sameQuantityUnit(_ a: String?, _ b: String?,
+                             context: UnitContext = .builtIns) -> Bool {
     if a == nil && b == nil { return true }
     guard let a, let b else { return false }
     if a.caseInsensitiveCompare(b) == .orderedSame { return true }
-    guard let ea = unitExpr(byLabel: a), let eb = unitExpr(byLabel: b) else { return false }
+    guard let ea = unitExpr(byLabel: a, context: context),
+          let eb = unitExpr(byLabel: b, context: context) else { return false }
     return quantityKindsMatch(ea, eb)
 }
 
@@ -399,10 +405,11 @@ public func quantityKindsMatch(_ a: UnitExpr, _ b: UnitExpr) -> Bool {
 /// nil — token arithmetic never converts money; the `<token> to <unit>`
 /// grammar does (it has the table). Returns nil for anything the engine
 /// cannot convert or that is not finite.
-public func convertQuantityUnit(_ value: Double, fromLabel: String, toLabel: String) -> Double? {
+public func convertQuantityUnit(_ value: Double, fromLabel: String, toLabel: String,
+                                context: UnitContext = .builtIns) -> Double? {
     if fromLabel.caseInsensitiveCompare(toLabel) == .orderedSame { return value }
-    guard let from = unitExpr(byLabel: fromLabel),
-          let to = unitExpr(byLabel: toLabel) else { return nil }
+    guard let from = unitExpr(byLabel: fromLabel, context: context),
+          let to = unitExpr(byLabel: toLabel, context: context) else { return nil }
     return convertValue(value, from: from, to: to, rates: Rates())?.value
 }
 
@@ -417,10 +424,11 @@ public func convertTokenQuantity(
     value: Double,
     fromLabel: String?,
     to: String,
-    rates: Rates
+    rates: Rates,
+    context: UnitContext = .builtIns
 ) -> (value: Double, unit: String)? {
     guard let fromLabel else { return nil }
-    guard let from = unitExpr(byLabel: fromLabel),
-          let toExpr = UnitCatalog.resolveExpression(to) else { return nil }
+    guard let from = unitExpr(byLabel: fromLabel, context: context),
+          let toExpr = context.resolveExpression(to) else { return nil }
     return convertValue(value, from: from, to: toExpr.unit, rates: rates)
 }
