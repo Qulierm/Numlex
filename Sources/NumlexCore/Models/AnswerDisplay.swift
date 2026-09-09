@@ -11,12 +11,38 @@ public struct AnswerDisplayPreference: Codable, Equatable, Identifiable, Sendabl
     public var lineID: UUID
     /// Displayed decimal places for this answer's numeric string.
     public var decimalPlaces: Int
+    /// r87: optional per-line NOTATION override. `nil` (Default) means
+    /// the line follows the GLOBAL notation; the stored value selects
+    /// one of the six explicit modes. Pre-r87 records decode to nil.
+    public var notation: AnswerNotationOverride?
 
     public var id: UUID { lineID }
 
-    public init(lineID: UUID, decimalPlaces: Int) {
+    public init(lineID: UUID, decimalPlaces: Int, notation: AnswerNotationOverride? = nil) {
         self.lineID = lineID
         self.decimalPlaces = decimalPlaces
+        self.notation = notation
+    }
+
+    /// Tolerant decode: a missing `notation` key (pre-r87) or a
+    /// malformed one falls back to nil — the REQUIRED `decimalPlaces`
+    /// key still fails the entry if absent (callers use `try?`).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lineID = try c.decode(UUID.self, forKey: .lineID)
+        decimalPlaces = try c.decode(Int.self, forKey: .decimalPlaces)
+        notation = (try? c.decodeIfPresent(AnswerNotationOverride.self, forKey: .notation)) ?? nil
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(lineID, forKey: .lineID)
+        try c.encode(decimalPlaces, forKey: .decimalPlaces)
+        try c.encodeIfPresent(notation, forKey: .notation)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case lineID, decimalPlaces, notation
     }
 }
 
@@ -76,7 +102,8 @@ public enum AnswerDisplay {
             guard order[p.lineID] != nil, !seen.contains(p.lineID) else { continue }
             seen.insert(p.lineID)
             kept.append(AnswerDisplayPreference(lineID: p.lineID,
-                                                decimalPlaces: clamped(p.decimalPlaces)))
+                                                decimalPlaces: clamped(p.decimalPlaces),
+                                                notation: p.notation))
         }
         return kept.sorted { order[$0.lineID]! < order[$1.lineID]! }
     }
@@ -135,30 +162,88 @@ public enum AnswerDisplay {
     /// — the display row may compact (100k) but the clipboard keeps
     /// the exact 100,000 shape; money keeps the shared money
     /// presentation.
+    ///
+    /// r87: `notation`/`prefs` are the EFFECTIVE row presentation
+    /// (per-line override ?? global; defaults reproduce the pre-r87
+    /// automatic strings byte-for-byte).
     public static func text(for result: LineResult, decimalPlaces: Int,
-                            context: NumberFormatContext) -> String? {
+                             context: NumberFormatContext,
+                             notation: NumberNotation? = nil,
+                             prefs: NumberPresentationPreferences = .defaults) -> String? {
+        let eff = notation ?? prefs.notation
         switch result {
         case .blank, .skip, .title:
             return nil
         case .number(let v, let unit, let kind, let fraction):
             if let u = unit, isCurrencyCode(u) {
-                return formatMoney(v, code: u, context: context)
+                return NumberPresentation.formatMoney(v, code: u,
+                                                       notation: eff,
+                                                       prefs: prefs, context: context)
             }
-            // r83: the ONE shared kinded presentation.
-            return formatKinded(v, unit: unit, kind: kind, fraction: fraction,
-                                decimalPlaces: decimalPlaces, context: context)
+            // r87: automatic keeps the ONE shared kinded presentation
+            // (percent × 100 + `%`, the exact rational verbatim,
+            // multiplier + `x`) on the full-precision copy shape;
+            // non-automatic notations shape the numeric component and
+            // keep the kind suffix.
+            let copyContext: NumberFormatContext =
+                eff == .automatic ? context.withoutCompactNotation : context
+            if eff == .automatic {
+                return formatKinded(v, unit: unit, kind: kind, fraction: fraction,
+                                    decimalPlaces: decimalPlaces, context: copyContext)
+            }
+            if kind == .fraction {
+                // The exact reduced rational stays verbatim in every
+                // notation (the same contract the menu descriptor
+                // makes: semantic fractions are never re-notated).
+                if let r = fraction {
+                    return r.denominator == 0
+                        ? "0"
+                        : NumberPresentation.fractionText((n: r.numerator, d: r.denominator))
+                }
+                return NumberPresentation.format(v, category: .plain, notation: eff,
+                                                 precision: decimalPlaces, prefs: prefs,
+                                                 context: copyContext)
+            }
+            let s: String
+            switch kind {
+            case .percent:
+                s = NumberPresentation.format(v * 100, category: .plain,
+                                              notation: eff, precision: decimalPlaces,
+                                              prefs: prefs, context: copyContext) + "%"
+            case .multiplier:
+                s = NumberPresentation.format(v, category: .plain,
+                                              notation: eff, precision: decimalPlaces,
+                                              prefs: prefs, context: copyContext) + "x"
+            case .plain, .fraction:
+                let exact = (v.truncatingRemainder(dividingBy: 1) == 0
+                             && abs(v) <= 9.007199254740992e15) ? Int64(v) : nil
+                s = NumberPresentation.format(v, int64: exact,
+                                              category: exact != nil ? .int64 : .plain,
+                                              notation: eff, precision: decimalPlaces,
+                                              prefs: prefs, context: copyContext)
+            }
+            if let u = unit { return "\(s) \(u)" }
+            return s
         case .boolean(let b):
             // r82: booleans copy exactly as their lowercase word.
             return b ? "true" : "false"
         case .integer(let v, let radix):
             // r85: the EXACT base text — no decimal rounding, no
-            // compact notation. Decimal rows use the context's
-            // grouping; radix rows are the canonical compact form.
-            if radix == 10 { return IntLiteral.formatDecimal(v, context: context) }
+            // compact notation. Decimal rows take the row notation
+            // (r87); radix rows are the canonical compact form.
+            if radix == 10 {
+                return NumberPresentation.formatInt64(v, notation: eff == .automatic ? .automatic : eff,
+                                                      precision: decimalPlaces, prefs: prefs,
+                                                      context: context)
+            }
             return IntLiteral.format(v, radix: radix)
         case .variableInt(_, let v, let radix):
             // Negative values present in decimal (signed-magnitude).
-            if radix == 10 || v < 0 { return IntLiteral.formatDecimal(v, context: context) }
+            if radix == 10 || v < 0 {
+                return NumberPresentation.formatInt64(v, notation: eff == .automatic ? .automatic : eff,
+                                                      precision: decimalPlaces, prefs: prefs,
+                                                      context: context)
+            }
             return IntLiteral.format(v, radix: radix)
         case .location(_, _, let c):
             // r85: the retypeable coordinate pair — dot-decimal modes
@@ -170,10 +255,41 @@ public enum AnswerDisplay {
         case .variable(_, let v, let kind, let fraction):
             // r83: an assigned value keeps its semantic kind on display
             // (`x = 10% + 20%` shows `30%`).
-            return formatKinded(v, unit: nil, kind: kind, fraction: fraction,
-                                decimalPlaces: decimalPlaces, context: context)
+            let copyContext: NumberFormatContext =
+                eff == .automatic ? context.withoutCompactNotation : context
+            if eff == .automatic {
+                return formatKinded(v, unit: nil, kind: kind, fraction: fraction,
+                                    decimalPlaces: decimalPlaces, context: copyContext)
+            }
+            if kind == .fraction {
+                if let r = fraction {
+                    return r.denominator == 0
+                        ? "0"
+                        : NumberPresentation.fractionText((n: r.numerator, d: r.denominator))
+                }
+                return NumberPresentation.format(v, category: .plain, notation: eff,
+                                                 precision: decimalPlaces, prefs: prefs,
+                                                 context: copyContext)
+            }
+            let s: String
+            switch kind {
+            case .percent:
+                s = NumberPresentation.format(v * 100, category: .plain,
+                                              notation: eff, precision: decimalPlaces,
+                                              prefs: prefs, context: copyContext) + "%"
+            case .multiplier:
+                s = NumberPresentation.format(v, category: .plain,
+                                              notation: eff, precision: decimalPlaces,
+                                              prefs: prefs, context: copyContext) + "x"
+            case .plain, .fraction:
+                s = NumberPresentation.format(v, category: .plain,
+                                              notation: eff, precision: decimalPlaces,
+                                              prefs: prefs, context: copyContext)
+            }
+            return s
         case .money(let v, let code):
-            return formatMoney(v, code: code, context: context)
+            return NumberPresentation.formatMoney(v, code: code, notation: eff,
+                                                  prefs: prefs, context: context)
         case .date(let y, let m, let d, let showYear):
             return DateArithmetic.display(year: y, month: m, day: d, showYear: showYear)
         case .brokenToken(let line):
@@ -186,6 +302,91 @@ public enum AnswerDisplay {
                 return nil
             }
             return msg == "Rates unavailable" ? "Rates unavailable" : nil
+        }
+    }
+
+    /// r87: the DISPLAY string for one row. Identical to the copy
+    /// string EXCEPT the automatic default, where the display row may
+    /// compact while the copy keeps full precision (the R73
+    /// exception). Non-automatic notations share one string.
+    public static func displayText(for result: LineResult, decimalPlaces: Int,
+                                   context: NumberFormatContext,
+                                   notation: NumberNotation? = nil,
+                                   prefs: NumberPresentationPreferences = .defaults) -> String? {
+        let eff = notation ?? prefs.notation
+        if eff != .automatic { return text(for: result, decimalPlaces: decimalPlaces,
+                                           context: context, notation: eff, prefs: prefs) }
+        // Automatic: the pre-r87 row shapes (plain unit values display
+        // in the raw — compact-capable — context; the unitless kinded
+        // shapes use the non-compact shared string).
+        switch result {
+        case .number(let v, let unit, let kind, _):
+            if let u = unit, isCurrencyCode(u) {
+                return formatMoney(v, code: u, context: context)
+            }
+            if kind == .plain {
+                // The R73 exception: a unitless plain row DISPLAYS in
+                // the raw (compact-capable) context while the copy
+                // keeps full precision; unit rows display raw too.
+                let s = formatDisplayValue(v, decimalPlaces: decimalPlaces,
+                                           context: context)
+                if let u = unit { return "\(s) \(u)" }
+                return s
+            }
+            return text(for: result, decimalPlaces: decimalPlaces, context: context,
+                        notation: eff, prefs: prefs)
+        case .money(let v, let code):
+            return formatMoney(v, code: code, context: context)
+        default:
+            return text(for: result, decimalPlaces: decimalPlaces, context: context,
+                        notation: eff, prefs: prefs)
+        }
+    }
+
+    // MARK: - r87: Number Format menu eligibility (pure descriptor)
+
+    /// Which NOTATION choices a row's menu offers. nil = no Number
+    /// Format submenu (dates, booleans, coordinates, DMS, errors,
+    /// the semantic fraction kind, broken tokens). `allowsFraction`
+    /// marks fraction-eligible rows (plain non-money values — money
+    /// never fractionizes); Custom's enabled state is computed by the
+    /// menu builder from the global pattern's validity.
+    public struct NotationOptions: Equatable, Sendable {
+        public var allowsFraction: Bool
+        public init(allowsFraction: Bool) { self.allowsFraction = allowsFraction }
+    }
+
+    public static func notationOptions(for result: LineResult) -> NotationOptions? {
+        switch result {
+        case .blank, .skip, .title, .brokenToken, .date, .location, .dms, .error:
+            return nil
+        case .boolean:
+            // r82: true/false has nothing to re-notation.
+            return nil
+        case .number(_, let unit, let kind, _):
+            if let u = unit, isCurrencyCode(u) {
+                return NotationOptions(allowsFraction: false)
+            }
+            switch kind {
+            case .fraction:
+                return nil  // the exact reduced rational stays verbatim
+            case .plain, .percent, .multiplier:
+                return NotationOptions(allowsFraction: kind == .plain)
+            }
+        case .variable(_, _, let kind, _):
+            switch kind {
+            case .fraction:
+                return nil
+            case .plain, .percent, .multiplier:
+                return NotationOptions(allowsFraction: kind == .plain)
+            }
+        case .integer(_, let radix), .variableInt(_, _, let radix):
+            // Exact Int64: radix rows stay canonical; decimal-radix
+            // (and negative, which presents decimal) rows take any
+            // notation through the exact digit paths.
+            return radix == 10 ? NotationOptions(allowsFraction: true) : nil
+        case .money:
+            return NotationOptions(allowsFraction: false)
         }
     }
 

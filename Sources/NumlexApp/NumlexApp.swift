@@ -113,6 +113,52 @@ struct NumlexApp: App {
                 }
                 .keyboardShortcut("d", modifiers: .command)
             }
+            // r87: the ONE native Format menu — its Highlight submenu
+            // targets every logical line intersecting the editor's
+            // current live selection (a collapsed caret targets its own
+            // line, the trailing empty line included). The action posts
+            // to ContentView, which revalidates the sheet + line IDs
+            // and persists the highlight through the model.
+            CommandMenu("Format") {
+                Menu("Highlight") {
+                    Button("None") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: nil))
+                    }
+                    Divider()
+                    Button("Yellow") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: .yellow))
+                    }
+                    Button("Orange") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: .orange))
+                    }
+                    Button("Green") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: .green))
+                    }
+                    Button("Blue") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: .blue))
+                    }
+                    Button("Purple") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: .purple))
+                    }
+                    Button("Pink") {
+                        NotificationCenter.default.post(
+                            name: .applyHighlight,
+                            object: HighlightCommandPayload(color: .pink))
+                    }
+                }
+            }
             // r60: the ONE native Toggle Sidebar command (View menu +
             // Control-Command-S responder). This is the keyboard-only
             // reopening path when the toolbar button is hidden.
@@ -139,7 +185,17 @@ struct NumlexApp: App {
     }
 }
 
+/// r87: the Format > Highlight command payload (the notification
+/// object; `color == nil` = None, i.e. remove the highlight).
+final class HighlightCommandPayload {
+    let color: HighlightColor?
+    init(color: HighlightColor?) { self.color = color }
+}
+
 extension Notification.Name {
+    /// r87: Format > Highlight — the object is a
+    /// `HighlightCommandPayload` (nil color = None).
+    static let applyHighlight = Notification.Name("numlex.applyHighlight")
     static let newSheet = Notification.Name("numlex.newSheet")
     static let deleteSheet = Notification.Name("numlex.deleteSheet")
     // Sheet file actions: posted by the File-menu commands above, caught

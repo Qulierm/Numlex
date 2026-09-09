@@ -29,6 +29,10 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
     /// lineIDs/references — preserved by `.nlx` export, never global
     /// settings, never engine semantics.
     public var answerDisplay: [AnswerDisplayPreference]
+    /// r87: persistent per-line HIGHLIGHTS, keyed by stable line UUID
+    /// (the same identity contract as `answerDisplay`). Sheet metadata:
+    /// preserved by `.nlx` export, sanitized on every mutation.
+    public var highlights: [LineHighlightPreference]
 
     public init(id: UUID = UUID(),
                 title: String,
@@ -40,7 +44,8 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
                 lineIDs: [UUID] = [],
                 references: [AnswerReference] = [],
                 folderID: UUID? = nil,
-                answerDisplay: [AnswerDisplayPreference] = []) {
+                answerDisplay: [AnswerDisplayPreference] = [],
+                highlights: [LineHighlightPreference] = []) {
         self.id = id
         self.title = title
         self.content = content
@@ -57,12 +62,15 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         self.folderID = folderID
         // r51: additive — overrides survive only for lines that exist.
         self.answerDisplay = AnswerDisplay.sanitize(answerDisplay, lineIDs: self.lineIDs)
+        // r87: same contract for highlights (stale IDs dropped).
+        self.highlights = LineHighlightPreference.sanitize(highlights, lineIDs: self.lineIDs)
     }
 
     /// Drops rounding overrides whose line no longer exists (call after
     /// any content/lineID mutation: edits, deletions, imports, loads).
     public mutating func dropStaleAnswerDisplay() {
         answerDisplay = AnswerDisplay.sanitize(answerDisplay, lineIDs: lineIDs)
+        highlights = LineHighlightPreference.sanitize(highlights, lineIDs: lineIDs)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -70,6 +78,7 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         case isTitleCustom, titleSeed, lineIDs, references
         case folderID
         case answerDisplay
+        case highlights
     }
 
     /// Backward-compatible decoding: stores saved before the naming feature
@@ -110,6 +119,15 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         // entries are sanitized against the final line table.
         let storedDisplay: [AnswerDisplayPreference] = (try? c.decodeIfPresent([AnswerDisplayPreference].self, forKey: .answerDisplay)) ?? []
         answerDisplay = AnswerDisplay.sanitize(storedDisplay, lineIDs: lineIDs)
+        // r87: additive and failure-proof — pre-r87 stores carry no
+        // `highlights` key (decode []), a wrong-typed value falls back
+        // to [] instead of failing the sheet, and a malformed single
+        // ENTRY (bad color, missing lineID) drops only that entry.
+        let rawHighlights: [LineHighlightEntry] = (try? c.decodeIfPresent([LineHighlightEntry].self, forKey: .highlights)) ?? []
+        let storedHighlights: [LineHighlightPreference] = rawHighlights.compactMap { entry in
+            entry.color.map { LineHighlightPreference(lineID: entry.lineID, color: $0) }
+        }
+        highlights = LineHighlightPreference.sanitize(storedHighlights, lineIDs: lineIDs)
     }
 
     /// One entry per logical line (the evaluator's split), including the
@@ -255,18 +273,23 @@ public struct SheetExport: Codable, Sendable {
     /// r51: per-answer display preferences (optional so older files
     /// decode with nil = no overrides). Folder metadata stays excluded.
     public var answerDisplay: [AnswerDisplayPreference]?
+    /// r87: per-line highlights (optional so older files decode with
+    /// nil = no highlights).
+    public var highlights: [LineHighlightPreference]?
 
     public init(title: String,
                 content: String,
                 isTitleCustom: Bool? = nil,
                 lineIDs: [UUID]? = nil,
                 references: [AnswerReference]? = nil,
-                answerDisplay: [AnswerDisplayPreference]? = nil) {
+                answerDisplay: [AnswerDisplayPreference]? = nil,
+                highlights: [LineHighlightPreference]? = nil) {
         self.title = title
         self.content = content
         self.isTitleCustom = isTitleCustom
         self.lineIDs = lineIDs
         self.references = references
         self.answerDisplay = answerDisplay
+        self.highlights = highlights
     }
 }

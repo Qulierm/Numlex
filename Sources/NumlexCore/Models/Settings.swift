@@ -121,6 +121,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// `.nlx` exports). Bounded to `UnitResolver.maxRows` (100) by the
     /// UI and classified per pass by `UnitResolver`.
     public var customUnits: [UserUnitDefinition]
+    /// r87: the GLOBAL number presentation preferences (default
+    /// notation, custom pattern, fraction denominator preset, negative
+    /// style, currency placement). App-global — never in `.nlx`.
+    /// Defaults reproduce the pre-r87 presentation byte-for-byte.
+    public var presentation: NumberPresentationPreferences
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -134,7 +139,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         customUnits: []
 )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = []) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -149,6 +154,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.appearance = appearance
         self.regional = regional
         self.customUnits = customUnits
+        self.presentation = presentation
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -190,6 +196,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // and fall back to the empty list (StorePayload.version is NOT
         // bumped; nothing is migrated).
         customUnits = (try? c.decodeIfPresent([UserUnitDefinition].self, forKey: .customUnits)) ?? []
+        // r87: additive — pre-r87 stores carry no `presentation` key
+        // and fall back to the defaults (StorePayload.version is NOT
+        // bumped; nothing is migrated). A present block decodes
+        // key-by-key tolerantly (see NumberPresentationPreferences).
+        presentation = (try? c.decodeIfPresent(NumberPresentationPreferences.self, forKey: .presentation)) ?? .defaults
     }
 
     public var fontSize: Double {

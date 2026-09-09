@@ -78,6 +78,14 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
     public var headings: RoleColorChoice
     public var comments: RoleColorChoice
     public var labels: RoleColorChoice
+    /// r87: horizontal placement of the answer content in the 200pt
+    /// column. Default `.leading` = the pre-r87 layout.
+    public var answerColumnAlignment: AnswerColumnAlignment
+    /// r87: the answer column surface. Default `.neutral` = the exact
+    /// pre-r87 panel background; the other choices are adaptive sRGB
+    /// pairs resolved by the app-side palette (the answer glyph color
+    /// stays the centrally resolved accessible base for every surface).
+    public var answerColumnSurface: AnswerColumnSurface
 
     public init(fontDesign: StylingFontDesign = .system,
                 numbers: RoleColorChoice = .cyan,
@@ -87,7 +95,9 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
                 specifiers: RoleColorChoice = .standardText,
                 headings: RoleColorChoice = .standardText,
                 comments: RoleColorChoice = .blue,
-                labels: RoleColorChoice = .standardText) {
+                labels: RoleColorChoice = .standardText,
+                answerColumnAlignment: AnswerColumnAlignment = .leading,
+                answerColumnSurface: AnswerColumnSurface = .neutral) {
         self.fontDesign = fontDesign
         self.numbers = numbers
         self.operators = operators
@@ -97,6 +107,8 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
         self.headings = headings
         self.comments = comments
         self.labels = labels
+        self.answerColumnAlignment = answerColumnAlignment
+        self.answerColumnSurface = answerColumnSurface
     }
 
     public static let defaults = StylingPreferences()
@@ -116,5 +128,7 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
         headings = (try? c.decodeIfPresent(RoleColorChoice.self, forKey: .headings)) ?? d.headings
         comments = (try? c.decodeIfPresent(RoleColorChoice.self, forKey: .comments)) ?? d.comments
         labels = (try? c.decodeIfPresent(RoleColorChoice.self, forKey: .labels)) ?? d.labels
+        answerColumnAlignment = (try? c.decodeIfPresent(AnswerColumnAlignment.self, forKey: .answerColumnAlignment)) ?? d.answerColumnAlignment
+        answerColumnSurface = (try? c.decodeIfPresent(AnswerColumnSurface.self, forKey: .answerColumnSurface)) ?? d.answerColumnSurface
     }
 }

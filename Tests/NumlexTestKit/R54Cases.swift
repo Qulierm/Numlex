@@ -174,8 +174,12 @@ public let r54Cases: [EngineCase] = [
                    "old Default item no longer emitted")
         try expect(!view.contains("L10n.t(\"rounding\""),
                    "old Rounding submenu title no longer emitted")
-        try expect(!view.contains(".submenu"),
-                   "no submenu construction in the answer menu")
+        // r87: the Number Format submenu now exists (approved); the
+        // r54 contract survives as "no ROUNDDING submenu": the only
+        // submenu built is the Number Format one.
+        try expect(!view.contains("L10n.t(\"roundingDefault\")")
+            && !view.contains("L10n.t(\"rounding\")"),
+                   "no rounding submenu in the answer menu")
         // The new structure IS wired: slider item + centered caption +
         // the pure helpers drive both.
         try expect(view.contains("AnswerSliderMenuItem.menuItem"),

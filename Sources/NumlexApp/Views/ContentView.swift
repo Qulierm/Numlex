@@ -70,6 +70,31 @@ struct ContentView: View {
         return (sheet?.id.uuidString ?? "none") + "\n" + sig
     }
 
+    /// r87: the selected sheet's persistent line highlights (line
+    /// UUID → color) — the editor's in-place fill and the answer
+    /// pane's row background both read this one map.
+    private var editorHighlightFills: [UUID: HighlightColor] {
+        Dictionary(uniqueKeysWithValues: (model.selectedSheet?.highlights ?? [])
+            .map { ($0.lineID, $0.color) })
+    }
+
+    /// r87: the selected sheet's per-line NOTATION overrides (line
+    /// UUID → override; absent = Default/follow the global).
+    private var notationOverrideMap: [UUID: AnswerNotationOverride] {
+        Dictionary(uniqueKeysWithValues: (model.selectedSheet?.answerDisplay ?? [])
+            .compactMap { pref in pref.notation.map { (pref.lineID, $0) } })
+    }
+
+    /// r87: the Format > Highlight command — every logical line
+    /// intersecting the editor's current live selection.
+    private func handleHighlightNotification(_ note: Notification) {
+        guard let payload = note.object as? HighlightCommandPayload else { return }
+        let sel = editorBridge?.selectionHighlightLineIDs()
+        guard let sel, let sheetID = sel.sheetID else { return }
+        model.setLineHighlight(sheetID: sheetID, lineIDs: sel.lineIDs,
+                               color: payload.color)
+    }
+
     /// r43: the editor construction for the detail pane, extracted as a
     /// method ONLY to keep `body` inside the type-checker's budget — the
     /// emitted view tree is identical to the inline initializer.
@@ -80,6 +105,14 @@ struct ContentView: View {
             get: { sheet?.content ?? "" },
             set: { model.updateContent($0, edit: nil) }
         )
+        // r87: the sheet's persistent line highlights (line UUID →
+        // color) for the editor's in-place fill rendering.
+        let editorHighlightFills = Dictionary(
+            uniqueKeysWithValues: (sheet?.highlights ?? []).map { ($0.lineID, $0.color) })
+        let onHighlightLines: (Sheet.ID?, [UUID], HighlightColor?) -> Void = {
+            sheetID, lineIDs, color in
+            model.setLineHighlight(sheetID: sheetID, lineIDs: lineIDs, color: color)
+        }
         return NotebookEditor(
             text: binding,
             sheetID: sheet?.id,
@@ -112,7 +145,11 @@ struct ContentView: View {
             focusPosition: model.focusCaret,
             onFocusConsumed: { model.focusSheetID = nil; model.focusCaret = nil },
             onReady: { bridge in editorBridge = bridge },
-            onTokenHoverChanged: { id in hoveredSourceID = id }
+            onTokenHoverChanged: { id in hoveredSourceID = id },
+            lineHighlightFills: editorHighlightFills,
+            editorLineIDs: sheet?.lineIDs ?? [],
+            onHighlightLines: onHighlightLines,
+            appLanguage: settings.language
         )
         .id(sheet?.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -300,7 +337,18 @@ struct ContentView: View {
                     numberContext: model.numberContext,
                     // r77: per-line fade-in opacities of the answer
                     // appearance pass (empty = every row fully opaque).
-                    answerOpacities: model.answerOpacities
+                    answerOpacities: model.answerOpacities,
+                    presentation: settings.presentation,
+                    notationOverrides: notationOverrideMap,
+                    columnAlignment: settings.styling.answerColumnAlignment,
+                    columnSurface: settings.styling.answerColumnSurface,
+                    highlightFills: editorHighlightFills,
+                    onSetNotation: { idx, notation in
+                        model.setAnswerNotation(at: idx, notation: notation)
+                    },
+                    onRestoreFormatting: { idx in
+                        model.resetAnswerFormatting(at: idx)
+                    }
                 )
                 // r77b: report the per-line result state to the motion
                 // model. `initial: true` delivers the INITIAL load state
@@ -364,6 +412,14 @@ struct ContentView: View {
         // the context-menu deletion animate identically.
         .onReceive(NotificationCenter.default.publisher(for: .deleteSheet)) { _ in
             model.deleteSelected()
+        }
+        // r87: Format > Highlight — every logical line intersecting
+        // the editor's current live selection (a collapsed caret
+        // targets its own line, the trailing empty line included). The
+        // bridge is sheet-ID guarded; a stale/missing bridge is a
+        // no-op. Selection, caret, focus and scroll are untouched.
+        .onReceive(NotificationCenter.default.publisher(for: .applyHighlight)) { note in
+            handleHighlightNotification(note)
         }
         .fileImporter(isPresented: $showImport, allowedContentTypes: [.nlx, .json], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first {
@@ -607,7 +663,8 @@ struct NLXDocument: FileDocument {
         if let s = model.sheets.indices.contains(model.selectedIndex) ? model.sheets[model.selectedIndex] : nil {
             export = SheetExport(title: s.title, content: s.content,
                                  isTitleCustom: s.isTitleCustom,
-                                 lineIDs: s.lineIDs, references: s.references)
+                                 lineIDs: s.lineIDs, references: s.references,
+                                 answerDisplay: s.answerDisplay, highlights: s.highlights)
         } else {
             export = SheetExport(title: "Sheet", content: "")
         }

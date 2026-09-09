@@ -84,6 +84,20 @@ struct NotebookEditor: NSViewRepresentable {
     /// is hovering (nil = no hover). Ephemeral UI state only — dedup
     /// happens in the coordinator, nothing is ever persisted.
     var onTokenHoverChanged: ((UUID?) -> Void)? = nil
+    /// r87: the sheet's persistent line highlights (stable line UUID →
+    /// color). Presentation-only: the coordinator repaints fills in
+    /// place — never content, selection, IME or scroll.
+    var lineHighlightFills: [UUID: HighlightColor] = [:]
+    /// r87: the sheet's stable line table (parallel to the content's
+    /// logical lines) — the highlight fills and the Format command's
+    /// selection→line mapping both key off it.
+    var editorLineIDs: [UUID] = []
+    /// r87: the persistent-highlight write (Format command + editor
+    /// context menu). The model revalidates sheet ID + line IDs.
+    var onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)? = nil
+    /// r87: the app UI language (localizes the coordinator-built
+    /// Highlight menus).
+    var appLanguage: AppLanguage = .en
 
     func makeCoordinator() -> NotebookEditorCoordinator {
         // r77c: birth marker — the sheet ID the coordinator is born with.
@@ -106,7 +120,11 @@ struct NotebookEditor: NSViewRepresentable {
             focusPosition: focusPosition,
             onFocusConsumed: onFocusConsumed,
             onReady: onReady,
-            onTokenHoverChanged: onTokenHoverChanged
+            onTokenHoverChanged: onTokenHoverChanged,
+            lineHighlightFills: lineHighlightFills,
+            editorLineIDs: editorLineIDs,
+            onHighlightLines: onHighlightLines,
+            appLanguage: appLanguage
         )
     }
 
@@ -139,7 +157,11 @@ struct NotebookEditor: NSViewRepresentable {
             onFocusConsumed: onFocusConsumed,
             onTokenHoverChanged: onTokenHoverChanged,
             numberContext: numberContext,
-            unitContext: unitContext
+            unitContext: unitContext,
+            lineHighlightFills: lineHighlightFills,
+            editorLineIDs: editorLineIDs,
+            onHighlightLines: onHighlightLines,
+            appLanguage: appLanguage
         )
     }
 }
@@ -221,6 +243,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// r38: the app-wide Light/Dark choice; a change triggers the
     /// color-only in-place refresh (no re-layout, no reflow).
     private var appAppearance: AppAppearance = .light
+    /// r87: the app's UI language (localizes the native Highlight
+    /// menu items the coordinator builds).
+    private var appLanguage: AppLanguage = .en
     /// r33: global constants for the highlight pipeline (cheap struct
     /// copy; a settings edit changes this and re-highlights in place).
     private var constants: [UserConstant] = []
@@ -238,6 +263,13 @@ final class NotebookEditorCoordinator: NSObject {
     /// The last PUBLISHED hover source: callbacks are deduplicated, so
     /// the owner only hears about actual changes.
     private var lastPublishedHover: UUID?
+    /// r87: the sheet's persistent line highlights (line UUID → color).
+    private var lineHighlightFills: [UUID: HighlightColor] = [:]
+    /// r87: the sheet's stable line table (parallel to the content).
+    private var editorLineIDs: [UUID] = []
+    /// r87: the persistent-highlight write sink (Format command + the
+    /// editor context menu's Highlight submenu).
+    private var onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)?
     private var observer: NSObjectProtocol?
     private var frameObserver: NSObjectProtocol?
     /// r37: window key-state observation (resign clears a stuck hover,
@@ -259,7 +291,11 @@ final class NotebookEditorCoordinator: NSObject {
          focusPosition: Int?,
          onFocusConsumed: @escaping () -> Void,
          onReady: (NotebookEditorCoordinator) -> Void,
-         onTokenHoverChanged: ((UUID?) -> Void)? = nil) {
+         onTokenHoverChanged: ((UUID?) -> Void)? = nil,
+         lineHighlightFills: [UUID: HighlightColor] = [:],
+         editorLineIDs: [UUID] = [],
+         onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)? = nil,
+        appLanguage: AppLanguage = .en) {
         self.sheetID = sheetID
         self.fontSize = fontSize
         self.lineHeight = lineHeight
@@ -271,6 +307,11 @@ final class NotebookEditorCoordinator: NSObject {
         self.pendingFocusPosition = focusPosition
         self.onFocusConsumed = onFocusConsumed
         self.onTokenHoverChanged = onTokenHoverChanged
+        self.lineHighlightFills = lineHighlightFills
+        self.editorLineIDs = editorLineIDs
+        self.onHighlightLines = onHighlightLines
+        self.appLanguage = appLanguage
+        self.appLanguage = appLanguage
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
@@ -290,6 +331,7 @@ final class NotebookEditorCoordinator: NSObject {
         super.init()
 
         tv.delegate = self
+        tv.editorCoordinator = self
         tv.string = ""
         tv.minSize = NSSize(width: 0, height: 0)
         tv.maxSize = contentSize
@@ -597,7 +639,11 @@ final class NotebookEditorCoordinator: NSObject {
                 onFocusConsumed: @escaping () -> Void,
                 onTokenHoverChanged: ((UUID?) -> Void)?,
                 numberContext: NumberFormatContext = .legacy,
-                unitContext: UnitContext = .builtIns) {
+                unitContext: UnitContext = .builtIns,
+                lineHighlightFills: [UUID: HighlightColor] = [:],
+                editorLineIDs: [UUID] = [],
+                onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)? = nil,
+        appLanguage: AppLanguage = .en) {
         // r77c: editor rebind marker — the coordinator's sheet binding
         // must follow the model's selection; a stale binding is the
         // prime suspect for dropped double-click insertions.
@@ -611,6 +657,16 @@ final class NotebookEditorCoordinator: NSObject {
         self.unitContext = unitContext
         self.inputPrefs = inputPrefs
         self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
+        // r87: highlight state — a change repaints fills in place
+        // (needsDisplay only; NEVER highlight(), which would run the
+        // attributed-text pass and could touch marked text).
+        if lineHighlightFills != self.lineHighlightFills {
+            self.lineHighlightFills = lineHighlightFills
+            self.refreshHighlightFills()
+        }
+        self.editorLineIDs = editorLineIDs
+        self.onHighlightLines = onHighlightLines
+        self.appLanguage = appLanguage
         self.onScroll = onScroll
         self.onLayout = onLayout
         self.onTextChange = onTextChange
@@ -842,6 +898,185 @@ final class NotebookEditorCoordinator: NSObject {
     /// never replaced, so the selection, caret, IME marked text and undo
     /// records are untouched (the old full-string replacement clobbered
     /// them on every keystroke).
+    // MARK: - r87: persistent line highlights (presentation-only)
+
+    /// Repaints the highlight fills in place: recompute the measured
+    /// row rectangles for the current fills and invalidate the text
+    /// view's drawing only. NEVER calls `highlight()` (the
+    /// attributed-text pass) — marked text, selection, IME, scroll
+    /// and token geometry are untouched by a highlight change.
+    func refreshHighlightFills() {
+        let tv = textView
+        guard let lm = tv.layoutManager,
+              let tc = tv.textContainer else { return }
+        lm.ensureLayout(for: tc)
+        let content = tv.string
+        let starts = Self.lineStartOffsets(content)
+        let origin = tv.textContainerOrigin
+        let x0 = origin.x + (tv.lineNumbers ? Design.gutterWidth : 0)
+        let width = tc.size.width
+        guard width > 0 else { return }
+        var fills: [(rect: NSRect, color: NSColor)] = []
+        for (idx, id) in editorLineIDs.enumerated() {
+            guard let color = lineHighlightFills[id],
+                  starts.indices.contains(idx) else { continue }
+            let charStart = starts[idx]
+            let charEnd = (idx + 1 < starts.count ? starts[idx + 1] - 1
+                        : content.utf16.count)
+            guard charStart < content.utf16.count else { continue }
+            let glyphRange = lm.glyphRange(
+                forCharacterRange: NSRange(location: charStart,
+                                           length: max(1, charEnd - charStart + 1)),
+                actualCharacterRange: nil)
+            var top: CGFloat? = nil
+            var bottom: CGFloat? = nil
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, _, stop in
+                if top == nil { top = rect.minY }
+                bottom = rect.maxY
+            }
+            guard let t = top, let b = bottom, b > t else { continue }
+            let r = NSRect(x: x0, y: origin.y + t,
+                           width: width, height: (b - t) - 0.5)
+            fills.append((r, Design.highlightFill(color)))
+        }
+        tv.lineFillRects = fills
+        tv.needsDisplay = true
+    }
+
+    /// The UTF-16 start offset of every logical line (the evaluator's
+    /// split: `content.components(separatedBy: "\n")`, including the
+    /// trailing line after a final newline).
+    static func lineStartOffsets(_ content: String) -> [Int] {
+        let ns = content as NSString
+        var starts: [Int] = [0]
+        var i = ns.range(of: "\n", options: [], range: NSRange(location: 0, length: ns.length))
+        while i.location != NSNotFound {
+            starts.append(i.location + 1)
+            let from = i.location + 1
+            guard from < ns.length else { break }
+            i = ns.range(of: "\n", options: [],
+                         range: NSRange(location: from, length: ns.length - from))
+        }
+        return starts
+    }
+
+    /// The logical line indices the CURRENT selection intersects. A
+    /// collapsed selection (caret) targets exactly its line (including
+    /// the trailing empty line); a range covers every line it touches.
+    func selectionLineIndices() -> [Int] {
+        let tv = textView
+        let sel = tv.selectedRange()
+        let starts = Self.lineStartOffsets(tv.string)
+        if starts.isEmpty { return [] }
+        let startIdx = lineIndexForOffset(sel.location, starts: starts)
+        let endIdx = lineIndexForOffset(sel.location + sel.length, starts: starts,
+                                        atEndOfLast: true)
+        guard startIdx <= endIdx else { return [] }
+        return Array(startIdx...endIdx)
+    }
+
+    private func lineIndexForOffset(_ offset: Int, starts: [Int],
+                                    atEndOfLast: Bool = false) -> Int {
+        if atEndOfLast, offset >= (starts.last ?? 0),
+           offset == (textView.string as NSString).length {
+            return starts.count - 1
+        }
+        var lo = 0, hi = starts.count - 1, ans = starts.count - 1
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if starts[mid] <= offset {
+                ans = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return ans
+    }
+
+    /// The stable line IDs the Format > Highlight command targets:
+    /// every logical line intersecting the current live selection.
+    /// Sheet-ID guarded; a stale/missing line table is a no-op.
+    func selectionHighlightLineIDs() -> (sheetID: Sheet.ID?, lineIDs: [UUID])? {
+        let tv = textView
+        let sel = tv.selectedRange()
+        let starts = Self.lineStartOffsets(tv.string)
+        let idxs = selectionLineIndices()
+        guard !idxs.isEmpty else { return (sheetID, []) }
+        let ids = idxs.compactMap { editorLineIDs.indices.contains($0) ? editorLineIDs[$0] : nil }
+        guard !ids.isEmpty else { return nil }
+        return (sheetID, ids)
+    }
+
+    /// The ONE logical line under a context click (no selection or
+    /// caret movement). nil when the event does not land on a line.
+    func contextLineID(at event: NSEvent) -> (sheetID: Sheet.ID?, lineID: UUID)? {
+        let tv = textView
+        guard let lm = tv.layoutManager,
+              let tc = tv.textContainer else { return nil }
+        let p = tv.convert(event.locationInWindow, from: nil)
+        lm.ensureLayout(for: tc)
+        var frac: CGFloat = 0
+        let char = lm.characterIndex(for: p, in: tc,
+                                     fractionOfDistanceBetweenInsertionPoints: &frac)
+        guard char >= 0 else { return nil }
+        let starts = Self.lineStartOffsets(tv.string)
+        let idx = lineIndexForOffset(char, starts: starts)
+        guard editorLineIDs.indices.contains(idx) else { return nil }
+        return (sheetID, editorLineIDs[idx])
+    }
+
+    /// The native `Highlight` submenu (None + the six colors,
+    /// localized) for the given target lines. The current color of the
+    /// FIRST target line is checked (a mixed selection checks None).
+    func makeHighlightMenu(targetLineIDs: [UUID]) -> NSMenu? {
+        guard let sheetID, !targetLineIDs.isEmpty else { return nil }
+        let current = targetLineIDs.first.flatMap { lineHighlightFills[$0] }
+        var mixed = false
+        for id in targetLineIDs.dropFirst() {
+            if lineHighlightFills[id] != current { mixed = true }
+        }
+        let menu = NSMenu()
+        func add(_ title: String, isOn: Bool,
+                 color: HighlightColor?) {
+            let mi = NSMenuItem(title: title,
+                                action: #selector(NotebookEditorCoordinator.fireHighlight),
+                                keyEquivalent: "")
+            mi.target = self
+            mi.state = isOn ? .on : .off
+            mi.representedObject = HighlightMenuPayload(
+                sheetID: sheetID, lineIDs: targetLineIDs, color: color)
+            menu.addItem(mi)
+        }
+        let lang = appLanguage
+        let t = { (k: String) in NumlexCore.L10n.t(k, language: lang) }
+        add(t("highlightNone"), isOn: current == nil && !mixed, color: nil)
+        for c in HighlightColor.allCases {
+            add(t("highlight" + c.rawValue.capitalized),
+                isOn: current == c && !mixed, color: c)
+        }
+        return menu
+    }
+
+    @objc private func fireHighlight(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? HighlightMenuPayload else { return }
+        onHighlightLines?(p.sheetID, p.lineIDs, p.color)
+    }
+
+    /// The localized `Highlight` submenu title (the Format command
+    /// menu and the editor context menu share it).
+    func highlightMenuTitle() -> String {
+        NumlexCore.L10n.t("highlight", language: appLanguage)
+    }
+
+    /// r87: the ONE logical line under a context click (no selection
+    /// or caret movement) as stable line IDs for the menu. Empty when
+    /// the event does not resolve to a line.
+    func contextHighlightLineIDs(at event: NSEvent) -> [UUID] {
+        guard let r = contextLineID(at: event) else { return [] }
+        return [r.lineID]
+    }
+
     private func highlight() {
         guard let storage = textView.textStorage else { return }
         let text = storage.string
@@ -1396,6 +1631,15 @@ private final class EditorScrollView: NSScrollView {
 
 /// Document text view. Draws the line numbers (the caret's line brighter).
 final class NotebookTextView: NSTextView {
+    /// r87: the owning coordinator (weak — the coordinator owns the
+    /// text view). Provides the highlight fills and the context
+    /// menu's Highlight submenu.
+    weak var editorCoordinator: NotebookEditorCoordinator?
+    /// r87: the measured highlight fill rectangles (view coordinates)
+    /// with their resolved adaptive colors — overlay/background only:
+    /// drawn under the text, never replacing it, never affecting
+    /// layout, selection, hit testing or metrics.
+    var lineFillRects: [(rect: NSRect, color: NSColor)] = []
     var lineHeight: Double = 30
     var lineNumbers: Bool = true
     /// r73: the number context for the safe paste conversion (the
@@ -1759,6 +2003,43 @@ final class NotebookTextView: NSTextView {
     private var caretBlinkTimer: Timer?
     private var caretBlinkOn = true
     private var selectionObserver: NSObjectProtocol?
+
+    /// r87: the persistent line highlight fills — painted over the
+    /// view background and UNDER the text (drawBackground runs
+    /// before the text/selection/caret passes), so syntax colors,
+    /// selections, token capsules and hover rings all stay above.
+    /// Overlay only: no content, layout or hit effect.
+    override func drawBackground(in clipRect: NSRect) {
+        super.drawBackground(in: clipRect)
+        guard !lineFillRects.isEmpty else { return }
+        for fill in lineFillRects where fill.rect.intersects(clipRect) {
+            fill.color.setFill()
+            NSBezierPath(rect: fill.rect).fill()
+        }
+    }
+
+    /// r87: the standard text context menu plus the ONE persistent
+    /// `Highlight` submenu (None + six colors, localized). Appended
+    /// to — Cut/Copy/Paste/Spelling and every standard item are
+    /// preserved. A stale/missing coordinator is a no-op (the plain
+    /// standard menu is returned).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let base = super.menu(for: event) else { return nil }
+        guard let coordinator = editorCoordinator else { return base }
+        // Drop any highlight submenu a previous pass added (AppKit
+        // may reuse the menu instance), then append the fresh one.
+        for item in base.items where item.title == "\(coordinator.highlightMenuTitle())" {
+            base.removeItem(item)
+        }
+        if let parent = coordinator.makeHighlightMenu(
+            targetLineIDs: coordinator.contextHighlightLineIDs(at: event)) {
+            let host = NSMenuItem(title: coordinator.highlightMenuTitle(),
+                                  action: nil, keyEquivalent: "")
+            host.submenu = parent
+            base.addItem(host)
+        }
+        return base
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -2431,4 +2712,13 @@ final class TokenAttachment: NSTextAttachment {
         let textW = (label as NSString).size(withAttributes: [.font: font]).width
         return ceil(textW) + Design.tokenHPadding * 2
     }
+}
+
+/// r87: the NSMenuItem payload for the Highlight submenu — the
+/// sheet ID, the target stable line IDs and the chosen color
+/// (`nil` = None). Retained by the item's representedObject.
+struct HighlightMenuPayload {
+    let sheetID: Sheet.ID
+    let lineIDs: [UUID]
+    let color: HighlightColor?
 }

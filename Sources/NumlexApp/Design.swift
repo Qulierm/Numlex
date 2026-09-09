@@ -203,6 +203,55 @@ enum Design {
     /// against the editor's white. Applied ONLY to the answer column.
     static let answerPanelBackground = adaptive(light: (236, 236, 238), dark: (38, 38, 40))
 
+    // MARK: r87 — answer-column surfaces and line highlights
+    //
+    // ONE centralized resolver per role (the app-side counterpart of
+    // the `StylingPreferences` choices): explicit full-alpha sRGB
+    // LIGHT/DARK pairs on both branches, so both themes resolve the
+    // same deterministic values and no view ever invents a color.
+    // `.neutral` is the exact pre-r87 panel. The answer GLYPH color
+    // stays `Design.baseText` on every surface (contrast-safe by
+    // construction: the near-black base on the quiet light surfaces,
+    // the white base on the dark ones) — no ad-hoc per-view colors.
+
+    /// The answer column surface for the styling choice (`neutral` =
+    /// the pre-r87 `answerPanelBackground`).
+    static func answerSurfaceColor(_ surface: AnswerColumnSurface) -> NSColor {
+        switch surface {
+        case .neutral: return answerPanelBackground
+        case .sand:
+            return adaptive(light: (242, 238, 231), dark: (44, 42, 38))
+        case .slate:
+            return adaptive(light: (234, 237, 240), dark: (37, 40, 44))
+        case .sage:
+            return adaptive(light: (233, 238, 234), dark: (38, 43, 39))
+        case .blush:
+            return adaptive(light: (241, 235, 235), dark: (44, 39, 39))
+        }
+    }
+
+    /// The persistent per-line highlight FILL for the editor and the
+    /// answer pane (the same color both sides resolve). Subtle
+    /// full-alpha tints: legible on the editor background in both
+    /// themes while syntax colors, selections, token capsules and
+    /// hover rings all draw above the fill.
+    static func highlightFill(_ color: HighlightColor) -> NSColor {
+        switch color {
+        case .yellow:
+            return adaptive(light: (252, 243, 201), dark: (58, 54, 33))
+        case .orange:
+            return adaptive(light: (252, 232, 213), dark: (58, 46, 33))
+        case .green:
+            return adaptive(light: (222, 240, 224), dark: (34, 50, 37))
+        case .blue:
+            return adaptive(light: (220, 233, 248), dark: (32, 43, 56))
+        case .purple:
+            return adaptive(light: (236, 228, 246), dark: (47, 41, 55))
+        case .pink:
+            return adaptive(light: (247, 226, 236), dark: (56, 38, 49))
+        }
+    }
+
     /// Sidebar column surface (Golden Gate fix): EXACTLY the editor
     /// surface in both appearances — never `.windowBackground`, a
     /// material, or a translucent fill, so the OS sidebar tint cannot

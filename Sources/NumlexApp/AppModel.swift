@@ -465,7 +465,83 @@ final class AppModel {
         persist()
     }
 
-    /// r51: deletes ONE logical source line of the selected sheet by
+    /// r87: per-line NOTATION override on the selected sheet by source
+    /// line index. `notation == nil` = Default (clears the notation
+    /// override; the precision override is kept — use
+    /// `resetAnswerFormatting` to clear both). The model revalidates
+    /// sheet + line ID at call time, so a stale open menu cannot
+    /// retarget.
+    func setAnswerNotation(at index: Int, notation: AnswerNotationOverride?) {
+        guard sheets.indices.contains(selectedIndex) else { return }
+        var s = sheets[selectedIndex]
+        guard s.lineIDs.indices.contains(index) else { return }
+        let id = s.lineIDs[index]
+        if let n = notation {
+            if let i = s.answerDisplay.firstIndex(where: { $0.lineID == id }) {
+                s.answerDisplay[i].notation = n
+            } else {
+                s.answerDisplay.append(AnswerDisplayPreference(
+                    lineID: id, decimalPlaces: settings.decimalPlaces, notation: n))
+            }
+        } else {
+            if let i = s.answerDisplay.firstIndex(where: { $0.lineID == id }) {
+                s.answerDisplay[i].notation = nil
+                if s.answerDisplay[i].decimalPlaces == settings.decimalPlaces {
+                    // Pure default entry: drop it entirely.
+                    s.answerDisplay.remove(at: i)
+                }
+            }
+        }
+        s.dropStaleAnswerDisplay()
+        s.modifiedAt = Date()
+        sheets[selectedIndex] = s
+        persist()
+    }
+
+    /// r87: removes BOTH the notation and the precision overrides of
+    /// one line so it resumes live global sync.
+    func resetAnswerFormatting(at index: Int) {
+        guard sheets.indices.contains(selectedIndex) else { return }
+        var s = sheets[selectedIndex]
+        guard s.lineIDs.indices.contains(index) else { return }
+        let id = s.lineIDs[index]
+        s.answerDisplay.removeAll { $0.lineID == id }
+        s.dropStaleAnswerDisplay()
+        s.modifiedAt = Date()
+        sheets[selectedIndex] = s
+        persist()
+    }
+
+    /// r87: the persistent line highlight for the lines `lineIDs`
+    /// references. `color == nil` = None (removes the highlight).
+    /// Sheet-ID guarded and bounds-validated: stale/missing sheets are
+    /// no-ops; only LIVE line IDs are stored (sanitized). This touches
+    /// sheet metadata only — never content, line IDs, references,
+    /// caret, focus or scroll.
+    func setLineHighlight(sheetID: Sheet.ID?, lineIDs: [UUID], color: HighlightColor?) {
+        guard let sheetID, let si = sheets.firstIndex(where: { $0.id == sheetID }) else { return }
+        var s = sheets[si]
+        let live = Set(s.lineIDs)
+        let targets = Set(lineIDs.filter { live.contains($0) })
+        if targets.isEmpty { return }
+        if let c = color {
+            for id in targets {
+                if let i = s.highlights.firstIndex(where: { $0.lineID == id }) {
+                    s.highlights[i].color = c
+                } else {
+                    s.highlights.append(LineHighlightPreference(lineID: id, color: c))
+                }
+            }
+        } else {
+            s.highlights.removeAll { targets.contains($0.lineID) }
+        }
+        s.highlights = LineHighlightPreference.sanitize(s.highlights, lineIDs: s.lineIDs)
+        s.modifiedAt = Date()
+        sheets[si] = s
+        persist()
+    }
+
+    /// r87: deletes ONE logical source line of the selected sheet by
     /// 0-based line index (the answer context menu's Delete Line). The
     /// exact UTF-16 plan removes the line plus its newline, the shared
     /// `LineIdentity.reconcile` remaps IDs/markers, stale rounding
@@ -863,7 +939,8 @@ final class AppModel {
         return SheetExport(title: s.title, content: s.content,
                            isTitleCustom: s.isTitleCustom,
                            lineIDs: s.lineIDs, references: s.references,
-                           answerDisplay: s.answerDisplay)
+                           answerDisplay: s.answerDisplay,
+                           highlights: s.highlights)
     }
 
     private func makeImportedSheet(_ obj: SheetExport) -> Sheet {
@@ -895,9 +972,12 @@ final class AppModel {
         }
         // r51: imported display preferences survive only for live lines.
         let display = AnswerDisplay.sanitize(obj.answerDisplay ?? [], lineIDs: lineIDs)
+        // r87: imported highlights follow the same contract.
+        let highlights = LineHighlightPreference.sanitize(obj.highlights ?? [], lineIDs: lineIDs)
         return Sheet(title: obj.title, content: content,
                      createdAt: Date(), modifiedAt: Date(), isTitleCustom: custom,
-                     lineIDs: lineIDs, references: refs, answerDisplay: display)
+                     lineIDs: lineIDs, references: refs, answerDisplay: display,
+                     highlights: highlights)
     }
 
     func importSheet(from url: URL) {

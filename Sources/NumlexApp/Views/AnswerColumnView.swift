@@ -73,6 +73,26 @@ struct AnswerColumnView: View {
     /// geometry, baseline placement, hit testing and the display model
     /// are all final from the first frame.
     var answerOpacities: [UUID: Double] = [:]
+    /// r87: the GLOBAL number presentation preferences (presentation-
+    /// only — engine values are never rounded or scaled by display).
+    var presentation: NumberPresentationPreferences = .defaults
+    /// r87: per-line NOTATION overrides by stable line UUID; an absent
+    /// key = Default (the row follows the global notation).
+    var notationOverrides: [UUID: AnswerNotationOverride] = [:]
+    /// r87: answer column appearance (styling). `.leading`/`.neutral`
+    /// are the pre-r87 layout.
+    var columnAlignment: AnswerColumnAlignment = .leading
+    var columnSurface: AnswerColumnSurface = .neutral
+    /// r87: the persistent per-line highlight fills by stable line
+    /// UUID. Overlay/background only — no hit testing, no layout.
+    var highlightFills: [UUID: HighlightColor] = [:]
+    /// r87: notation override writes by EXPLICIT source line index
+    /// (nil = Default: the line resumes live global sync). The model
+    /// revalidates index + line ID at fire time.
+    var onSetNotation: (Int, AnswerNotationOverride?) -> Void = { _, _ in }
+    /// r87: removes BOTH the notation and the precision override so
+    /// the line follows the globals again.
+    var onRestoreFormatting: (Int) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -107,16 +127,35 @@ struct AnswerColumnView: View {
     }
 
     /// r77: the row's displayed answer string — the SAME authoritative
-    /// text the Copy Answer path uses (full precision; the copy is
-    /// never an animated snapshot). nil = a hidden row (no crossfade
+    /// text the Copy Answer path uses (full precision for the automatic
+    /// default; every other notation shares ONE string between display
+    /// and copy — the r87 contract). nil = a hidden row (no crossfade
     /// identity churn).
     private func answerDisplayText(for line: SheetLine) -> String? {
         guard lineIDs.indices.contains(line.sourceLineIndex) else { return nil }
-        return AnswerDisplay.text(
+        return AnswerDisplay.displayText(
             for: line.result,
             decimalPlaces: places(for: line.sourceLineIndex),
-            context: numberContext
+            context: numberContext,
+            notation: effectiveNotation(for: line.sourceLineIndex),
+            prefs: presentation
         )
+    }
+
+    /// r87: the row's EFFECTIVE notation (per-line override ?? global).
+    private func effectiveNotation(for sourceLineIndex: Int) -> NumberNotation {
+        guard lineIDs.indices.contains(sourceLineIndex) else { return presentation.notation }
+        if let o = notationOverrides[lineIDs[sourceLineIndex]] {
+            return o.notation
+        }
+        return presentation.notation
+    }
+
+    /// r87: this row's highlight fill (nil = unhighlighted).
+    private func highlightFill(for line: SheetLine) -> Color? {
+        guard lineIDs.indices.contains(line.sourceLineIndex),
+              let c = highlightFills[lineIDs[line.sourceLineIndex]] else { return nil }
+        return Color(nsColor: Design.highlightFill(c))
     }
 
     /// r51: effective display decimals for one answer row.
@@ -140,13 +179,18 @@ struct AnswerColumnView: View {
         guard let kind = AnswerDisplay.menu(for: line.result) else { return nil }
         let idx = line.sourceLineIndex
         let places = places(for: idx)
+        let effNotation = effectiveNotation(for: idx)
         guard let text = AnswerDisplay.text(for: line.result, decimalPlaces: places,
-                                                context: numberContext) else { return nil }
+                                            context: numberContext,
+                                            notation: effNotation,
+                                            prefs: presentation) else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false  // r54: the custom slider item and
                                        // the disabled caption are enabled
                                        // states we own explicitly.
-        func item(_ title: String, checked: Bool = false, run: @escaping () -> Void) -> NSMenuItem {
+        func item(_ title: String, checked: Bool = false,
+                  enabled: Bool = true,
+                  help: String? = nil, run: @escaping () -> Void) -> NSMenuItem {
             let h = MenuAction(run)
             let mi = NSMenuItem(title: title, action: #selector(MenuAction.fire),
                                 keyEquivalent: "")
@@ -155,6 +199,8 @@ struct AnswerColumnView: View {
             // the handler rides along for exactly the item's lifetime.
             mi.representedObject = h
             mi.state = checked ? .on : .off
+            mi.isEnabled = enabled
+            if let help { mi.toolTip = help }
             return mi
         }
         menu.addItem(item(L10n.t("copyAnswer", language: language)) {
@@ -176,6 +222,90 @@ struct AnswerColumnView: View {
                 language: language,
                 onChange: { v in onSetRounding(idx, v) }))
             menu.addItem(AnswerSliderMenuItem.caption(language: language))
+            menu.addItem(.separator())
+        }
+        // r87: the native Number Format submenu. The checked entry is
+        // the row's OWN state: an explicit override checks that mode,
+        // otherwise Default is checked (the row follows the global).
+        // Custom is enabled only while the global pattern validates;
+        // disabled rows carry a help label instead of a blank gap.
+        if let opts = AnswerDisplay.notationOptions(for: line.result) {
+            let lineID = lineIDs.indices.contains(idx) ? lineIDs[idx] : nil
+            let overrideHere = lineID.flatMap { notationOverrides[$0] }
+            let customValid = NumberPattern.tryValidated(presentation.customPattern) != nil
+            let check: (AnswerNotationOverride?) -> Bool = { mode in
+                overrideHere == mode
+            }
+            let fmt = NSMenuItem(title: L10n.t("numberFormat", language: language),
+                                 action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            func subItem(_ title: String, mode: AnswerNotationOverride?,
+                         enabled: Bool = true, help: String? = nil) {
+                sub.addItem(item(title, checked: check(mode),
+                                 enabled: enabled, help: help) {
+                    onSetNotation(idx, mode)
+                })
+            }
+            subItem(L10n.t("formatDefault", language: language), mode: nil)
+            subItem(L10n.t("formatAutomatic", language: language), mode: .automatic)
+            subItem(L10n.t("formatDecimal", language: language), mode: .decimal)
+            subItem(L10n.t("formatScientific", language: language), mode: .scientific)
+            subItem(L10n.t("formatEngineering", language: language), mode: .engineering)
+            if opts.allowsFraction {
+                subItem(L10n.t("formatFraction", language: language), mode: .fraction)
+            }
+            subItem(L10n.t("formatCustom", language: language), mode: .custom,
+                    enabled: customValid,
+                    help: customValid ? nil
+                        : L10n.t("customPatternInvalid", language: language))
+            fmt.submenu = sub
+            menu.addItem(fmt)
+            menu.addItem(item(L10n.t("resetFormatting", language: language)) {
+                onRestoreFormatting(idx)
+            })
+            menu.addItem(.separator())
+        }
+        // r87: the native Number Format submenu. The checked entry is
+        // the row's OWN state: an explicit override checks that mode,
+        // otherwise Default is checked (the row follows the global).
+        // Custom is enabled only while the global pattern validates;
+        // the disabled row carries a help label (no blank gaps).
+        if let opts = AnswerDisplay.notationOptions(for: line.result) {
+            let lineID = lineIDs.indices.contains(idx) ? lineIDs[idx] : nil
+            let overrideHere = lineID.flatMap { notationOverrides[$0] }
+            let customValid = NumberPattern.tryValidated(presentation.customPattern) != nil
+            let check: (AnswerNotationOverride?) -> Bool = { mode in
+                overrideHere == mode
+            }
+            let fmt = NSMenuItem(title: L10n.t("numberFormat", language: language),
+                                 action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            func subItem(_ title: String, mode: AnswerNotationOverride?,
+                         enabled: Bool = true, help: String? = nil) {
+                sub.addItem(item(title, checked: check(mode),
+                                 enabled: enabled, help: help) {
+                    onSetNotation(idx, mode)
+                })
+            }
+            subItem(L10n.t("formatDefault", language: language), mode: nil)
+            subItem(L10n.t("formatAutomatic", language: language), mode: .automatic)
+            subItem(L10n.t("formatDecimal", language: language), mode: .decimal)
+            subItem(L10n.t("formatScientific", language: language), mode: .scientific)
+            subItem(L10n.t("formatEngineering", language: language), mode: .engineering)
+            if opts.allowsFraction {
+                subItem(L10n.t("formatFraction", language: language), mode: .fraction)
+            }
+            subItem(L10n.t("formatCustom", language: language), mode: .custom,
+                    enabled: customValid,
+                    help: customValid ? nil
+                        : L10n.t("customPatternInvalid", language: language))
+            fmt.submenu = sub
+            menu.addItem(fmt)
+            menu.addItem(item(L10n.t("resetFormatting", language: language)) {
+                onRestoreFormatting(idx)
+            })
             menu.addItem(.separator())
         }
         menu.addItem(item(L10n.t("deleteLine", language: language)) {
@@ -297,9 +427,17 @@ struct AnswerColumnView: View {
         if sum.truncatingRemainder(dividingBy: 1) != 0 {
             sum = (sum * pow(10, Double(decimalPlaces))).rounded() / pow(10, Double(decimalPlaces))
         }
-        // The shared overflow-safe formatter: an overflowing sum (inf)
-        // can never trap here.
-        return (formatDisplayValue(sum, decimalPlaces: decimalPlaces, context: numberContext), nil)
+        // The shared overflow-safe formatter (automatic = the exact
+        // pre-r87 Total shape); r87: non-automatic global notations
+        // format the unrounded sum through the ONE presentation API —
+        // per-source overrides never touch the Total.
+        let value = presentation.notation == .automatic
+            ? formatDisplayValue(sum, decimalPlaces: decimalPlaces, context: numberContext)
+            : NumberPresentation.format(sum, category: .plain,
+                                        notation: presentation.notation,
+                                        precision: decimalPlaces,
+                                        prefs: presentation, context: numberContext)
+        return (value, nil)
     }
 
     var body: some View {
@@ -384,6 +522,16 @@ struct AnswerColumnView: View {
                         // over the shared Motion.answerIn duration; the
                         // row's offset/geometry are never animated.
                         .opacity(rowOpacity(line))
+                        // r87: the persistent line highlight — a
+                        // full-logical-row adaptive fill behind the row
+                        // content (the same color the editor draws in
+                        // its gutter area). Overlay only: no hit
+                        // testing, no layout or baseline effect.
+                        .background {
+                            if let fill = highlightFill(for: line) {
+                                fill.allowsHitTesting(false)
+                            }
+                        }
                     }
                     // r58: centered total dividers — one 1pt adaptive
                     // neutral hairline (`Design.panelSeparator`) per total
@@ -512,8 +660,14 @@ struct AnswerColumnView: View {
         // the column matches the panel; the editor|answers hairline
         // itself lives once in ContentView (full-height), never here —
         // no double line, no width drift.
+        // r87: the Styling answer-column surface choice swaps the
+        // panel color through the centralized palette resolver
+        // (`.neutral` = the exact pre-r87 panel); the answer glyph
+        // color stays the centrally resolved accessible base for every
+        // surface.
         .background {
-            Color(nsColor: Design.answerPanelBackground).ignoresSafeArea(edges: .vertical)
+            Color(nsColor: Design.answerSurfaceColor(columnSurface))
+                .ignoresSafeArea(edges: .vertical)
         }
     }
 
@@ -534,52 +688,19 @@ struct AnswerColumnView: View {
             case .blank, .skip, .title(_):
                 Color.clear
             case .number(let v, let unit, let kind, let fraction):
-                if let u = unit, isCurrencyCode(u) {
-                    // Currency results render as ONE money string
-                    // (`$600.00`, `€107.64`) — symbol and value share
-                    // the same dark-base regular glyphs, no unit suffix.
-                    Text(formatMoney(v, code: u, context: numberContext))
-                        .font(palette.swiftUIFont(fontSize))
-                        .foregroundStyle(Color(nsColor: Design.baseText))
-                        .lineLimit(1)
-                } else {
-                    // r57: an evaluated inline `total` row renders its
-                    // value semibold — same face, size and adaptive base
-                    // color, only the weight changes, and only for this
-                    // row (normal numeric answers stay regular).
-                    // r83: a semantic kind renders its ONE kinded string
-                    // (`40%`, `1/5`, `1.5x`); a plain unit keeps the
-                    // separate same-weight unit run.
-                    let totalWeight: Font.Weight = line.isTotal ? .semibold : .regular
-                    if kind == .plain, let u = unit {
-                        HStack(spacing: 5) {
-                            Text(formatDisplayValue(v, decimalPlaces: places, context: numberContext))
-                                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
-                                // Every answer/result glyph is the fixed
-                                // dark base (Design.baseText) regular on
-                                // the light panel, per the r36 light theme.
-                                .foregroundStyle(Color(nsColor: Design.baseText))
-                                .lineLimit(1)
-                            // Units are full answer content: exactly the
-                            // same size, weight and baseline as the value.
-                            Text(u)
-                                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
-                                .foregroundStyle(Color(nsColor: Design.baseText))
-                        }
-                    } else {
-                        Text(AnswerDisplay.formatKinded(
-                            v, unit: nil, kind: kind, fraction: fraction,
-                            decimalPlaces: places, context: numberContext))
-                            .font(palette.swiftUIFont(fontSize, weight: totalWeight))
-                            .foregroundStyle(Color(nsColor: Design.baseText))
-                            .lineLimit(1)
-                    }
-                }
+                numberView(v: v, unit: unit, kind: kind, fraction: fraction,
+                           line: line, places: places)
             case .integer(let v, let radix), .variableInt(_, let v, let radix):
                 // r85: base rows render the EXACT base text — no
-                // compact notation, no decimal rounding.
-                let s = radix == 10
-                    ? IntLiteral.formatDecimal(v, context: numberContext)
+                // compact notation, no decimal rounding. r87: decimal-
+                // radix rows take the row's effective notation through
+                // the exact Int64 digit paths (no Double precision
+                // change); radix rows stay canonical.
+                let eff = effectiveNotation(for: line.sourceLineIndex)
+                let s = (radix == 10)
+                    ? NumberPresentation.formatInt64(
+                        v, notation: eff, precision: places,
+                        prefs: presentation, context: numberContext)
                     : IntLiteral.format(v, radix: radix)
                 Text(s)
                     .font(palette.swiftUIFont(fontSize, weight: line.isTotal ? .semibold : .regular))
@@ -599,7 +720,10 @@ struct AnswerColumnView: View {
             case .money(let v, let code):
                 // Natural money: shared presentation (`$600.00`),
                 // dark-base regular, never enters the numeric Total.
-                Text(formatMoney(v, code: code, context: numberContext))
+                Text(NumberPresentation.formatMoney(v, code: code,
+                                                    notation: effectiveNotation(for: line.sourceLineIndex),
+                                                    prefs: presentation,
+                                                    context: numberContext))
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
@@ -614,9 +738,13 @@ struct AnswerColumnView: View {
             case .variable(_, let v, let kind, let fraction):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
-                // r83: a semantic kind renders its kinded string.
-                Text(AnswerDisplay.formatKinded(v, unit: nil, kind: kind, fraction: fraction,
-                                                decimalPlaces: places, context: numberContext))
+                // r83: a semantic kind renders its kinded string; r87:
+                // non-automatic notations re-format the numeric
+                // component, the fraction kind keeps its exact shape.
+                let eff = effectiveNotation(for: line.sourceLineIndex)
+                let s = kindedString(v: v, kind: kind, fraction: fraction,
+                                      eff: eff, places: places)
+                Text(s)
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
@@ -682,7 +810,98 @@ struct AnswerColumnView: View {
         // Symmetric row insets; no invisible scroller reservation — the
         // column has no scroll bar of its own.
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: columnAlignment == .leading ? .leading : .trailing)
+    }
+
+    /// r87: the semantic-kind display string for one numeric value —
+    /// a plain function (never the view builder): automatic keeps the
+    /// shared kinded string, the fraction kind its exact reduced
+    /// rational, other notations re-format the numeric component.
+    private func kindedString(v: Double, kind: NumericKind,
+                              fraction: NumlexCore.Rational?,
+                              eff: NumberNotation, places: Int) -> String {
+        if eff == .automatic {
+            return AnswerDisplay.formatKinded(v, unit: nil, kind: kind,
+                                              fraction: fraction,
+                                              decimalPlaces: places,
+                                              context: numberContext)
+        }
+        if kind == .fraction, let r = fraction {
+            return "\(r.numerator)/\(r.denominator)"
+        }
+        let category: NumberPresentation.Category
+        if kind == .percent {
+            category = .percent
+        } else if kind == .multiplier {
+            category = .multiplier
+        } else {
+            category = .plain
+        }
+        return NumberPresentation.format(v, category: category, notation: eff,
+                                         precision: places, prefs: presentation,
+                                         context: numberContext)
+    }
+
+    /// r87: the numeric `.number` branch — extracted so the row
+    /// builder stays small enough to type-check. The value takes the
+    /// row's effective notation; currency keeps ONE money string, the
+    /// plain unit keeps the split value/unit runs (the pre-r87 pixel
+    /// layout), semantic kinds render their ONE kinded string and the
+    /// fraction kind its exact reduced shape.
+    @ViewBuilder
+    private func numberView(v: Double, unit: String?,
+                            kind: NumericKind, fraction: NumlexCore.Rational?,
+                            line: SheetLine, places: Int) -> some View {
+        let eff = effectiveNotation(for: line.sourceLineIndex)
+        // r57: an evaluated inline `total` row renders its value
+        // semibold — same face, size and adaptive base color, only
+        // the weight changes, and only for this row.
+        let totalWeight: Font.Weight = line.isTotal ? .semibold : .regular
+        if let u = unit, isCurrencyCode(u) {
+            // Currency results render as ONE money string (`$600.00`,
+            // `€107.64`) — symbol and value share the same dark-base
+            // regular glyphs, no unit suffix.
+            Text(NumberPresentation.formatMoney(v, code: u, notation: eff,
+                                                prefs: presentation,
+                                                context: numberContext))
+                .font(palette.swiftUIFont(fontSize))
+                .foregroundStyle(Color(nsColor: Design.baseText))
+                .lineLimit(1)
+        } else if kind == .plain, let u = unit {
+            // r87: the value takes the row's effective notation; the
+            // unit run is untouched (same size, weight and baseline as
+            // the value — the split keeps the pre-r87 pixel layout for
+            // the automatic default).
+            let vStr = eff == .automatic
+                ? formatDisplayValue(v, decimalPlaces: places, context: numberContext)
+                : NumberPresentation.format(v, category: .plain, notation: eff,
+                                            precision: places,
+                                            prefs: presentation, context: numberContext)
+            HStack(spacing: 5) {
+                Text(vStr)
+                    .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                    // Every answer/result glyph is the fixed dark base
+                    // (Design.baseText) regular on the light panel.
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+                // Units are full answer content: exactly the same size,
+                // weight and baseline as the value.
+                Text(u)
+                    .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+            }
+        } else {
+            // r83: a semantic kind renders its ONE kinded string
+            // (`40%`, `1/5`, `1.5x`); r87: non-automatic notations
+            // re-format the numeric component while the fraction kind
+            // keeps its exact reduced shape.
+            let s = kindedString(v: v, kind: kind, fraction: fraction,
+                                    eff: eff, places: places)
+            Text(s)
+                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                .foregroundStyle(Color(nsColor: Design.baseText))
+                .lineLimit(1)
+        }
     }
 }
 

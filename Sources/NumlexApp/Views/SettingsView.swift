@@ -852,6 +852,54 @@ private struct NumbersSettingsTab: View {
         model.numberContext.decimalComma ? "max(1,5; 2,5)" : "max(1.5, 2.5)"
     }
 
+    /// r87: a Binding into the GLOBAL presentation preferences.
+    private func presentationBinding<T>(
+        _ kp: WritableKeyPath<NumberPresentationPreferences, T>
+    ) -> Binding<T> {
+        Binding(
+            get: { model.settings.presentation[keyPath: kp] },
+            set: { v in
+                model.settings.presentation[keyPath: kp] = v
+                model.persist()
+            }
+        )
+    }
+
+    /// r87: the live "default answer format" preview — 1234.567
+    /// through the current global notation (custom renders through
+    /// the validated pattern, invalid/empty pattern shows a dash).
+    private var formatPreview: String {
+        let prefs = model.settings.presentation
+        switch prefs.notation {
+        case .custom:
+            guard let pattern = NumberPattern.tryValidated(prefs.customPattern)
+            else { return "—" }
+            return NumberPresentation.renderPattern(
+                pattern, value: 1234.567,
+                negativeStyle: prefs.negativeStyle,
+                context: model.numberContext)
+        default:
+            return NumberPresentation.format(
+                1234.567, category: .plain,
+                notation: prefs.notation,
+                precision: model.settings.decimalPlaces,
+                prefs: prefs, context: model.numberContext)
+        }
+    }
+
+    /// r87: the custom-pattern row's caption — the grammar caption,
+    /// replaced by the validation message when the stored pattern is
+    /// invalid (the formatter then falls back to automatic).
+    private var customPatternDetail: String {
+        let language = self.language
+        guard !model.settings.presentation.customPattern.isEmpty,
+              NumberPattern.tryValidated(model.settings.presentation.customPattern) == nil
+        else {
+            return L10n.t("customPattern.cap", language: language)
+        }
+        return L10n.t("customPattern.invalid", language: language)
+    }
+
     private func regionalBinding(_ kp: WritableKeyPath<RegionalNumberPreferences, Bool>) -> Binding<Bool> {
         Binding(
             get: { model.settings.regional.map { $0[keyPath: kp] }
@@ -978,7 +1026,99 @@ private struct NumbersSettingsTab: View {
                 }
             }
 
-            // 3. PASTING — the opt-in conversion of foreign numbers.
+            // 3. DEFAULT ANSWER FORMAT (r87) — the global notation,
+            // negative style, currency placement, the fraction
+            // denominator and the custom pattern with its live
+            // preview. Every default reproduces the pre-r87 shapes.
+            SettingsGroup(title: L10n.t("numbers.format", language: language)) {
+                SettingsRow(
+                    title: L10n.t("notation.label", language: language),
+                    detail: L10n.t("numbers.formatCap", language: language)
+                ) {
+                    // r87: native menu picker over the six notations
+                    // (the same key family as the per-line Number
+                    // Format menu — format<Notation>).
+                    Picker("", selection: presentationBinding(\.notation)) {
+                        ForEach(NumberNotation.allCases, id: \.self) { n in
+                            Text(L10n.t("format" + n.rawValue.capitalized,
+                                        language: language)).tag(n)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                if model.settings.presentation.notation == .fraction {
+                    SettingsRow(
+                        title: L10n.t("fraction.label", language: language),
+                        detail: L10n.t("fraction.cap", language: language)
+                    ) {
+                        Picker("",
+                               selection: presentationBinding(\.fractionPreset)) {
+                            ForEach(FractionPreset.allCases, id: \.self) { fp in
+                                Text("\(fp.rawValue)").tag(fp)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
+                SettingsRow(
+                    title: L10n.t("negative.label", language: language),
+                    detail: L10n.t("negative.cap", language: language)
+                ) {
+                    Picker("",
+                           selection: presentationBinding(\.negativeStyle)) {
+                        ForEach(NegativeStyle.allCases, id: \.self) { n in
+                            Text(L10n.t("negative.\(n.rawValue)",
+                                        language: language)).tag(n)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SettingsRow(
+                    title: L10n.t("currency.label", language: language),
+                    detail: L10n.t("currency.cap", language: language)
+                ) {
+                    Picker("",
+                           selection: presentationBinding(\.currencyPlacement)) {
+                        ForEach(CurrencyPlacement.allCases, id: \.self) { cp in
+                            Text(L10n.t("currency.\(cp.rawValue)",
+                                        language: language)).tag(cp)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SettingsRow(
+                    title: L10n.t("customPattern.label", language: language),
+                    detail: customPatternDetail
+                ) {
+                    TextField("",
+                              text: presentationBinding(\.customPattern))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(maxWidth: 180, alignment: .trailing)
+                }
+                // r87: the live preview — the SAME 1234.567 sample as
+                // the region group, rendered by the current global
+                // notation (custom through the validated pattern).
+                SettingsRow(
+                    title: L10n.t("customPattern.preview", language: language),
+                    detail: nil
+                ) {
+                    Text(formatPreview)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+            }
+
+            // 4. PASTING — the opt-in conversion of foreign numbers.
             SettingsGroup(title: L10n.t("numbers.pasting", language: language)) {
                 SettingsRow(
                     title: L10n.t("numbers.convertPaste", language: language),
@@ -1085,7 +1225,48 @@ private struct StylingSettingsTab: View {
                 }
             }
 
-            // 2. SYNTAX COLORS — one finite choice per role.
+            // 2. ANSWER COLUMN (r87) — the 200pt column's surface and
+            // where answers sit inside it.
+            SettingsGroup(title: L10n.t("styling.column", language: language)) {
+                SettingsRow(
+                    title: L10n.t("styling.column.alignment", language: language),
+                    detail: L10n.t("styling.column.alignmentCap", language: language)
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.styling.answerColumnAlignment },
+                        set: { model.settings.styling.answerColumnAlignment = $0
+                                model.persist() }
+                    )) {
+                        ForEach(AnswerColumnAlignment.allCases, id: \.self) { a in
+                            Text(L10n.t("alignment.\(a.rawValue)",
+                                        language: language)).tag(a)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SettingsRow(
+                    title: L10n.t("styling.column.surface", language: language),
+                    detail: L10n.t("styling.column.surfaceCap", language: language)
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.styling.answerColumnSurface },
+                        set: { model.settings.styling.answerColumnSurface = $0
+                                model.persist() }
+                    )) {
+                        ForEach(AnswerColumnSurface.allCases, id: \.self) { sf in
+                            Text(L10n.t("surface.\(sf.rawValue)",
+                                        language: language)).tag(sf)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+
+            // 3. SYNTAX COLORS — one finite choice per role.
             SettingsGroup(title: L10n.t("styling.colors", language: language)) {
                 roleRow("styling.role.numbers", keyPath: \.numbers)
                 roleRow("styling.role.operators", keyPath: \.operators)
@@ -1097,7 +1278,7 @@ private struct StylingSettingsTab: View {
                 roleRow("styling.role.labels", keyPath: \.labels)
             }
 
-            // 3. PREVIEW — the live, full-width, real-font-size sample.
+            // 4. PREVIEW — the live, full-width, real-font-size sample.
             SettingsGroup(title: L10n.t("styling.preview", language: language),
                           surface: false) {
                 StylingPreview(
@@ -1170,11 +1351,11 @@ private struct StylingSettingsTab: View {
 /// background) next to the calm gray answer strip, with the same row
 /// rhythm as the app (fixed line height derived from the selected size).
 /// Every line is painted by the REAL classifier + the SAME palette
-/// resolver as the editor. The only illustration-only content is the
-/// `0.5 as fraction` row (the engine has no fraction feature — the
-/// screenshot shows the intended look, so the preview demonstrates it
-/// with explicit role overrides; all other lines are genuine engine
-/// banding).
+/// resolver as the editor. The `0.5 as fraction` row uses explicit
+/// role overrides to show the fraction glyph treatment (the engine
+/// resolves fractions natively since r83; the overrides only paint
+/// the fraction roles the demo row wants to demonstrate); all other
+/// lines are genuine engine banding.
 private struct StylingPreview: View {
     let fontSize: Double
     let lineHeight: Double
