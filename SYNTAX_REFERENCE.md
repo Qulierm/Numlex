@@ -61,9 +61,9 @@
 |---|---|---|
 | Пустая строка | | Нет результата |
 | Заголовок | `# Расчёт зарплаты` | Визуальный заголовок, в расчёте пропускается |
-| Комментарий | `// итог за неделю` | Пропускается (заголовок листа при первой `//`-строке) |
+| Комментарий | `// итог за неделю` | Пропускаемая строка заголовка/комментария: результата нет, в расчёт не входит (это не присваивание и не «имя листа») |
 | Подпись | `Итог:` | Строка, оканчивающаяся двоеточием, — подпись-разделитель; оценивается как пропуск |
-| Именованное значение | `base pay = 4500` | `<name> = <expr>`: имя — 1–6 ASCII-слов (или одно токен-слово), ≤ 40 символов, первое слово начинается с буквы, без операторов; значение неизменно для листа |
+| Именованное значение | `base pay = 4500` | `<name> = <expr>`: имя — 1–6 ASCII-слов (или одно токен-слово), ≤ 40 символов, первое слово начинается с буквы, без операторов; значение изменяемо — повторная строка `<name> = <expr>` ниже перезаписывает его для последующих строк (сверху вниз) |
 | Встроенная сумма | `total` | Команда (без регистра): суммирует eligible-строки секции, см. раздел «total» |
 | Числовое выражение | `12 + 30 × 2` | См. «Операторы» |
 | Проценты и деньги | `15% of 490`, `$24 per day` | Раздел «Проценты, деньги, total, даты» |
@@ -71,7 +71,7 @@
 | Целочисленные базы | `0x1F`, `255 as hex` | Раздел «Системы счисления» |
 | Даты | `May 5 + 3 weeks` | Раздел «Даты» |
 | Сеть | `weather in London`, `distance between …` | Раздел «Сетевые запросы» |
-| Обычный текст | `закупил кабель` | Тихо: результата нет, строчка не «догадывается» |
+| Обычный текст | `закупил кабель` | Тихо: результата нет. Единственный legacy-обратный путь — в численных строках вычёркиваются неизвестные латинские слова (`5 apples + 3` → 8); проза без чисел и слова других алфавитов — никогда не вычисляются |
 
 Важно: строка, которая содержит маркер валюты (`$`, `€`, `100 USD` …), обязана
 полностью распарситься как денежное выражение — иначе скрытая ошибка, «догадки»
@@ -85,9 +85,12 @@
 - Разделители тысяч в вводе: `1,234` → `1234`, `1 234` (зависит от формата);
   внутри вызовов функций запятая — разделитель аргументов, см. там.
 - Научные: `1.5e6`, `2E-3`.
-- Компактные суффиксы (сразу после числа, БЕЗ пробела): `1.5M` = 1 500 000;
-  допустимые суффиксы `k K M G T P`. **Внимание:** `5m` — это 5 000 000 (пять
-  миллионов), а не пять метров; метра требует пробела: `5 m`.
+- Компактные суффиксы (сразу после числа, БЕЗ пробела; только для скаляров и
+  сумм): `k`/`K` = ×10³, `m`/`M` = ×10⁶ — `1.5M` = 1 500 000, `$2.5k` = 2500$.
+  **Внимание:** `5m` — это 5 000 000, а не пять метров; метр требует пробела:
+  `5 m`. Буквы `G`, `T`, `P` для скаляров/денег НЕ суффиксы (`1.5G` — буква
+  `G` вычёркивается как неизвестное слово → 1.5); гига/тера — только каталожные
+  имена единиц через пробел: `2 Gm`, `2 Gb`, `2 Gbyte`.
 - Пробелы вокруг операторов произвольны; скобки `( )`; унарные `+` и `-`.
 - Quick-операторы (настройка «Быстрые операторы», только когда включены и только
   между двумя цифрами, внутри идентификаторов не действуют):
@@ -100,8 +103,9 @@
 
 `if … then … else …` (правая ассоциативность) < `or` / `||` < `and` / `&&` <
 `not` / `!` < `==` `!=` < `<` `<=` `>` `>=` < `+` `−` (левая) < `*` `×` `/` `÷`
-(левая) < `^` (степень, правая) < унарные < первичные (литералы, скобки,
-вызовы функций, `%` и `x` как постфиксы, `of` — инфикс отношения).
+(левая; `of` после процента/множителя — тот же уровень) < `^` (степень, правая)
+< унарные < первичные (литералы, скобки, вызовы функций, `%` и `x` как
+постфиксы).
 
 | Оператор | Смысл | Примечание |
 |---|---|---|
@@ -110,16 +114,19 @@
 | `^` | степень | никогда НЕ XOR (XOR — слово `xor` в целочисленной дорожке) |
 | `%` (постфикс) | `p%` = p/100 | семантический «процент» в аддитивном контексте |
 | `x` (постфикс) | `1.5x` = множитель 1.5 | распознаётся только если нет активной переменной `x` |
-| `of` (инфикс) | `15% of 490` = 0.15 × 490 | левая часть — процент, множитель или доля: `2/3 of 600` = 400 |
+| `of` (инфикс, уровень `*`) | `15% of 490` = 73.5 | левая часть — только процент или множитель (`1.5x`): `1.5x of 20` = 30, цепочки `10% of 20% of 50` = 1; `3 of 4` — ошибка. В процентных строках базис `N% of E` — остаток строки: `15% of 490 + 5` = 74.25 |
 | `<` `<=` `>` `>=` | сравнения | числовые; результат — логический |
 | `==` `!=` | равенство/неравенство | логический результат |
-| `and` `&&` | конъюнкция | ленивая (ленивость: `false && (1/0 > 0)` истинно безопасно = false) |
-| `or` `\\|\\|` | дизъюнкция | ленивая |
+| `and` `&&` | конъюнкция | `&&` коротко замыкает только при ложной левой части: `false && (1/0 > 0)` = false; `true && …` и слово `and` — правый операнд вычисляется |
+| `or` `\|\|` | дизъюнкция | НЕ коротко замыкает: оба операнда вычисляются — `false or (1/0 > 0)` и `false \|\| (1/0 > 0)` дают ошибку деления на ноль |
 | `not` `!` | отрицание | префикс |
 | `if a then b else c` | условие | нижний приоритет; ветки — полные выражения; `else` обязателен |
 
 Логические значения — настоящий тип: `true`/`false` **никогда** не приводятся к
-1/0 (смешение типов в одном операторе — ошибка).
+1/0 (смешение типов в одном операторе — ошибка). Глифы `&` и `|` — ВСЕГДА
+побитовые: с логическими операндами это ошибка (`false | (1/0 > 0)` —
+«Invalid expression»); только СЛОВА `and`/`or` контекстны (два целых —
+побитово, два логических — логически).
 
 ### Целочисленная дорожка (точные Int64)
 
@@ -137,7 +144,7 @@ chips` остаётся прозой). Слабую — слово `and`/`or` с
 | Оператор | Смысл | Примечание |
 |---|---|---|
 | `&` | побитовое И | |
-| `\\|` | побитовое ИЛИ | если оба операнда — логические, то ленивое логическое ИЛИ |
+| `\|` | побитовое ИЛИ | глиф всегда побитовый: логические операнды — ошибка (`false \| (1/0 > 0)`) |
 | `xor` | побитовое исключающее ИЛИ (слово) | `6 xor 3` = 5 |
 | `<<` | сдвиг влево | ступень 0…63, переполнение — ошибка (checked) |
 | `>>` | сдвиг вправо | ступень 0…63, арифметический для отрицательных |
@@ -150,15 +157,19 @@ chips` остаётся прозой). Слабую — слово `and`/`or` с
 
 ## Встроенные функции (23)
 
-Вызов: `имя(арг1, arg2, …)`, имя — строчные буквы (регистр не важен),
-допускается пробел перед `(`. Вызов строгий: неизвестное имя, неверная
-аргументность, пропущенная запятая, лишняя запятая, незакрытая скобка, выход за
-область определения — детерминированная ошибка. В вызывной позиции встроенная
+Вызов: `имя(арг1, arg2, …)`. Имена функций не зависят от регистра
+(`SQRT(9)` = `sqrt(9)`); допускается пробел перед `(`. Встроенных констант
+`e` и `pi` НЕТ: `ln(e)` не вычисляется, если `e` не объявлена сама
+(`e = 2.71828…`). Вызов строгий: неизвестное имя, неверная аргументность,
+пропущенная запятая, лишняя запятая, незакрытая скобка, выход за область
+определения — детерминированная ошибка. В вызывной позиции встроенная
 функция приоритетнее переменной того же имени (`sum = 5` не мешает `sum(1,2)`);
 во всех прочих позициях `sum` — обычный идентификатор. Функции — скалярные
-(без единиц), вложенные вызовы разрешены. Десятичная-запятая аргументы — НЕ
-поддерживаются; аргументы разделяются `,` (запятая-разделитель) — при формате
-с запятой в качестве десятичного разделителя для аргументов используйте `;`.
+(без единиц), вложенные вызовы разрешены. Разделитель аргументов: в
+точечных форматах (legacy, North America) — `,` (`round(1.25, 0)`); в
+запятых форматах (Western/Eastern Europe, System с запятой-децималом)
+десятичная точка — запятая, а разделитель аргументов — `;`
+(`round(1,25; 0)` = 1).
 
 Запятая внутри вызова: `sum(1,234)` — одно число 1234 (запятая-группировка:
 точно 3 цифры после и целая часть перед), `sum(1, 234)` — два аргумента,
@@ -174,7 +185,7 @@ chips` остаётся прозой). Слабую — слово `and`/`or` с
 | `sum` | ≥1 | сумма | — | `sum(1, 2, 3)` → 6 |
 | `average` | ≥1 | среднее (устойчивое к переполнению) | — | `average(1, 2, 3)` → 2 |
 | `pow` | 2 | степень (контракт `^`) | конечный результат | `pow(2, 10)` → 1024 |
-| `ln` | 1 | натуральный логарифм | x > 0 | `ln(e)` → 1 |
+| `ln` | 1 | натуральный логарифм | x > 0 | `ln(1)` → 0 |
 | `log` | 1–2 | логарифм: 1 арг — по основанию 10; 2 арг — по основанию b | x > 0; b > 0, b ≠ 1 | `log(100)` → 2, `log(8, 2)` → 3 |
 | `log10` | 1 | логарифм по основанию 10 | x > 0 | `log10(1000)` → 3 |
 | `sin` | 1 | синус | **радианы** | `sin(0)` → 0 |
@@ -207,10 +218,16 @@ chips` остаётся прозой). Слабую — слово `and`/`or` с
 
 - Подчёркивания только МЕЖДУ двумя цифрами: `0x1_0`, `100_000`; двойные, на
   краях и после префикса — ошибка (`0x_1F`, `0x1F_`).
-- Зnak — знаково-модульный: `-0x10` = −16; `0x8000000000000000` = −9223372036854775808
-  (Int64.min); переполнение (напр. `0x10000000000000000`) — ошибка.
-- Каноническое отображение: `0b101`, `0o55`, `0xFF` — с префиксом; отрицательные
-  с `-`.
+- Знак — знаково-модульный: `-0x10` = −16. По модулю литерал ограничен
+  `0x7FFFFFFFFFFFFFFF` (9223372036854775807) в любой базе: `-0x7FFFFFFFFFFFFFFF`
+  принимается, а `-0x8000000000000000` и `0x8000000000000000` — выход модуля за
+  Int64.max, ошибка. Переполнение цифры (`0x10000000000000000`) — тоже ошибка.
+- Отображение: неотрицательные результаты — в базе выражения (`0x1F + 1` →
+  `0x20`); отрицательные и операции, выходящие за решётку (деление с остатком,
+  `^` с отрицательным показателем), — в десятичной (`-0x10` → −16).
+- Обычные цепочки десятичных цифр без префикса идут в Double-дорожку
+  (`9223372036854775808` → 9.22e18); точный Int64 — только через radix-
+  литералы, `int`/`bin`/`oct`/`hex` и фразы `as`/`in`/`to base`.
 
 База-имена (регистр не важен):
 
@@ -252,15 +269,16 @@ chips` остаётся прозой). Слабую — слово `and`/`or` с
 x = 0x1F
 x & 1                 → 1
 x + 1                 → 0x20
-x as hex              → 0x20
+x as hex              → 0x1F
 ```
 
 Сдвиги `<<`/`>>` принимают ступень 0…63 (больше — ошибка); `>>` — арифметический
 для отрицательных. `and`/`or`/`xor` — контекстные слова: для двух целых —
-побитовые, для двух логических — логические (ленивые для `and`/`or`), смешение
-типов в одном операторе — строгая ошибка. Деление с остатком, степень с
-отрицательным показателем и нецелые значения «выходят» за решётку в Double.
-На границах дорожек ставьте скобки явно.
+побитовые, для двух логических — логические (в логической дорожке `&&`
+коротко замыкает только при ложной левой части; `||` и слова — не
+замыкают), смешение типов в одном операторе — строгая ошибка. Деление с
+остатком, степень с отрицательным показателем и нецелые значения «выходят»
+за решётку в Double. На границах дорожек ставьте скобки явно.
 
 ## Проценты
 
@@ -277,7 +295,7 @@ percentage fraction multiple multiplier x if`; регистр не важен; �
 
 | Шаблон | Пример | Результат | Правило |
 |---|---|---|---|
-| `<p>% of <v>` | `15% of 490` | 73.5 | процент × значение (денежное значение правой части допустимо) |
+| `<p>% of <v>` | `15% of 490` | 73.5 | процент × значение; базис — остаток строки (`15% of 490 + 5` = 74.25, `50% of (10 + 5)` = 7.5); денежное значение базиса допустимо |
 | `<p>% on <v>` | `15% on 200` | 230 | v × (1 + p) |
 | `<p>% off <v>` | `30% off 200` | 140 | v × (1 − p) |
 | `<v> is <p>% of what` | `100 is 50% of what` | 200 | v ÷ p (обратный базис) |
@@ -435,9 +453,10 @@ dec 31
 
 ## Единицы
 
-Форма количества: `<число> <единица>` — пробел обязателен; склеенная буква —
-компактная запись (`5m` = 5 000 000, не метры). Единица — атом из каталога
-(с его алиасами и SI-префиксами) или выражение над единицами.
+Форма количества: `<число> <единица>` — пробел обязателен: `5 m` — метры;
+склеенная буква — НЕ единица (`5m` = 5 000 000 скаляр; `2 Gb` — гигабиты,
+`2 Gbyte` — гигабайты). Единица — атом из каталога (с его алиасами и
+SI-префиксами) или выражение над единицами.
 
 ### Выражения над единицами
 
@@ -465,13 +484,16 @@ dec 31
 
 ### SI-префиксы
 
-Допустимые атомы: `p n µ m c d k K M G T P` (10⁻¹⁵…10¹⁵). Каждый атом
-каталога объявляет свои; в приложении перечислены явно. `µ` — греческая
-мю (U+00B5 или U+03BC), не латинская `u`.
+Допустимые глифы-префиксы: `p n µ m c d k K M G T P` (от 10⁻¹², пико,
+до 10¹⁵, пета). Каждый атом каталога объявляет свои; в приложении
+перечислены явно (колонка «SI-префиксы»). `µ` — греческая мю (U+00B5 или
+U+03BC), не латинская `u`.
 
 Сгенерированные (не перечисляемые) формы: множественные числа атомов
 (`meters` = `meter`) и prefixed-формы (`km`, `mm`, `kWh` …) — правило:
-префикс из списка атома + атом.
+префикс из списка атома + атом. Сочетания, которых нет в каталоге,
+префиксами НЕ являются: буква просто вычёркивается как неизвестное слово,
+число возвращается без единиц (`3 Pm` → 3, `100 um` → 100).
 
 ### Арифметика количеств (R84)
 
@@ -545,8 +567,8 @@ dec 31
 - Имя: 1–6 ASCII-слов, ≤ 40 символов, первое слово — с буквы; уникально
   (коллизия с каталогом или другим кастомным — отклоняется).
 - Определения: либо `<число> <existing unit expression>` (например `2.54 cm`),
-  либо точное новое имя единицы (для атомов).
-- Зависимости разрешаются в порядке объявления и вне его (순环 — ошибка);
+  либо литерал `new unit` (объявление нового независимого атома).
+- Зависимости разрешаются в порядке объявления и вне его (цикл — ошибка);
   глобальный лимит — 100 пользовательских единиц.
 - Кастомные единицы **app-global** (настройки приложения), не сохраняются в
   `.nlx`-листе.
@@ -569,7 +591,10 @@ dec 31
 ```
 ## Приложение: полный каталог невалютных единиц
 
-403 записей `UnitCatalog` (атомные единицы; валюты — отдельный каталог, см. раздел «Валюты»).
+237 записей `UnitCatalog` без валют (атомные единицы, составные `L/100km`/
+`km/L` и специальные строки; валюты — отдельный каталог из 166 кодов,
+см. раздел «Валюты»).
+
 | id | метка | явные алиасы | SI-префиксы | размерность |
 |---|---|---|---|---|
 | `meter` | m | m · meter · meters · metre · metres | p,n,µ,m,c,d,k,K,M,G,T | L |
@@ -592,10 +617,10 @@ dec 31
 | `chain` | chain | chain · chains | — | L |
 | `furlong` | furlong | furlong · furlongs · fur | — | L |
 | `pixel` | px | px · pixel · pixels | — | — |
-| `density-kg-m3` | kg/m³ | kg/m³ · kg/m3 · kilogram per cubic meter | — | L3·M·T |
-| `density-g-l` | g/L | g/L · g/l · gram per liter | — | L3·M·T |
-| `density-g-cm3` | g/cm³ | g/cm³ · g/cm3 · g/mL · g/ml · gram per milliliter | — | L3·M·T |
-| `density-lb-ft3` | lb/ft³ | lb/ft³ · lb/ft3 · pound per cubic foot | — | L3·M·T |
+| `density-kg-m3` | kg/m³ | kg/m³ · kg/m3 · kilogram per cubic meter | — | L3·M·T-3 |
+| `density-g-l` | g/L | g/L · g/l · gram per liter | — | L3·M·T-3 |
+| `density-g-cm3` | g/cm³ | g/cm³ · g/cm3 · g/mL · g/ml · gram per milliliter | — | L3·M·T-3 |
+| `density-lb-ft3` | lb/ft³ | lb/ft³ · lb/ft3 · pound per cubic foot | — | L3·M·T-3 |
 | `type-point` | pt (type) | pt (type) · typographic point · type point | — | L |
 | `pica` | pica | pica · picas · type pica | — | L |
 | `sq-meter` | m² | m² · m2 · square meter · square metre · sq m · sqm | m,c,k,K,M | L2 |
@@ -628,10 +653,10 @@ dec 31
 | `uk-quart` | uk qt | uk qt · imperial quart · uk quart | — | L3 |
 | `uk-gallon` | uk gal | uk gal · uk_gal · imperial gallon · imperial gallons · uk gallon | — | L3 |
 | `metric-cup` | metric cup | metric cup · metric cups | — | L3 |
-| `metric-tablespoon` | metric tbsp | metric tablespoon · metric tablespoons | — | L3 |
-| `imperial-tablespoon` | imp tbsp | imperial tablespoon · imperial tablespoons · uk tablespoon | — | L3 |
+| `metric-tablespoon` | metric tbsp | metric tbsp · metric tablespoon · metric tablespoons | — | L3 |
+| `imperial-tablespoon` | imp tbsp | imp tbsp · imperial tablespoon · imperial tablespoons · uk tablespoon | — | L3 |
 | `dessertspoon` | dessertspoon | dessertspoon · dessertspoons · dsp | — | L3 |
-| `us-fluid-dram` | US fl dr | us fluid dram · fluid dram | — | L3 |
+| `us-fluid-dram` | US fl dr | US fl dr · us fluid dram · fluid dram | — | L3 |
 | `us-oil-barrel` | bbl | bbl · barrel · barrels · us oil barrel · oil barrel · petroleum barrel | — | L3 |
 | `us-bushel` | bushel | bushel · bushels · us bushel | — | L3 |
 | `us-peck` | peck | peck · pecks · us peck | — | L3 |
@@ -648,14 +673,14 @@ dec 31
 | `dalton` | Da | Da · dalton · daltons · amu · atomic mass unit · unified atomic mass unit | — | M |
 | `slug` | slug | slug · slugs | — | M |
 | `quintal` | quintal | quintal · quintals | — | M |
-| `us-hundredweight` | cwt (US) | us hundredweight · us cwt · short hundredweight | — | M |
-| `uk-hundredweight` | cwt (UK) | uk hundredweight · uk cwt · long hundredweight · imperial hundredweight | — | M |
+| `us-hundredweight` | cwt (US) | cwt (US) · us hundredweight · us cwt · short hundredweight | — | M |
+| `uk-hundredweight` | cwt (UK) | cwt (UK) · uk hundredweight · uk cwt · long hundredweight · imperial hundredweight | — | M |
 | `troy-ounce` | oz t | oz t · ozt · troy ounce · troy ounces | — | M |
 | `pennyweight` | dwt | dwt · pennyweight · pennyweights | — | M |
-| `celsius` | C° | c · C · °c · celsius · c° | — | special |
-| `fahrenheit` | F° | f · F · °f · fahrenheit · f° | — | special |
-| `kelvin` | K° | k · K · °k · kelvin · k° | — | special |
-| `rankine` | R° | r · R · °r · rankine · r° | — | special |
+| `celsius` | C° | C° · c · C · °c · celsius · c° | — | special |
+| `fahrenheit` | F° | F° · f · F · °f · fahrenheit · f° | — | special |
+| `kelvin` | K° | K° · k · K · °k · kelvin · k° | — | special |
+| `rankine` | R° | R° · r · R · °r · rankine · r° | — | special |
 | `second` | s | s · second · seconds · sec · secs | n,µ,m | T |
 | `millisecond` | ms | ms · millisecond · milliseconds | — | T |
 | `minute` | min | min · minute · minutes | — | T |
@@ -668,78 +693,78 @@ dec 31
 | `average-month` | mo | mo · month · months · average month · average gregorian month | — | T |
 | `common-year` | common year | common year · common year (365 days) | — | T |
 | `average-quarter` | quarter (time) | quarter (time) · average quarter | — | T |
-| `m-per-s` | m/s | m/s · meters per second | k,K,M | L·T |
-| `km-per-h` | km/h | km/h · kph · kmh · kilometers per hour · kilometres per hour | — | L·T |
-| `mph` | mph | mph · miles per hour · mi/h | — | L·T |
-| `ft-per-s` | ft/s | ft/s · feet per second | — | L·T |
-| `knot` | kn | kn · knot · knots | — | L·T |
-| `speed-of-light` | c₀ | c₀ · c0 · speed of light | — | L·T |
-| `mach` | Mach | Mach · standard mach · mach number | — | L·T |
-| `m-per-s2` | m/s² | m/s² · m/s2 · meters per second squared | k,K | L2·T |
-| `ft-per-s2` | ft/s² | ft/s² · ft/s2 · feet per second squared | — | L2·T |
-| `standard-gravity` | g₀ | standard gravity · g0 · gn · gravity · g-force · gforce | — | L2·T |
-| `km-per-h-s` | km/h/s | km/h/s · kph/s · kilometers per hour per second | — | L2·T |
+| `m-per-s` | m/s | m/s · meters per second | k,K,M | L·T-1 |
+| `km-per-h` | km/h | km/h · kph · kmh · kilometers per hour · kilometres per hour | — | L·T-1 |
+| `mph` | mph | mph · miles per hour · mi/h | — | L·T-1 |
+| `ft-per-s` | ft/s | ft/s · feet per second | — | L·T-1 |
+| `knot` | kn | kn · knot · knots | — | L·T-1 |
+| `speed-of-light` | c₀ | c₀ · c0 · speed of light | — | L·T-1 |
+| `mach` | Mach | Mach · standard mach · mach number | — | L·T-1 |
+| `m-per-s2` | m/s² | m/s² · m/s2 · meters per second squared | k,K | L2·T-2 |
+| `ft-per-s2` | ft/s² | ft/s² · ft/s2 · feet per second squared | — | L2·T-2 |
+| `standard-gravity` | g₀ | g₀ · standard gravity · g0 · gn · gravity · g-force · gforce | — | L2·T-2 |
+| `km-per-h-s` | km/h/s | km/h/s · kph/s · kilometers per hour per second | — | L2·T-2 |
 | `radian` | rad | rad · radian · radians | — | — |
 | `degree` | deg | deg · degree · degrees · ° | — | — |
 | `gradian` | grad | grad · gradian · grads · gon | — | — |
 | `turn` | turn | turn · turns · revolution · revolutions · rev · cycle · cycles | — | — |
 | `arcmin` | arcmin | arcmin · arc minute · arcminutes · minute of arc · ′ | — | — |
 | `arcsec` | arcsec | arcsec · arc second · arcseconds · second of arc · ″ | — | — |
-| `pascal` | Pa | Pa · pascal · pascals | µ,m,c,k,K,M,G | L·M·T |
-| `hectopascal` | hPa | hPa · hectopascal · hectopascals | — | L·M·T |
-| `bar` | bar | bar · bars | m | L·M·T |
-| `atmosphere` | atm | atm · atmosphere · atmospheres · standard atmosphere | — | L·M·T |
-| `torr` | torr | torr · torrs · mmhg · mm hg | — | L·M·T |
-| `psi` | psi | psi · lbf/in² · pounds per square inch · pound per square inch | — | L·M·T |
-| `ksi` | ksi | ksi · kip per square inch | — | L·M·T |
-| `inhg` | inHg | inHg · in hg · inches of mercury | — | L·M·T |
-| `techn-atm` | at | at · technical atmosphere · techn atm | — | L·M·T |
-| `kgf-per-cm2` | kgf/cm² | kgf/cm² · kgf/cm2 · kilogram force per square centimeter | — | L·M·T |
-| `mm-h2o` | mmH2O | mmH2O · mm h2o · millimeter of water | — | L·M·T |
-| `cm-h2o` | cmH2O | cmH2O · cm h2o · centimeter of water | — | L·M·T |
-| `psf` | psf | psf · pound per square foot | — | L·M·T |
-| `newton` | N | N · newton · newtons | µ,m,c,k,K,M,G | L·M·T |
-| `dyne` | dyne | dyne · dynes | — | L·M·T |
-| `lbf` | lbf | lbf · pound force · pound-force · lb force | — | L·M·T |
-| `kgf` | kgf | kgf · kilogram force · kilogram-force · kp | — | L·M·T |
-| `ounce-force` | ozf | ozf · ounce force · ounce-force | — | L·M·T |
-| `kip` | kip | kip · kips · kilopound | — | L·M·T |
-| `poundal` | poundal | poundal · poundals · pdl | — | L·M·T |
-| `us-ton-force` | tonf (US) | us ton force · us ton-force · short ton force | — | L·M·T |
-| `tonne-force` | tonf (t) | tonne force · tonne-force · tf · metric ton force | — | L·M·T |
-| `newton-meter` | N·m | N·m · N m · N*m | — | L2·M·T |
-| `lbf-foot` | lbf·ft | lbf·ft · lbf ft · lb-ft | — | L2·M·T |
-| `lbf-inch` | lbf·in | lbf·in · lbf in · lb-in | — | L2·M·T |
-| `kgf-meter` | kgf·m | kgf·m · kgf m · kgf*m | — | L2·M·T |
-| `newton-centimeter` | N·cm | N·cm · N cm · N*cm · newton centimeter | — | L2·M·T |
-| `newton-millimeter` | N·mm | N·mm · N mm · N*mm · newton millimeter | — | L2·M·T |
-| `ozf-inch` | ozf·in | ozf·in · ozf in · oz-in · ounce force inch | — | L2·M·T |
-| `joule` | J | J · joule · joules | m,µ,k,K,M,G,T | L2·M·T |
-| `watt-hour` | Wh | Wh · watt hour · watt-hour · watt hours | — | L2·M·T |
-| `kilowatt-hour` | kWh | kWh · kilowatt hour · kilowatt-hour | — | L2·M·T |
-| `megawatt-hour` | MWh | MWh · megawatt hour | — | L2·M·T |
-| `gigawatt-hour` | GWh | GWh · gigawatt hour | — | L2·M·T |
-| `calorie` | cal | cal · calorie · calories | k,K | L2·M·T |
-| `kilocalorie` | kcal | kcal · kilocalorie · kilocalories · Calorie · Calories · big calorie | — | L2·M·T |
-| `btu` | BTU | BTU · btu · BTUs · british thermal unit | — | L2·M·T |
-| `therm` | therm | therm · therms · us therm | — | L2·M·T |
-| `ft-lbf` | ft·lbf | ft·lbf · ft lbf · foot pound force · foot-pound force · ftlbf | — | L2·M·T |
-| `electronvolt` | eV | eV · electronvolt · electron volt | M,G,T | L2·M·T |
-| `erg` | erg | erg · ergs | — | L2·M·T |
-| `ton-tnt` | t TNT | t TNT · ton TNT · tonne TNT · ton of TNT | — | L2·M·T |
-| `quad` | quad | quad · quads · quadrillion BTU | — | L2·M·T |
-| `horsepower-hour` | hph | hph · horsepower hour · mechanical horsepower hour | — | L2·M·T |
-| `tonne-oil-equivalent` | toe | toe · tonne of oil equivalent · ton oil equivalent | — | L2·M·T |
-| `watt` | W | W · watt · watts | m,µ,k,K,M,G,T | L2·M·T |
-| `horsepower` | hp | hp · horsepower · horse power · mechanical horsepower · imperial horsepower | — | L2·M·T |
-| `metric-horsepower` | metric hp | metric hp · metric horsepower · cv · ps · pferd | — | L2·M·T |
-| `btu-per-h` | BTU/h | BTU/h · btu/h · btuh · btu per hour | — | L2·M·T |
-| `electric-horsepower` | hp (electric) | electric horsepower · electric hp · US horsepower | — | L2·M·T |
-| `boiler-horsepower` | hp (boiler) | boiler horsepower · boiler hp | — | L2·M·T |
-| `ton-refrigeration` | TR | TR · ton refrigeration · ton of refrigeration | — | L2·M·T |
-| `hertz` | Hz | Hz · hertz | k,K,M,G | T |
-| `rpm` | rpm | rpm · r/min · revolutions per minute · rev per minute | — | T |
-| `bpm` | bpm | bpm · beats per minute | — | T |
+| `pascal` | Pa | Pa · pascal · pascals | µ,m,c,k,K,M,G | L-1·M·T-2 |
+| `hectopascal` | hPa | hPa · hectopascal · hectopascals | — | L-1·M·T-2 |
+| `bar` | bar | bar · bars | m | L-1·M·T-2 |
+| `atmosphere` | atm | atm · atmosphere · atmospheres · standard atmosphere | — | L-1·M·T-2 |
+| `torr` | torr | torr · torrs · mmhg · mm hg | — | L-1·M·T-2 |
+| `psi` | psi | psi · lbf/in² · pounds per square inch · pound per square inch | — | L-1·M·T-2 |
+| `ksi` | ksi | ksi · kip per square inch | — | L-1·M·T-2 |
+| `inhg` | inHg | inHg · in hg · inches of mercury | — | L-1·M·T-2 |
+| `techn-atm` | at | at · technical atmosphere · techn atm | — | L-1·M·T-2 |
+| `kgf-per-cm2` | kgf/cm² | kgf/cm² · kgf/cm2 · kilogram force per square centimeter | — | L-1·M·T-2 |
+| `mm-h2o` | mmH2O | mmH2O · mm h2o · millimeter of water | — | L-1·M·T-2 |
+| `cm-h2o` | cmH2O | cmH2O · cm h2o · centimeter of water | — | L-1·M·T-2 |
+| `psf` | psf | psf · pound per square foot | — | L-1·M·T-2 |
+| `newton` | N | N · newton · newtons | µ,m,c,k,K,M,G | L·M·T-2 |
+| `dyne` | dyne | dyne · dynes | — | L·M·T-2 |
+| `lbf` | lbf | lbf · pound force · pound-force · lb force | — | L·M·T-2 |
+| `kgf` | kgf | kgf · kilogram force · kilogram-force · kp | — | L·M·T-2 |
+| `ounce-force` | ozf | ozf · ounce force · ounce-force | — | L·M·T-2 |
+| `kip` | kip | kip · kips · kilopound | — | L·M·T-2 |
+| `poundal` | poundal | poundal · poundals · pdl | — | L·M·T-2 |
+| `us-ton-force` | tonf (US) | tonf (US) · us ton force · us ton-force · short ton force | — | L·M·T-2 |
+| `tonne-force` | tonf (t) | tonf (t) · tonne force · tonne-force · tf · metric ton force | — | L·M·T-2 |
+| `newton-meter` | N·m | N·m · N m · N*m | — | L2·M·T-2 |
+| `lbf-foot` | lbf·ft | lbf·ft · lbf ft · lb-ft | — | L2·M·T-2 |
+| `lbf-inch` | lbf·in | lbf·in · lbf in · lb-in | — | L2·M·T-2 |
+| `kgf-meter` | kgf·m | kgf·m · kgf m · kgf*m | — | L2·M·T-2 |
+| `newton-centimeter` | N·cm | N·cm · N cm · N*cm · newton centimeter | — | L2·M·T-2 |
+| `newton-millimeter` | N·mm | N·mm · N mm · N*mm · newton millimeter | — | L2·M·T-2 |
+| `ozf-inch` | ozf·in | ozf·in · ozf in · oz-in · ounce force inch | — | L2·M·T-2 |
+| `joule` | J | J · joule · joules | m,µ,k,K,M,G,T | L2·M·T-2 |
+| `watt-hour` | Wh | Wh · watt hour · watt-hour · watt hours | — | L2·M·T-2 |
+| `kilowatt-hour` | kWh | kWh · kilowatt hour · kilowatt-hour | — | L2·M·T-2 |
+| `megawatt-hour` | MWh | MWh · megawatt hour | — | L2·M·T-2 |
+| `gigawatt-hour` | GWh | GWh · gigawatt hour | — | L2·M·T-2 |
+| `calorie` | cal | cal · calorie · calories | k,K | L2·M·T-2 |
+| `kilocalorie` | kcal | kcal · kilocalorie · kilocalories · Calorie · Calories · big calorie | — | L2·M·T-2 |
+| `btu` | BTU | BTU · btu · BTUs · british thermal unit | — | L2·M·T-2 |
+| `therm` | therm | therm · therms · us therm | — | L2·M·T-2 |
+| `ft-lbf` | ft·lbf | ft·lbf · ft lbf · foot pound force · foot-pound force · ftlbf | — | L2·M·T-2 |
+| `electronvolt` | eV | eV · electronvolt · electron volt | M,G,T | L2·M·T-2 |
+| `erg` | erg | erg · ergs | — | L2·M·T-2 |
+| `ton-tnt` | t TNT | t TNT · ton TNT · tonne TNT · ton of TNT | — | L2·M·T-2 |
+| `quad` | quad | quad · quads · quadrillion BTU | — | L2·M·T-2 |
+| `horsepower-hour` | hph | hph · horsepower hour · mechanical horsepower hour | — | L2·M·T-2 |
+| `tonne-oil-equivalent` | toe | toe · tonne of oil equivalent · ton oil equivalent | — | L2·M·T-2 |
+| `watt` | W | W · watt · watts | m,µ,k,K,M,G,T | L2·M·T-3 |
+| `horsepower` | hp | hp · horsepower · horse power · mechanical horsepower · imperial horsepower | — | L2·M·T-3 |
+| `metric-horsepower` | metric hp | metric hp · metric horsepower · cv · ps · pferd | — | L2·M·T-3 |
+| `btu-per-h` | BTU/h | BTU/h · btu/h · btuh · btu per hour | — | L2·M·T-3 |
+| `electric-horsepower` | hp (electric) | hp (electric) · electric horsepower · electric hp · US horsepower | — | L2·M·T-3 |
+| `boiler-horsepower` | hp (boiler) | hp (boiler) · boiler horsepower · boiler hp | — | L2·M·T-3 |
+| `ton-refrigeration` | TR | TR · ton refrigeration · ton of refrigeration | — | L2·M·T-3 |
+| `hertz` | Hz | Hz · hertz | k,K,M,G | T-1 |
+| `rpm` | rpm | rpm · r/min · revolutions per minute · rev per minute | — | T-1 |
+| `bpm` | bpm | bpm · beats per minute | — | T-1 |
 | `bit` | bit | bit · bits · b | k,K,M,G,T,P | — |
 | `byte` | B | B · byte · bytes | k,K,M,G,T,P | — |
 | `kibibyte` | KiB | KiB · kibibyte · kibibytes | — | — |
@@ -752,239 +777,73 @@ dec 31
 | `gibibit` | Gib | Gib · gibibit · gibibits | — | — |
 | `tebibit` | Tib | Tib · tebibit · tebibits | — | — |
 | `pebibit` | Pib | Pib · pebibit · pebibits | — | — |
-| `bit-per-s` | bit/s | bit/s · bps · bits per second · b/s | k,K,M,G,T | T |
-| `byte-per-s` | B/s | B/s · bytes per second · BPS | k,K,M,G,T | T |
-| `liter-per-s` | L/s | L/s · liters per second · litres per second | m,k,K | L3·T |
-| `liter-per-min` | L/min | L/min · liters per minute | — | L3·T |
-| `liter-per-h` | L/h | L/h · liters per hour | — | L3·T |
-| `m3-per-s` | m³/s | m³/s · m3/s · cubic meters per second | — | L3·T |
-| `m3-per-h` | m³/h | m³/h · m3/h · cubic meters per hour | — | L3·T |
-| `gpm` | gpm | gpm · us gpm · us gallons per minute | — | L3·T |
-| `cfs` | cfs | cfs · cubic feet per second | — | L3·T |
-| `uk-gpm` | UK gpm | uk gpm · imperial gpm · imperial gallons per minute | — | L3·T |
-| `cfm` | cfm | cfm · cubic feet per minute · ft³/min | — | L3·T |
-| `us-mgd` | US mgd | us mgd · million gallons per day | — | L3·T |
-| `bbl-per-d` | bbl/d | bbl/d · barrels per day · oil barrel per day | — | L3·T |
-| `l100km` | L/100km | l/100km · L per 100 km · l per 100km · liters per 100 km · litres per 100 km | — | special |
-| `lkm` | L/km | l/km · L per km · l per km · liters per km · litres per km | — | special |
-| `kml` | km/L | km/l · km per liter · km per litre · kmpl | — | special |
-| `mpg-us` | US mpg | mpg · us mpg · mpg (us) · us_mpg · mpg_us · usmpg | — | special |
-| `mpg-uk` | UK mpg | uk mpg · mpg (uk) · uk_mpg · mpg_uk · ukmpg · imperial mpg · miles per imperial gallon | — | special |
-| `miles-per-liter` | mi/L | mi/l · miles per liter · miles per litre | — | special |
-| `us-gal100mi` | US gal/100mi | us gal/100mi · us gallons per 100 miles | — | special |
-| `uk-gal100mi` | UK gal/100mi | uk gal/100mi · uk gallons per 100 miles | — | special |
-| `pascal-second` | Pa·s | Pa·s · Pa s · Pa*s · pascal second | — | L·M·T |
-| `poise` | P | P · poise · poises | — | L·M·T |
-| `centipoise` | cP | cP · centipoise · centipoises | — | L·M·T |
-| `reyn` | reyn | reyn · reyns | — | L·M·T |
-| `m2-per-s` | m²/s | m²/s · m2/s · square meters per second | — | L2·T |
-| `stokes` | St | St · stokes · stoke | — | L2·T |
-| `centistokes` | cSt | cSt · centistokes | — | L2·T |
-| `ft2-per-s` | ft²/s | ft²/s · ft2/s · square feet per second | — | L2·T |
+| `bit-per-s` | bit/s | bit/s · bps · bits per second · b/s | k,K,M,G,T | T-1 |
+| `byte-per-s` | B/s | B/s · bytes per second · BPS | k,K,M,G,T | T-1 |
+| `liter-per-s` | L/s | L/s · liters per second · litres per second | m,k,K | L3·T-1 |
+| `liter-per-min` | L/min | L/min · liters per minute | — | L3·T-1 |
+| `liter-per-h` | L/h | L/h · liters per hour | — | L3·T-1 |
+| `m3-per-s` | m³/s | m³/s · m3/s · cubic meters per second | — | L3·T-1 |
+| `m3-per-h` | m³/h | m³/h · m3/h · cubic meters per hour | — | L3·T-1 |
+| `gpm` | gpm | gpm · us gpm · us gallons per minute | — | L3·T-1 |
+| `cfs` | cfs | cfs · cubic feet per second | — | L3·T-1 |
+| `uk-gpm` | UK gpm | UK gpm · uk gpm · imperial gpm · imperial gallons per minute | — | L3·T-1 |
+| `cfm` | cfm | cfm · cubic feet per minute · ft³/min | — | L3·T-1 |
+| `us-mgd` | US mgd | US mgd · us mgd · million gallons per day | — | L3·T-1 |
+| `bbl-per-d` | bbl/d | bbl/d · barrels per day · oil barrel per day | — | L3·T-1 |
+| `l100km` | L/100km | L/100km · l/100km · L per 100 km · l per 100km · liters per 100 km · litres per 100 km | — | special |
+| `lkm` | L/km | L/km · l/km · L per km · l per km · liters per km · litres per km | — | special |
+| `kml` | km/L | km/L · km/l · km per liter · km per litre · kmpl | — | special |
+| `mpg-us` | US mpg | US mpg · mpg · us mpg · mpg (us) · us_mpg · mpg_us · usmpg | — | special |
+| `mpg-uk` | UK mpg | UK mpg · uk mpg · mpg (uk) · uk_mpg · mpg_uk · ukmpg · imperial mpg · miles per imperial gallon | — | special |
+| `miles-per-liter` | mi/L | mi/L · mi/l · miles per liter · miles per litre | — | special |
+| `us-gal100mi` | US gal/100mi | US gal/100mi · us gal/100mi · us gallons per 100 miles | — | special |
+| `uk-gal100mi` | UK gal/100mi | UK gal/100mi · uk gal/100mi · uk gallons per 100 miles | — | special |
+| `pascal-second` | Pa·s | Pa·s · Pa s · Pa*s · pascal second | — | L-1·M·T-1 |
+| `poise` | P | P · poise · poises | — | L-1·M·T-1 |
+| `centipoise` | cP | cP · centipoise · centipoises | — | L-1·M·T-1 |
+| `reyn` | reyn | reyn · reyns | — | L-1·M·T-1 |
+| `m2-per-s` | m²/s | m²/s · m2/s · square meters per second | — | L2·T-1 |
+| `stokes` | St | St · stokes · stoke | — | L2·T-1 |
+| `centistokes` | cSt | cSt · centistokes | — | L2·T-1 |
+| `ft2-per-s` | ft²/s | ft²/s · ft2/s · square feet per second | — | L2·T-1 |
 | `ampere` | A | A · ampere · amperes · amp · amps | n,µ,m,k,K | A |
-| `volt` | V | V · volt · volts | µ,m,k,K,M | L2·M·T·A |
-| `ohm` | Ω | Ω · ohm · ohms | k,K,M,G | L2·M·T·A |
-| `coulomb` | C | coulomb · coulombs | m,k,K | T·A |
+| `volt` | V | V · volt · volts | µ,m,k,K,M | L2·M·T-3·A-1 |
+| `ohm` | Ω | Ω · ohm · ohms | k,K,M,G | L2·M·T-3·A-2 |
+| `coulomb` | C | C · coulomb · coulombs | m,k,K | T·A |
 | `amp-hour` | Ah | Ah · amp hour · ampere hour · amphour | — | T·A |
 | `millicoulomb` | mC | mC · millicoulomb | — | T·A |
 | `kilocoulomb` | kC | kC · kilocoulomb | — | T·A |
 | `mah` | mAh | mAh · milliamp hour · milliampere hour | — | T·A |
-| `farad` | F | farad · farads | — | L·M·T4·A2 |
-| `picofarad` | pF | pF · picofarad · picofarads | — | L·M·T4·A2 |
-| `nanofarad` | nF | nF · nanofarad · nanofarads | — | L·M·T4·A2 |
-| `microfarad` | µF | µF · microfarad · microfarads | — | L·M·T4·A2 |
-| `millifarad` | mF | mF · millifarad · millifarads | — | L·M·T4·A2 |
-| `henry` | H | H · henry · henries | m,µ | L2·M·T·A |
-| `siemens` | S | S · siemens · siemen · mho | m,µ | L·M·T3·A2 |
-| `weber` | Wb | Wb · weber · webers | m | L2·M·T·A |
-| `tesla` | T | T · tesla · teslas | m,µ | M·T·A |
-| `gauss` | G | G · gauss | — | M·T·A |
+| `farad` | F | F · farad · farads | — | L-2·M-1·T4·A2 |
+| `picofarad` | pF | pF · picofarad · picofarads | — | L-2·M-1·T4·A2 |
+| `nanofarad` | nF | nF · nanofarad · nanofarads | — | L-2·M-1·T4·A2 |
+| `microfarad` | µF | µF · microfarad · microfarads | — | L-2·M-1·T4·A2 |
+| `millifarad` | mF | mF · millifarad · millifarads | — | L-2·M-1·T4·A2 |
+| `henry` | H | H · henry · henries | m,µ | L2·M·T-2·A-2 |
+| `siemens` | S | S · siemens · siemen · mho | m,µ | L-2·M-1·T3·A2 |
+| `weber` | Wb | Wb · weber · webers | m | L2·M·T-2·A-1 |
+| `tesla` | T | T · tesla · teslas | m,µ | M·T-2·A-1 |
+| `gauss` | G | G · gauss | — | M·T-2·A-1 |
 | `candela` | cd | cd · candela · candelas | — | I |
 | `lumen` | lm | lm · lumen · lumens | k,K,M | I |
-| `lux` | lx | lx · lux | — | L·I |
-| `footcandle` | fc | fc · foot-candle · foot candle · footcandle · footcandles | — | L·I |
-| `becquerel` | Bq | Bq · becquerel · becquerels | m,k,K,M,G | T |
-| `curie` | Ci | Ci · curie · curies | — | T |
-| `gray` | Gy | Gy · gray · grays | m,µ,k,K,M | L2·M·T |
-| `rad-dose` | rad (dose) | rads · radiation absorbed dose · rad dose · absorbed rad | — | L2·M·T |
-| `sievert` | Sv | Sv · sievert · sieverts | m,k,K,M | L2·M·T |
-| `rem` | rem | rem · rems | — | L2·M·T |
-| `cur-AED` | AED | AED · UAE dirham · UAE dirhams · dirham · dirhams | — | special |
-| `cur-AFN` | AFN | AFN | — | special |
-| `cur-ALL` | ALL | ALL | — | special |
-| `cur-AMD` | AMD | AMD | — | special |
-| `cur-ANG` | ANG | ANG | — | special |
-| `cur-AOA` | AOA | AOA | — | special |
-| `cur-ARS` | ARS | ARS · Argentine peso · Argentine pesos | — | special |
-| `cur-AUD` | AUD | AUD · Australian dollar · Australian dollars | — | special |
-| `cur-AWG` | AWG | AWG | — | special |
-| `cur-AZN` | AZN | AZN | — | special |
-| `cur-BAM` | BAM | BAM | — | special |
-| `cur-BBD` | BBD | BBD | — | special |
-| `cur-BDT` | BDT | BDT · Bangladeshi taka · taka | — | special |
-| `cur-BGN` | BGN | BGN · Bulgarian lev · lev | — | special |
-| `cur-BHD` | BHD | BHD · Bahraini dinar · Bahraini dinars | — | special |
-| `cur-BIF` | BIF | BIF | — | special |
-| `cur-BMD` | BMD | BMD | — | special |
-| `cur-BND` | BND | BND | — | special |
-| `cur-BOB` | BOB | BOB | — | special |
-| `cur-BRL` | BRL | BRL · Brazilian real · Brazilian reais · reais | — | special |
-| `cur-BSD` | BSD | BSD | — | special |
-| `cur-BTN` | BTN | BTN | — | special |
-| `cur-BWP` | BWP | BWP | — | special |
-| `cur-BYN` | BYN | BYN | — | special |
-| `cur-BZD` | BZD | BZD | — | special |
-| `cur-CAD` | CAD | CAD · Canadian dollar · Canadian dollars | — | special |
-| `cur-CDF` | CDF | CDF | — | special |
-| `cur-CHF` | CHF | CHF · Swiss franc · Swiss francs | — | special |
-| `cur-CLF` | CLF | CLF | — | special |
-| `cur-CLP` | CLP | CLP · Chilean peso · Chilean pesos | — | special |
-| `cur-CNH` | CNH | CNH | — | special |
-| `cur-CNY` | CNY | CNY · Chinese yuan · yuan · renminbi · RMB | — | special |
-| `cur-COP` | COP | COP · Colombian peso · Colombian pesos | — | special |
-| `cur-CRC` | CRC | CRC | — | special |
-| `cur-CUP` | CUP | CUP | — | special |
-| `cur-CVE` | CVE | CVE | — | special |
-| `cur-CZK` | CZK | CZK · Czech koruna · koruna | — | special |
-| `cur-DJF` | DJF | DJF | — | special |
-| `cur-DKK` | DKK | DKK | — | special |
-| `cur-DOP` | DOP | DOP | — | special |
-| `cur-DZD` | DZD | DZD | — | special |
-| `cur-EGP` | EGP | EGP · Egyptian pound · Egyptian pounds | — | special |
-| `cur-ERN` | ERN | ERN | — | special |
-| `cur-ETB` | ETB | ETB | — | special |
-| `cur-EUR` | EUR | EUR · euro · euros · european euro · european euros | — | special |
-| `cur-FJD` | FJD | FJD | — | special |
-| `cur-FKP` | FKP | FKP | — | special |
-| `cur-FOK` | FOK | FOK | — | special |
-| `cur-GBP` | GBP | GBP · British pound · British pounds · pound sterling · sterling | — | special |
-| `cur-GEL` | GEL | GEL · Georgian lari · lari | — | special |
-| `cur-GGP` | GGP | GGP | — | special |
-| `cur-GHS` | GHS | GHS · Ghanaian cedi · cedi | — | special |
-| `cur-GIP` | GIP | GIP | — | special |
-| `cur-GMD` | GMD | GMD | — | special |
-| `cur-GNF` | GNF | GNF | — | special |
-| `cur-GTQ` | GTQ | GTQ | — | special |
-| `cur-GYD` | GYD | GYD | — | special |
-| `cur-HKD` | HKD | HKD · Hong Kong dollar · Hong Kong dollars | — | special |
-| `cur-HNL` | HNL | HNL | — | special |
-| `cur-HRK` | HRK | HRK | — | special |
-| `cur-HTG` | HTG | HTG | — | special |
-| `cur-HUF` | HUF | HUF · Hungarian forint · forint | — | special |
-| `cur-IDR` | IDR | IDR · Indonesian rupiah · rupiah | — | special |
-| `cur-ILS` | ILS | ILS · Israeli new shekel · Israeli new shekels · new shekel · new shekels · shekel · shekels | — | special |
-| `cur-IMP` | IMP | IMP | — | special |
-| `cur-INR` | INR | INR · Indian rupee · Indian rupees · rupee · rupees | — | special |
-| `cur-IQD` | IQD | IQD | — | special |
-| `cur-IRR` | IRR | IRR | — | special |
-| `cur-ISK` | ISK | ISK | — | special |
-| `cur-JEP` | JEP | JEP | — | special |
-| `cur-JMD` | JMD | JMD | — | special |
-| `cur-JOD` | JOD | JOD · Jordanian dinar · Jordanian dinars | — | special |
-| `cur-JPY` | JPY | JPY · Japanese yen · yen | — | special |
-| `cur-KES` | KES | KES · Kenyan shilling · Kenyan shillings | — | special |
-| `cur-KGS` | KGS | KGS | — | special |
-| `cur-KHR` | KHR | KHR | — | special |
-| `cur-KID` | KID | KID | — | special |
-| `cur-KMF` | KMF | KMF | — | special |
-| `cur-KRW` | KRW | KRW · South Korean won · Korean won · won | — | special |
-| `cur-KWD` | KWD | KWD · Kuwaiti dinar · Kuwaiti dinars | — | special |
-| `cur-KYD` | KYD | KYD | — | special |
-| `cur-KZT` | KZT | KZT · Kazakhstani tenge · tenge | — | special |
-| `cur-LAK` | LAK | LAK | — | special |
-| `cur-LBP` | LBP | LBP | — | special |
-| `cur-LKR` | LKR | LKR | — | special |
-| `cur-LRD` | LRD | LRD | — | special |
-| `cur-LSL` | LSL | LSL | — | special |
-| `cur-LYD` | LYD | LYD | — | special |
-| `cur-MAD` | MAD | MAD | — | special |
-| `cur-MDL` | MDL | MDL | — | special |
-| `cur-MGA` | MGA | MGA | — | special |
-| `cur-MKD` | MKD | MKD | — | special |
-| `cur-MMK` | MMK | MMK | — | special |
-| `cur-MNT` | MNT | MNT | — | special |
-| `cur-MOP` | MOP | MOP | — | special |
-| `cur-MRU` | MRU | MRU | — | special |
-| `cur-MUR` | MUR | MUR | — | special |
-| `cur-MVR` | MVR | MVR | — | special |
-| `cur-MWK` | MWK | MWK | — | special |
-| `cur-MXN` | MXN | MXN · Mexican peso · Mexican pesos | — | special |
-| `cur-MYR` | MYR | MYR · Malaysian ringgit · ringgit | — | special |
-| `cur-MZN` | MZN | MZN | — | special |
-| `cur-NAD` | NAD | NAD | — | special |
-| `cur-NGN` | NGN | NGN · Nigerian naira · naira | — | special |
-| `cur-NIO` | NIO | NIO | — | special |
-| `cur-NOK` | NOK | NOK | — | special |
-| `cur-NPR` | NPR | NPR | — | special |
-| `cur-NZD` | NZD | NZD · New Zealand dollar · New Zealand dollars | — | special |
-| `cur-OMR` | OMR | OMR | — | special |
-| `cur-PAB` | PAB | PAB | — | special |
-| `cur-PEN` | PEN | PEN · Peruvian sol · Peruvian soles · sol · soles | — | special |
-| `cur-PGK` | PGK | PGK | — | special |
-| `cur-PHP` | PHP | PHP · Philippine peso · Philippine pesos | — | special |
-| `cur-PKR` | PKR | PKR · Pakistani rupee · Pakistani rupees | — | special |
-| `cur-PLN` | PLN | PLN · Polish zloty · Polish zlotys · zloty · zlotys | — | special |
-| `cur-PYG` | PYG | PYG | — | special |
-| `cur-QAR` | QAR | QAR · Qatari riyal · Qatari riyals | — | special |
-| `cur-RON` | RON | RON · Romanian leu · leu | — | special |
-| `cur-RSD` | RSD | RSD | — | special |
-| `cur-RUB` | RUB | RUB · Russian ruble · Russian rubles · ruble · rubles · rouble · roubles | — | special |
-| `cur-RWF` | RWF | RWF | — | special |
-| `cur-SAR` | SAR | SAR · Saudi riyal · Saudi riyals | — | special |
-| `cur-SBD` | SBD | SBD | — | special |
-| `cur-SCR` | SCR | SCR | — | special |
-| `cur-SDG` | SDG | SDG | — | special |
-| `cur-SEK` | SEK | SEK | — | special |
-| `cur-SGD` | SGD | SGD · Singapore dollar · Singapore dollars | — | special |
-| `cur-SHP` | SHP | SHP | — | special |
-| `cur-SLE` | SLE | SLE | — | special |
-| `cur-SLL` | SLL | SLL | — | special |
-| `cur-SOS` | SOS | SOS | — | special |
-| `cur-SRD` | SRD | SRD | — | special |
-| `cur-SSP` | SSP | SSP | — | special |
-| `cur-STN` | STN | STN | — | special |
-| `cur-SYP` | SYP | SYP | — | special |
-| `cur-SZL` | SZL | SZL | — | special |
-| `cur-THB` | THB | THB · Thai baht · baht | — | special |
-| `cur-TJS` | TJS | TJS | — | special |
-| `cur-TMT` | TMT | TMT | — | special |
-| `cur-TND` | TND | TND | — | special |
-| `cur-TOP` | TOP | TOP | — | special |
-| `cur-TRY` | TRY | TRY · Turkish lira · lira · liras | — | special |
-| `cur-TTD` | TTD | TTD | — | special |
-| `cur-TVD` | TVD | TVD | — | special |
-| `cur-TWD` | TWD | TWD · New Taiwan dollar · New Taiwan dollars | — | special |
-| `cur-TZS` | TZS | TZS | — | special |
-| `cur-UAH` | UAH | UAH · Ukrainian hryvnia · hryvnia | — | special |
-| `cur-UGX` | UGX | UGX | — | special |
-| `cur-USD` | USD | USD · US dollar · US dollars · American dollar · American dollars · dollar · dollars | — | special |
-| `cur-UYU` | UYU | UYU | — | special |
-| `cur-UZS` | UZS | UZS | — | special |
-| `cur-VES` | VES | VES | — | special |
-| `cur-VND` | VND | VND · Vietnamese dong · dong | — | special |
-| `cur-VUV` | VUV | VUV | — | special |
-| `cur-WST` | WST | WST | — | special |
-| `cur-XAF` | XAF | XAF | — | special |
-| `cur-XCD` | XCD | XCD | — | special |
-| `cur-XCG` | XCG | XCG | — | special |
-| `cur-XDR` | XDR | XDR | — | special |
-| `cur-XOF` | XOF | XOF | — | special |
-| `cur-XPF` | XPF | XPF | — | special |
-| `cur-YER` | YER | YER | — | special |
-| `cur-ZAR` | ZAR | ZAR · South African rand · rand | — | special |
-| `cur-ZMW` | ZMW | ZMW | — | special |
-| `cur-ZWG` | ZWG | ZWG | — | special |
-| `cur-ZWL` | ZWL | ZWL | — | special |
+| `lux` | lx | lx · lux | — | L-2·I |
+| `footcandle` | fc | fc · foot-candle · foot candle · footcandle · footcandles | — | L-2·I |
+| `becquerel` | Bq | Bq · becquerel · becquerels | m,k,K,M,G | T-1 |
+| `curie` | Ci | Ci · curie · curies | — | T-1 |
+| `gray` | Gy | Gy · gray · grays | m,µ,k,K,M | L2·M·T-2 |
+| `rad-dose` | rad (dose) | rad (dose) · rads · radiation absorbed dose · rad dose · absorbed rad | — | L2·M·T-2 |
+| `sievert` | Sv | Sv · sievert · sieverts | m,k,K,M | L2·M·T-2 |
+| `rem` | rem | rem · rems | — | L2·M·T-2 |
 
 ## Валюты
 
-Каталог из 166 ISO 4217 кодов (только фиат: без криптовалют и драгметаллов; набор совпадает с открытым провайдером). Код работает как идентификатор единицы, метка и ввод-алиас. Базовая валюта по умолчанию: `USD` (настраивается в Settings → Numbers).
+Каталог из 166 ISO 4217 кодов (только фиат: без криптовалют и драгметаллов; набор совпадает с открытым провайдером). Код работает как идентификатор единицы, метка и ввод-алиас. Базовая валюта-базис фиксирована провайдером: `USD` (настроек выбора базовой валюты в приложении нет).
 
 Цифры дробной части (ISO 4217, только отображение — значения никогда не скругляются): 0 цифр — `BIF, CLP, DJF, GNF, ISK, JPY, KMF, KRW, PYG, RWF, UGX, VND, VUV, XAF, XOF, XPF`; 3 цифры — `BHD, IQD, JOD, KWD, LYD, OMR, TND`; 4 цифры — `CLF`; во всех остальных — 2.
 
 Ввод: маркеры (раздел «Естественные деньги»), ISO-аннотация `100 USD`, именованные алиасы ниже. Код вне каталога — неизвестная единица. Без символа в таблице маркеров отображение — суффикс кода (`600.00 CHF`); позиция символа и знака — настройки отображения.
 
-Курсы: живой провайдер `open.er-api.com` (бесплатный эндпоинт, без ключа), базис USD; кэш «последний хороший» — атомарный файловый снимок; при офлайне или ошибке ответа приложение продолжает работать с последним кэшем, никогда не выдумывая курсы.
+Курсы: живой провайдер `open.er-api.com` (бесплатный эндпоинт, без ключа), базис USD; таблица обновляется каждый час (интервал 3600 с); кэш «последний хороший» — атомарный файловый снимок; при офлайне или ошибке ответа приложение продолжает работать с последним кэшем, никогда не выдумывая курсы.
 
 ### Все коды
 
@@ -1120,10 +979,11 @@ distance between <end1> and <end2>
 ```
 
 Эндпоинты `distance between`: имя места (решается геокодером
-`[динамическое]`) или явные координаты (офлайн, без сети). Разделитель `and`
-— последний в строке, поэтому кавычки не нужны, но допускаются имена,
-содержащие `and` (`distance between Rock and Roll Hall and Vienna`
-расщепляется по последнему `and`). Координаты-эндпоинты: `<широта>, <долгота>`
+`[динамическое]`) или явные координаты (офлайн, без сети). Некавитированное
+имя расщепляется по последнему в строке самостоятельному ` and ` — поэтому
+для имён, содержащих `and`, кавычки поддерживаются и рекомендуются:
+`distance between "Rock and Roll Hall" and Vienna` (одиночная или
+несбалансированная кавычка — строка больше не гео-запрос). Координаты-эндпоинты: `<широта>, <долгота>`
 (точка-локаль — запятая-разделитель; при десятичной-запятой локали — точка, а
 пара разделяется точкой с запятой `;`). Валидные диапазоны: широта −90…90,
 долгота −180…180.
@@ -1151,14 +1011,20 @@ TTL); офлайн — последнее кэшированное, затем `
 | Десятичный градус | `51.5074°` | 51.5074 |
 | + кардинал | `51.5° N`, `0.1275° W` | знак по N/S/E/W (S, W — отрицательный) |
 | DMS | `156° 44′ 31.2″` | 156 + 44/60 + 31.2/3600 |
-| DMS без глифов | `156 44 31` | то же (глифы опциональны) |
 | Частичная DMS | `156° 44′` | минуты без секунд |
 | `… as DMS` | `51.25° as DMS` | → `51° 15′ 0″` |
 | `… as decimal` | `156° 44′ 31.2″ as decimal` | → 156.7419… |
 
-Ограничения: минуты и секунды 0…59 (секунды — одна десятичная); знаки глифов
-`° ′ ″` (U+00B0 U+2032 U+2033) или ASCII `'`/`''`; порядок глифов фиксирован
-(первый — только `°`, второй — только `′`, третий — только `″`); компоненты 2–3.
+Ограничения: минуты и секунды 0…59; в вводе у секунд — до двух десятичных
+цифр (`31.25″` принимается), в отображении — одна (`31.2″`). Глифы — только
+`° ′ ″` (U+00B0, U+2032, U+2033); ASCII `'`/`''` глифами НЕ являются. Порядок
+глифов фиксирован (первый — только `°`, второй — только `′`, третий — только
+`″`); компоненты 2–3. Цепочки цифр без глифов (`156 44 31`) DMS НЕ становятся:
+дорожка не забирает такую строку (с хвостом `as decimal` её перехватывает
+целочисленная дорожка) — слева от `as DMS`/`as decimal` допустимы десятичное
+число или запись хотя бы с одним глифом. Кардинал — только у чистого
+десятичного градуса (`51.5° N`); у DMS-записи кардинал не принимается
+(`156°44′31″ W` — ошибка).
 Отображение: `156° 44′ 31.2″` (целые секунды без `.0`, десятичная-запятая
 локаль — `31,2″`, отрицательные со знаком −).
 
@@ -1168,7 +1034,7 @@ TTL); офлайн — последнее кэшированное, затем `
 
 | Формат | Пример | Десятичный | Группировка | Разделитель аргументов функций |
 |---|---|---|---|---|
-| System | платформа | locale | locale | locale (запятая при запятой) |
+| System | платформа | locale | locale | `;`, если десятичный разделитель системы — запятая, иначе `,` |
 | North America | `1,234.56` | `.` | `,` | `,` |
 | Western Europe | `1.234,56` | `,` | `.` | `;` (`max(1,5; 2,5)`) |
 | Eastern Europe | `1 234,56` | `,` | NBSP (пробел в вводе принимается) | `;` |
@@ -1180,8 +1046,11 @@ TTL); офлайн — последнее кэшированное, затем `
 - Группировка ввода: `1,234` вне вызовов функций — число 1234 (запятая-группа);
   десятичная-запятая как десятичный разделитель — только в западно/восточно-
   европейской конфигурации.
-- Запятая/точка **внутри вызовов функций** — разделитель аргументов; при
-  десятичной-запятой локали используйте `;` (`max(1,5; 2,5)`).
+- **Внутри вызовов функций**: в точечных форматах (North America, System с
+  точкой) разделитель аргументов — `,` (`max(1.5, 2.5)`); в запятых
+  (Western/Eastern Europe, System с запятой) — `;` (`max(1,5; 2,5)`);
+  десятичная запятая как десятичный разделитель аргумента — только в запятых
+  форматах.
 - Компактное отображение (`1.5M`) — отдельная настройка, не зависит от формата.
 - **Язык интерфейса НЕ управляет числовой локалью.**
 
@@ -1191,7 +1060,7 @@ TTL); офлайн — последнее кэшированное, затем `
 
 | Режим | Смысл |
 |---|---|
-| Automatic | Авто: обычный/научный/инженерный по масштабу |
+| Automatic | Авто: обычный/компактный вид + научный запас при модуле ≥ 1e16 (в инженерный автоматически не переключается) |
 | Decimal | Обычный десятичный с указанными знаками |
 | Scientific | Научный (`1.5e6`) |
 | Engineering | Инженерный (`1.5e6` со степенями кратно 3) |
@@ -1221,30 +1090,39 @@ TTL); офлайн — последнее кэшированное, затем `
 - один скалер: `%` (×100) или `‰` (×1000);
 - один валютный плейсхолдер `¤` (его позиция ставит символ);
 - опциональная экспонента: `E0`, `E+0`, `E00`, `E+00`, `E-00` (1–2
-  экспонентных плейсхолдеров).
+  экспонентных плейсхолдера) — только после цифр мантиссы: сам по себе
+  скелет `E00` (без цифр перед `E`) невалиден.
 
 Пределы: 96 Unicode-скаларов на паттерн, 12 дробных плейсхолдеров, вывод
 не более 256 символов. Паттерн, не прошедший валидацию, сохраняется/редактируется,
-но **никогда не доходит до рендера** (fallback к предыдущему валидному).
+но **никогда не доходит до рендера**: отображение падает в режим `Automatic`.
 
 Примеры:
 
 ```text
-#,##0.00        → 1,234,565.79 (или 1.234.565,79 в запятой локали)
-0.00 "€"        → 12.34 €
-"$" #,##0.00    → $1,234.57
-0.00%;;0        → 12.34% (положительные;отрицательные;ноль)
-# ##0           → группировка по 2
-#,##,##0        → индийский стиль
+#,##0.00        → 1,234,567.89   (значение 1234567.8912)
+0.00' €'        → 45.68 €        (значение 45.678; литерал только в апострофах)
+'≈ '0.###       → ≈ 45.678
+#,##0.00' €'    → 1,234,567.89 € (группировка + литерал)
+#,##,##0        → 12,34,568      (индийский стиль)
+#E0             → 1e6            (научная секция; цифра перед E обязательна)
+0.00%;;0        → 12.34%         (положительные;отрицательные;ноль; значение 0.1234)
 ```
 
-Невалидные (fallback): `1.2.3` (две точки), `#E0E0` (две экспоненты),
-`0.0%‰` (два скалера), `1,000,0` (некорректная группировка).
+Невалидные (никогда не рендерятся, откат в Automatic): `1.2.3` (две точки),
+`#E0E0` (две экспоненты), `0.0%‰` (два скалера), `E00` (нет цифры перед `E`),
+`E±00` (то же), `1,000,0` (некорректная группировка), `# ##0` (пробел не
+входит в скелет), `0.00 "€"` (двойные кавычки — только апострофы), `0.### 'EUR'`
+(пробел перед литералом).
 
 ## Answer Tokens
 
-Создание: клик по ответу → контекстное меню → «Вставить токен» (или
-`⌘`-команда). Токен — маркер U+FFFC со стабильным UUID-ссылочным идентификатором;
+Создание: двойной клик по строке ответа. Токенизируются только ответы-числа,
+именованные значения (скаляры) и суммы; ответы-логические, даты, гео- и DMS —
+никогда. Пункта «Вставить токен» в контекстном меню нет, как и `⌘`-команды.
+Отдельно: приложение само вставляет предыдущий ответ (`ans`), когда новая
+строка начинается с оператора. Токен — маркер U+FFFC со стабильным
+UUID-ссылочным идентификатором;
 он ссылается на **строку-источник** (stable line ID + 1-based label), а не на
 текст ответа, поэтому токен живёт при переименовании/правке строки.
 
@@ -1263,9 +1141,9 @@ TTL); офлайн — последнее кэшированное, затем `
   обновляются.
 - Сломанная ссылка: если строка-источник удалена, токен отображает `Line N`
   (последняя известная позиция) как недоступный.
-- Поддерживаемые виды результата: скаляр (число/процент/множитель/дробь),
-  количество с единицей, валюта, логический, точное целое (радианная
-  презентация сохраняется), дата — как у источника.
+- Поддерживаемые виды результата: число (скаляр/процент/множитель/дробь),
+  именованные значения, точное целое (представление в radix сохраняется),
+  сумма (токен несёт ISO-код). Логические, даты, гео и DMS не токенизируются.
 - Конвертация единицы: `<token> to <unit>` — токен наследует количество и
   конвертируется как обычное количество.
 - Копирование: токен копируется как ответ (число/единица), не как маркер.
@@ -1291,15 +1169,23 @@ TTL); офлайн — последнее кэшированное, затем `
 - Область: **app-global** (настройки приложения), НЕ сохраняется в `.nlx`.
 - В листе константы неизменяемы (редактируются только в Settings).
 
-Проверенные примеры (R85):
+Проверенные примеры (константы `PI`, `Tax`, `Rent` объявлены в Settings →
+Constants):
 
 ```text
-rate = 8.5
-rate * 100          → 850
-x = 0x1F
-x & 1               → 1
-x as hex            → 0x20
+PI × 2              → 6.283185307179586
+Tax × 100           → 8           (Tax = 8% = 0.08; в умножении процентный
+                                   скаляр возвращается в обычное число)
+Rent × 12           → 14400 USD   (Rent = 1200 USD)
 ```
+
+Непринятые значения (строка-константа остаётся неактивной): с единицами
+(`9.81 m/s²`), логические, даты, присваивания, токен-маркеры, смешанные
+валюты, неизвестные имена, циклы.
+
+Именованные значения листа (не константы) — отдельный механизм, см. «Модель
+листа»; пример целочисленного именованного значения: `x = 0x1F`, `x & 1` → 1,
+`x as hex` → `0x1F` (`x` не изменяется строкой `x + 1`).
 
 ## Сводный алфавитный индекс ключевых слов
 
@@ -1314,7 +1200,6 @@ x as hex            → 0x20
 | `as` | проценты/конвертация/база/DMS | контекстное |
 | `base` | базы (`base 2`) | контекстное |
 | `binary` | базы | конечное |
-| `both` | — | — |
 | `celsius/fahrenheit/kelvin/rankine` | температуры | конечное (единицы) |
 | `day(s) week(s) month(s) year(s)` | даты/время | конечное |
 | `decimal/base10` | базы | конечное |
@@ -1325,16 +1210,18 @@ x as hex            → 0x20
 | `fraction` | проценты | контекстное |
 | `hex/hexadecimal/base16` | базы | конечное |
 | `if` | условие/проценты | контекстное |
-| `in` | конвертация/rate/погода/география | контекстное |
+| `in` | конвертация/rate/погода (`weather in`) | контекстное |
 | `int/bin/oct/hex` | функции баз | функция |
 | `is` | проценты | контекстное |
-| `lon/gps` | — | — |
 | `location` | география | контекстное |
 | `longitude` | география | контекстное |
 | `of` | проценты/плотность | контекстное |
 | `off/on` | проценты | контекстное |
 | `or` | логика/биты | контекстное |
-| `per` | ставки | контекстное |
+| `at` | PPI/цена (`… at 96 ppi`, `… at €3 per kg`) | контекстное |
+| `multiple`/`multiplier` | ключевые слова процентных фраз | контекстное |
+| `octal` | базы | конечное |
+| `per` | ставки/цена | контекстное |
 | `percent/percentage` | проценты | контекстное |
 | `radians` | функция | функция |
 | `then` | условие | контекстное |
@@ -1343,9 +1230,8 @@ x as hex            → 0x20
 | `tomorrow/today/yesterday` | даты | конечное |
 | `weather` | погода | конечное |
 | `what` | проценты | контекстное |
-| `x` | множитель/биты | контекстное |
+| `x` | множитель (постфикс `1.5x`), фразы `%`/множителей | контекстное |
 | `xor` | биты | контекстное |
-| `per`/`in`/`at`/`of` в фразах | ставки/плотность | контекстное |
 
 Свободный ввод (не перечисляется как «все возможные слова»): `<place>`
 (погода/география, до 100 симв.), имена именованных значений/констант/кастомных
@@ -1363,5 +1249,5 @@ x as hex            → 0x20
   никогда не значение.
 - **Нет AI-инференса/облака/синхронизации**: все вычисления локальные; сеть —
   только курсы, погода, геокодинг (отдельно и явно).
-- Нет мультиплатформенных/мобильных/Windows/Intel-специфичных форм; приложение
-  macOS (arm64).
+- Нет платформенно-специфичных форм: приложение — macOS (Apple Silicon,
+  arm64); синтаксис не зависит от ОС.
