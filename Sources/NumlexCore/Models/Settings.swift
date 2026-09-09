@@ -163,7 +163,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// intentionally NOT bumped — decoding is purely additive.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        decimalPlaces = try c.decode(Int.self, forKey: .decimalPlaces)
+        // r88: the global rounding control is the 2...10 ticked slider —
+        // clamp on decode so the slider thumb, the `N dp` label and the
+        // stored value can never disagree for out-of-range legacy values
+        // (legacy UI only ever wrote 2...10).
+        decimalPlaces = min(max(try c.decode(Int.self, forKey: .decimalPlaces), 2), 10)
         fontSizeKey = try c.decode(String.self, forKey: .fontSizeKey)
         language = try c.decode(AppLanguage.self, forKey: .language)
         sheetName = try c.decode(String.self, forKey: .sheetName)

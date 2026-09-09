@@ -31,6 +31,19 @@ private func r54AppSource(_ rel: String) -> String? {
     return try? String(contentsOf: url, encoding: .utf8)
 }
 
+
+/// Counts non-overlapping occurrences (r88: reused by the menu tests).
+func r54Count(_ needle: String, in haystack: String) -> Int {
+    guard !needle.isEmpty else { return 0 }
+    var n = 0
+    var rest = haystack
+    while let r = rest.range(of: needle) {
+        n += 1
+        rest = String(rest[r.upperBound...])
+    }
+    return n
+}
+
 public let r54Cases: [EngineCase] = [
     // MARK: 1. Initial value
 
@@ -163,8 +176,15 @@ public let r54Cases: [EngineCase] = [
         else { throw CaseFailure(message: "AnswerSliderMenuItem.swift not found") }
         for (name, src) in [("AnswerColumnView", view), ("AnswerSliderMenuItem", slider)] {
             try expect(!src.contains("Speak Answer"), "Speak Answer absent from \(name)")
-            try expect(!src.contains("Reset"), "Reset control absent from \(name)")
         }
+        // r88: the r54 "no reset control" contract survives in its true
+        // form — there is still NO AppKit reset button; the only reset
+        // UI is the localized "Reset Formatting to Defaults" MENU item,
+        // shown only while a row carries an override.
+        try expect(!view.contains("NSButton"),
+                   "no AppKit reset button in the answer menu")
+        try expectEqual(r54Count("L10n.t(\"resetFormatting\"", in: view), 1,
+                         "exactly one (conditional) reset menu item")
         try expect(!slider.contains("NSButton"),
                    "no format buttons (, / M / $) in the slider item")
         // The old Rounding submenu is no longer built anywhere in the
@@ -188,9 +208,16 @@ public let r54Cases: [EngineCase] = [
                    "caption integrated")
         try expect(view.contains("AnswerDisplay.sliderValue"),
                    "initial value comes from the pure helper")
-        try expect(slider.contains("numberOfTickMarks"),
-                   "native discrete slider with tick marks")
-        try expect(slider.contains("allowsTickMarkValuesOnly"),
-                   "integer stepping only")
+        // r88: the slider CONFIGURATION moved to the shared TickSlider
+        // primitive (DiscreteTickSlider.swift); the menu item builds its
+        // NSSlider through it.
+        guard let tick = r54AppSource("Sources/NumlexApp/DiscreteTickSlider.swift")
+        else { throw CaseFailure(message: "DiscreteTickSlider.swift not found") }
+        try expect(tick.contains("numberOfTickMarks"),
+                   "shared primitive: native discrete slider with tick marks")
+        try expect(tick.contains("allowsTickMarkValuesOnly"),
+                   "shared primitive: integer stepping only")
+        try expect(slider.contains("TickSlider.make"),
+                   "per-answer slider built from the shared primitive")
     },
 ]

@@ -224,18 +224,19 @@ struct AnswerColumnView: View {
             menu.addItem(AnswerSliderMenuItem.caption(language: language))
             menu.addItem(.separator())
         }
-        // r87: the native Number Format submenu. The checked entry is
+        // r88: the ONE Number Format construction — a single
+        // delimiter block builds the submenu once (the checked entry is
         // the row's OWN state: an explicit override checks that mode,
-        // otherwise Default is checked (the row follows the global).
-        // Custom is enabled only while the global pattern validates;
-        // disabled rows carry a help label instead of a blank gap.
+        // otherwise Default; Custom stays enabled only while the global
+        // pattern validates and disabled rows carry a help label). The
+        // Reset row appears ONLY while this row currently carries a
+        // precision and/or notation override — no useless enabled
+        // Reset on a clean row.
+        let lineID = lineIDs.indices.contains(idx) ? lineIDs[idx] : nil
+        let overrideHere = lineID.flatMap { notationOverrides[$0] }
         if let opts = AnswerDisplay.notationOptions(for: line.result) {
-            let lineID = lineIDs.indices.contains(idx) ? lineIDs[idx] : nil
-            let overrideHere = lineID.flatMap { notationOverrides[$0] }
             let customValid = NumberPattern.tryValidated(presentation.customPattern) != nil
-            let check: (AnswerNotationOverride?) -> Bool = { mode in
-                overrideHere == mode
-            }
+            let check: (AnswerNotationOverride?) -> Bool = { mode in overrideHere == mode }
             let fmt = NSMenuItem(title: L10n.t("numberFormat", language: language),
                                  action: nil, keyEquivalent: "")
             let sub = NSMenu()
@@ -261,51 +262,13 @@ struct AnswerColumnView: View {
                         : L10n.t("customPatternInvalid", language: language))
             fmt.submenu = sub
             menu.addItem(fmt)
-            menu.addItem(item(L10n.t("resetFormatting", language: language)) {
-                onRestoreFormatting(idx)
-            })
-            menu.addItem(.separator())
-        }
-        // r87: the native Number Format submenu. The checked entry is
-        // the row's OWN state: an explicit override checks that mode,
-        // otherwise Default is checked (the row follows the global).
-        // Custom is enabled only while the global pattern validates;
-        // the disabled row carries a help label (no blank gaps).
-        if let opts = AnswerDisplay.notationOptions(for: line.result) {
-            let lineID = lineIDs.indices.contains(idx) ? lineIDs[idx] : nil
-            let overrideHere = lineID.flatMap { notationOverrides[$0] }
-            let customValid = NumberPattern.tryValidated(presentation.customPattern) != nil
-            let check: (AnswerNotationOverride?) -> Bool = { mode in
-                overrideHere == mode
-            }
-            let fmt = NSMenuItem(title: L10n.t("numberFormat", language: language),
-                                 action: nil, keyEquivalent: "")
-            let sub = NSMenu()
-            sub.autoenablesItems = false
-            func subItem(_ title: String, mode: AnswerNotationOverride?,
-                         enabled: Bool = true, help: String? = nil) {
-                sub.addItem(item(title, checked: check(mode),
-                                 enabled: enabled, help: help) {
-                    onSetNotation(idx, mode)
+            // r88: conditional Reset — only while the row actually
+            // carries a precision and/or notation override.
+            if override(for: idx) != nil || overrideHere != nil {
+                menu.addItem(item(L10n.t("resetFormatting", language: language)) {
+                    onRestoreFormatting(idx)
                 })
             }
-            subItem(L10n.t("formatDefault", language: language), mode: nil)
-            subItem(L10n.t("formatAutomatic", language: language), mode: .automatic)
-            subItem(L10n.t("formatDecimal", language: language), mode: .decimal)
-            subItem(L10n.t("formatScientific", language: language), mode: .scientific)
-            subItem(L10n.t("formatEngineering", language: language), mode: .engineering)
-            if opts.allowsFraction {
-                subItem(L10n.t("formatFraction", language: language), mode: .fraction)
-            }
-            subItem(L10n.t("formatCustom", language: language), mode: .custom,
-                    enabled: customValid,
-                    help: customValid ? nil
-                        : L10n.t("customPatternInvalid", language: language))
-            fmt.submenu = sub
-            menu.addItem(fmt)
-            menu.addItem(item(L10n.t("resetFormatting", language: language)) {
-                onRestoreFormatting(idx)
-            })
             menu.addItem(.separator())
         }
         menu.addItem(item(L10n.t("deleteLine", language: language)) {

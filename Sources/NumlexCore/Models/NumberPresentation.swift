@@ -93,6 +93,19 @@ public enum NegativeStyle: String, CaseIterable, Codable, Equatable, Sendable {
     }
 }
 
+/// r88: localization keys for the picker rows. The table key for
+/// `.trailingMinus` is `negative.trailingMinus` (the raw value is part of
+/// the key, so no raw enum identifier can ever surface as a label).
+extension NegativeStyle {
+    public var l10nKey: String { "negative.\(rawValue)" }
+}
+
+/// r88: same convention for currency placement rows (`currency.before`,
+/// `currency.beforeSpaced`, `currency.after`, `currency.afterSpaced`).
+extension CurrencyPlacement {
+    public var l10nKey: String { "currency.\(rawValue)" }
+}
+
 /// r87: currency symbol placement around the numeric part.
 /// `.before` (default) is the pre-r87 byte-for-byte shape: known
 /// symbols prefix with NO space (`$1,234.50`); unknown ISO codes fall

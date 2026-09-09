@@ -119,40 +119,49 @@ struct NumlexApp: App {
             // line, the trailing empty line included). The action posts
             // to ContentView, which revalidates the sheet + line IDs
             // and persists the highlight through the model.
-            CommandMenu("Format") {
-                Menu("Highlight") {
-                    Button("None") {
+            CommandMenu(NumlexCore.L10n.t("settings.format",
+                                          language: model.settings.language)) {
+                Menu(NumlexCore.L10n.t("highlight",
+                                        language: model.settings.language)) {
+                    Button(NumlexCore.L10n.t("highlightNone",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: nil))
                     }
                     Divider()
-                    Button("Yellow") {
+                    Button(NumlexCore.L10n.t("highlightYellow",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: .yellow))
                     }
-                    Button("Orange") {
+                    Button(NumlexCore.L10n.t("highlightOrange",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: .orange))
                     }
-                    Button("Green") {
+                    Button(NumlexCore.L10n.t("highlightGreen",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: .green))
                     }
-                    Button("Blue") {
+                    Button(NumlexCore.L10n.t("highlightBlue",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: .blue))
                     }
-                    Button("Purple") {
+                    Button(NumlexCore.L10n.t("highlightPurple",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: .purple))
                     }
-                    Button("Pink") {
+                    Button(NumlexCore.L10n.t("highlightPink",
+                                              language: model.settings.language)) {
                         NotificationCenter.default.post(
                             name: .applyHighlight,
                             object: HighlightCommandPayload(color: .pink))

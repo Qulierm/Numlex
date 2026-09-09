@@ -203,6 +203,41 @@ private struct SettingsSwitch: View {
     }
 }
 
+/// r88: the ONE shared empty state used by the Constants and Units
+/// pages when there are no rows: one SF Symbol, a localized title +
+/// caption and the prominent native Add action. Vertically compact
+/// and balanced — no table shell, no headers, no detached footer.
+private struct SettingsEmptyState: View {
+    let systemImage: String
+    let title: String
+    let caption: String
+    let actionTitle: String
+    let onAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+            Text(caption)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 360)
+            Button(action: onAction) {
+                Label(actionTitle, systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - General tab (r76: interface + notebook, one clear home each)
 
 private struct GeneralSettingsTab: View {
@@ -448,130 +483,161 @@ private struct ConstantsSettingsTab: View {
         }
     }
 
-    // MARK: Constants section (the pre-r84 table, unchanged)
+    // MARK: Constants section (r88: empty state + table)
 
+    /// r88: when there are NO custom constants the page shows ONE
+    /// restrained native empty state — an SF Symbol, a localized title
+    /// and caption, and the prominent Add Constant action. No column
+    /// headers, no divider, no blank table shell, no detached footer.
+    /// The first Add creates a real row (and focuses it) and switches
+    /// the page to the populated layout; deleting the last row returns
+    /// to the empty state.
     @ViewBuilder
     private var constantsContent: some View {
-        Group {
-            Text(L10n.t("constants.intro", language: language))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // The single surface: column captions + the scrollable rows.
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    Text(L10n.t("constants.name", language: language))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 132, alignment: .leading)
-                    Text(L10n.t("constants.value", language: language))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-
-                Divider()
-
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach($model.settings.customConstants) { $row in
-                            constantRow($row)
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
-            )
-
-            // Bottom toolbar: Add Constant + count/limit — flush with
-            // the page insets (the r75 footer no longer drifts +4 pt).
-            HStack(spacing: 10) {
-                Button {
+        if model.settings.customConstants.isEmpty {
+            SettingsEmptyState(
+                systemImage: "function",
+                title: L10n.t("constants.emptyTitle", language: language),
+                caption: L10n.t("constants.emptyCap", language: language),
+                actionTitle: L10n.t("constants.add", language: language),
+                onAction: {
                     if let id = model.addConstant() { focusedName = id }
-                } label: {
-                    Label(L10n.t("constants.add", language: language),
-                          systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.settings.customConstants.count >= ConstantResolver.maxRows)
-                Spacer()
-                Text("\(model.settings.customConstants.count) / \(ConstantResolver.maxRows)")
+                })
+        } else {
+            Group {
+                Text(L10n.t("constants.intro", language: language))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // The single surface: column captions + the scrollable rows.
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Text(L10n.t("constants.name", language: language))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 132, alignment: .leading)
+                        Text(L10n.t("constants.value", language: language))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                    Divider()
+
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach($model.settings.customConstants) { $row in
+                                constantRow($row)
+                            }
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                )
+
+                // Bottom toolbar: Add Constant + count/limit — flush with
+                // the page insets (the r75 footer no longer drifts +4 pt).
+                HStack(spacing: 10) {
+                    Button {
+                        if let id = model.addConstant() { focusedName = id }
+                    } label: {
+                        Label(L10n.t("constants.add", language: language),
+                              systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.settings.customConstants.count >= ConstantResolver.maxRows)
+                    Spacer()
+                    Text("\(model.settings.customConstants.count) / \(ConstantResolver.maxRows)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    // MARK: Units section (r84)
+    // MARK: Units section (r84 table, r88 empty state)
 
-    /// The custom-units table: the SAME restrained surface as the
-    /// constants table — Name + Definition + per-row status + trash,
-    /// with the Add Unit button and the 100 count in the footer.
+    /// r88: the SAME restrained empty state as Constants — one SF
+    /// Symbol, a localized title + caption, the prominent Add Unit
+    /// action. No header/divider/blank table shell when there are no
+    /// rows; the first Add creates a real focused row and the page
+    /// switches to the populated layout.
     @ViewBuilder
     private var unitsContent: some View {
-        Group {
-            Text(L10n.t("units.intro", language: language))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    Text(L10n.t("units.name", language: language))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 132, alignment: .leading)
-                    Text(L10n.t("units.definition", language: language))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-
-                Divider()
-
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach($model.settings.customUnits) { $row in
-                            unitRow($row)
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
-            )
-
-            HStack(spacing: 10) {
-                Button {
+        if model.settings.customUnits.isEmpty {
+            SettingsEmptyState(
+                systemImage: "ruler",
+                title: L10n.t("units.emptyTitle", language: language),
+                caption: L10n.t("units.emptyCap", language: language),
+                actionTitle: L10n.t("units.add", language: language),
+                onAction: {
                     if let id = model.addUnitRow() { focusedName = id }
-                } label: {
-                    Label(L10n.t("units.add", language: language),
-                          systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.settings.customUnits.count >= UnitResolver.maxRows)
-                Spacer()
-                Text("\(model.settings.customUnits.count) / \(UnitResolver.maxRows)")
+                })
+        } else {
+            Group {
+                Text(L10n.t("units.intro", language: language))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Text(L10n.t("units.name", language: language))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 132, alignment: .leading)
+                        Text(L10n.t("units.definition", language: language))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                    Divider()
+
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach($model.settings.customUnits) { $row in
+                                unitRow($row)
+                            }
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                )
+
+                HStack(spacing: 10) {
+                    Button {
+                        if let id = model.addUnitRow() { focusedName = id }
+                    } label: {
+                        Label(L10n.t("units.add", language: language),
+                              systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.settings.customUnits.count >= UnitResolver.maxRows)
+                    Spacer()
+                    Text("\(model.settings.customUnits.count) / \(UnitResolver.maxRows)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -992,23 +1058,31 @@ private struct NumbersSettingsTab: View {
                     title: L10n.t("rounding", language: language),
                     detail: L10n.t("roundingCap", language: language)
                 ) {
-                    // r75/r76: compact native MENU picker — the old
-                    // 9-segment control clipped its last segment at
-                    // narrow widths. The menu keeps the SAME 2...10
-                    // range and binding and shows every choice as a
-                    // full unclipped list. This is rounding's ONE home
-                    // (it moved out of General in r76).
-                    Picker("", selection: Binding(
-                        get: { model.settings.decimalPlaces },
-                        set: { model.settings.decimalPlaces = $0; model.persist() }
-                    )) {
-                        ForEach(2...10, id: \.self) { v in
-                            Text("\(v)").tag(v)
+                    // r88: global rounding is a native AppKit-backed
+                    // ticked slider (the SAME shared primitive as the
+                    // per-answer menu slider): blue native track/thumb,
+                    // 9 ticks below the track for the 2...10 contract
+                    // range, a compact live `N dp` label. The callback
+                    // fires only when the snapped integer changes, so
+                    // persisting happens exactly once per stop. This is
+                    // rounding's ONE home (moved out of General in r76).
+                    DiscreteTickSlider(
+                        minValue: 2,
+                        maxValue: 10,
+                        value: model.settings.decimalPlaces,
+                        liveLabel: AnswerDisplay.sliderLabel(
+                            model.settings.decimalPlaces),
+                        a11yLabel: L10n.t("decimalPlaces", language: language),
+                        a11yValueFor: { v in
+                            AnswerDisplay.sliderAccessibilityValue(
+                                v, language: language)
+                        },
+                        onChange: { v in
+                            model.settings.decimalPlaces = v
+                            model.persist()
                         }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .fixedSize()
+                    )
+                    .frame(width: 236, height: 32)
                 }
                 SettingsRow(
                     title: L10n.t("numbers.grouping", language: language),
@@ -1071,7 +1145,7 @@ private struct NumbersSettingsTab: View {
                     Picker("",
                            selection: presentationBinding(\.negativeStyle)) {
                         ForEach(NegativeStyle.allCases, id: \.self) { n in
-                            Text(L10n.t("negative.\(n.rawValue)",
+                            Text(L10n.t(n.l10nKey,
                                         language: language)).tag(n)
                         }
                     }
@@ -1086,7 +1160,7 @@ private struct NumbersSettingsTab: View {
                     Picker("",
                            selection: presentationBinding(\.currencyPlacement)) {
                         ForEach(CurrencyPlacement.allCases, id: \.self) { cp in
-                            Text(L10n.t("currency.\(cp.rawValue)",
+                            Text(L10n.t(cp.l10nKey,
                                         language: language)).tag(cp)
                         }
                     }

@@ -77,17 +77,12 @@ private final class SliderView: NSView {
         self.lastValue = initial
 
         // The target is wired AFTER super.init (a self target cannot
-        // exist before the view is initialized).
-        let s = NSSlider(value: Double(initial),
-                         minValue: Double(AnswerDisplay.minPlaces),
-                         maxValue: Double(AnswerDisplay.maxPlaces),
-                         target: nil,
-                         action: nil)
-        s.numberOfTickMarks = AnswerDisplay.maxPlaces + 1
-        s.allowsTickMarkValuesOnly = true
-        s.tickMarkPosition = .below
-        s.controlSize = .small
-        s.isContinuous = true
+        // exist before the view is initialized). r88: the slider comes
+        // from the ONE shared TickSlider primitive (also used by the
+        // Numbers-tab global rounding slider).
+        let s = TickSlider.make(min: AnswerDisplay.minPlaces,
+                                max: AnswerDisplay.maxPlaces,
+                                value: Double(initial))
         s.setAccessibilityLabel(L10n.t("decimalPlaces", language: language))
         s.setAccessibilityValue(
             AnswerDisplay.sliderAccessibilityValue(initial, language: language))
