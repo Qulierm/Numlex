@@ -696,13 +696,29 @@ final class NotebookEditorCoordinator: NSObject {
         }
         self.onFocusConsumed = onFocusConsumed
         self.onTokenHoverChanged = onTokenHoverChanged
-        var appearanceChanged = false
-        if fontSize != self.fontSize { self.fontSize = fontSize; appearanceChanged = true }
-        if lineHeight != self.lineHeight { self.lineHeight = lineHeight; appearanceChanged = true }
-        if lineNumbers != self.lineNumbers { self.lineNumbers = lineNumbers; appearanceChanged = true }
-        if rates != self.rates { self.rates = rates; appearanceChanged = true }
-        if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; appearanceChanged = true }
-        if styling != self.styling { self.styling = styling; appearanceChanged = true }
+        // r89: split the update into a GEOMETRY pass (font, line
+        // height, gutter, rates — anything that moves glyphs or line
+        // metrics) and a COLOR-ONLY pass (syntax role colors, answer
+        // column styling — in-place recolor, no reflow, no metrics
+        // recalculation). A layout pass subsumes the color pass, so the
+        // two never both run for one update.
+        var needsRelayout = false
+        var recolorOnly = false
+        if fontSize != self.fontSize { self.fontSize = fontSize; needsRelayout = true }
+        if lineHeight != self.lineHeight { self.lineHeight = lineHeight; needsRelayout = true }
+        // The gutter state is committed BEFORE the typography below
+        // builds paragraph styles, so the indent of this same update
+        // already reflects the new gutter state (no stale-indent pass).
+        if lineNumbers != self.lineNumbers { self.lineNumbers = lineNumbers; needsRelayout = true }
+        if rates != self.rates { self.rates = rates; needsRelayout = true }
+        if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; needsRelayout = true }
+        if styling != self.styling {
+            // Only the font DESIGN moves glyph metrics; role colors and
+            // the answer-column fields are presentation-only.
+            let fontDesignChanged = self.styling.fontDesign != styling.fontDesign
+            self.styling = styling
+            if fontDesignChanged { needsRelayout = true } else { recolorOnly = true }
+        }
         // r33: a settings edit changes the constants under an UNCHANGED
         // document: the re-highlight must run here (nothing else re-runs
         // the pipeline), without touching content, selection or caret.
@@ -715,13 +731,20 @@ final class NotebookEditorCoordinator: NSObject {
         let appAppearanceChanged = appAppearance != self.appAppearance
         if appAppearanceChanged { self.appAppearance = appAppearance }
         textView.numberContext = numberContext
-        if appearanceChanged {
+        if needsRelayout {
             textView.lineNumbers = lineNumbers
             applyTypography()
-            // Font design/size and palette changes re-lay-out the
+            // Font design/size and gutter changes re-lay-out the
             // document so the answer column's metrics (baselines,
             // row heights, wrapping) follow the new font immediately.
             refreshLayoutAndMetrics()
+        }
+        if recolorOnly {
+            // r89: syntax-color-only change — restyle in place
+            // (highlight() never replaces the string; the marked-text
+            // guard inside it defers until the composition commits)
+            // and invalidate display only. No metrics, no reflow.
+            applyTypography()
         }
         if appAppearanceChanged {
             refreshAppearance()
@@ -881,7 +904,10 @@ final class NotebookEditorCoordinator: NSObject {
         ]
     }
 
-    private var textIndent: CGFloat { Design.gutterWidth + Design.textLeading }
+    /// r89: the text's head indent comes from the ONE shared geometry
+    /// source — gutter width only while line numbers are visible, so a
+    /// hidden gutter is reclaimed by the text (18pt, not 54pt).
+    private var textIndent: CGFloat { Design.textIndent(lineNumbers: lineNumbers) }
 
     private func paragraphStyle() -> NSMutableParagraphStyle {
         let para = NSMutableParagraphStyle()

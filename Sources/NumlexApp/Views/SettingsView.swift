@@ -1244,9 +1244,24 @@ private struct StylingSettingsTab: View {
 
     private var styling: StylingPreferences { model.settings.styling }
 
-    private func setRole(_ keyPath: WritableKeyPath<StylingPreferences, RoleColorChoice>,
-                         to value: RoleColorChoice) {
-        model.settings.styling[keyPath: keyPath] = value
+    /// r89: presets clear the role's custom override — the preset
+    /// becomes effective again.
+    private func choosePreset(_ choice: RoleColorChoice, for role: SyntaxColorRole) {
+        model.settings.styling.choosePreset(choice, for: role)
+        model.persist()
+    }
+
+    /// r89: the per-role Default action: exact factory preset + no
+    /// custom override.
+    private func resetRole(_ role: SyntaxColorRole) {
+        model.settings.styling.resetRoleColors(role)
+        model.persist()
+    }
+
+    /// r89: colors only — font design/size and the answer column
+    /// settings are preserved.
+    private func resetAllSyntaxColors() {
+        model.settings.styling.resetAllSyntaxColors()
         model.persist()
     }
 
@@ -1340,16 +1355,24 @@ private struct StylingSettingsTab: View {
                 }
             }
 
-            // 3. SYNTAX COLORS — one finite choice per role.
+            // 3. SYNTAX COLORS — one finite preset choice plus an
+            // arbitrary custom sRGB per role (r89), plus the
+            // colors-only Reset Syntax Colors action.
             SettingsGroup(title: L10n.t("styling.colors", language: language)) {
-                roleRow("styling.role.numbers", keyPath: \.numbers)
-                roleRow("styling.role.operators", keyPath: \.operators)
-                roleRow("styling.role.variables", keyPath: \.variables)
-                roleRow("styling.role.units", keyPath: \.units)
-                roleRow("styling.role.specifiers", keyPath: \.specifiers)
-                roleRow("styling.role.headings", keyPath: \.headings)
-                roleRow("styling.role.comments", keyPath: \.comments)
-                roleRow("styling.role.labels", keyPath: \.labels)
+                ForEach(SyntaxColorRole.allCases, id: \.self) { role in
+                    syntaxRoleRow(role)
+                }
+                // r89: visible Reset-Syntax-Colors action, enabled only
+                // while any role differs from the factory defaults.
+                HStack {
+                    Spacer()
+                    Button(L10n.t("styling.colors.resetAll", language: language)) {
+                        resetAllSyntaxColors()
+                    }
+                    .disabled(!styling.hasNonDefaultSyntaxColors)
+                    .help(L10n.t("styling.colors.resetAllCap", language: language))
+                    .accessibilityLabel(L10n.t("styling.colors.resetAll", language: language))
+                }
             }
 
             // 4. PREVIEW — the live, full-width, real-font-size sample.
@@ -1370,48 +1393,121 @@ private struct StylingSettingsTab: View {
             ?? String(Int(model.settings.fontSize))
     }
 
-    /// One role row: localized role label on the left, a menu with a
-    /// real sRGB swatch + localized color name on the right.
-    private func roleRow(_ labelKey: String,
-                         keyPath: WritableKeyPath<StylingPreferences, RoleColorChoice>) -> some View {
-        HStack(spacing: 12) {
-            Text(L10n.t(labelKey, language: language))
+    // MARK: - r89: syntax color rows (preset menu + ColorPicker + reset)
+
+    /// One compact role row (fits the 520pt minimum page): localized
+    /// role label, the preset menu whose label is the EFFECTIVE swatch
+    /// plus the preset name or “Custom”, the native ColorPicker well
+    /// (arbitrary opaque sRGB) and — only while non-default — the
+    /// per-role Default action.
+    private func syntaxRoleRow(_ role: SyntaxColorRole) -> some View {
+        HStack(spacing: 10) {
+            Text(L10n.t(role.labelKey, language: language))
                 .font(.system(size: 13))
-            Spacer(minLength: 12)
-            Menu {
-                ForEach(RoleColorChoice.allCases, id: \.self) { choice in
-                    Button {
-                        setRole(keyPath, to: choice)
-                    } label: {
-                        HStack(spacing: 7) {
-                            swatch(choice)
-                            Text(L10n.t("styling.color.\(choice.rawValue)",
-                                        language: language))
-                        }
-                    }
+            Spacer(minLength: 10)
+            syntaxPresetMenu(role)
+            syntaxColorWell(role)
+            if styling.isSyntaxColorNonDefault(role) {
+                Button {
+                    resetRole(role)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    swatch(styling[keyPath: keyPath])
-                    Text(L10n.t("styling.color.\(styling[keyPath: keyPath].rawValue)",
-                                language: language))
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                }
-                // r75: trailing-aligned with a cap — a long localized
-                // color name truncates instead of overflowing the page.
-                .frame(maxWidth: 180, alignment: .trailing)
+                .buttonStyle(.borderless)
+                .help(L10n.t("styling.colors.default", language: language))
+                .accessibilityLabel(L10n.t("styling.colors.resetRole", language: language))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
+        .frame(minHeight: 24)
     }
 
-    /// Deterministic sRGB swatch circle: same resolver the editor and
-    /// preview use, so the picker always shows the true rendered color.
-    private func swatch(_ choice: RoleColorChoice) -> some View {
+    /// The preset menu: the label shows the exact effective swatch and
+    /// either the preset name or “Custom” while an override is active;
+    /// choosing ANY preset clears the role's custom color.
+    private func syntaxPresetMenu(_ role: SyntaxColorRole) -> some View {
+        let isCustom = styling.customColor(for: role) != nil
+        let presetName = L10n.t(
+            "styling.color.\(styling.presetChoice(for: role).rawValue)",
+            language: language)
+        return Menu {
+            ForEach(RoleColorChoice.allCases, id: \.self) { choice in
+                Button {
+                    choosePreset(choice, for: role)
+                } label: {
+                    HStack(spacing: 7) {
+                        roleSwatch(choice)
+                        Text(L10n.t("styling.color.\(choice.rawValue)",
+                                    language: language))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                effectiveRoleSwatch(role)
+                Text(isCustom
+                     ? L10n.t("styling.colors.custom", language: language)
+                     : presetName)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    // r89: long German/French/Russian names truncate
+                    // instead of clipping the row horizontally.
+                    .frame(maxWidth: 110, alignment: .trailing)
+            }
+            .frame(maxWidth: 160, alignment: .trailing)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// The native color well: editing converts the pick to the
+    /// canonical opaque sRGB triple and marks the role Custom. The get
+    /// side returns the quantized round-trip, so re-applying the same
+    /// value is a no-op (disk writes happen only on actual RGB
+    /// changes), and the well always displays the exact effective color.
+    private func syntaxColorWell(_ role: SyntaxColorRole) -> some View {
+        ColorPicker("", selection: Binding(
+            get: {
+                if let custom = styling.customColor(for: role) {
+                    return custom.color
+                }
+                let preset = NotebookPalette.color(
+                    for: styling.presetChoice(for: role))
+                return Color(nsColor: preset)
+            },
+            set: { new in
+                guard let quantized = SyntaxSRGBColor(new) else { return }
+                // Dedupe identical quantized values: a ColorPicker drag
+                // emits continuously; only actual RGB changes write.
+                guard quantized != styling.customColor(for: role) else { return }
+                model.settings.styling.setCustomColor(quantized, for: role)
+                model.persist()
+            }
+        ), supportsOpacity: false)
+            .labelsHidden()
+            .help(L10n.t("styling.colors.pick", language: language))
+            .accessibilityLabel(L10n.t(role.labelKey, language: language))
+    }
+
+    /// Exact preset swatch circle (no custom override).
+    private func roleSwatch(_ choice: RoleColorChoice) -> some View {
         Circle()
             .fill(Color(nsColor: NotebookPalette.color(for: choice)))
+            .frame(width: 10, height: 10)
+            .overlay(
+                Circle().strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+            )
+    }
+
+    /// The role's EFFECTIVE swatch — custom sRGB when set, otherwise
+    /// the preset — the same value the editor and preview render.
+    private func effectiveRoleSwatch(_ role: SyntaxColorRole) -> some View {
+        Circle()
+            .fill(Color(nsColor: NotebookPalette.color(
+                for: styling.presetChoice(for: role),
+                custom: styling.customColor(for: role))))
             .frame(width: 10, height: 10)
             .overlay(
                 Circle().strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)

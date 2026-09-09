@@ -321,6 +321,15 @@ enum Design {
     /// so the number-to-text gap can be tuned independently.
     static let gutterNumberRight: CGFloat = 42
 
+    /// r89: THE one source of truth for the editor text's head indent
+    /// (first line and continuation lines alike). Line numbers ON
+    /// reserves the gutter (36 + 18 = 54, byte-compatible with the
+    /// legacy layout); OFF reclaims the hidden gutter (18), moving the
+    /// text exactly `gutterWidth` closer to the sidebar.
+    static func textIndent(lineNumbers: Bool) -> CGFloat {
+        (lineNumbers ? gutterWidth : 0) + textLeading
+    }
+
     // MARK: Labels (native proportional scales)
 
     static let label: Font = .system(size: 13)       // sidebar titles / controls

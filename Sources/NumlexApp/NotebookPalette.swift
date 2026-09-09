@@ -30,21 +30,41 @@ struct NotebookPalette {
 
     init(styling: StylingPreferences) {
         fontDesign = styling.fontDesign
-        numbers = Self.color(for: styling.numbers)
-        operators = Self.color(for: styling.operators)
-        variables = Self.color(for: styling.variables)
-        units = Self.color(for: styling.units)
-        specifiers = Self.color(for: styling.specifiers)
-        headings = Self.color(for: styling.headings)
-        comments = Self.color(for: styling.comments)
-        labels = Self.color(for: styling.labels)
+        // r89: every role resolves `custom ?? preset` through the ONE
+        // sRGB conversion below; the editor (TextKit) and the settings
+        // preview consume this exact instance, so no RGB value is
+        // resolved twice.
+        numbers = Self.color(for: styling.numbers,
+                             custom: styling.customColor(for: .numbers))
+        operators = Self.color(for: styling.operators,
+                               custom: styling.customColor(for: .operators))
+        variables = Self.color(for: styling.variables,
+                               custom: styling.customColor(for: .variables))
+        units = Self.color(for: styling.units,
+                           custom: styling.customColor(for: .units))
+        specifiers = Self.color(for: styling.specifiers,
+                                custom: styling.customColor(for: .specifiers))
+        headings = Self.color(for: styling.headings,
+                              custom: styling.customColor(for: .headings))
+        comments = Self.color(for: styling.comments,
+                              custom: styling.customColor(for: .comments))
+        labels = Self.color(for: styling.labels,
+                            custom: styling.customColor(for: .labels))
     }
 
-    /// The deterministic sRGB swatch for one finite color choice. The
-    /// app's established roles map to their EXACT existing palette
-    /// values; Standard Text is the fixed white base.
-    static func color(for choice: RoleColorChoice) -> NSColor {
-        switch choice {
+    /// r89: the effective swatch for one role — the custom opaque sRGB
+    /// override when present (exact in Light and Dark alike),
+    /// otherwise the role's preset. The custom branch is the ONE exact
+    /// sRGB conversion the whole app uses; the preset branch keeps the
+    /// established (possibly adaptive) Design tokens.
+    static func color(for choice: RoleColorChoice,
+                      custom: SyntaxSRGBColor? = nil) -> NSColor {
+        if let custom {
+            return NSColor(srgbRed: Double(custom.r) / 255,
+                           green: Double(custom.g) / 255,
+                           blue: Double(custom.b) / 255, alpha: 1)
+        }
+        return switch choice {
         case .standardText: Design.baseText
         case .cyan: Design.numberColor
         case .green: Design.variableColor
@@ -105,5 +125,31 @@ struct NotebookPalette {
         case .serif: .serif
         case .monospaced: .monospaced
         }
+    }
+}
+
+// MARK: - r89: canonical <-> platform color mechanics (app-side only)
+
+extension SyntaxSRGBColor {
+    /// The ONE AppKit conversion of the canonical triple: an opaque
+    /// sRGB NSColor with exact components (the settings swatches, the
+    /// preview and the editor all draw from it).
+    var nsColor: NSColor {
+        NSColor(srgbRed: Double(r) / 255, green: Double(g) / 255,
+                blue: Double(b) / 255, alpha: 1)
+    }
+
+    /// The SwiftUI side of the same conversion (ColorPickers, swatches).
+    var color: Color { Color(nsColor: nsColor) }
+
+    /// Quantizes an arbitrary platform color (any color space — the
+    /// conversion is AppKit-only) to the canonical opaque sRGB triple.
+    /// Returns `nil` when the color cannot be converted at all.
+    init?(_ color: Color) {
+        let converted = NSColor(color).usingColorSpace(.sRGB)
+        guard let converted else { return nil }
+        self.init(converted.redComponent,
+                converted.greenComponent,
+                converted.blueComponent)
     }
 }
