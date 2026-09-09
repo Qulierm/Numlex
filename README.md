@@ -61,6 +61,11 @@
 
 ## Natural calculations
 
+For the full, exhaustive reference of every construct — line forms, operators,
+functions, bases, percentages, money, units, currencies, dates, network
+queries, number presentation — see the
+[Complete syntax reference](SYNTAX_REFERENCE.md) (documents current `main`).
+
 Numlex reads ordinary notebook text — no formula syntax, no cell references. Each line
 is evaluated strictly; anything it cannot parse stays quiet instead of guessing.
 
@@ -215,7 +220,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 748 shared cases, runnable two ways:
+The engine suite covers 995 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)
