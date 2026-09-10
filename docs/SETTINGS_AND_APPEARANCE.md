@@ -182,32 +182,42 @@ colors as you change them.
 The money-marker color, answer-token color and caret color are not part of the
 role set — they stay fixed by design.
 
-## Per-answer overrides
+## Answer context menu
 
-Right-click (or Control-click) an answer for its native menu:
+Right-click (or Control-click) an **answer** for its native menu. The menu
+exists only for rows that have one: quiet lines (blank, header, skipped),
+malformed money/date/function errors and the weather-unavailable row offer no
+menu at all.
 
 | Item | Applies to | Behaviour |
 | --- | --- | --- |
-| **Copy Answer** | every answer | Copies the exact displayed value. |
-| **Round** (0…10 dp slider) | numeric answers | Re-rounds just this answer. Independent of the global 2…10 rounding; the source line is untouched. |
-| **Number Format** | numeric answers | Sets a local notation for this answer; **Default** clears the override. |
-| **Highlight** | every line | None, Yellow, Orange, Green, Blue, Purple, Pink. |
-| **Reset Formatting to Defaults** | answers with an override | Appears only when an override exists; clears it. |
-| **Delete Line** | every line | Removes the source line. |
+| **Copy Answer** | answers with a menu | Copies the exact displayed value. |
+| **Round** (0…10 dp slider) | eligible numeric answers (the slider appears only where rounding applies) | Re-rounds just this answer, independent of the global 2…10 rounding. The source line is untouched. |
+| **Number Format** | numeric answers | A local notation for this answer; **Default** clears the override. |
+| **Reset Formatting to Defaults** | answers that carry an override | Appears only when an override exists; clears it. |
+| **Delete Line** | answers with a menu | Removes the source line of that answer. |
 
 The menu is fully native and follows the system appearance in Light and Dark.
-
-Contract: a local display override changes only that answer's rendering. It
-never changes the value, a token that references the line (tokens render with
-their own/global format), a dependency, or a total.
+A local override changes only that answer's rendering: never the value, a
+token that references the line (tokens render with their own/global format), a
+dependency or a total.
 
 ## Line highlights
 
-- Six colors plus None: Yellow, Orange, Green, Blue, Purple, Pink.
-- A highlight belongs to a line's **stable identity**, not its position: it
+Line highlights are **not** part of the answer context menu. They are applied
+from:
+
+- the app menu **Format → Highlight** (None, Yellow, Orange, Green, Blue,
+  Purple, Pink), and
+- the editor's text context menu.
+
+Both target the **caret's logical line** (or every selected logical line), so
+lines without an answer — headings, comments, prose — can be highlighted too.
+
+- A highlight belongs to a line's stable identity, not its position, so it
   follows the line when lines are inserted or removed above it.
-- Highlights persist in the sheet (`.nlx`) and are sanitized on load — a stale
-  identity is dropped and, for a duplicated entry, the first valid color wins.
+- Highlights persist in the sheet (`.nlx`) and are sanitized on load: a stale
+  identity is dropped and, for a duplicate entry, the first valid color wins.
 - Highlight is decoration only: it never affects evaluation, answers or tokens.
 
 ## Layout contracts
