@@ -64,7 +64,9 @@
 For the full, exhaustive reference of every construct — line forms, operators,
 functions, bases, percentages, money, units, currencies, dates, network
 queries, number presentation — see the
-[Complete syntax reference](SYNTAX_REFERENCE.md) (documents current `main`).
+[docs/SYNTAX_REFERENCE.md](docs/SYNTAX_REFERENCE.md) canonical reference (documents
+current `main`) and the [documentation index](docs/README.md) for the live site and
+the settings/appearance guide.
 
 Numlex reads ordinary notebook text — no formula syntax, no cell references. Each line
 is evaluated strictly; anything it cannot parse stays quiet instead of guessing.
@@ -176,6 +178,8 @@ currency display, and an option to hide the sidebar button once collapsed —
 reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. Define up to 100 app-wide constants (`PI = 3.141592653589793`,
 `Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
 live through the same strict engine — function arguments included.
+See [docs/SETTINGS_AND_APPEARANCE.md](docs/SETTINGS_AND_APPEARANCE.md) for the full
+five-tab settings and appearance reference.
 
 ## Files and storage
 
