@@ -37,6 +37,19 @@ Numbers, Constants, Styling).
 | Hide sidebar button when collapsed | off | Hides the toolbar button while the sidebar is collapsed; reopen the sidebar with **⌃⌘S** (Control-Command-S) or View → Toggle Sidebar. |
 | Show total bar | on | Hides the sheet's bottom Total panel. Inline `total` lines keep evaluating and rendering — the toggle never disables the command. |
 
+### Updates
+
+| Control | Behaviour |
+| --- | --- |
+| Check for Updates… | Starts Sparkle's standard update check (the same action as the app menu item). Disabled while a check is running. |
+| Automatically check for updates | Sparkle's own persisted preference (`automaticallyChecksForUpdates` in the app's `UserDefaults`). Scheduling follows Sparkle's defaults (about every 24 hours, with its own consent prompt); Numlex never forces a launch-time check. |
+
+When the build lacks the packaged update metadata (`swift run Numlex`, or a
+missing feed/key), the group explains why in plain language and stays
+disabled instead of failing. The automatic-check flag is deliberately **not**
+part of `AppSettings` or `.nlx`. See [UPDATES.md](UPDATES.md) for the trust
+chain, the endpoints and the release workflow.
+
 The tab's footer is an understated, non-interactive attribution line for the
 currency-rate source (`open.er-api.com`); it is not a setting.
 

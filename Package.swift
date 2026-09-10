@@ -28,6 +28,13 @@ let package = Package(
         .executable(name: "Numlex", targets: ["NumlexApp"]),
         .library(name: "NumlexCore", targets: ["NumlexCore"]),
     ],
+    dependencies: [
+        // Secure in-app updates. Pinned to the exact stable release the
+        // update contract was written against (no beta).
+        // The binary target is Sparkle's official
+        // Sparkle-for-Swift-Package-Manager.xcframework artifact.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+    ],
     targets: [
         .target(
             name: "NumlexCore",
@@ -35,7 +42,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "NumlexApp",
-            dependencies: ["NumlexCore"],
+            dependencies: [
+                "NumlexCore",
+                // Only the app links Sparkle; the core stays dependency-free.
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/NumlexApp",
             // Consumed by Scripts/build-app.sh when assembling Numlex.app.
             exclude: ["Resources/Info.plist", "Resources/AppIcon.icns"]

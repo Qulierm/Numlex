@@ -13,5 +13,14 @@
     <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- Secure in-app updates (Sparkle 2.9.6). HTTPS-only feed; EdDSA
+         archive signatures are mandatory; archives are verified before
+         extraction; anonymous system profiling stays off. The public key
+         lives here (the private key stays in the maintainer's login
+         Keychain and is never committed). -->
+    <key>SUFeedURL</key><string>https://numlex.tech/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>0DwkW0VipX8QYmJ+AcX8xN/lsaweS3WXO68L9Mrc4Vo=</string>
+    <key>SUVerifyUpdateBeforeExtraction</key><true/>
+    <key>SUEnableSystemProfiling</key><false/>
 </dict>
 </plist>

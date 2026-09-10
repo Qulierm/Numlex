@@ -45,6 +45,22 @@ final class AppModel {
     var rates: Rates = Rates()
     var isRatesLoaded = false
 
+    /// The app's ONE updater integration (Sparkle 2.9.6), created on first
+    /// main-actor access. Disabled gracefully when the packaged metadata is
+    /// unavailable (for example `swift run Numlex`), so development runs
+    /// never crash. Sparkle's own automatic-check preference lives in
+    /// Sparkle's UserDefaults — intentionally NOT part of `AppSettings` or
+    /// `.nlx`.
+    @ObservationIgnored private var updaterStorage: UpdateController?
+
+    @MainActor
+    var updates: UpdateController {
+        if let updaterStorage { return updaterStorage }
+        let controller = UpdateController()
+        updaterStorage = controller
+        return controller
+    }
+
     // MARK: - r73: the ONE app-wide number context
 
     /// The OS locale identifier, re-read when the OS locale changes so

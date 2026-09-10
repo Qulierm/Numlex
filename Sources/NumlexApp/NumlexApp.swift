@@ -86,6 +86,18 @@ struct NumlexApp: App {
         // stale frame from the previous session's state restoration.
         .restorationBehavior(.disabled)
         .commands {
+            // Secure in-app updates (Sparkle 2.9.6): the standard
+            // "Check for Updates…" item sits directly after About, with
+            // Sparkle's own enabled/disabled state. The updater is disabled
+            // (item greyed out) when the packaged metadata is unavailable,
+            // e.g. `swift run Numlex`.
+            CommandGroup(after: .appInfo) {
+                Button(NumlexCore.L10n.t("updates.checkNow",
+                                         language: model.settings.language)) {
+                    model.updates.checkForUpdates()
+                }
+                .disabled(!model.updates.canCheckForUpdates)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Sheet") {
                     NotificationCenter.default.post(name: .newSheet, object: nil)

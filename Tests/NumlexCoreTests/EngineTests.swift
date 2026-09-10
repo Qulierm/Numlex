@@ -264,4 +264,9 @@ struct EngineTests {
     func r73RegionalNumbers(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: updateCases)
+    func updateCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

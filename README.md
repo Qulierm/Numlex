@@ -66,7 +66,8 @@ functions, bases, percentages, money, units, currencies, dates, network
 queries, number presentation — see the
 [docs/SYNTAX_REFERENCE.md](docs/SYNTAX_REFERENCE.md) canonical reference (documents
 current `main`) and the [documentation index](docs/README.md) for the settings and
-appearance guide. The published documentation lives at <https://numlex.tech/docs/>.
+appearance guide, and [docs/UPDATES.md](docs/UPDATES.md) for the secure in-app
+update model. The published documentation lives at <https://numlex.tech/docs/>.
 
 Numlex reads ordinary notebook text — no formula syntax, no cell references. Each line
 is evaluated strictly; anything it cannot parse stays quiet instead of guessing.
@@ -224,7 +225,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 995 shared cases, runnable two ways:
+The engine suite covers 1,014 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

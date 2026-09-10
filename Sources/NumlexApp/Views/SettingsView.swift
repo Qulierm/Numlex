@@ -324,6 +324,43 @@ private struct GeneralSettingsTab: View {
                 }
             }
 
+            // Updates (Sparkle 2.9.6). The automatic-check preference is
+            // Sparkle's OWN UserDefaults-backed value — it is never copied
+            // into AppSettings/.nlx. Unavailable packaged metadata (for
+            // example `swift run Numlex`) disables the group with a plain
+            // explanation instead of a crash.
+            SettingsGroup(title: L10n.t("updates.group", language: language)) {
+                if model.updates.isAvailable {
+                    SettingsRow(title: L10n.t("updates.checkNow", language: language)) {
+                        Button(L10n.t("updates.checkNow", language: language)) {
+                            model.updates.checkForUpdates()
+                        }
+                        .disabled(!model.updates.canCheckForUpdates)
+                    }
+                    SettingsRow(title: L10n.t("updates.auto", language: language),
+                                detail: L10n.t("updates.autoCap", language: language)) {
+                        SettingsSwitch(
+                            title: L10n.t("updates.auto", language: language),
+                            isOn: Binding(
+                                get: { model.updates.automaticallyChecksForUpdates },
+                                set: { model.updates.setAutomaticallyChecksForUpdates($0) }
+                            )
+                        )
+                    }
+                    Text(L10n.t("updates.secure", language: language))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(L10n.t("updates.unavailable", language: language))
+                        .font(.system(size: 12))
+                    Text(L10n.t(model.updates.unavailableReason?.l10nKey
+                                ?? "updates.unavailable",
+                                language: language))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             // Currency-rate attribution: ONE understated footer line —
             // the bundled fiat catalog is converted with the open
             // provider table fetched at launch (no API key).
