@@ -67,22 +67,47 @@ in-app.
 | Feed unreachable / 404 / malformed | Sparkle's standard error, no partial install |
 | Read-only install location or App Translocation | Sparkle's standard relocate/continue flow |
 
-## Code signing is part of the install check
+## Trust routes: EdDSA first, Apple identity only as a fallback
 
-Sparkle verifies that the downloaded app is signed with the **same Apple code
-signing identity** as the installed app. Consequences:
+Sparkle 2.9.6 accepts an update when **either** trust route validates, and
+Numlex deliberately depends on the first one:
 
-- An **ad-hoc signed** build (the current default for local builds) can check,
-  verify and download, but Sparkle rejects the install with a signature
-  mismatch — ad-hoc signatures have `cdhash`-based requirements that never
-  match a different build.
-- In-app installation therefore requires a **stable signing identity** for
-  every release, supplied through `NUMLEX_SIGN_IDENTITY` at build time (for
-  example the maintainer's `Apple Development` identity locally, or a
-  distribution identity for public builds). Both the installed and the new
-  build must use the same identity.
-- The EdDSA archive signature is mandatory in every case; it is what proves
-  the download itself.
+1. **EdDSA archive signature (mandatory here).** Every release archive carries
+   an Ed25519 signature in the appcast, verified against the committed
+   `SUPublicEDKey`. With `SUVerifyUpdateBeforeExtraction = YES`, Sparkle
+   verifies the archive **before extracting it**, which puts the update on its
+   pre-validated path: after extraction it requires only that the new bundle's
+   code signature is *valid* and that code signing was not removed. It does
+   **not** require the new bundle's Apple signing identity to match the
+   installed one.
+2. **Apple code-signing identity match (fallback only).** Used when the EdDSA
+   check is unavailable or fails (for example during a key rotation). This
+   route compares the new bundle's designated requirement with the installed
+   bundle's, and for ad-hoc builds that requirement is `cdhash`-based, so two
+   different ad-hoc builds can never match.
+
+Consequences for Numlex:
+
+- Numlex distributes **ad-hoc signed, non-notarized** builds, and that stays
+  the supported path: an EdDSA-signed archive with a valid ad-hoc bundle
+  installs normally.
+- `NUMLEX_SIGN_IDENTITY` remains available as an **optional** build-time
+  override for a specific signing identity. It is **not** required for
+  in-app updates.
+- A corrupt or tampered bundle is still rejected: the pre-validated path
+  requires a valid bundle signature even when EdDSA passed, and a corrupt
+  archive fails EdDSA before extraction.
+- The EdDSA key is therefore the single trust anchor for updates. Key loss is
+  the one failure that cannot be worked around silently here (see below).
+
+`Scripts/verify-sparkle-policy.sh` asserts this contract against the pinned
+Sparkle 2.9.6 sources (pinned file digests, code-shape assertions — including
+that the identity match is only used on the non-pre-validated path and that
+the acceptance predicate is `passedDSACheck || passedCodeSigning`).
+`Tests/NumlexTestKit/UpdatePolicyProof.swift` additionally proves the
+behaviour: two ad-hoc bundles cannot satisfy each other's designated
+requirement, while one Ed25519 signature verifies both the intact archive and
+rejects a corrupted copy.
 
 ## Signing key
 
@@ -98,8 +123,9 @@ signing identity** as the installed app. Consequences:
   .build/artifacts/sparkle/Sparkle/bin/generate_keys -x ~/Desktop/numlex-sparkle-private-key.txt
   ```
 
-  Losing this key is serious: without a stable Apple signing identity as a
-  fallback, future updates could no longer be verified. Keep the backup safe.
+  Losing this key is serious: an ad-hoc build has no Apple identity fallback
+  Sparkle could trust, so with the key gone no further update can be verified
+  or installed. Keep the backup safe.
 
 ## Release workflow
 

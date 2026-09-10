@@ -229,6 +229,36 @@ private let updateSourceInvariantCases: [EngineCase] = [
                             true, "Sparkle product belongs to the app target")
         }
     },
+    EngineCase("updates.install-policy-eddsa-not-identity") {
+        // The published policy: EdDSA (mandatory, pre-extraction verified) is
+        // the trust route; the Apple identity-matching route is unavailable
+        // for ad-hoc builds and is NOT required.
+        let proof = try runUpdatePolicyProof()
+        try expectEqual(proof.oldCDHashRequirement.hasPrefix("cdhash"), true,
+                        "ad-hoc designated requirement is cdhash-based")
+        try expectEqual(proof.identityRouteMatches, false,
+                        "Apple identity matching cannot match two ad-hoc builds")
+        try expectEqual(proof.intactArchiveVerifies, true,
+                        "Ed25519 verifies the intact archive")
+        try expectEqual(proof.corruptedArchiveVerifies, false,
+                        "Ed25519 rejects a corrupted archive")
+        guard let plist = updateRepoFile("Sources/NumlexApp/Resources/Info.plist") else {
+            throw CaseFailure(message: "Info.plist missing")
+        }
+        try expectEqual(plist.contains("<key>SUPublicEDKey</key><string>"), true,
+                        "the EdDSA public key is the app's trust anchor")
+        try expectEqual(plist.contains("<key>SUVerifyUpdateBeforeExtraction</key><true/>"), true,
+                        "archives are verified before extraction (prevalidated path)")
+        guard let policyScript = updateRepoFile("Scripts/verify-sparkle-policy.sh") else {
+            throw CaseFailure(message: "verify-sparkle-policy.sh missing")
+        }
+        try expectEqual(policyScript.contains("passedDSACheck || passedCodeSigning"), true,
+                        "the policy guard asserts Sparkle's acceptance predicate")
+        try expectEqual(policyScript.contains("andMatchesSignatureAtBundleURL:"), true,
+                        "the policy guard asserts where the identity match lives")
+        try expectEqual(policyScript.contains("944a7ba53e49ebb0f7cf38e2228d38def9b70738cf2f4b7c5dd63a8d826ce465"), true,
+                        "the pinned validator digest is recorded")
+    },
     EngineCase("updates.source-info-plist-keys") {
         guard let plist = updateRepoFile("Sources/NumlexApp/Resources/Info.plist") else {
             throw CaseFailure(message: "Info.plist missing")
@@ -256,5 +286,11 @@ private let updateSourceInvariantCases: [EngineCase] = [
         }
         try expectEqual(script.contains("Sparkle.framework"), true, "framework embedding")
         try expectEqual(script.contains("@loader_path/../Frameworks"), true, "rpath")
+        // The signing comment must describe the real policy: EdDSA is the
+        // trust route and ad-hoc is supported; NUMLEX_SIGN_IDENTITY stays an
+        // optional override, never a requirement.
+        try expectEqual(script.contains("stable identity is NOT required"), true,
+                        "build script documents that no stable identity is required")
+        try expectEqual(script.contains("NUMLEX_SIGN_IDENTITY"), true, "override preserved")
     },
 ]

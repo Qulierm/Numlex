@@ -144,12 +144,18 @@ if [ ! -L "$SPARKLE_FW/Versions/Current" ] || [ ! -L "$SPARKLE_FW/Sparkle" ]; th
   exit 1
 fi
 
-# Sign the bundle. Default is ad-hoc (-); set NUMLEX_SIGN_IDENTITY for a
-# specific identity (required for IN-APP INSTALLS: Sparkle matches the new
-# bundle's Apple signature against the installed one, and ad-hoc signatures
-# have cdhash-based requirements that never match a different build).
-# This is NOT Developer ID and NOT notarized.
-# Signing failure is fatal (no silent ignore).
+# Sign the bundle. Default is ad-hoc (-); NUMLEX_SIGN_IDENTITY is an OPTIONAL
+# override for a specific identity. A stable identity is NOT required for
+# in-app installs: Numlex relies on Sparkle's two independent trust routes —
+# the MANDATORY EdDSA archive signature (SUPublicEDKey, verified before
+# extraction thanks to SUVerifyUpdateBeforeExtraction) and, only as a
+# fallback, Apple code-signing identity matching. When the EdDSA signature
+# validates, the pre-validated path in Sparkle 2.9.6 requires only that the
+# new bundle has a valid signature and that signing was not removed; ad-hoc
+# signatures are explicitly supported (the identity-matching route simply
+# cannot match cdhash-based ad-hoc requirements). See docs/UPDATES.md and
+# Scripts/verify-sparkle-policy.sh. This is NOT Developer ID and NOT
+# notarized. Signing failure is fatal (no silent ignore).
 SIGN_ID="${NUMLEX_SIGN_IDENTITY:--}"
 sign_nested() {
   codesign --force --sign "$SIGN_ID" "$1"
