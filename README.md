@@ -65,8 +65,8 @@ For the full, exhaustive reference of every construct — line forms, operators,
 functions, bases, percentages, money, units, currencies, dates, network
 queries, number presentation — see the
 [docs/SYNTAX_REFERENCE.md](docs/SYNTAX_REFERENCE.md) canonical reference (documents
-current `main`) and the [documentation index](docs/README.md) for the live site and
-the settings/appearance guide.
+current `main`) and the [documentation index](docs/README.md) for the settings and
+appearance guide. The published documentation lives at <https://numlex.tech/docs/>.
 
 Numlex reads ordinary notebook text — no formula syntax, no cell references. Each line
 is evaluated strictly; anything it cannot parse stays quiet instead of guessing.

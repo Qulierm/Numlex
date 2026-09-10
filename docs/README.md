@@ -8,7 +8,7 @@ They describe the current `main` branch; published releases may lag behind.
 The published, English, searchable documentation site is built from a separate
 repository and is the best place to start:
 
-- **Live docs:** <https://numlex.app/docs/> — getting started, the full sheet
+- **Live docs:** <https://numlex.tech/docs/> — getting started, the full sheet
   language, catalogs and guides.
 
 The website is an English adaptation; the documents below remain the source of
