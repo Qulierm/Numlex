@@ -49,13 +49,16 @@ the app sends no identifiers, no analytics and no usage data. Offline, or if
 the feed cannot be read, Sparkle reports the failure in its standard alert and
 the app keeps working.
 
-## First updater-enabled release
+## Release history and bootstrap
 
-4.7.0 has no updater and cannot gain one retroactively. The bootstrap feed
-therefore advertises 4.7.0 itself: an updater-enabled build reports "up to
-date" instead of an error. Existing 4.7 users install the **first
-updater-enabled release manually once**; every release after that updates
-in-app.
+**4.8.0 is the first updater-enabled release.**
+
+- Users on **4.7.0 or earlier have no updater**: install 4.8.0 manually once
+  from the released `.dmg`, exactly as before.
+- **4.8.0 and later update in-app** with the flow above.
+- The published feed advertises the current release (4.8.0 as of this
+  writing). A build checking the feed sees either its own version ("up to
+  date") or a newer one — never an error for a build that is up to date.
 
 ## What a build can do
 

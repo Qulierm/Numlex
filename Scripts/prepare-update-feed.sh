@@ -10,7 +10,9 @@
 #                                  [--key-file <private-key-file>]
 #                                  [--min-os <version>]   (default 26.0)
 #                                  [--bootstrap]  allow a pre-updater app bundle
-#                                                 (no SUFeedURL inside the DMG)
+#                                                 (no SUFeedURL inside the DMG;
+#                                                 used for the historical 4.7.0
+#                                                 bootstrap entry only)
 #
 # Contract (fails closed):
 #   - pinned Sparkle 2.9.6 tools only (from the resolved SwiftPM artifact);
@@ -98,8 +100,8 @@ DMG_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Co
 [ "$DMG_VERSION" = "$VERSION" ] || die "DMG app CFBundleVersion '$DMG_VERSION' != --version '$VERSION'"
 DMG_FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 if [ "$BOOTSTRAP" = "1" ]; then
-  # Bootstrap only: the immutable 4.7.0 build predates the updater and has no
-  # SUFeedURL. Any DMG that DOES declare a feed must still declare ours.
+  # Bootstrap only (historical 4.7.0): that build predates the updater and has
+  # no SUFeedURL. Any DMG that DOES declare a feed must still declare ours.
   if [ -n "$DMG_FEED" ] && [ "$DMG_FEED" != "https://numlex.tech/appcast.xml" ]; then
     die "DMG app SUFeedURL '$DMG_FEED' is not the canonical feed"
   fi

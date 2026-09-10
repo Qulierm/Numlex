@@ -24,9 +24,10 @@ truth that the website is verified against.
 
 ## `main` versus releases
 
-Both documents track the current `main` branch. A released build (for example
-4.7.0) may not include features documented here yet. When a guide mentions a
-`main`-only behaviour, it says so explicitly.
+Both documents track the current `main` branch. Released builds may lag behind
+it: 4.8.0 is the current release and the first one with secure in-app updates
+(4.7.0 and earlier must be installed manually once). When a guide mentions a
+behaviour newer than the released build, it says so explicitly.
 
 ## Updating the documentation
 
