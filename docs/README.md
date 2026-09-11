@@ -19,7 +19,7 @@ truth that the website is verified against.
 | Document | Language | Scope |
 | --- | --- | --- |
 | [SYNTAX_REFERENCE.md](SYNTAX_REFERENCE.md) | Russian | Every construct the engine accepts: line forms, numbers and bases, operators, all 23 built-in functions, percentages, money, `total`, dates, units and the full non-currency unit catalog, currencies, network queries, regional number formats, result display, answer tokens, constants and the keyword index. |
-| [SETTINGS_AND_APPEARANCE.md](SETTINGS_AND_APPEARANCE.md) | English | The six Settings categories (a horizontal top navigation bar) and every appearance/formatting contract: General (language, appearance, icon, notebook), Editing, Numbers, Constants & Units, Styling, About (app identity + updates) — including per-answer formatting, line highlights, the answer column, syntax colors and the line-number gutter. |
+| [SETTINGS_AND_APPEARANCE.md](SETTINGS_AND_APPEARANCE.md) | English | The six Settings categories (icon-over-label tiles across the top, current section centered above) and every appearance/formatting contract: General (language, appearance, icon, notebook), Editing, Numbers, Constants & Units, Styling, About (app identity + updates) — including per-answer formatting, line highlights, the answer column, syntax colors and the line-number gutter. |
 | [UPDATES.md](UPDATES.md) | English | Secure in-app updates: manual and automatic checks, the HTTPS feed and EdDSA archive signatures, privacy, the first-release bootstrap, signing requirements, key backup and the release-feed workflow. |
 
 ## `main` versus releases

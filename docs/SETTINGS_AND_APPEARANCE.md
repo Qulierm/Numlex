@@ -5,10 +5,11 @@ current `main` branch. It is written for authors of the published
 documentation: every claim here is pinned by the Swift source and the
 canonical engine tests. Released builds may lag behind `main`.
 
-Settings are organized into **six categories**, selected from a **horizontal
-navigation bar at the top of the window**, each page one readable column of grouped
-rows with native switches, pickers and sliders. Nothing here is cloud-synced; every
-preference is stored on your Mac.
+Settings are organized into **six categories**, selected from a compact row of
+**icon-over-label tiles across the top of the window** with the current section name
+centered above them; each page is one readable column of grouped rows with native
+switches, pickers and sliders. Nothing here is cloud-synced; every preference is
+stored on your Mac.
 
 | Category | Icon | Owns |
 | --- | --- | --- |
@@ -19,19 +20,25 @@ preference is stored on your Mac.
 | **Styling** | paintbrush | Typography, answer column, syntax colors, live preview |
 | **About** | info circle | The app icon and version, plus Check for Updates and the automatic-check schedule (never part of `.nlx`) |
 
-The navigation is a **horizontal bar of native buttons directly below the compact
-native titlebar** — there is no left sidebar and no split-view container. Each item
-shows its SF Symbol and its concise localized title at an equal width; the selected
-item carries the system accent fill and the `.isSelected` accessibility trait, and the
-arrow keys move the selection while the bar has focus. Categories, in order: General,
-Editing, Numbers, Constants, Styling, About (the top bar uses the concise
-"Constants"; the page title is the full "Constants & Units").
+The navigation is a centered header that shows the **current section name** (14 pt
+semibold) above a compact, centered row of **six icon-over-label tiles**. Each tile is
+an equal 66 × 50 pt slot holding its SF Symbol above its concise localized label; there
+is no left sidebar, no split-view container, no full-width tab bar and no divider. The
+selected tile carries a **calm neutral rounded rectangle** (a subtle theme-aware gray
+with a hairline border) while its icon AND label turn accent-colored — never a solid
+accent block and never a white icon. Unselected tiles are transparent with muted
+content, and hover is a weaker neutral wash that never moves the layout. The selected
+tile is the only one with the `.isSelected` accessibility trait; every tile also
+carries a localized tooltip and accessibility label with its FULL page title. The
+arrow keys move the selection across the row and the focus cue stays on the selected
+tile. Categories, in order: General, Editing, Numbers, Constants, Styling, About
+(the tiles use the concise "Constants"; the header shows "Constants & Units").
 
-The selected page fills the rest of the window and is the ONLY thing that scrolls: the
-content container keeps its measured **534 pt** width and is centered under the bar
-(the window frees the old 146 pt sidebar column, but the page does not stretch). The
-window content range is 640–760 × 500–640 pt (ideal 680 × 540). The selection is
-session-only, defaults to General and is never persisted into the settings store.
+The selected page fills the rest of the window and is the ONLY thing that scrolls. It
+uses the AVAILABLE width with one shared page padding (19 pt), so the cards reach the
+window edges instead of leaving wide unused fields. The window content range is
+520–640 × 500–640 pt (ideal 560 × 540). The selection is session-only, defaults to
+General and is never persisted into the settings store.
 
 The Settings window carries no toolbar: its empty NSToolbar is hidden through public
 AppKit, so the compact native titlebar ("Numlex Settings"), the traffic lights and the

@@ -9,45 +9,84 @@ import NumlexCore
 /// like the other app-layer invariants.
 public let settingsNavigationCases: [EngineCase] = [
 
-    EngineCase("settings-nav-horizontal-top") {
+    EngineCase("settings-nav-reference-tiles") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // r93: HORIZONTAL TOP NAVIGATION — a compact category bar below
-        // the native titlebar with the selected page filling the rest.
-        // There is no left sidebar and no split container.
-        try expect(text.contains("VStack(spacing: 0)"), "one vertical root: bar + detail")
-        try expect(text.contains("topNavigation"), "a dedicated top navigation bar")
+        // r95: the reference composition — the CURRENT page title
+        // centered ABOVE a compact, centered row of icon-over-label
+        // tiles. No left sidebar, no split view, no full-width tab bar,
+        // no divider, no icon-only squares.
         try expect(!text.contains("NavigationSplitView("), "no split navigation")
         try expect(!text.contains("List(selection: $destination)"), "no left sidebar list")
         try expect(!text.contains(".listStyle(.sidebar)"), "no sidebar list style")
-        try expect(!text.contains("navigationSplitViewColumnWidth"), "no split column width")
         try expect(!text.contains("sidebarIdealWidth"), "no sidebar width constant")
         try expect(!text.contains("SettingsSidebarIdentity"), "no sidebar identity footer")
-        // ONE bar of real buttons, one selected item, symbol + title.
-        try expect(text.contains("ForEach(SettingsDestination.allCases) { item in"),
-                   "the bar iterates the destinations in order")
-        try expect(text.contains("private func topNavigationItem("), "one item builder")
-        try expect(text.contains("Label(title, systemImage: item.symbol)"),
-                   "every item shows its SF Symbol with its title")
-        try expect(text.contains(".buttonStyle(.plain)"), "native borderless buttons")
-        try expect(text.contains(".frame(maxWidth: .infinity)"), "equal item widths")
-        // Keyboard + VoiceOver contract.
+        try expect(!text.contains(".pickerStyle(.segmented)") || text.contains("appearance"),
+                   "the destination row is not a segmented control")
+        // Header order: centered title FIRST, then the tile row.
+        let header = text[text.range(of: "private var topNavigation: some View {")!.lowerBound...]
+        let titleIdx = header.range(of: "Text(L10n.t(destination.titleKey, language: language))")!.lowerBound
+        let rowIdx = header.range(of: "ForEach(SettingsDestination.allCases) { item in")!.lowerBound
+        try expect(titleIdx < rowIdx, "the centered page title precedes the tile row")
+        try expect(header[titleIdx...].hasPrefix("Text(L10n.t(destination.titleKey, language: language))"),
+                   "the header title is the full page title key")
+        try expect(text.contains(".font(.system(size: 14, weight: .semibold))"),
+                   "the header title is the compact 14 pt semibold style")
+        // Each tile: icon OVER a visible concise label, one fixed slot.
+        try expect(text.contains("VStack(spacing: 3)"), "icon over label inside the tile")
+        try expect(text.contains("Image(systemName: item.symbol)"), "the SF Symbol is the tile icon")
+        try expect(text.contains("Text(label)"), "the tile shows a VISIBLE localized label")
+        try expect(text.contains(".font(.system(size: 11.5, weight: .medium))"),
+                   "the tile label is the compact 11.5 pt style")
+        try expect(text.contains("let label = L10n.t(item.navigationLabelKey, language: language)"),
+                   "the visible label is the concise navigation key")
+        try expect(text.contains("height: SettingsGeometry.navigationTileHeight"),
+                   "one shared tile height")
+        try expect(text.contains("width: SettingsGeometry.navigationTileWidth"),
+                   "one shared tile width")
+        try expect(text.contains("static let navigationTileWidth: CGFloat = 66"),
+                   "the tile slot is 66 pt wide")
+        try expect(text.contains("static let navigationTileHeight: CGFloat = 50"),
+                   "the tile slot is 50 pt high")
+        try expect(text.contains("HStack(spacing: 2)"), "a compact centered tile row")
+        try expect(text.contains(".frame(maxWidth: .infinity, alignment: .center)"),
+                   "the cluster is centered")
+        // Reference selection language: NEUTRAL tile + ACCENT content.
+        try expect(text.contains(".foregroundStyle(selected ? Color.accentColor : Color.secondary)"),
+                   "the selected icon AND label are accent-colored")
+        try expect(text.contains("Color.primary.opacity(0.09)"), "the selected tile is a neutral fill")
+        try expect(!settingsNavWithoutComments(text).contains(".fill(Color.accentColor)"),
+                   "never a solid accent tile")
+        try expect(!settingsNavWithoutComments(text).contains("Color.white"),
+                   "never a white selected icon")
+        // No bar chrome.
+        try expect(!text.contains(".overlay(alignment: .bottom) { Divider() }"),
+                   "no full-width divider under the header")
+        // Accessibility + keyboard.
+        try expect(text.contains("let fullTitle = L10n.t(item.titleKey, language: language)"),
+                   "tooltip/accessibility use the FULL page title")
+        try expect(text.contains(".help(fullTitle)"), "a localized tooltip on every tile")
         try expect(text.contains(".accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)"),
-                   "exactly one item is announced as selected")
+                   "exactly one tile is announced as selected")
+        try expect(text.contains(".accessibilityElement(children: .ignore)"),
+                   "the tile is one accessibility element")
+        try expect(text.contains(".accessibilityLabel(fullTitle)"), "the tile is named by its full title")
         try expect(text.contains(".onKeyPress(.leftArrow)") && text.contains(".onKeyPress(.rightArrow)"),
                    "arrow keys move the selection")
         try expect(text.contains("private func moveSelection("), "one selection mover")
-        try expect(text.contains("@FocusState private var barFocused"), "the bar tracks focus")
-        try expect(text.contains(".accessibilityElement(children: .ignore)"),
-                   "the item icon is decorative (the title names it)")
+        try expect(text.contains("@FocusState private var focusedItem"), "the cluster tracks focus")
+        try expect(text.contains(".focusEffectDisabled()"), "the platform focus rectangle is suppressed")
+        try expect(text.contains("focusedItem != nil && selected"),
+                   "the focus cue stays on the selected tile only")
+        try expect(text.contains(".onHover") && text.contains("hoveredItem"),
+                   "hover is tracked without changing the frame")
         // Session-local selection, default General.
         try expect(text.contains("@State private var destination: SettingsDestination = .general"),
                    "session-local selection defaulting to General")
         try expect(!text.contains("settings.settingsDestination"), "no persisted destination key")
-        // The bar is not custom titlebar chrome.
+        // Not custom titlebar chrome; one detail builder.
         let code = settingsNavWithoutComments(text)
         try expect(!code.contains("NSTitlebarAccessoryViewController"), "no fake titlebar tabs")
         try expect(!code.contains("trafficLight"), "no fake traffic lights")
-        // Exactly one detail destination is rendered at a time.
         try expect(text.contains("@ViewBuilder\n    private var detail: some View"),
                    "one detail builder")
         let switches = text.components(separatedBy: "case .general: GeneralSettingsPage").count
@@ -95,33 +134,25 @@ public let settingsNavigationCases: [EngineCase] = [
         // The merged General page still owns the appearance/icon art.
         try expect(text.contains("symbol: \"circle.lefthalf.filled\""),
                    "the appearance row keeps its SF Symbol inside General")
-        try expect(text.contains("Label(title, systemImage: item.symbol)"),
-                   "top-navigation items pair the symbol with the title")
-        try expect(text.contains(".lineLimit(1)"), "labels stay on one line")
+        try expect(text.contains("Image(systemName: item.symbol)"),
+                   "navigation items are icon-only SF Symbols")
+        try expect(text.contains("item.titleKey"), "the full page title names each item")
         try expect(!text.contains("Image(\"icon"), "no raster navigation art")
-        // Retained destination labels come from the existing keys.
-        for key in ["settings.general", "settings.editing", "settings.numbers",
-                    "settings.styling"] {
-            try expect(text.contains("\"\(key)\""), "reuses \(key)")
-        }
-        for key in ["settings.about", "settings.aboutShort", "settings.constantsUnitsShort"] {
-            try expect(text.contains("\"\(key)\""), "adds \(key)")
-        }
-        // The About sidebar label is the SHORT form (the page title keeps
-        // the full name): Russian "О программе" truncated at 146 pt.
-        try expect(text.contains("case .about: return \"settings.aboutShort\""),
-                   "the About sidebar label is the short key")
-        try expect(text.contains("case .about: return \"settings.about\""),
-                   "the About page title is the full key")
-        try expectEqual(L10n.t("settings.aboutShort", language: .ru), "Сведения",
-                        "the Russian sidebar label no longer truncates")
+        // The full page-title keys are the single naming source (the
+        // icon-only bar derives them from the destination raw values).
+        try expect(text.contains("var titleKey: String { \"settings.\\(rawValue)\" }"),
+                   "every destination derives its full title key")
+        // The page titles come from the destination raw values — no
+        // separate abbreviated navigation label exists any more.
+        try expect(text.contains("settings.aboutShort"),
+                   "About keeps a concise VISIBLE tile label")
         try expectEqual(L10n.t("settings.about", language: .ru), "О программе",
-                        "the Russian page title keeps the full name")
-        // r92: About is a short label that fits every language, so the
-        // old long "Aggiornamenti"/"Mises à jour" sidebar form is gone
-        // (the Updates word survives as the page's update group heading).
+                        "the Russian page title is the full name")
+        // Icon-only navigation: the FULL page title is the tooltip and
+        // the accessibility label, so no abbreviated navigation label
+        // exists any more.
         try expectEqual(L10n.t("settings.about", language: .it), "Informazioni",
-                        "Italian About label")
+                        "Italian About title")
         try expectEqual(L10n.t("settings.about", language: .ru), "О программе",
                         "Russian About label")
         try expect(L10n.t("settings.updates", language: .it) == "Aggiornamenti",
@@ -258,9 +289,9 @@ public let settingsNavigationCases: [EngineCase] = [
     },
 
     EngineCase("settings-navigation-localization-complete") {
-        let keys = ["settings.navigationLabel", "settings.updates",
-                    "settings.constantsUnits", "settings.constantsUnitsShort",
-                    "settings.about", "settings.aboutShort", "about.app",
+        let keys = ["settings.updates",
+                    "settings.constantsUnits",
+                    "settings.about", "about.app",
                     // The merged General page's own labels.
                     "general.interface", "general.notebook", "appearance", "appIcon"]
         for lang in AppLanguage.allCases {
@@ -276,16 +307,18 @@ public let settingsNavigationCases: [EngineCase] = [
         // French shares the English spelling of "Application", so only
         // the other languages are required to differ for that key.
         for lang in [AppLanguage.ru, .de, .it, .zh] {
-            for key in ["settings.navigationLabel", "settings.about", "about.app",
+            for key in ["settings.about", "about.app",
                         "general.notebook"] {
                 try expect(L10n.t(key, language: lang) != L10n.t(key, language: .en),
                            "\(lang.rawValue) localizes \(key)")
             }
         }
-        // The retired page subtitles leave NO dead localization key.
+        // The retired page subtitles and navigation-only labels leave NO
+        // dead localization key.
         for lang in AppLanguage.allCases {
             for key in ["settings.general.subtitle", "settings.editing.subtitle",
-                        "settings.numbers.subtitle", "settings.updates.subtitle"] {
+                        "settings.numbers.subtitle", "settings.updates.subtitle",
+                        "settings.navigationLabel"] {
                 try expectEqual(L10n.t(key, language: lang), key,
                                 "no dead subtitle key \(key)")
             }
@@ -297,8 +330,8 @@ public let settingsNavigationCases: [EngineCase] = [
             }
         }
         // The Spanish-contaminated Italian settings block stays repaired.
-        try expectEqual(L10n.t("settings.navigationLabel", language: .it),
-                        "Categorie di impostazioni", "Italian navigation label")
+        try expectEqual(L10n.t("settings.about", language: .ru), "О программе",
+                        "Russian About page title")
         try expectEqual(L10n.t("settings.updates", language: .it), "Aggiornamenti",
                         "Italian Updates label")
     },
@@ -312,29 +345,30 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(text.contains("window.contentMinSize = contentMin"), "content min size")
         try expect(text.contains("window.contentMaxSize = contentMax"), "content max size")
         try expect(text.contains("snapIfOutOfRange"), "stale frames snap once")
-        // r93: the page content keeps its measured width as ONE
-        // constant (the top bar freed the old sidebar column).
-        try expect(text.contains("static let detailWidth: CGFloat = 534"),
-                   "the detail width is one constant")
-        try expect(text.contains(".frame(width: SettingsGeometry.detailWidth"),
-                   "the content container consumes it")
-        try expect(text.contains(".frame(maxWidth: .infinity, alignment: .center)"),
-                   "the content stays centered under the bar")
+        // r94: the page consumes the AVAILABLE width — no fixed content
+        // column and no centered frame.
+        try expect(!text.contains("detailWidth"), "no fixed detail width remains")
+        try expect(text.contains("static let pageHorizontalPadding: CGFloat = 19"),
+                   "one page-padding constant")
+        try expect(text.contains(".padding(.horizontal, SettingsGeometry.pageHorizontalPadding)"),
+                   "the page uses the shared horizontal padding")
+        try expect(text.contains(".frame(maxWidth: .infinity, alignment: .topLeading)"),
+                   "the page fills the available width")
         try expect(!text.contains("sidebarIdealWidth"), "no sidebar width constant remains")
         try expect(!text.contains("navigationSplitViewColumnWidth"),
                    "no split-view column width remains")
         // r91 geometry: narrower sidebar, SAME right detail width.
-        for pin in ["minWidth: CGFloat = 640", "idealWidth: CGFloat = 680",
-                    "maxWidth: CGFloat = 760",
+        for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
+                    "maxWidth: CGFloat = 640",
                     "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
                     "maxHeight: CGFloat = 640",
-                    "detailWidth: CGFloat = 534"] {
+                    "pageHorizontalPadding: CGFloat = 19"] {
             try expect(text.contains(pin), "r91 geometry keeps \(pin)")
         }
-        // The invariant that matters to the user: the RIGHT detail column
-        // is byte-for-byte the width the previous 700/166 window gave.
-        try expectEqual(680 - 146, 700 - 166,
-                        "the ideal detail width is unchanged at 534 pt")
+        // The invariant that matters to the user now: the page reaches
+        // the window edges with only the shared page padding.
+        try expectEqual(560 - 2 * 19, 522,
+                        "the ideal page/card width is 522 pt")
         let main = settingsNavSource("Sources/NumlexApp/Views/ContentView.swift")
         try expect(!main.contains("SettingsGeometry"),
                    "the main window never reads the settings geometry")

@@ -21,18 +21,24 @@ import NumlexCore
 /// the sidebar, so the ideal detail stays 680 - 146 = 534 pt, the same
 /// figure the 700 - 166 window gave before. Height is untouched.
 private enum SettingsGeometry {
-    static let minWidth: CGFloat = 640
-    static let idealWidth: CGFloat = 680
-    static let maxWidth: CGFloat = 760
+    static let minWidth: CGFloat = 520
+    static let idealWidth: CGFloat = 560
+    static let maxWidth: CGFloat = 640
     static let minHeight: CGFloat = 500
     static let idealHeight: CGFloat = 540
     static let maxHeight: CGFloat = 640
 
-    /// r93: the page content container (the old right detail column).
-    /// The horizontal top navigation freed the 146 pt sidebar column,
-    /// but the CONTENT keeps its measured width — the page is centered
-    /// under the bar instead of stretching cards across the window.
-    static let detailWidth: CGFloat = 534
+    /// r94/r95: one navigation tile — an equal, near-square slot that
+    /// fits the longest localized visible label ("Bearbeiten",
+    /// "Konstanten", "Сведения") at the 11 pt label size.
+    static let navigationTileWidth: CGFloat = 66
+    static let navigationTileHeight: CGFloat = 50
+
+    /// r94: the page padding. The page consumes the AVAILABLE window
+    /// width — there is no fixed content column and no centered frame,
+    /// so the cards reach the window edges with only this inset instead
+    /// of leaving ~95 pt empty fields on both sides.
+    static let pageHorizontalPadding: CGFloat = 19
 }
 
 /// r90/r91: the SIX settings destinations, in sidebar order. Session-
@@ -49,28 +55,21 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
 
     var id: String { rawValue }
 
-    /// The localized sidebar label key.
-    var labelKey: String {
-        switch self {
-        case .general: return "settings.general"
-        case .editing: return "settings.editing"
-        case .numbers: return "settings.numbers"
-        // Concise sidebar label; the detail page title is the full name.
-        case .constantsUnits: return "settings.constantsUnitsShort"
-        case .styling: return "settings.styling"
-        case .about: return "settings.aboutShort"
-        }
-    }
+    /// The FULL localized page title key: the centered header title,
+    /// the tooltip and the accessibility label.
+    var titleKey: String { "settings.\(rawValue)" }
 
-    /// The full detail-page title key (may differ from the sidebar label).
-    var titleKey: String {
+    /// The CONCISE localized label shown UNDER the tile icon. It equals
+    /// the page title wherever that already fits the tile; Constants,
+    /// Styling and About carry dedicated short keys because the full
+    /// titles ("Constants & Units", Russian "Оформление", Italian
+    /// "Informazioni") are too wide for a compact tile.
+    var navigationLabelKey: String {
         switch self {
-        case .constantsUnits: return "settings.constantsUnits"
-        // The About page title keeps the full localized name while the
-        // sidebar uses the short form (Russian "О программе" does not
-        // fit the narrow sidebar).
-        case .about: return "settings.about"
-        default: return labelKey
+        case .constantsUnits: return "settings.constantsUnitsShort"
+        case .styling: return "settings.stylingShort"
+        case .about: return "settings.aboutShort"
+        default: return titleKey
         }
     }
 
@@ -91,10 +90,11 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     /// Session-local navigation state (never persisted into the store).
     @State private var destination: SettingsDestination = .general
-    /// Keyboard focus of the horizontal category bar: it is ONE focus
-    /// stop reached with Tab, and the arrow keys move the selection
-    /// inside it (never persisted).
-    @FocusState private var barFocused: Bool
+    /// Keyboard focus inside the icon cluster (per-button focus, the
+    /// arrow keys move the selection; never persisted).
+    @FocusState private var focusedItem: SettingsDestination?
+    /// Hover highlight (a wash only — never a frame change).
+    @State private var hoveredItem: SettingsDestination?
 
     private var language: AppLanguage { model.settings.language }
 
@@ -131,71 +131,92 @@ struct SettingsView: View {
         .background(SettingsWindowConfigurator())
     }
 
-    /// The horizontal category bar: one row of REAL native buttons,
-    /// each with its SF Symbol and concise localized title at an equal
-    /// width, the selected item filled with the system accent — the
-    /// same selection language the previous sidebar rows used. A
-    /// segmented `Picker` was tried first: on macOS it renders the TEXT
-    /// only and silently drops the SF Symbols, so the bar uses buttons,
-    /// which keep the symbol, native focus, the `.isSelected` trait and
-    /// arrow-key handling. Exactly one destination is selected, the
-    /// selection is session-local, and nothing moves or rescales when
-    /// it changes.
+    /// The header: the CURRENT page title centered ABOVE a compact,
+    /// centered row of icon-over-label tiles — the reference
+    /// composition. There is no full-width tab bar, no divider and no
+    /// sidebar; the header is fixed while the detail page scrolls.
     private var topNavigation: some View {
-        HStack(spacing: 4) {
-            ForEach(SettingsDestination.allCases) { item in
-                topNavigationItem(item)
+        VStack(spacing: 9) {
+            Text(L10n.t(destination.titleKey, language: language))
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .center)
+            HStack(spacing: 2) {
+                ForEach(SettingsDestination.allCases) { item in
+                    topNavigationItem(item)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        // ONE focus stop: Tab reaches the bar, the arrow keys move the
-        // selection inside it, and the focus ring marks the bar.
-        .focusable()
-        .focused($barFocused)
-        .focusEffectDisabled()
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(barFocused ? Color.accentColor.opacity(0.7) : Color.clear,
-                              lineWidth: 2)
-                .padding(.horizontal, 8)
-        )
-        .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
-        .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
-        .accessibilityElement(children: .contain)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
-    /// One navigation item: a borderless native Button whose label is
-    /// the SF Symbol plus the localized title. The icon is decorative
-    /// (the text names the item for VoiceOver), exactly one item carries
-    /// the selected trait, and the arrow keys move the selection while
-    /// the bar has keyboard focus.
+    /// One tile: the SF Symbol above its visible concise localized
+    /// label, in an EQUAL fixed slot so the row never reflows or
+    /// rescales. The selected tile carries a calm neutral rounded
+    /// rectangle (never a solid accent fill) while its icon AND label
+    /// turn accent-colored; unselected tiles stay transparent with
+    /// muted content, and hover is a weaker neutral wash.
     private func topNavigationItem(_ item: SettingsDestination) -> some View {
-        let title = L10n.t(item.labelKey, language: language)
+        let label = L10n.t(item.navigationLabelKey, language: language)
+        let fullTitle = L10n.t(item.titleKey, language: language)
         let selected = destination == item
+        let hovered = hoveredItem == item
         return Button {
             destination = item
         } label: {
-            Label(title, systemImage: item.symbol)
-                .labelStyle(.titleAndIcon)
-                .font(.system(size: 12))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.vertical, 5)
-                .padding(.horizontal, 6)
-                .frame(maxWidth: .infinity)
-                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            VStack(spacing: 3) {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 21, weight: .regular))
+                Text(label)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(width: SettingsGeometry.navigationTileWidth,
+                   height: SettingsGeometry.navigationTileHeight)
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(selected ? Color.accentColor : Color.clear)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(selected ? Color.primary.opacity(0.09)
+                      : (hovered ? Color.primary.opacity(0.05) : Color.clear))
         )
-        .foregroundStyle(selected ? Color.white : Color.primary)
-        .help(title)
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(selected ? Color.primary.opacity(0.12)
+                              : Color.clear,
+                              lineWidth: 0.8)
+                .allowsHitTesting(false)
+        )
+        .overlay(
+            // The focus cue stays TILE-local: an accent stroke on the
+            // selected tile only (never a full-bar rectangle, never a
+            // solid blue tile).
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(focusedItem != nil && selected
+                              ? Color.accentColor : Color.clear,
+                              lineWidth: 2)
+                .allowsHitTesting(false)
+        )
+        .onHover { inside in
+            if inside { hoveredItem = item }
+            else if hoveredItem == item { hoveredItem = nil }
+        }
+        .help(fullTitle)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
+        .accessibilityLabel(fullTitle)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .focused($focusedItem, equals: item)
+        .focusable()
+        // The platform's own focus rectangle is suppressed: the cue
+        // above is tile-local and follows the SELECTION.
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
+        .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
     }
 
     /// Arrow-key navigation across the fixed category order (wrapping).
@@ -204,7 +225,7 @@ struct SettingsView: View {
         guard let index = all.firstIndex(of: destination) else { return }
         let next = (index + delta + all.count) % all.count
         destination = all[next]
-        barFocused = true
+        focusedItem = all[next]
     }
 
     @ViewBuilder
@@ -242,22 +263,15 @@ private struct SettingsDetailPage<Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // r92: the page title alone — the old one-line subtitle
-                // did not carry information beyond the title and the
-                // group headings, and it cost a full text row at the top
-                // of every page.
-                Text(L10n.t(destination.titleKey, language: language))
-                    .font(.system(size: 22, weight: .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
+                // r95: the page title lives in the fixed header ABOVE the
+                // navigation tiles (centered), so the scroll content
+                // starts directly with the first group heading.
                 content
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, SettingsGeometry.pageHorizontalPadding)
             .padding(.top, 11)
             .padding(.bottom, 20)
-            .frame(width: SettingsGeometry.detailWidth, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 }

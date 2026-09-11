@@ -111,11 +111,11 @@ public let r59Cases: [EngineCase] = [
         // the 680x540 ideal and the 140/146/150 pt sidebar — the MAIN
         // window geometry must still not move with the settings change.
         let text = try r59ReadSource("Sources/NumlexApp/Views/SettingsView.swift")
-        for pin in ["minWidth: CGFloat = 640", "idealWidth: CGFloat = 680",
-                    "maxWidth: CGFloat = 760",
+        for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
+                    "maxWidth: CGFloat = 640",
                     "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
                     "maxHeight: CGFloat = 640",
-                    "detailWidth: CGFloat = 534"] {
+                    "pageHorizontalPadding: CGFloat = 19"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }
         try expect(!text.contains("TabView"), "no legacy top tab strip remains")

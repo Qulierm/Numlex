@@ -211,8 +211,9 @@ reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. De
 `Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
 live through the same strict engine — function arguments included.
 See [docs/SETTINGS_AND_APPEARANCE.md](docs/SETTINGS_AND_APPEARANCE.md) for the full
-settings reference: one horizontal category bar at the top of the window (General,
-Editing, Numbers, Constants & Units, Styling, About) with one focused page each —
+settings reference: icon-over-label tiles across the top of the window, with the
+current section centered above (General, Editing, Numbers, Constants & Units, Styling,
+About) and one focused page each —
 language, appearance and the application icon live together in General, and
 About carries the app identity plus the update controls.
 
