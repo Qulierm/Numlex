@@ -105,20 +105,19 @@ public let r59Cases: [EngineCase] = [
     },
     EngineCase("r59-settings-geometry-untouched") {
         // SettingsGeometry lives in the app target (not importable
-        // here), so pin it at the source. r90 re-validated the pin
-        // after the deliberate move to the split navigation (sidebar +
-        // one focused detail page): the compact range is now
-        // 660...780 x 500...640 with the 700x540 ideal, plus the
-        // 148/158/172 pt sidebar — the MAIN window geometry must still
-        // not move with the settings change.
+        // here), so pin it at the source. r91 narrowed the sidebar while
+        // keeping the RIGHT detail width identical (680 - 146 = 534 =
+        // 700 - 166): the compact range is now 640...760 x 500...640 with
+        // the 680x540 ideal and the 140/146/150 pt sidebar — the MAIN
+        // window geometry must still not move with the settings change.
         let text = try r59ReadSource("Sources/NumlexApp/Views/SettingsView.swift")
-        for pin in ["minWidth: CGFloat = 660", "idealWidth: CGFloat = 700",
-                    "maxWidth: CGFloat = 780",
+        for pin in ["minWidth: CGFloat = 640", "idealWidth: CGFloat = 680",
+                    "maxWidth: CGFloat = 760",
                     "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
                     "maxHeight: CGFloat = 640",
-                    "sidebarMinWidth: CGFloat = 148",
-                    "sidebarIdealWidth: CGFloat = 166",
-                    "sidebarMaxWidth: CGFloat = 172"] {
+                    "sidebarMinWidth: CGFloat = 140",
+                    "sidebarIdealWidth: CGFloat = 146",
+                    "sidebarMaxWidth: CGFloat = 150"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }
         try expect(!text.contains("TabView"), "no top tab strip remains")

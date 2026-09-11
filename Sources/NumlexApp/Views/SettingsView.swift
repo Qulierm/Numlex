@@ -2,41 +2,47 @@ import AppKit
 import SwiftUI
 import NumlexCore
 
-/// r34/r75/r90 — the ONE settings-window geometry source (points).
+/// r34/r75/r90/r91 — the ONE settings-window geometry source (points).
 /// Width/height ranges are CONTENT sizes (NSWindow content size — the
 /// titlebar is extra, and the configurator applies these through
 /// contentMinSize / contentMaxSize, never frame minSize/maxSize).
 ///
-/// r90: the settings window is now a native split navigation — a
-/// category sidebar (min 148 / ideal 158 / max 172 pt) plus ONE focused
-/// detail page — so the content is intentionally larger than the old
-/// five-tab window but still compact (min 660x500, ideal 700x540, max
-/// 780x640) rather than a giant clone of the reference. Measured on
-/// macOS 26: the split view clamps the width at the declared 660 pt
-/// minimum, while its own sidebar chrome asks for the IDEAL height
-/// (540 pt) as the practical floor — the declared 500 pt minimum is
-/// therefore a lower bound the window never reaches in practice.
+/// r90: the settings window is a native split navigation — a category
+/// sidebar plus ONE focused detail page — so the content is compact
+/// (min 640x500, ideal 680x540, max 760x640) rather than a giant clone
+/// of the reference. Measured on macOS 26: the split view clamps the
+/// width at the declared minimum, while its own sidebar chrome asks
+/// for the IDEAL height (540 pt) as the practical floor — the declared
+/// 500 pt minimum is a lower bound the window never reaches in
+/// practice.
+///
+/// r91: the sidebar is narrower (140/146/150 pt) while the RIGHT detail
+/// column keeps its exact width: the total shrinks by the same delta as
+/// the sidebar, so the ideal detail stays 680 - 146 = 534 pt, the same
+/// figure the 700 - 166 window gave before. Height is untouched.
 private enum SettingsGeometry {
-    static let minWidth: CGFloat = 660
-    static let idealWidth: CGFloat = 700
-    static let maxWidth: CGFloat = 780
+    static let minWidth: CGFloat = 640
+    static let idealWidth: CGFloat = 680
+    static let maxWidth: CGFloat = 760
     static let minHeight: CGFloat = 500
     static let idealHeight: CGFloat = 540
     static let maxHeight: CGFloat = 640
 
     /// The leading category sidebar: compact, always visible, wide
-    /// enough for the longest localized label (German
-    /// "Erscheinungsbild", Spanish "Actualizaciones") without clipping.
-    static let sidebarMinWidth: CGFloat = 148
-    static let sidebarIdealWidth: CGFloat = 166
-    static let sidebarMaxWidth: CGFloat = 172
+    /// enough for the longest localized label (Spanish
+    /// "Actualizaciones", French "Mises à jour", Russian
+    /// "Оформление") with the native sidebar list typography.
+    static let sidebarMinWidth: CGFloat = 140
+    static let sidebarIdealWidth: CGFloat = 146
+    static let sidebarMaxWidth: CGFloat = 150
 }
 
-/// r90: the SEVEN settings destinations, in sidebar order. Session-local
-/// navigation state only — never persisted into AppSettings/.nlx.
+/// r90/r91: the SIX settings destinations, in sidebar order. Session-
+/// local navigation state only — never persisted into AppSettings/.nlx.
+/// r91 merged the former Appearance page into General (its language,
+/// appearance and icon controls sit together in one place now).
 enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     case general
-    case appearance
     case editing
     case numbers
     case constantsUnits
@@ -49,13 +55,14 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     var labelKey: String {
         switch self {
         case .general: return "settings.general"
-        case .appearance: return "settings.appearance"
         case .editing: return "settings.editing"
         case .numbers: return "settings.numbers"
         // Concise sidebar label; the detail page title is the full name.
         case .constantsUnits: return "settings.constantsUnitsShort"
         case .styling: return "settings.styling"
-        case .updates: return "settings.updates"
+        // The Updates page title is the full name; the sidebar uses the
+        // concise form (Italian "Aggiornamenti" did not fit otherwise).
+        case .updates: return "settings.updatesShort"
         }
     }
 
@@ -63,6 +70,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     var titleKey: String {
         switch self {
         case .constantsUnits: return "settings.constantsUnits"
+        case .updates: return "settings.updates"
         default: return labelKey
         }
     }
@@ -74,7 +82,6 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     var symbol: String {
         switch self {
         case .general: return "gearshape"
-        case .appearance: return "circle.lefthalf.filled"
         case .editing: return "pencil.tip"
         case .numbers: return "number"
         case .constantsUnits: return "function"
@@ -105,7 +112,10 @@ struct SettingsView: View {
         .navigationSplitViewStyle(.balanced)
         // The split navigation must not grow a window toolbar with a
         // sidebar toggle inside Settings (the window chrome belongs to
-        // the scene; the sidebar is always visible at this size).
+        // the scene; the sidebar is always visible at this size). The
+        // declarative removal is kept AND the Settings window's own
+        // configurator removes the standard item through public AppKit
+        // (r91) — on macOS 26 the declarative form alone was not enough.
         .toolbar(removing: .sidebarToggle)
         .frame(minWidth: SettingsGeometry.minWidth,
                idealWidth: SettingsGeometry.idealWidth,
@@ -155,7 +165,6 @@ struct SettingsView: View {
     private var detail: some View {
         switch destination {
         case .general: GeneralSettingsPage(model: model)
-        case .appearance: AppearanceSettingsPage(model: model)
         case .editing: EditingSettingsPage(model: model)
         case .numbers: NumbersSettingsPage(model: model)
         case .constantsUnits: ConstantsUnitsSettingsPage(model: model)
@@ -417,8 +426,13 @@ private struct SettingsEmptyState: View {
     }
 }
 
-// MARK: - General page (r90: language + notebook behaviour)
+// MARK: - General page (r91: language, appearance, icon + notebook behaviour)
 
+/// r91: the single "how Numlex presents itself" page. It owns the
+/// interface language, the Auto/Light/Dark appearance, the application
+/// icon and the notebook behaviour switches — the controls that used to
+/// be split across General and Appearance, now with exactly one home
+/// each and no duplicated page.
 private struct GeneralSettingsPage: View {
     @Bindable var model: AppModel
 
@@ -451,7 +465,45 @@ private struct GeneralSettingsPage: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                 }
+                // The appearance picker keeps the one write path
+                // (model.setAppearance).
+                SettingsRow(title: L10n.t("appearance", language: language),
+                            symbol: "circle.lefthalf.filled",
+                            divider: true) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.appearance },
+                        set: { model.setAppearance($0) }
+                    )) {
+                        ForEach(AppAppearance.uiOrder, id: \.self) { a in
+                            Text(L10n.t(appearanceKey(a), language: language)).tag(a)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 240)
+                }
             }
+
+            // The two supplied previews as a comfortable full-width
+            // chooser (not crammed into a trailing accessory slot); the
+            // icon write path stays model.setAppIcon.
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.t("appIcon", language: language))
+                    .font(.system(size: 13, weight: .semibold))
+                Text(L10n.t("appIconCap", language: language))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                AppIconPicker(
+                    selection: model.settings.appIcon,
+                    language: language,
+                    onSelect: { model.setAppIcon($0) }
+                )
+                .padding(.top, 2)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SettingsCardBackground())
 
             SettingsGroup(title: L10n.t("general.notebook", language: language)) {
                 SettingsRow(
@@ -481,63 +533,6 @@ private struct GeneralSettingsPage: View {
                                    isOn: boolBinding(\AppSettings.showTotalBar))
                 }
             }
-        }
-    }
-}
-
-// MARK: - Appearance page (Auto/Light/Dark + application icon)
-
-/// r90: everything about how Numlex LOOKS, in one focused place. The
-/// appearance picker keeps the one write path (model.setAppearance) and
-/// the icon chooser keeps the exact supplied previews and the one icon
-/// write path (model.setAppIcon); the Dock/App Switcher scope caption
-/// stays factual.
-private struct AppearanceSettingsPage: View {
-    @Bindable var model: AppModel
-
-    private var language: AppLanguage { model.settings.language }
-
-    var body: some View {
-        let language = self.language
-        return SettingsDetailPage(destination: .appearance, language: language) {
-            // The page title already names the category: the card carries
-            // the control row only (no duplicated section header).
-            SettingsGroup(title: nil) {
-                SettingsRow(title: L10n.t("appearance", language: language),
-                            symbol: "circle.lefthalf.filled") {
-                    Picker("", selection: Binding(
-                        get: { model.settings.appearance },
-                        set: { model.setAppearance($0) }
-                    )) {
-                        ForEach(AppAppearance.uiOrder, id: \.self) { a in
-                            Text(L10n.t(appearanceKey(a), language: language)).tag(a)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
-                }
-            }
-
-            // The two supplied previews as a comfortable full-width
-            // chooser (not crammed into a trailing accessory slot).
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L10n.t("appIcon", language: language))
-                    .font(.system(size: 13, weight: .semibold))
-                Text(L10n.t("appIconCap", language: language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                AppIconPicker(
-                    selection: model.settings.appIcon,
-                    language: language,
-                    onSelect: { model.setAppIcon($0) }
-                )
-                .padding(.top, 2)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(SettingsCardBackground())
         }
     }
 }
@@ -1969,6 +1964,40 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         var observers: [NSObjectProtocol] = []
+        private var observedWindows: Set<ObjectIdentifier> = []
+
+        /// r91: observes ONE window (idempotent per window) so the
+        /// standard sidebar-toggle item is removed after SwiftUI has
+        /// installed or reconfigured its toolbar. Both hooks DEFER the
+        /// removal to the next main-actor turn, so the toolbar is never
+        /// mutated inside the notification that announced the change.
+        func observe(_ window: NSWindow) {
+            let id = ObjectIdentifier(window)
+            guard !observedWindows.contains(id) else { return }
+            observedWindows.insert(id)
+            let center = NotificationCenter.default
+            observers.append(center.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    SettingsWindowConfigurator.scheduleSidebarToggleRemoval(for: window)
+                }
+            })
+            // SwiftUI (re)builds the Settings toolbar while the window
+            // lives; every announced toolbar addition is a cue to
+            // re-check this window for the standard toggle item. The
+            // notification object is deliberately not inspected (a
+            // Notification is not Sendable across the isolation hop) —
+            // the removal is idempotent and only ever touches THIS
+            // window's toolbar.
+            observers.append(center.addObserver(
+                forName: NSToolbar.willAddItemNotification, object: nil, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    SettingsWindowConfigurator.scheduleSidebarToggleRemoval(for: window)
+                }
+            })
+        }
     }
 
     /// A view that reports when it lands in its window. `makeNSView`
@@ -2001,6 +2030,54 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
                                        height: SettingsGeometry.maxHeight)
     }
 
+    /// r91: removes the standard sidebar-toggle toolbar item from the
+    /// Settings window. The sidebar is ALWAYS visible (the root split
+    /// view pins `columnVisibility` to the constant `.all`), so the
+    /// button SwiftUI installs for the split navigation is dead chrome.
+    ///
+    /// The declarative `.toolbar(removing: .sidebarToggle)` stays, but on
+    /// macOS 26 it does not reliably suppress the button, so the window
+    /// itself removes the item through PUBLIC AppKit only: the standard
+    /// `NSToolbarItem.Identifier.toggleSidebar` identifier, plus any item
+    /// that still sends the native `toggleSidebar:` action. Index-based
+    /// removal walks backwards so multiple matches are all removed.
+    /// Only the Settings window is ever touched — the main window's
+    /// toolbar and `SidebarCommands()` are untouched.
+    @MainActor
+    static func removeSidebarToggle(from window: NSWindow) {
+        guard let toolbar = window.toolbar else { return }
+        var index = toolbar.items.count - 1
+        while index >= 0 {
+            let item = toolbar.items[index]
+            let id = item.itemIdentifier
+            // The standard identifier, the native toggleSidebar: action,
+            // AND SwiftUI's own split-view item: on macOS 26 the
+            // NavigationSplitView installs its toggle under the
+            // bundle-prefixed identifier
+            // `com.apple.SwiftUI.navigationSplitView.toggleSidebar`,
+            // which the declarative `.toolbar(removing: .sidebarToggle)`
+            // does not match. Reading an item's identifier is public
+            // API; nothing private is called.
+            let isSidebarToggle = id == .toggleSidebar
+                || item.action == #selector(NSSplitViewController.toggleSidebar(_:))
+                || id.rawValue.hasSuffix("toggleSidebar")
+            if isSidebarToggle {
+                toolbar.removeItem(at: index)
+            }
+            index -= 1
+        }
+    }
+
+    /// Deferred wrapper: mutating a toolbar from inside the notification
+    /// (or the layout pass) that announced its item risks re-entrancy, so
+    /// every cue hops to the next main-actor turn first.
+    @MainActor
+    static func scheduleSidebarToggleRemoval(for window: NSWindow) {
+        Task { @MainActor in
+            Self.removeSidebarToggle(from: window)
+        }
+    }
+
     /// Content range from the ONE geometry source (never frame sizes).
     private var contentMin: NSSize {
         NSSize(width: SettingsGeometry.minWidth, height: SettingsGeometry.minHeight)
@@ -2028,9 +2105,12 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = ProbeView()
+        let coordinator = context.coordinator
         view.onWindow = { window in
             MainActor.assumeIsolated {
                 Self.configure(window)
+                coordinator.observe(window)
+                Self.scheduleSidebarToggleRemoval(for: window)
             }
         }
         Task { @MainActor in
@@ -2049,6 +2129,10 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             // sizes; a user resize inside the range is never touched).
             window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
                                          height: SettingsGeometry.idealHeight))
+            // The split-navigation toolbar may already exist at this
+            // point: strip its standard sidebar toggle immediately (the
+            // observers keep re-checking after later reconfigurations).
+            Self.removeSidebarToggle(from: window)
             // SwiftUI re-asserts its own style mask during scene
             // reconfiguration and drops the resizable bit; hold it. The
             // same first-open moment is where an AppKit frame restore
@@ -2065,6 +2149,7 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
                             window.styleMask.insert(.resizable)
                         }
                         snapIfOutOfRange(window)
+                        Self.removeSidebarToggle(from: window)
                     }
                 }
             )
@@ -2087,6 +2172,9 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             // designed range: snap back to the designed initial size.
             // A user resize inside the range is never touched.
             snapIfOutOfRange(window)
+            // SwiftUI can rebuild the toolbar during a scene update; the
+            // standard sidebar toggle must not come back with it.
+            Self.removeSidebarToggle(from: window)
         }
     }
 

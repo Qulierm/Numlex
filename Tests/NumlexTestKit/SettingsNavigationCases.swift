@@ -26,10 +26,9 @@ public let settingsNavigationCases: [EngineCase] = [
         try expectEqual(switches, 2, "general is the first detail branch")
     },
 
-    EngineCase("settings-nav-seven-destinations-in-order") {
+    EngineCase("settings-nav-six-destinations-in-order") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        let order = ["general", "appearance", "editing", "numbers",
-                     "constantsUnits", "styling", "updates"]
+        let order = ["general", "editing", "numbers", "constantsUnits", "styling", "updates"]
         var last = -1
         for name in order {
             guard let r = text.range(of: "case \(name)\n") else {
@@ -40,6 +39,12 @@ public let settingsNavigationCases: [EngineCase] = [
             try expect(idx > last, "\(name) appears in sidebar order")
             last = idx
         }
+        // r91: Appearance is merged into General — no destination, page,
+        // sidebar row or scaffold reference may remain.
+        try expect(!text.contains("case appearance"), "no appearance destination")
+        try expect(!text.contains("AppearanceSettingsPage"), "no appearance page")
+        try expect(!text.contains("destination: .appearance"), "no appearance scaffold")
+        try expect(!text.contains("settings.appearance\""), "no appearance label key")
         try expectEqual(text.components(separatedBy: "enum SettingsDestination").count - 1, 1,
                         "one destination enum")
         try expect(text.contains("String, CaseIterable, Hashable, Identifiable"),
@@ -53,12 +58,15 @@ public let settingsNavigationCases: [EngineCase] = [
 
     EngineCase("settings-nav-symbols-and-labels") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        for symbol in ["gearshape", "circle.lefthalf.filled", "pencil.tip",
+        for symbol in ["gearshape", "pencil.tip",
                        "number", "function", "paintbrush",
                        "arrow.triangle.2.circlepath"] {
             try expect(text.contains("return \"\(symbol)\""),
                        "sidebar uses the SF Symbol \(symbol)")
         }
+        // The merged General page still owns the appearance/icon art.
+        try expect(text.contains("symbol: \"circle.lefthalf.filled\""),
+                   "the appearance row keeps its SF Symbol inside General")
         try expect(text.contains("Label(L10n.t(item.labelKey, language: language)"),
                    "rows use localized labels")
         try expect(text.contains(".lineLimit(1)"), "labels stay on one line")
@@ -68,10 +76,20 @@ public let settingsNavigationCases: [EngineCase] = [
                     "settings.styling"] {
             try expect(text.contains("\"\(key)\""), "reuses \(key)")
         }
-        for key in ["settings.appearance", "settings.updates",
-                    "settings.constantsUnitsShort"] {
+        for key in ["settings.updatesShort", "settings.constantsUnitsShort"] {
             try expect(text.contains("\"\(key)\""), "adds \(key)")
         }
+        // The Updates page title still uses the FULL localized name while
+        // the sidebar uses the concise one (Italian "Aggiornamenti" did
+        // not fit the narrow sidebar).
+        try expect(text.contains("case .updates: return \"settings.updatesShort\""),
+                   "the Updates sidebar label is the concise key")
+        try expect(text.contains("case .updates: return \"settings.updates\""),
+                   "the Updates page title is the full key")
+        try expectEqual(L10n.t("settings.updatesShort", language: .it), "Aggiorna",
+                        "the Italian sidebar label no longer truncates")
+        try expectEqual(L10n.t("settings.updates", language: .it), "Aggiornamenti",
+                        "the Italian page title keeps the full name")
     },
 
     EngineCase("settings-detail-shared-scaffold") {
@@ -96,11 +114,14 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(!text.contains("NSTitlebarAccessoryViewController"),
                    "no duplicate fake titlebar")
         // Every page routes through the scaffold exactly once.
-        for dest in ["general", "appearance", "updates", "editing",
+        for dest in ["general", "updates", "editing",
                      "constantsUnits", "numbers", "styling"] {
             let needle = "SettingsDetailPage(destination: .\(dest), language: language)"
             try expect(text.contains(needle), "\(dest) uses the shared scaffold")
         }
+        // Exactly SIX scaffolds — the merged Appearance page is gone.
+        try expectEqual(text.components(separatedBy: "SettingsDetailPage(destination: .").count - 1, 6,
+                        "six destinations use the shared scaffold")
     },
 
     EngineCase("settings-ownership-no-duplicates") {
@@ -113,30 +134,39 @@ public let settingsNavigationCases: [EngineCase] = [
             }
             return String(text[a.lowerBound..<b.lowerBound])
         }
-        let general = page("GeneralSettingsPage", until: "AppearanceSettingsPage")
-        let appearance = page("AppearanceSettingsPage", until: "UpdatesSettingsPage")
+        let general = page("GeneralSettingsPage", until: "UpdatesSettingsPage")
         let updates = page("UpdatesSettingsPage", until: "EditingSettingsPage")
         let numbers = page("NumbersSettingsPage", until: "StylingSettingsPage")
+        // The merged page really is one page: no Appearance struct is left.
+        try expect(page("AppearanceSettingsPage", until: "UpdatesSettingsPage").isEmpty,
+                   "no AppearanceSettingsPage remains after the r91 merge")
 
-        // General: language + the three notebook switches, nothing else.
+        // General: language, the Auto/Light/Dark appearance, the icon
+        // chooser AND the three notebook switches — the r91 merge, each
+        // control exactly once.
         for key in ["language", "linenumber", "hideSidebarBtn", "showTotalBar"] {
             try expect(general.contains("L10n.t(\"\(key)\"") || general.contains("L10n.t(\"\(key)\","),
                        "General owns \(key)")
         }
+        try expect(general.contains("model.setAppearance($0)"), "appearance write path")
+        try expect(general.contains("L10n.t(appearanceKey(a)"), "localized theme labels")
+        try expect(general.contains("AppAppearance.uiOrder"), "Auto/Light/Dark order kept")
+        try expect(general.contains("model.setAppIcon($0)"), "icon write path")
+        try expect(general.contains("AppIconPicker("), "icon chooser lives in General")
+        try expect(general.contains("appIconCap"), "Dock/App Switcher scope caption kept")
+        // Exactly once each — the merge must not duplicate a control.
         let generalCode = settingsNavWithoutComments(general)
-        for forbidden in ["model.setAppearance(", "model.setAppIcon(",
-                          "updates.checkNow", "currencyRates"] {
+        try expectEqual(generalCode.components(separatedBy: "model.setAppearance($0)").count - 1, 1,
+                        "one appearance write path in General")
+        try expectEqual(generalCode.components(separatedBy: "model.setAppIcon($0)").count - 1, 1,
+                        "one icon write path in General")
+        try expectEqual(generalCode.components(separatedBy: "AppIconPicker(").count - 1, 1,
+                        "one icon chooser in General")
+        try expectEqual(generalCode.components(separatedBy: "AppAppearance.uiOrder").count - 1, 1,
+                        "one appearance picker in General")
+        for forbidden in ["updates.checkNow", "currencyRates"] {
             try expect(!generalCode.contains(forbidden), "General must not own \(forbidden)")
         }
-        // Appearance: the theme picker and the icon chooser, one write path each.
-        try expect(appearance.contains("model.setAppearance($0)"), "appearance write path")
-        try expect(appearance.contains("L10n.t(appearanceKey(a)"), "localized theme labels")
-        try expect(appearance.contains("model.setAppIcon($0)"), "icon write path")
-        try expect(appearance.contains("AppIconPicker("), "icon chooser lives here")
-        try expect(appearance.contains("AppAppearance.uiOrder"), "Auto/Light/Dark order kept")
-        try expect(appearance.contains("appIconCap"), "Dock/App Switcher scope caption kept")
-        try expect(appearance.contains("RoundedRectangle") == false,
-                   "the icon chooser is the shared card, not its own art")
         // Updates owns Sparkle only.
         try expect(updates.contains("updates.checkNow"), "Updates owns Check Now")
         try expect(!settingsNavWithoutComments(updates).contains("setAppearance("),
@@ -169,12 +199,14 @@ public let settingsNavigationCases: [EngineCase] = [
     },
 
     EngineCase("settings-navigation-localization-complete") {
-        let keys = ["settings.sidebarTitle", "settings.appearance", "settings.updates",
+        let keys = ["settings.sidebarTitle", "settings.updates", "settings.updatesShort",
                     "settings.constantsUnits", "settings.constantsUnitsShort",
-                    "settings.general.subtitle", "settings.appearance.subtitle",
+                    "settings.general.subtitle",
                     "settings.editing.subtitle", "settings.numbers.subtitle",
                     "settings.constantsUnits.subtitle", "settings.styling.subtitle",
-                    "settings.updates.subtitle"]
+                    "settings.updates.subtitle",
+                    // The merged General page's own labels.
+                    "general.interface", "general.notebook", "appearance", "appIcon"]
         for lang in AppLanguage.allCases {
             for key in keys {
                 let value = L10n.t(key, language: lang)
@@ -182,15 +214,28 @@ public let settingsNavigationCases: [EngineCase] = [
                 try expect(!value.isEmpty, "\(lang.rawValue) empty \(key)")
             }
         }
-        // The German/French/Russian/Chinese labels must differ from English
-        // (natural translations, never an English fallback).
-        for lang in [AppLanguage.ru, .de, .fr, .zh] {
-            try expect(L10n.t("settings.appearance", language: lang)
-                       != L10n.t("settings.appearance", language: .en),
-                       "\(lang.rawValue) localizes Appearance")
-            try expect(L10n.t("settings.sidebarTitle", language: lang)
-                       != L10n.t("settings.sidebarTitle", language: .en),
-                       "\(lang.rawValue) localizes the sidebar title")
+        // Every non-English label must differ from English (natural
+        // translations, never an English fallback). r91 includes Italian:
+        // its settings block had been left in Spanish.
+        for lang in [AppLanguage.ru, .de, .fr, .it, .zh] {
+            for key in ["settings.sidebarTitle", "settings.general.subtitle",
+                        "settings.editing.subtitle"] {
+                try expect(L10n.t(key, language: lang) != L10n.t(key, language: .en),
+                           "\(lang.rawValue) localizes \(key)")
+            }
+        }
+        // The Spanish-contaminated Italian settings block is repaired.
+        try expectEqual(L10n.t("settings.sidebarTitle", language: .it), "Impostazioni",
+                        "Italian sidebar title")
+        try expectEqual(L10n.t("settings.updates", language: .it), "Aggiornamenti",
+                        "Italian Updates label")
+        try expect(L10n.t("settings.general.subtitle", language: .it).hasPrefix("Lingua"),
+                   "Italian General subtitle is Italian")
+        // The retired Appearance destination leaves no dead localization key.
+        for lang in AppLanguage.allCases {
+            try expectEqual(L10n.t("settings.appearance.subtitle", language: lang),
+                            "settings.appearance.subtitle",
+                            "no dead appearance subtitle key")
         }
         // German keeps the established loanword "Updates" on purpose.
         try expectEqual(L10n.t("settings.updates", language: .de), "Updates",
@@ -211,9 +256,54 @@ public let settingsNavigationCases: [EngineCase] = [
                    "sidebar width from the shared source")
         try expect(text.contains("ideal: SettingsGeometry.sidebarIdealWidth"), "sidebar ideal")
         try expect(text.contains("max: SettingsGeometry.sidebarMaxWidth"), "sidebar max")
+        // r91 geometry: narrower sidebar, SAME right detail width.
+        for pin in ["minWidth: CGFloat = 640", "idealWidth: CGFloat = 680",
+                    "maxWidth: CGFloat = 760",
+                    "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
+                    "maxHeight: CGFloat = 640",
+                    "sidebarMinWidth: CGFloat = 140",
+                    "sidebarIdealWidth: CGFloat = 146",
+                    "sidebarMaxWidth: CGFloat = 150"] {
+            try expect(text.contains(pin), "r91 geometry keeps \(pin)")
+        }
+        // The invariant that matters to the user: the RIGHT detail column
+        // is byte-for-byte the width the previous 700/166 window gave.
+        try expectEqual(680 - 146, 700 - 166,
+                        "the ideal detail width is unchanged at 534 pt")
         let main = settingsNavSource("Sources/NumlexApp/Views/ContentView.swift")
         try expect(!main.contains("SettingsGeometry"),
                    "the main window never reads the settings geometry")
+    },
+
+    EngineCase("settings-sidebar-toggle-removed") {
+        let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
+        // The sidebar can never be hidden: constant .all visibility.
+        try expect(text.contains("columnVisibility: .constant(.all)"),
+                   "the sidebar visibility is pinned open")
+        // Declarative removal is retained…
+        try expect(text.contains(".toolbar(removing: .sidebarToggle)"),
+                   "declarative toolbar removal retained")
+        // …AND the Settings window removes the standard item through
+        // PUBLIC AppKit only.
+        try expect(text.contains("NSToolbarItem.Identifier.toggleSidebar")
+                   || text.contains("item.itemIdentifier == .toggleSidebar"),
+                   "removes the standard toggleSidebar item identifier")
+        try expect(text.contains("#selector(NSSplitViewController.toggleSidebar(_:))"),
+                   "also matches the native toggleSidebar: action")
+        try expect(text.contains("toolbar.removeItem(at: index)"),
+                   "index-based removal walks every match")
+        try expect(text.contains("NSToolbar.willAddItemNotification"),
+                   "re-checks after SwiftUI (re)builds the toolbar")
+        try expect(text.contains("static func scheduleSidebarToggleRemoval"),
+                   "removal is deferred to the next main-actor turn")
+        let code = settingsNavWithoutComments(text)
+        try expect(!code.contains("window.toolbar = nil"), "never nils the toolbar")
+        try expect(!code.contains("NSWindow.toggleSidebar"), "no private toggle API")
+        try expect(!code.contains("trafficLight"), "no fake traffic lights")
+        // The MAIN window keeps its sidebar affordances.
+        let app = settingsNavSource("Sources/NumlexApp/NumlexApp.swift")
+        try expect(!app.isEmpty, "NumlexApp.swift readable")
+        try expect(app.contains("SidebarCommands()"), "the main window keeps SidebarCommands")
     },
 
     EngineCase("settings-runtime-contracts-unchanged") {
@@ -227,7 +317,10 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(text.contains("model.confirmRegionChange()"), "region confirmation kept")
         try expect(text.contains("presentationBinding"), "presentation bindings kept")
         let localization = settingsNavSource("Sources/NumlexCore/Localization.swift")
-        try expect(localization.contains("\"settings.appearance\""), "label key present")
+        try expect(localization.contains("\"settings.general.subtitle\""),
+                   "the General subtitle key is present")
+        try expect(!localization.contains("\"settings.appearance\"\n"),
+                   "the retired appearance label key is gone")
         // The icon assets/provenance are untouched by this redesign.
         let car = try? Data(contentsOf: settingsNavRepoRoot()
             .appendingPathComponent("Assets/AppIcon.compiled/Assets.car"))

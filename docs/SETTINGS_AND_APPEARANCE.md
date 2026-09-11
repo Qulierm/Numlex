@@ -5,14 +5,13 @@ current `main` branch. It is written for authors of the published
 documentation: every claim here is pinned by the Swift source and the
 canonical engine tests. Released builds may lag behind `main`.
 
-Settings are organized into **five native tabs**, each one readable column of
+Settings are organized into **six native sidebar pages**, each one readable column of
 grouped rows with native switches, pickers and sliders. Nothing here is
 cloud-synced; every preference is stored on your Mac.
 
 | Destination | Icon | Owns |
 | --- | --- | --- |
-| **General** | gear | Interface language and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
-| **Appearance** | half-filled circle | Auto / Light / Dark theme and the Dock / App Switcher application icon |
+| **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon, and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
 | **Editing** | pencil tip | Operator helpers and automatic insertions — everything that rewrites text as you type |
 | **Numbers** | number | Regional number format, paste conversion, how answers are displayed and copied, currency-rate attribution |
 | **Constants & Units** | function | Global constants and custom units (one segmented surface) |
@@ -20,23 +19,29 @@ cloud-synced; every preference is stored on your Mac.
 | **Updates** | circular arrows | Check for updates now and the automatic-check schedule (never part of `.nlx`) |
 
 The window is a native split navigation: an always-visible category sidebar on the
-left (148–172 pt) plus ONE focused detail page on the right, with the page title and
-a one-line subtitle above the grouped cards. The content range is 660–780 × 500–640 pt
-(ideal 700 × 540) and each page scrolls on its own; the selected category is
+left (140–150 pt) plus ONE focused detail page on the right, with the page title and
+a one-line subtitle above the grouped cards. The content range is 640–760 × 500–640 pt
+(ideal 680 × 540) and each page scrolls on its own; the selected category is
 session-only and is never persisted into the settings store.
 
-The native window title stays "Settings"; the detail page heading is the selected
-category.
+The sidebar is always visible — there is no show/hide toggle: the Settings window
+removes the standard sidebar-toggle toolbar item (public AppKit only), so the round
+button cannot hide the only navigation control. The native window title stays
+"Settings"; the detail page heading is the selected category.
 
 ## General
+
+r91 merged the former Appearance page into General: language, appearance,
+application icon and notebook behaviour are now one page, each control with exactly
+one home.
 
 ### Interface
 
 | Control | Values | Notes |
 | --- | --- | --- |
 | Interface language | the app's shipped languages | Localizes the UI only — it never changes the numeric format. |
-| Appearance (Appearance page) | Auto / Light / Dark | Applies to the whole app immediately (one persisted settings write). **Auto** follows the macOS appearance live: the process appearance is released to the system (`NSApp.appearance = nil`, no SwiftUI scheme override), so window chrome, native menus, Liquid Glass surfaces, the answer palettes and the TextKit editor repaint when macOS switches Light ↔ Dark. **Light** and **Dark** pin the app and ignore system changes. The default for a fresh or legacy store is Light; Auto is an explicit choice and roundtrips. |
-| Application icon (Appearance page) | Dark / Light | The **Dock and App Switcher** icon only. Dark (the default) is the signed bundle icon — the modern Liquid Glass `Assets.car` primary; Light is the alternate icon shipped inside the app. Switching applies immediately and is remembered across launches, and it is color/image only: it never changes the Finder icon of the installed bundle, the code signature, the window geometry, the caret/selection or any document. Mirrors: the app never writes a Finder icon (`NSWorkspace.setIcon` is not used), so update trust and permissions stay intact. Implementation: both choices come from the SAME modern Liquid Glass catalog compiled into the app (`Assets.car` carries the `AppIcon` and alternate `AppIconLight` iconstacks), so Light and Dark share one rendition ladder and one 128 pt logical size — the Light ICNS shipped in the resources is used only by development builds without `Assets.car` and is normalized to the same logical size in memory. |
+| Appearance | Auto / Light / Dark | Applies to the whole app immediately (one persisted settings write). **Auto** follows the macOS appearance live: the process appearance is released to the system (`NSApp.appearance = nil`, no SwiftUI scheme override), so window chrome, native menus, Liquid Glass surfaces, the answer palettes and the TextKit editor repaint when macOS switches Light ↔ Dark. **Light** and **Dark** pin the app and ignore system changes. The default for a fresh or legacy store is Light; Auto is an explicit choice and roundtrips. |
+| Application icon | Dark / Light | The **Dock and App Switcher** icon only. Dark (the default) is the signed bundle icon — the modern Liquid Glass `Assets.car` primary; Light is the alternate icon shipped inside the app. Switching applies immediately and is remembered across launches, and it is color/image only: it never changes the Finder icon of the installed bundle, the code signature, the window geometry, the caret/selection or any document. Mirrors: the app never writes a Finder icon (`NSWorkspace.setIcon` is not used), so update trust and permissions stay intact. Implementation: both choices come from the SAME modern Liquid Glass catalog compiled into the app (`Assets.car` carries the `AppIcon` and alternate `AppIconLight` iconstacks), so Light and Dark share one rendition ladder and one 128 pt logical size. Dark is applied deterministically through the named `AppIcon` asset (`NSImage(named:)`); the Light ICNS shipped in the resources is used only by development builds without `Assets.car` and is normalized to the same logical size in memory. The launch capture happens before any persisted choice is applied, so a persisted Light can never be mistaken for the bundle default and Dark always restores the real primary icon. |
 
 ### Notebook
 

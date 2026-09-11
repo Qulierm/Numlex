@@ -46,6 +46,20 @@ enum AppIconResources {
     /// user switches.
     static let alternateCatalogIconName = "AppIconLight"
 
+    /// The PRIMARY modern iconstack name (the bundle's own `AppIcon`).
+    /// r91: Dark is applied through this named asset instead of relying on
+    /// AppKit's null reset, so "Dark" is always the real primary icon and
+    /// can never accidentally reinstall a previously applied alternate.
+    static let primaryCatalogIconName = "AppIcon"
+
+    /// The primary Dark application icon: the named modern `AppIcon` asset
+    /// from the main bundle's Assets.car (identical geometry to
+    /// `AppIconLight`). Nil in a build without Assets.car (e.g. `swift run`),
+    /// where the controller falls back to the captured bundle image.
+    static func darkCatalogIcon() -> NSImage? {
+        NSImage(named: NSImage.Name(primaryCatalogIconName))
+    }
+
     /// The alternate Light application icon: the named modern asset first,
     /// the committed ICNS only as a development/failure fallback (a build
     /// without Assets.car, e.g. `swift run`).
@@ -115,19 +129,21 @@ enum AppIconResources {
 /// no `NSWorkspace.setIcon`, no Finder metadata, no bundle mutation, so
 /// permissions, the code signature and update trust stay intact.
 ///
-/// `.light` applies the exact packaged alternate ICNS. `.dark` restores
-/// the bundle default through AppKit's null-resettable contract
-/// (`applicationIconImage = nil` → the current primary bundle icon,
-/// including the modern `Assets.car` rendition). Should a host fail to
-/// take the null reset, the controller falls back to the icon image
-/// AppKit itself resolved at launch — never a hand-rasterized
-/// substitute.
+/// `.dark` applies the exact primary named `AppIcon` asset from the main
+/// bundle's Assets.car (r91 — deterministic, and never a previously
+/// applied alternate). When that named asset is unavailable (a build
+/// without Assets.car, e.g. `swift run`) the controller applies the icon
+/// image AppKit itself resolved from the bundle at launch — captured
+/// BEFORE any alternate can be applied — and only as a last resort
+/// falls back to AppKit's null reset, which means "the current primary
+/// bundle icon".
 @MainActor
 enum AppIconController {
     /// The last value this controller applied to the process.
     private static var applied: AppIconChoice?
-    /// The icon image AppKit resolved from the bundle at launch (may be
-    /// nil, which is itself the bundle default).
+    /// The PRIMARY bundle icon captured at launch (the named modern
+    /// `AppIcon` when the catalog is present, otherwise AppKit's own
+    /// bundle image). Never an alternate the model applied first.
     private static var launchIcon: NSImage?
     /// The logical side the icon must be drawn at: the bundle default's own
     /// size (128 pt on macOS 26), so every path agrees with Dark.
@@ -137,11 +153,13 @@ enum AppIconController {
     }
     private static var didCaptureLaunchIcon = false
 
-    /// Captures the bundle-resolved icon ONCE, before any user choice is
-    /// applied. Safe to call repeatedly.
+    /// Captures the PRIMARY bundle icon ONCE, before any user choice is
+    /// applied. The named modern `AppIcon` asset is authoritative; a build
+    /// without Assets.car falls back to whatever AppKit resolved from the
+    /// bundle. Safe to call repeatedly.
     static func captureLaunchIcon() {
         guard !didCaptureLaunchIcon, let app = NSApp else { return }
-        launchIcon = app.applicationIconImage
+        launchIcon = AppIconResources.darkCatalogIcon() ?? app.applicationIconImage
         didCaptureLaunchIcon = true
     }
 
@@ -153,7 +171,7 @@ enum AppIconController {
         guard choice != applied else { return true }
         switch choice {
         case .dark:
-            restoreBundleDefault(app)
+            restorePrimaryBundleIcon(app)
             applied = .dark
             return true
         case .light:
@@ -174,13 +192,24 @@ enum AppIconController {
         Persistence.load()?.settings.appIcon ?? .dark
     }
 
-    /// AppKit's null-resettable bundle default, with the documented
-    /// fallback for a host where the null reset does not take effect.
-    private static func restoreBundleDefault(_ app: NSApplication) {
-        app.applicationIconImage = nil
-        if let launchIcon, !iconsMatch(app.applicationIconImage, launchIcon) {
-            app.applicationIconImage = launchIcon
+    /// The primary Dark icon, resolved in production order:
+    /// 1. the named modern `AppIcon` asset (same catalog path and 128 pt
+    ///    geometry as `AppIconLight`) — the deterministic production path;
+    /// 2. the bundle icon captured at launch BEFORE any alternate was
+    ///    applied (a build without Assets.car, e.g. `swift run`);
+    /// 3. AppKit's null-resettable bundle default as the last resort.
+    /// A previously applied alternate can therefore never come back as
+    /// "Dark": the capture already happened, and the named asset wins.
+    private static func restorePrimaryBundleIcon(_ app: NSApplication) {
+        if let primary = AppIconResources.darkCatalogIcon() {
+            app.applicationIconImage = primary
+            return
         }
+        if let launchIcon {
+            app.applicationIconImage = launchIcon
+            return
+        }
+        app.applicationIconImage = nil
     }
 
     /// Whether two icon images are the same rendered glyph — compared

@@ -426,6 +426,78 @@ public let appIconAppearanceCases: [EngineCase] = [
         }
     },
 
+    EngineCase("icon-dark-restore-lifecycle-source") {
+        guard let model = appIconSource("Sources/NumlexApp/AppModel.swift") else {
+            throw CaseFailure(message: "AppModel missing", location: "AppIconCases")
+        }
+        guard let icon = appIconSource("Sources/NumlexApp/AppIconController.swift") else {
+            throw CaseFailure(message: "AppIconController missing", location: "AppIconCases")
+        }
+        guard let root = appIconSource("Sources/NumlexApp/NumlexApp.swift") else {
+            throw CaseFailure(message: "NumlexApp.swift missing", location: "AppIconCases")
+        }
+        // THE regression: the model must never apply an icon while it is
+        // being constructed. The App struct builds AppModel() before
+        // applicationDidFinishLaunching, so an init apply installed the
+        // persisted LIGHT icon before the delegate captured, the capture
+        // then recorded Light as "the bundle default", and the Dark
+        // restore reinstalled it forever.
+        let modelCode = withoutComments(model)
+        try expectEqual(modelCode.components(separatedBy: "AppIconController").count - 1, 1,
+                        "the model touches AppIconController exactly once")
+        if let setter = modelCode.range(of: "func setAppIcon(_ choice: AppIconChoice)"),
+           let use = modelCode.range(of: "AppIconController"),
+           let initStart = modelCode.range(of: "init(") {
+            try expect(use.lowerBound > setter.lowerBound,
+                       "the model's only icon call is the user-change path")
+            try expect(!(initStart.lowerBound..<setter.lowerBound).contains(use.lowerBound),
+                       "AppModel.init must not apply an application icon")
+        }
+        try expect(modelCode.contains("AppAppearanceController.apply(appearance)"),
+                   "the appearance re-application stays in the model")
+        try expect(model.contains("func setAppIcon(_ choice: AppIconChoice)"),
+                   "the user-change path survives")
+        // Both iconstacks are separately named and separately resolved.
+        try expect(icon.contains("static let primaryCatalogIconName = \"AppIcon\""),
+                   "the primary catalog name is AppIcon")
+        try expect(icon.contains("static func darkCatalogIcon() -> NSImage?"),
+                   "a named Dark resolver exists")
+        try expect(icon.contains("NSImage(named: NSImage.Name(primaryCatalogIconName))"),
+                   "Dark resolves through the named primary asset")
+        try expect(icon.contains("static func lightCatalogIcon() -> NSImage?"),
+                   "the Light resolver stays")
+        try expect(icon.contains("static let alternateCatalogIconName = \"AppIconLight\""),
+                   "the alternate catalog name is AppIconLight")
+        // The launch capture prefers the NAMED primary asset, and only
+        // then whatever AppKit itself resolved from the bundle — never a
+        // previously applied alternate.
+        try expect(icon.contains("launchIcon = AppIconResources.darkCatalogIcon() ?? app.applicationIconImage"),
+                   "capture prefers the named primary AppIcon")
+        // The Dark restore is deterministic and ordered: named primary
+        // asset, then the captured primary, then the null reset LAST.
+        guard let restore = icon.range(of: "private static func restorePrimaryBundleIcon") else {
+            throw CaseFailure(message: "restorePrimaryBundleIcon missing", location: "AppIconCases")
+        }
+        let body = String(icon[restore.lowerBound...].prefix(1_200))
+        guard let named = body.range(of: "AppIconResources.darkCatalogIcon()"),
+              let captured = body.range(of: "app.applicationIconImage = launchIcon"),
+              let nullReset = body.range(of: "app.applicationIconImage = nil") else {
+            throw CaseFailure(message: "Dark restore is missing a fallback stage",
+                              location: "AppIconCases")
+        }
+        try expect(named.lowerBound < captured.lowerBound
+                   && captured.lowerBound < nullReset.lowerBound,
+                   "Dark restore order: named AppIcon, captured primary, null reset last")
+        // The delegate owns the launch lifecycle: capture, then apply.
+        let rootCode = withoutComments(root)
+        guard let capture = rootCode.range(of: "AppIconController.captureLaunchIcon()"),
+              let apply = rootCode.range(of: "AppIconController.apply(AppIconController.persistedChoice())") else {
+            throw CaseFailure(message: "delegate icon lifecycle missing", location: "AppIconCases")
+        }
+        try expect(capture.lowerBound < apply.lowerBound,
+                   "the delegate captures the true primary before applying the choice")
+    },
+
     EngineCase("appearance-controller-source-invariants") {
         guard let ctl = appIconSource("Sources/NumlexApp/AppAppearanceController.swift") else {
             throw CaseFailure(message: "AppAppearanceController missing", location: "AppIconCases")

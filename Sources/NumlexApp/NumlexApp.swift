@@ -15,9 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppAppearanceController.apply(
             AppAppearanceController.persistedAppearance())
         // The icon capture must happen BEFORE the persisted choice is
-        // applied: it records the icon AppKit itself resolved from the
-        // bundle, which is the documented fallback if a host's null reset
-        // (`applicationIconImage = nil`) does not take visual effect.
+        // applied: it records the PRIMARY bundle icon (the named modern
+        // `AppIcon` asset, or AppKit's own bundle image), which is the
+        // fallback when Assets.car is unavailable. It can never record a
+        // previously applied alternate, because AppModel.init no longer
+        // applies the icon (r91) — the delegate owns this lifecycle.
         AppIconController.captureLaunchIcon()
         AppIconController.apply(AppIconController.persistedChoice())
         // r77b: instrumented motion-evidence harness — inert unless the

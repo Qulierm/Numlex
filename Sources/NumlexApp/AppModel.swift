@@ -412,15 +412,18 @@ final class AppModel {
         // the time the scene builds this model, so the first visible
         // frame always matches the persisted choice (this init runs on
         // the main actor — the App struct creates the model there).
+        //
+        // r91: the APPEARANCE only. The application icon is NOT touched
+        // here: the App struct can build this model BEFORE
+        // applicationDidFinishLaunching, so an apply() from init could
+        // install the persisted alternate icon before the delegate
+        // captured the bundle default — the delegate then recorded that
+        // alternate as the launch icon, and the Dark restore reinstalled
+        // it forever (the Light-locked bug). The delegate owns the icon
+        // lifecycle: capture the true primary default, then apply.
         let appearance = settings.appearance
-        let icon = settings.appIcon
         MainActor.assumeIsolated {
             AppAppearanceController.apply(appearance)
-            // The AppDelegate already captured the launch icon and applied
-            // the same choice; this is the idempotent re-application that
-            // guarantees the first visible frame matches the persisted
-            // store even when the scene builds the model first.
-            AppIconController.apply(icon)
         }
         // r77: seed the answer appearance state with the loaded sheet's
         // lines — initial load never plays insertion animations.
