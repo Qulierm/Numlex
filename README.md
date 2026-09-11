@@ -221,10 +221,11 @@ file from the File menu, and drag a sheet onto a folder tab to re-file it.
 ## Download
 
 - macOS 26 or later, Apple Silicon (arm64).
-- 4.8.0 is the current release and the first with secure in-app updates: it can
-  check, verify and install later versions itself. Users still on 4.7.0 or
-  earlier install 4.8.0 manually once, then update in-app. See
-  [docs/UPDATES.md](docs/UPDATES.md).
+- 4.8.1 is the current release. 4.8.0 was the first release with secure in-app
+  updates, so anyone on 4.8.0 or later (including 4.8.0 itself) can check,
+  verify and install later versions in the app; users still on 4.7.0 or earlier
+  have no updater and install the current release manually once, then update
+  in-app. See [docs/UPDATES.md](docs/UPDATES.md).
 - Download the `.dmg` from the [latest release](https://github.com/Qulierm/Numlex/releases/latest),
   open it, and drag **Numlex.app** into Applications.
 - Numlex is ad-hoc signed and **not notarized**. On first launch, Control-click (or

@@ -25,8 +25,9 @@ truth that the website is verified against.
 ## `main` versus releases
 
 Both documents track the current `main` branch. Released builds may lag behind
-it: 4.8.0 is the current release and the first one with secure in-app updates
-(4.7.0 and earlier must be installed manually once). When a guide mentions a
+it: 4.8.1 is the current release; 4.8.0 was the first one with secure in-app
+updates, so 4.8.0 and later update in-app while 4.7.0 and earlier must install
+the current release manually once. When a guide mentions a
 behaviour newer than the released build, it says so explicitly.
 
 ## Updating the documentation

@@ -32,7 +32,7 @@ private func updateRepoFile(_ rel: String) -> String? {
 private func updateSourceInfo() -> [String: Any] {
     [
 
-    "CFBundleVersion": "4.8.0",
+    "CFBundleVersion": "4.8.1",
     "SUFeedURL": "https://numlex.tech/appcast.xml",
     "SUPublicEDKey": "0DwkW0VipX8QYmJ+AcX8xN/lsaweS3WXO68L9Mrc4Vo=",
     "SUVerifyUpdateBeforeExtraction": true,
