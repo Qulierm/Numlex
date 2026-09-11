@@ -88,13 +88,18 @@ splash or sleep.
 
 Pressing Get Started records a versioned completion marker (`welcome-v1`) in the
 app's data directory — the same directory as `store.json`, and the one
-`--data-dir` redirects — mounts the notebook BENEATH the welcome and slides the
-welcome panel fully up out of the content bounds over ~0.75 s (a top-edge move,
-clipped), progressively revealing the real sidebar and editor. The actual
-NSWindow, its titlebar, traffic lights and screen frame are never touched or
-animated. Pointer events are blocked until the curtain settles, and the editor
-receives focus only after it has cleared. Under Reduce Motion the welcome is
-removed immediately with no slide or delay.
+`--data-dir` redirects — and then performs the reveal in three explicit steps:
+the notebook mounts BENEATH the still-covering welcome (not animated), the next
+runloop turn starts an animated vertical OFFSET that slides the welcome panel
+fully up out of the clipped content bounds over 0.75 s on a soft acceleration
+curve (a restrained shadow rides the panel's bottom edge for depth), and once
+the travel time has elapsed the welcome is dropped for good and the editor takes
+focus. The panel keeps its identity throughout — the slide is never a transition
+attached to a newly inserted branch — and the actual NSWindow, its titlebar,
+traffic lights and screen frame are never touched, moved or animated. Pointer
+events are blocked while the panel is moving, and focus is requested only after
+it has cleared. Under Reduce Motion the welcome is removed immediately: no
+mount step, no animation, no delay, then focus.
 
 If the marker cannot be written the app still opens for that session and shows
 the bloom again later. Existing users are never onboarded: any prior artifact —

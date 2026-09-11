@@ -39,8 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// r98: the curtain timing, in one place (shared by the animation and the
 /// completion task so they can never disagree).
 enum RevealTiming {
+    /// The curtain's upward travel (soft acceleration, no overshoot).
     static let duration: Double = 0.75
-    static let durationNanoseconds: UInt64 = 750_000_000
+    static let animation: Animation = .timingCurve(0.55, 0, 0.3, 1, duration: duration)
+    /// The completion wait is the travel duration plus one frame of slack,
+    /// so the removal happens strictly after the panel has cleared.
+    static let travelNanoseconds: UInt64 = 800_000_000
 }
 
 @main
@@ -59,6 +63,11 @@ struct NumlexApp: App {
     /// welcome panel slides fully upward inside the fixed native window.
     /// The NSWindow itself is never moved or resized.
     @State private var revealStage: RevealStage = .welcome
+    /// r98: drives the curtain's upward travel. The welcome panel keeps its
+    /// IDENTITY through the whole reveal (it is never re-created), and this
+    /// offset — animated inside an explicit `withAnimation` — moves it fully
+    /// out of the clipped content bounds. The NSWindow is never touched.
+    @State private var curtainLifted = false
     /// The pending curtain completion (cancelled when the window closes).
     @State private var curtainTask: Task<Void, Never>?
 
@@ -105,25 +114,40 @@ struct NumlexApp: App {
     /// sheet, and it never touches the NSWindow frame.
     private func beginReveal() {
         _ = FirstLaunch.markCompleted(in: Persistence.dataDirectory())
-        withAnimation(revealAnimation) { revealStage = .revealing }
-        // The hand-off runs only AFTER the curtain has cleared, so focus is
-        // never requested while the editor is still covered.
+        // Under Reduce Motion the welcome is removed immediately: no mount
+        // step, no slide, no delay, and the editor then takes focus.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            revealStage = .app
+            focusSelectedEditor()
+            return
+        }
+        // 1) Mount the editor BENEATH the still-covering welcome. This step
+        //    is deliberately NOT animated: it only changes what exists.
         curtainTask?.cancel()
+        revealStage = .revealing
         curtainTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: RevealTiming.durationNanoseconds)
+            // 2) Let that insertion commit in its own frame, so the slide
+            //    below animates an ALREADY-PRESENT view (its identity is
+            //    stable throughout) instead of a newly inserted branch.
+            await Task.yield()
+            guard !Task.isCancelled, revealStage == .revealing else { return }
+            withAnimation(RevealTiming.animation) { curtainLifted = true }
+            // 3) Once the panel is fully out of the content bounds, drop it
+            //    definitively and hand the keyboard focus to the editor.
+            try? await Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)
             guard !Task.isCancelled else { return }
             revealStage = .app
-            if let id = model.selectedSheet?.id {
-                model.focusSheetID = id
-            }
+            focusSelectedEditor()
         }
     }
 
-    /// Reduce Motion removes the curtain immediately: no slide, no delay.
-    private var revealAnimation: Animation? {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            ? nil
-            : .timingCurve(0.55, 0, 0.3, 1, duration: RevealTiming.duration)
+    /// Transient one-shot focus request for the EXISTING selection (the same
+    /// mechanism freshly created sheets use); consumed by the editor and
+    /// never persisted. Only ever called once the editor is visible.
+    private func focusSelectedEditor() {
+        if let id = model.selectedSheet?.id {
+            model.focusSheetID = id
+        }
     }
 
     // r38: the SwiftUI side of the one appearance mechanism. Both scene
@@ -151,20 +175,27 @@ struct NumlexApp: App {
             WelcomeView(language: model.settings.language,
                         onGetStarted: beginReveal)
         case .revealing:
-            ZStack {
-                // Mounted immediately BEFORE the removal animation, so the
-                // slide progressively reveals the real interface from the
-                // bottom up. Pointer events are blocked until it settles.
-                ContentView(model: model)
-                    .allowsHitTesting(false)
-                WelcomeView(language: model.settings.language,
-                            onGetStarted: {})
-                    .transition(.asymmetric(
-                        insertion: .identity,
-                        removal: .move(edge: .top)))
-                    .zIndex(1)
+            // ONE stable ZStack for the whole reveal: the editor mounts
+            // beneath and the welcome panel keeps its identity while the
+            // `curtainLifted` offset slides it fully out of the clipped
+            // content bounds. No transition is attached to a branch, so the
+            // slide cannot depend on insertion timing.
+            GeometryReader { geo in
+                ZStack {
+                    ContentView(model: model)
+                        // The editor may render underneath but must not take
+                        // pointer events until the curtain has settled.
+                        .allowsHitTesting(false)
+                    WelcomeView(language: model.settings.language,
+                                onGetStarted: {})
+                        .offset(y: curtainLifted ? -geo.size.height : 0)
+                        .shadow(color: .black.opacity(curtainLifted ? 0 : 0.28),
+                                radius: 10, y: 4)
+                        .zIndex(1)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
             }
-            .clipped()
         case .app:
             ContentView(model: model)
         }

@@ -230,10 +230,10 @@ staged animation at all.
 
 Pressing Get Started records a small versioned marker (`welcome-v1`) in the
 app's data directory (separate from your settings and sheets), mounts the
-notebook underneath and slides the welcome panel up out of the window like a
-curtain — the window itself never moves, resizes or loses its titlebar. The
-notebook, its sidebar and TextKit are not created behind the welcome, and focus
-lands in the editor only after the curtain has cleared.
+notebook underneath and then slides the welcome panel up out of the content
+bounds like a curtain over 0.75 s — the window itself never moves, resizes or
+loses its titlebar. The notebook, its sidebar and TextKit are not created behind
+the welcome, and focus lands in the editor only after the curtain has cleared.
 
 Existing installs never see the bloom: any prior artifact — the store (even
 corrupt or unreadable), the currency-rate cache, the weather cache or the

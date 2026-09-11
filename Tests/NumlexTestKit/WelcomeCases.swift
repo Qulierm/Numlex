@@ -129,34 +129,68 @@ public let welcomeCases: [EngineCase] = [
 
     EngineCase("welcome-curtain-reveal-contract") {
         let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
-        // Three stages, and the editor only exists from `.revealing` on.
+        // Three stages; the editor only exists from `.revealing` on.
         for stage in ["case welcome, revealing, app", "case .welcome:",
                       "case .revealing:", "case .app:"] {
             try expect(app.contains(stage), "stage \(stage)")
         }
-        try expect(app.contains("ContentView(model: model)\n                    .allowsHitTesting(false)"),
-                   "the editor mounts beneath but cannot take pointer events")
-        try expect(app.contains(".transition(.asymmetric(") && app.contains("removal: .move(edge: .top)"),
-                   "the curtain leaves by moving up")
+        // ONE stable ZStack for the reveal: the welcome keeps its identity
+        // and is moved by an animated OFFSET, never by a transition attached
+        // to a freshly inserted branch.
+        try expect(app.contains("GeometryReader { geo in") && app.contains("ZStack {"),
+                   "the reveal is one stable container")
+        try expect(app.contains("WelcomeView(language: model.settings.language,\n                                onGetStarted: {})"),
+                   "the same welcome view instance stays mounted during the reveal")
+        try expect(app.contains(".offset(y: curtainLifted ? -geo.size.height : 0)"),
+                   "the panel travels fully out of the bounds via an offset")
+        try expect(!app.contains("removal: .move(edge: .top)"),
+                   "no transition attached to an inserted branch")
+        try expect(!app.contains("withAnimation(revealAnimation) { revealStage = .revealing }"),
+                   "the mount step is not the animated step")
+        try expect(app.contains("ContentView(model: model)\n                        // The editor may render underneath but must not take"),
+                   "the editor mounts beneath")
+        try expect(app.contains(".allowsHitTesting(false)"),
+                   "the editor cannot take pointer events while covered")
         try expect(app.contains(".clipped()"), "the slide is clipped to the content bounds")
-        try expect(app.contains("withAnimation(revealAnimation) { revealStage = .revealing }"),
-                   "one animated stage change")
-        try expect(app.contains("enum RevealTiming") && app.contains("duration: Double = 0.75"),
-                   "the curtain duration is one bounded constant")
-        try expect(app.contains("Task.sleep(nanoseconds: RevealTiming.durationNanoseconds)"),
-                   "completion is scheduled by the same constant")
+        try expect(app.contains(".shadow(color: .black.opacity(curtainLifted ? 0 : 0.28)"),
+                   "a restrained bottom-edge shadow on the moving panel")
+        // The transaction order: mount, yield a frame, animate the offset,
+        // wait the travel time, then remove and focus.
+        guard let mount = app.range(of: "revealStage = .revealing")?.lowerBound,
+              let yield = app.range(of: "await Task.yield()")?.lowerBound,
+              let animate = app.range(of: "withAnimation(RevealTiming.animation) { curtainLifted = true }")?.lowerBound,
+              let wait = app.range(of: "Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)")?.lowerBound,
+              let remove = app.range(of: "revealStage = .app", range: wait..<app.endIndex)?.lowerBound else {
+            throw CaseFailure(message: "curtain transaction steps missing", location: "Welcome")
+        }
+        try expect(mount < yield && yield < animate && animate < wait && wait < remove,
+                   "mount -> yield -> animated offset -> wait -> remove, in order")
+        // The completion wait covers the travel (0.75 s) with a frame of slack.
+        try expect(app.contains("static let duration: Double = 0.75"), "0.75 s travel")
+        try expect(app.contains("static let travelNanoseconds: UInt64 = 800_000_000"),
+                   "the removal waits 800 ms")
+        try expect(app.contains(".timingCurve(0.55, 0, 0.3, 1, duration: duration)"),
+                   "the soft acceleration curve")
         try expect(app.contains("guard !Task.isCancelled else { return }"),
                    "the completion task is cancellation-safe")
-        // Focus is handed over only AFTER the curtain clears.
-        guard let finish = app.range(of: "revealStage = .app") else {
-            throw CaseFailure(message: "no completion stage", location: "Welcome")
+        try expect(app.contains("guard !Task.isCancelled, revealStage == .revealing else { return }"),
+                   "the animation step is guarded too")
+        // Focus only after the panel has cleared.
+        let tail = String(app[remove...].prefix(300))
+        try expect(tail.contains("focusSelectedEditor()"),
+                   "focus is requested after the removal")
+        try expect(app.contains("private func focusSelectedEditor()"), "one focus helper")
+        // Reduce Motion removes the welcome immediately, with no mount step,
+        // no animation and no sleep.
+        guard let rm = app.range(of: "if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {"),
+              let rmEnd = app.range(of: "return", range: rm.upperBound..<app.endIndex) else {
+            throw CaseFailure(message: "reduce-motion branch missing", location: "Welcome")
         }
-        let tail = String(app[finish.upperBound...].prefix(300))
-        try expect(tail.contains("model.focusSheetID = id"),
-                   "focus is requested after the curtain has cleared")
-        // Reduce Motion drops the curtain without a slide or a delay.
-        try expect(app.contains("NSWorkspace.shared.accessibilityDisplayShouldReduceMotion"),
-                   "Reduce Motion drives the curtain animation")
+        let branch = String(app[rm.upperBound..<rmEnd.lowerBound])
+        try expect(branch.contains("revealStage = .app"), "removed immediately")
+        try expect(branch.contains("focusSelectedEditor()"), "focus immediately")
+        try expect(!branch.contains("withAnimation"), "no animation under Reduce Motion")
+        try expect(!branch.contains("Task.sleep"), "no delay under Reduce Motion")
         // The NSWindow frame is never animated.
         for banned in ["setFrame", "setFrameOrigin", "animator()"] {
             try expect(!app.contains(banned), "no window frame API: \(banned)")
