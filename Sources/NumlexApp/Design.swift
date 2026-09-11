@@ -269,42 +269,32 @@ enum Design {
     /// so they repaint live on Light/Dark switch.
     static var panelSeparator: NSColor { .separatorColor }
 
-    // MARK: Sidebar glass tones (r52)
+    // MARK: Sidebar glass wash (r52 / fixed for the Tahoe renderer)
     //
-    /// Bridge from the pure core resolver (SidebarGlassTone) into a
-    /// live NSColor: re-resolves through the EFFECTIVE pinned
-    /// appearance (NSApp.appearance) on every Light/Dark switch, the
-    /// same mechanism as the r38/r50 adaptive tokens above. The RGBA
-    /// VALUES live in NumlexCore so the semantics are unit tested;
-    /// this file only wraps them for SwiftUI.
-    private static func sidebarGlassNSColor(_ role: SidebarGlassTone.Role) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let t = SidebarGlassTone.tint(
-                role, isDark: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-            return NSColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: t.alpha)
-        }
+    /// The sidebar surfaces draw ONE untinted Liquid Glass layer with a
+    /// deterministic *wash* as a normal shape fill underneath. The wash
+    /// never goes through `Glass.tint`: on macOS 26/27 the new renderer
+    /// interpreted an alpha-bearing tint as tint strength and turned the
+    /// 4% Light graphite wash into a near-solid gray (~RGB 96) on some
+    /// surfaces while others kept a different resolution.
+    ///
+    /// Resolution is per render: callers pass the SwiftUI environment's
+    /// `colorScheme`, so a Light/Dark switch can never keep a cached
+    /// static branch. The RGBA VALUES live in NumlexCore
+    /// (`SidebarGlassTone`) so the semantics stay unit tested.
+    static func sidebarWash(_ role: SidebarGlassTone.Role, isDark: Bool) -> Color {
+        let t = SidebarGlassTone.wash(role, isDark: isDark)
+        return Color(.sRGB, red: t.red, green: t.green, blue: t.blue, opacity: t.alpha)
     }
-
-    /// Glass tint for the selected/action surfaces: the full-width New
-    /// Sheet button, selected sheet rows and the active General/folder
-    /// tab. Light: neutral graphite 4% (visible against the white
-    /// sidebar) / Dark: the historical white 10% glass.
-    static let sidebarGlassTint: Color = Color(nsColor: sidebarGlassNSColor(.selected))
-
-    /// Glass tint for the sheet-drop highlight on rows and tabs:
-    /// Light: calm accent blue 12% (clearly stronger than selected)
-    /// / Dark: the historical white 22% glass.
-    static let sidebarDropTint: Color = Color(nsColor: sidebarGlassNSColor(.dropTarget))
 
     /// Hairline that follows each existing glass shape (stroke only —
     /// never a second material). Light: 10% dark 1 pt boundary so the
-    /// 4% tint reads against pure white; Dark: clear, leaving the
+    /// 4% wash reads against pure white; Dark: clear, leaving the
     /// historical white glass visually unchanged.
-    static let sidebarGlassBoundary: Color = Color(nsColor: NSColor(name: nil) { appearance in
-        let t = SidebarGlassTone.boundary(
-            isDark: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-        return NSColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: t.alpha)
-    })
+    static func sidebarGlassBoundary(isDark: Bool) -> Color {
+        let t = SidebarGlassTone.boundary(isDark: isDark)
+        return Color(.sRGB, red: t.red, green: t.green, blue: t.blue, opacity: t.alpha)
+    }
 
     // MARK: Editor geometry
 

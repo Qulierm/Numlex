@@ -147,15 +147,12 @@ struct SidebarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive().tint(Design.sidebarGlassTint),
-                        in: sidebarButtonShape)
-            // r52: one theme-aware hairline following the button's own
-            // shape — Light reads a subtle dark boundary against the
-            // white sidebar, Dark resolves clear. Stroke only: no
-            // second material, no hit-testing, no layout change.
-            .overlay(sidebarButtonShape
-                .strokeBorder(Design.sidebarGlassBoundary, lineWidth: 1)
-                .allowsHitTesting(false))
+            // r52 (Tahoe fix): the SAME single-glass-surface primitive the
+            // sheet rows and folder tabs use — one untinted Liquid Glass
+            // layer with the graphite wash composited underneath by a
+            // normal shape fill. No direct `.tint` path, no second
+            // material, no hit-testing change, no layout change.
+            .modifier(SidebarGlassSurface(role: .selected, shape: sidebarButtonShape))
             .help(L10n.t("newSheet", language: language))
 
             // A hairline between the action row and the list: the
@@ -529,9 +526,10 @@ struct SidebarView: View {
         // The stronger tint appears while a sheet drag hovers the tab
         // (drop feedback, no geometry shift), the regular pill when
         // this tab is the active filter, no material otherwise.
-        .modifier(RowGlassModifier(isSelected: model.activeGroup == thisGroup,
-                                   isDropTarget: dropTargetGroup == thisGroup,
-                                   shape: folderTabShape))
+        .modifier(SidebarGlassSurface(
+            role: glassRole(dropTarget: dropTargetGroup == thisGroup,
+                            active: model.activeGroup == thisGroup),
+            shape: folderTabShape))
         // Sheet drags land on tabs (General and folders). The plus stays
         // hidden and non-actionable during a drag (armed requires no
         // drop target), the drop target remains the full row.
@@ -621,7 +619,9 @@ struct SidebarView: View {
         // Sheet rows deliberately keep the radius-11 look (the r38
         // sidebar row shape); only the folder tabs adopt the radius-10
         // action shape (r41).
-        .modifier(RowGlassModifier(isSelected: isSelected))
+        .modifier(SidebarGlassSurface(
+            role: glassRole(dropTarget: false, active: isSelected),
+            shape: RoundedRectangle(cornerRadius: 11, style: .continuous)))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         // Drag the row onto a bottom tab to move the sheet. The payload
         // carries only the stable UUID (SheetDragItem), so an external
@@ -699,48 +699,73 @@ extension UTType {
 /// always share the SAME shape as the hit/content row (no duplicated
 /// drifting radius literal).
 ///
+/// The ONE sidebar glass surface primitive (r52; reworked for the
+/// macOS 26/27 renderer regression).
+///
+/// Every sidebar surface — the New Sheet button, selected sheet rows,
+/// the active General/custom folder tab and the sheet drop target —
+/// renders through this modifier, so there is exactly one glass path:
+///
+///   1. a normal shape FILL of the deterministic wash (Light: 4%
+///      graphite / 12% accent blue; Dark: 10% / 22% white). Alpha is
+///      composited by the ordinary fill path — never interpreted as
+///      tint strength by the new glass renderer;
+///   2. exactly ONE real Liquid Glass surface,
+///      `.glassEffect(.regular.interactive(), in: shape)` — UNTINTED;
+///   3. one 1 pt hairline boundary over the surface (Light only; clear
+///      in Dark), hit-testing off.
+///
+/// The appearance resolves from the SwiftUI environment on every render
+/// (`@Environment(\.colorScheme)`), so a Light/Dark switch can never
+/// keep a cached static color branch.
+///
 /// The LOCAL no-animation transaction is attached to the glass layer
 /// ONLY, never to `content`: the glass appearing/disappearing is a
 /// structural change that would otherwise inherit the list's
 /// transaction and crossfade over the reflow duration (the highlight
 /// appeared to travel between rows). With `animation = nil` on the
-/// layer, the glass material switches instantly at the correct row,
-/// while the row frame — and, for a freshly inserted selected row, the
-/// whole composited row including this background — still moves and
-/// fades with the caller's insertion transition and layout animation.
+/// layer, the surface switches instantly at the correct row, while the
+/// row frame — and, for a freshly inserted selected row, the whole
+/// composited row including this background — still moves and fades
+/// with the caller's insertion transition and layout animation.
 /// The layer is pure background: it never intercepts row hit-testing.
-private struct RowGlassModifier: ViewModifier {
-    var isSelected: Bool
-    /// The drop-target state (a sheet drag currently hovers this row)
-    /// — the same shape with a stronger tint.
-    var isDropTarget: Bool = false
-    /// The glass shape (default: the radius-11 sheet-row look).
-    var shape: RoundedRectangle = RoundedRectangle(cornerRadius: 11, style: .continuous)
+struct SidebarGlassSurface: ViewModifier {
+    /// The wash role, or `nil` for "no surface" (an unselected row/tab).
+    var role: SidebarGlassTone.Role?
+    /// The surface shape, passed in — never re-literalized:
+    /// New Sheet radius 10, sheet rows radius 11, folder tabs radius 7.
+    var shape: RoundedRectangle
+
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         content.background {
             ZStack {
-                if isDropTarget {
+                if let role {
+                    let isDark = colorScheme == .dark
+                    // 1. the wash: composited by the normal fill path.
+                    shape.fill(Design.sidebarWash(role, isDark: isDark))
+                    // 2. exactly one real, UNTINTED glass surface.
                     Color.clear
-                        .glassEffect(.regular.interactive().tint(Design.sidebarDropTint), in: shape)
-                } else if isSelected {
-                    Color.clear
-                        .glassEffect(.regular.interactive().tint(Design.sidebarGlassTint), in: shape)
-                }
-                // r52: one theme-aware hairline following the row's own
-                // shape (same shape the hit/content row uses) — Light
-                // gets a subtle dark boundary against the white
-                // sidebar, Dark resolves clear. Stroke only: no second
-                // glass/material, no hit-testing.
-                if isDropTarget || isSelected {
+                        .glassEffect(.regular.interactive(), in: shape)
+                    // 3. one boundary stroke over the surface.
                     shape
-                        .strokeBorder(Design.sidebarGlassBoundary, lineWidth: 1)
+                        .strokeBorder(Design.sidebarGlassBoundary(isDark: isDark), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
             }
             .transaction { $0.animation = nil }
         }
     }
+}
+
+/// The ONE surface-role mapping shared by every sidebar glass caller:
+/// a drop target always wins, an active/selected surface gets the calm
+/// selected wash, everything else has no surface at all.
+private func glassRole(dropTarget: Bool,
+                       active: Bool) -> SidebarGlassTone.Role? {
+    if dropTarget { return .dropTarget }
+    return active ? .selected : nil
 }
 
 /// Inline rename field: commits on submit or focus loss.
