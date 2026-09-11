@@ -6,22 +6,23 @@ documentation: every claim here is pinned by the Swift source and the
 canonical engine tests. Released builds may lag behind `main`.
 
 Settings are organized into **six categories**, selected from a compact row of
-**icon-over-label tiles across the top of the window** with the current section name
-centered above them; each page is one readable column of grouped rows with native
-switches, pickers and sliders. Nothing here is cloud-synced; every preference is
+**icon-over-label tiles across the top of the window**; each page is one readable
+column of grouped rows with native switches, pickers and sliders. Nothing here is cloud-synced; every preference is
 stored on your Mac.
 
 | Category | Icon | Owns |
 | --- | --- | --- |
-| **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon, and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
+| **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon (all three are rows of the Interface group), and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
 | **Editing** | pencil tip | Operator helpers and automatic insertions — everything that rewrites text as you type |
-| **Numbers** | number | Regional number format, paste conversion, how answers are displayed and copied, currency-rate attribution |
+| **Numbers** | number | Regional number format, paste conversion, how answers are displayed and copied, the answer notation (including the custom pattern field) |
 | **Constants & Units** | function | Global constants and custom units (one segmented surface) |
 | **Styling** | paintbrush | Typography, answer column, syntax colors, live preview |
 | **About** | info circle | The app icon and version, plus Check for Updates and the automatic-check schedule (never part of `.nlx`) |
 
-The navigation is a centered header that shows the **current section name** (14 pt
-semibold) above a compact, centered row of **six icon-over-label tiles**. Each tile is
+The navigation is a compact, centered row of **six icon-over-label tiles** directly
+below the compact native titlebar (no section title is repeated above it — the active
+tile's visible label names the page, and no page title appears in the scrolling
+detail either). Each tile is
 an equal 66 × 50 pt slot holding its SF Symbol above its concise localized label; there
 is no left sidebar, no split-view container, no full-width tab bar and no divider. The
 selected tile carries a **calm neutral rounded rectangle** (a subtle theme-aware gray
@@ -31,8 +32,11 @@ content, and hover is a weaker neutral wash that never moves the layout. The sel
 tile is the only one with the `.isSelected` accessibility trait; every tile also
 carries a localized tooltip and accessibility label with its FULL page title. The
 arrow keys move the selection across the row and the focus cue stays on the selected
-tile. Categories, in order: General, Editing, Numbers, Constants, Styling, About
-(the tiles use the concise "Constants"; the header shows "Constants & Units").
+tile. Categories, in order: General, Editing, Numbers, Constants, Styling, About.
+Tiles use a concise visible label where the full page title would be too wide
+("Constants" for Constants & Units, Russian "Стиль" for Styling, Italian "Info" for
+Informazioni); the full page title always appears in the tooltip and the
+accessibility label.
 
 The selected page fills the rest of the window and is the ONLY thing that scrolls. It
 uses the AVAILABLE width with one shared page padding (19 pt), so the cards reach the
@@ -203,10 +207,15 @@ The About page is the app's identity AND its update home:
 
 | Item | Behaviour |
 | --- | --- |
-| App identity | The current app icon (the same packaged preview the chooser uses), the name "Numlex" and the version read at runtime from the bundle (`CFBundleShortVersionString`, with a development fallback). The icon follows the chosen Dark/Light choice live. |
-| Check for Updates… | One button, one action — Sparkle's user-initiated check. It is disabled exactly when `canCheckForUpdates` is false. |
+| Identity hero | A centered block with the current app icon (the same packaged preview the chooser uses, following the chosen Dark/Light icon live), the name "Numlex" and the localized version read at runtime from the bundle (`CFBundleShortVersionString`, with a development fallback). No redundant "Application" heading. |
+| Documentation | A native bordered link to `https://numlex.tech/docs/`. |
+| GitHub | A native bordered link to `https://github.com/Qulierm/Numlex`. |
+| Check for Updates… | One SettingsRow action whose trailing button ("Check Now", localized) runs Sparkle's user-initiated check. It is disabled exactly when `canCheckForUpdates` is false. |
 | Automatically check for updates | The native switch over Sparkle's OWN preference (`SUEnableAutomaticChecks` in the app's `NSUserDefaults`) — never copied into `AppSettings`/`.nlx`. |
-| Security note | Updates are downloaded over HTTPS and verified with a digital signature before installation. |
+
+The generic security paragraph was removed from the UI; the HTTPS + EdDSA signature
+guarantee is enforced by the updater implementation and the packaging policy scripts
+and is documented in [UPDATES.md](UPDATES.md).
 
 The identity is one combined accessibility element; the update button and the switch
 stay separately focusable. When the build lacks the packaged update metadata

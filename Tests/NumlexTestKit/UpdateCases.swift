@@ -109,7 +109,7 @@ private let updateLocalizationCases: [EngineCase] = [
     EngineCase("updates.l10n-six-languages") {
         try expectEqual(AppLanguage.allCases.count, 6, "six languages")
         let required = ["updates.group", "updates.checkNow", "updates.auto",
-                        "updates.autoCap", "updates.secure", "updates.unavailable",
+                        "updates.autoCap", "updates.checkNowShort", "updates.unavailable",
                         "updates.unavailable.notPackaged", "updates.unavailable.missingFeedURL",
                         "updates.unavailable.insecureFeedURL", "updates.unavailable.missingPublicKey",
                         "updates.unavailable.invalidPublicKey"]
@@ -125,12 +125,14 @@ private let updateLocalizationCases: [EngineCase] = [
         }
     },
     EngineCase("updates.l10n-secure-wording") {
-        // Every language must state that updates are HTTPS + signature
-        // verified before installation.
+        // r96: the generic security paragraph is no longer UI prose — the
+        // HTTPS/signature guarantee lives in the implementation, the
+        // packaging policy scripts and docs/UPDATES.md. The retired key
+        // must be gone in every language, and the remaining updater keys
+        // must still be translated.
         for lang in AppLanguage.allCases {
-            let text = L10n.t("updates.secure", language: lang)
-            try expectEqual(text.contains("HTTPS"), true, "\(lang.rawValue) mentions HTTPS")
-            try expectEqual(text.contains("4.5.1"), false, "no stale version claim")
+            try expectEqual(L10n.t("updates.secure", language: lang), "updates.secure",
+                            "\(lang.rawValue): the retired security caption is gone")
         }
     },
     EngineCase("updates.l10n-key-parity") {
@@ -209,7 +211,9 @@ private let updateSourceInvariantCases: [EngineCase] = [
         try expectEqual(view.contains("destination: .about"), true, "About destination")
         try expectEqual(view.contains("model.updates.checkForUpdates()"), true, "manual check")
         try expectEqual(view.contains("setAutomaticallyChecksForUpdates"), true, "automatic toggle")
-        try expectEqual(view.contains("updates.secure"), true, "security note")
+        try expectEqual(view.contains("updates.secure"), false,
+                        "the generic security caption is no longer UI prose")
+        try expectEqual(view.contains("updates.checkNowShort"), true, "one check action")
         try expectEqual(view.contains("updates.unavailable"), true, "disabled explanation")
     },
     EngineCase("updates.source-package-pin") {

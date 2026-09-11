@@ -89,7 +89,7 @@ let r88L10nCases: [EngineCase] = [
             "styling.column", "styling.columnCap",
             "styling.column.alignment",
             "alignment.leading", "alignment.trailing",
-            "styling.column.surface", "styling.column.surfaceCap",
+            "styling.column.surface",
             "surface.neutral", "surface.sand", "surface.slate",
             "surface.sage", "surface.blush",
             "constants.intro", "constants.emptyTitle", "constants.emptyCap",

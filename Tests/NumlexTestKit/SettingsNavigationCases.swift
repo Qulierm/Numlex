@@ -11,10 +11,11 @@ public let settingsNavigationCases: [EngineCase] = [
 
     EngineCase("settings-nav-reference-tiles") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // r95: the reference composition — the CURRENT page title
-        // centered ABOVE a compact, centered row of icon-over-label
-        // tiles. No left sidebar, no split view, no full-width tab bar,
-        // no divider, no icon-only squares.
+        // r95/r96: the reference composition — a compact, centered row
+        // of icon-over-label tiles ONLY. No left sidebar, no split view,
+        // no full-width tab bar, no divider, no icon-only squares and
+        // (r96) NO section title above the row: the active tile's visible
+        // label already identifies the page.
         try expect(!text.contains("NavigationSplitView("), "no split navigation")
         try expect(!text.contains("List(selection: $destination)"), "no left sidebar list")
         try expect(!text.contains(".listStyle(.sidebar)"), "no sidebar list style")
@@ -22,15 +23,21 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(!text.contains("SettingsSidebarIdentity"), "no sidebar identity footer")
         try expect(!text.contains(".pickerStyle(.segmented)") || text.contains("appearance"),
                    "the destination row is not a segmented control")
-        // Header order: centered title FIRST, then the tile row.
-        let header = text[text.range(of: "private var topNavigation: some View {")!.lowerBound...]
-        let titleIdx = header.range(of: "Text(L10n.t(destination.titleKey, language: language))")!.lowerBound
-        let rowIdx = header.range(of: "ForEach(SettingsDestination.allCases) { item in")!.lowerBound
-        try expect(titleIdx < rowIdx, "the centered page title precedes the tile row")
-        try expect(header[titleIdx...].hasPrefix("Text(L10n.t(destination.titleKey, language: language))"),
-                   "the header title is the full page title key")
-        try expect(text.contains(".font(.system(size: 14, weight: .semibold))"),
-                   "the header title is the compact 14 pt semibold style")
+        // r96: the header is ONLY the tile row — no section title above
+        // it, and no page title inside the scrolling detail either.
+        guard let headerStart = text.range(of: "private var topNavigation: some View {")?.lowerBound,
+              let detailStart = text.range(of: "@ViewBuilder\n    private var detail: some View")?.lowerBound else {
+            throw CaseFailure(message: "topNavigation/detail missing", location: "SettingsNav")
+        }
+        let header = String(text[headerStart..<detailStart])
+        try expect(!header.contains("Text(L10n.t(destination.titleKey"),
+                   "no section title is rendered above the tiles")
+        let detailRange = text[detailStart...]
+        let detailBody = String(detailRange.prefix(4_000))
+        try expect(!detailBody.contains("L10n.t(destination.titleKey"),
+                   "no page title is repeated inside the scrolling detail")
+        try expect(header.contains("ForEach(SettingsDestination.allCases) { item in"),
+                   "the header is the tile row")
         // Each tile: icon OVER a visible concise label, one fixed slot.
         try expect(text.contains("VStack(spacing: 3)"), "icon over label inside the tile")
         try expect(text.contains("Image(systemName: item.symbol)"), "the SF Symbol is the tile icon")
@@ -123,6 +130,31 @@ public let settingsNavigationCases: [EngineCase] = [
                    "no persisted destination key")
     },
 
+    EngineCase("settings-caption-contract") {
+        let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
+        // r96: the requested captions are gone from the UI.
+        for key in ["showTotalBarCap", "styling.column.surfaceCap", "currencyRates",
+                    "updates.secure", "about.app"] {
+            try expect(!text.contains("\"\(key)\""), "\(key) is not used in the UI")
+        }
+        // The empty custom-format state must read as a REAL field with
+        // the canonical grammar placeholder.
+        try expect(text.contains("TextField(\"#,##0.00\""),
+                   "the custom-format field carries the canonical placeholder")
+        try expect(text.contains(".textFieldStyle(.roundedBorder)"),
+                   "the custom-format field has a visible native border")
+        // The grouping caption keeps only its example sentence in every
+        // language (no "separate setting in the Numbers tab" claim).
+        for lang in AppLanguage.allCases {
+            let cap = L10n.t("autoGroupCap", language: lang)
+            try expect(cap.contains("10"), "\(lang.rawValue): the example stays")
+            for banned in ["tab", "Tab", "вкладк", "scheda", "标签"] {
+                try expect(!cap.contains(banned),
+                           "\(lang.rawValue): no stale \(banned) reference")
+            }
+        }
+    },
+
     EngineCase("settings-nav-symbols-and-labels") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
         for symbol in ["gearshape", "pencil.tip",
@@ -163,8 +195,10 @@ public let settingsNavigationCases: [EngineCase] = [
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
         try expect(text.contains("private struct SettingsDetailPage<Content: View>: View"),
                    "one shared detail scaffold")
-        try expect(text.contains("Text(L10n.t(destination.titleKey, language: language))"),
-                   "page title comes from the destination")
+        // r96: the scaffold renders NO page title (the header tiles
+        // identify the page); it must not reintroduce one.
+        try expect(!text.contains("Text(L10n.t(destination.titleKey, language: language))"),
+                   "the detail scaffold renders no page title")
         // r92: no page subtitle at all — the destination model no longer
         // exposes one and the scaffold renders only the title.
         try expect(!text.contains("subtitleKey"), "the destination model has no subtitle key")
@@ -222,6 +256,14 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(general.contains("AppAppearance.uiOrder"), "Auto/Light/Dark order kept")
         try expect(general.contains("model.setAppIcon($0)"), "icon write path")
         try expect(general.contains("AppIconPicker("), "icon chooser lives in General")
+        // r96: the icon chooser is the TRAILING control of a third
+        // Interface SettingsRow — not a separate group/card.
+        try expect(general.contains("SettingsRow(title: L10n.t(\"appIcon\", language: language)"),
+                   "the app-icon row lives in the Interface group")
+        try expect(!general.contains("SettingsGroup(title: L10n.t(\"appIcon\""),
+                   "no separate Application-icon group remains")
+        try expect(!general.contains(".frame(width: 240)"),
+                   "the appearance picker has no fixed-width wrapper")
         // r92 caption contract: the obvious icon caption is GONE (the
         // group heading and the tile names carry it), while the
         // consequence captions stay.
@@ -250,21 +292,36 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(!about.contains("\"4.8.1\""), "About hardcodes no release version")
         try expect(about.contains("AppIconResources.previewImage(for: model.settings.appIcon)"),
                    "About shows the CURRENT app icon")
-        // Exactly one Check-for-Updates affordance (no duplicated title
-        // and button on the same page).
+        // Exactly one check ACTION, and the row title plus the button
+        // label are different strings (no duplicated caption).
         try expectEqual(settingsNavWithoutComments(about)
-            .components(separatedBy: "updates.checkNow").count - 1, 1,
-            "one Check for Updates string in About")
+            .components(separatedBy: "model.updates.checkForUpdates()").count - 1, 1,
+            "one check action in About")
+        try expect(about.contains("updates.checkNowShort"),
+                   "the button uses the short action label")
+        // The redesigned About carries the identity hero and the two
+        // real external links.
+        try expect(about.contains("about.version"), "the hero shows the localized version")
+        try expect(about.contains("about.documentation"), "the Documentation link label")
+        try expect(about.contains("https://numlex.tech/docs/"), "the exact docs URL")
+        try expect(about.contains("https://github.com/Qulierm/Numlex"), "the exact GitHub URL")
+        try expect(about.contains(".buttonStyle(.bordered)"), "native bordered links")
+        try expect(!about.contains("updates.secure"), "no security paragraph")
+        try expect(!about.contains("about.app"), "no redundant Application heading")
         // r92: the Number-format card is compact — the Region row is a
         // single line, a hairline separates it from the sample grid, and
         // the removed region caption leaves no key behind.
         try expect(!numbers.contains("numbers.regionCap"), "the region caption is removed")
         try expect(numbers.contains("Divider()\n                sampleGrid"),
                    "a hairline separates the Region row from the examples")
-        // Numbers owns the rate attribution (single occurrence in the file).
-        try expect(numbers.contains("currencyRates"), "Numbers owns the rate attribution")
-        try expectEqual(text.components(separatedBy: "L10n.t(\"currencyRates\"").count - 1, 1,
-                        "the rate attribution appears exactly once")
+        // r96: the currency-rate attribution footer is gone from the UI
+        // (the provider still powers evaluation — no behavior change).
+        try expect(!numbers.contains("currencyRates"),
+                   "the rate attribution footer is removed from the page")
+        try expect(!numbers.contains("open.er-api"),
+                   "no provider link remains in the page")
+        try expect(!text.contains("L10n.t(\"currencyRates\""),
+                   "the retired attribution key is unused")
         // Sparkle's preference stays outside AppSettings.
         try expect(!text.contains("settings.automaticallyChecksForUpdates"),
                    "Sparkle preference is not mirrored into AppSettings")
@@ -291,7 +348,7 @@ public let settingsNavigationCases: [EngineCase] = [
     EngineCase("settings-navigation-localization-complete") {
         let keys = ["settings.updates",
                     "settings.constantsUnits",
-                    "settings.about", "about.app",
+                    "settings.about",
                     // The merged General page's own labels.
                     "general.interface", "general.notebook", "appearance", "appIcon"]
         for lang in AppLanguage.allCases {
@@ -307,7 +364,9 @@ public let settingsNavigationCases: [EngineCase] = [
         // French shares the English spelling of "Application", so only
         // the other languages are required to differ for that key.
         for lang in [AppLanguage.ru, .de, .it, .zh] {
-            for key in ["settings.about", "about.app",
+            // ("about.version" is excluded: German/French legitimately
+            // spell "Version" exactly like English.)
+            for key in ["settings.about", "about.documentation",
                         "general.notebook"] {
                 try expect(L10n.t(key, language: lang) != L10n.t(key, language: .en),
                            "\(lang.rawValue) localizes \(key)")
@@ -318,7 +377,9 @@ public let settingsNavigationCases: [EngineCase] = [
         for lang in AppLanguage.allCases {
             for key in ["settings.general.subtitle", "settings.editing.subtitle",
                         "settings.numbers.subtitle", "settings.updates.subtitle",
-                        "settings.navigationLabel"] {
+                        "settings.navigationLabel", "about.app", "currencyRates",
+                        "showTotalBarCap", "styling.column.surfaceCap",
+                        "updates.secure"] {
                 try expectEqual(L10n.t(key, language: lang), key,
                                 "no dead subtitle key \(key)")
             }

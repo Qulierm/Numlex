@@ -129,11 +129,17 @@ public let r80Cases: [EngineCase] = [
 
     EngineCase("r80-totalbar-localized-six-languages") {
         for lang in AppLanguage.allCases {
-            for key in ["showTotalBar", "showTotalBarCap"] {
+            for key in ["showTotalBar"] {
                 let t = L10n.t(key, language: lang)
                 try expect(!t.isEmpty && t != key,
                            "\(lang.rawValue): \"\(key)\" is translated")
             }
+        }
+        // r96: the explanatory caption is gone from every language (the
+        // toggle's own label is enough), so the key must not survive.
+        for lang in AppLanguage.allCases {
+            try expectEqual(L10n.t("showTotalBarCap", language: lang), "showTotalBarCap",
+                            "\(lang.rawValue): the retired caption key is gone")
         }
         try expectEqual(AppLanguage.allCases.count, 6, "the six supported languages")
     },

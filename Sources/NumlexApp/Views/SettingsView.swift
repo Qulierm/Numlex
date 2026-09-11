@@ -131,25 +131,20 @@ struct SettingsView: View {
         .background(SettingsWindowConfigurator())
     }
 
-    /// The header: the CURRENT page title centered ABOVE a compact,
-    /// centered row of icon-over-label tiles — the reference
-    /// composition. There is no full-width tab bar, no divider and no
-    /// sidebar; the header is fixed while the detail page scrolls.
+    /// The header: ONLY the centered, compact row of icon-over-label
+    /// tiles. The active tile's visible label (plus its tooltip and
+    /// accessibility name) identifies the page, so no separate section
+    /// title is shown above it and none is repeated in the scrolling
+    /// detail. There is no full-width tab bar, divider or bar material.
     private var topNavigation: some View {
-        VStack(spacing: 9) {
-            Text(L10n.t(destination.titleKey, language: language))
-                .font(.system(size: 14, weight: .semibold))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .center)
-            HStack(spacing: 2) {
-                ForEach(SettingsDestination.allCases) { item in
-                    topNavigationItem(item)
-                }
+        HStack(spacing: 2) {
+            ForEach(SettingsDestination.allCases) { item in
+                topNavigationItem(item)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 9)
+        .padding(.bottom, 9)
     }
 
     /// One tile: the SF Symbol above its visible concise localized
@@ -498,23 +493,25 @@ private struct GeneralSettingsPage: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 240)
+                    // r96: NO fixed width wrapper — the segmented chrome
+                    // sizes to its segments, so its visible right edge
+                    // lands on the same trailing edge as the Language
+                    // menu instead of floating inside transparent space.
+                    .fixedSize()
                 }
-            }
-
-            // r92: the group heading IS the label — the tile names
-            // (Dark/Light) and the accessibility labels carry the rest,
-            // so no stacked caption remains. The Dock/App Switcher scope
-            // lives in the documentation, not in permanent UI prose.
-            // The icon write path stays model.setAppIcon.
-            SettingsGroup(title: L10n.t("appIcon", language: language)) {
-                AppIconPicker(
-                    selection: model.settings.appIcon,
-                    language: language,
-                    onSelect: { model.setAppIcon($0) }
-                )
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // The app-icon chooser lives in the SAME Interface group
+                // as the other presentation controls, trailing-aligned
+                // like every other row control (the icon write path
+                // stays model.setAppIcon).
+                SettingsRow(title: L10n.t("appIcon", language: language),
+                            symbol: "app",
+                            divider: true) {
+                    AppIconPicker(
+                        selection: model.settings.appIcon,
+                        language: language,
+                        onSelect: { model.setAppIcon($0) }
+                    )
+                }
             }
 
             SettingsGroup(title: L10n.t("general.notebook", language: language)) {
@@ -536,7 +533,6 @@ private struct GeneralSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("showTotalBar", language: language),
-                    detail: L10n.t("showTotalBarCap", language: language),
                     symbol: "sum",
                     divider: true,
                 ) {
@@ -573,57 +569,79 @@ private struct AboutSettingsPage: View {
             ?? "dev"
     }
 
-    /// The app identity: the SAME packaged preview the icon chooser
-    /// uses (no new raster), the app name, and the dynamic version.
-    private var identity: some View {
-        HStack(spacing: 12) {
+    /// The identity hero: the CURRENT app icon (which follows the chosen
+    /// Dark/Light icon live), the app name and the localized runtime
+    /// version — one centered block, no redundant section heading.
+    private var identityHero: some View {
+        VStack(spacing: 8) {
             if let image = AppIconResources.previewImage(for: model.settings.appIcon) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: 60, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.secondary.opacity(0.15))
-                    .frame(width: 60, height: 60)
+                    .frame(width: 64, height: 64)
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Numlex")
-                    .font(.system(size: 16, weight: .semibold))
-                Text(Self.bundleVersion)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Spacer(minLength: 0)
+            Text("Numlex")
+                .font(.system(size: 17, weight: .semibold))
+            Text(String(format: L10n.t("about.version", language: language),
+                        Self.bundleVersion))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
         }
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("Numlex \(Self.bundleVersion)"))
+        .accessibilityLabel(Text("Numlex \(String(format: L10n.t("about.version", language: language), Self.bundleVersion))"))
+    }
+
+    /// The two real external links. Native bordered buttons, localized
+    /// visible labels, full accessibility labels, SF Symbols only (no
+    /// bundled brand art) and no networking on page load.
+    private var links: some View {
+        HStack(spacing: 10) {
+            Link(destination: URL(string: "https://numlex.tech/docs/")!) {
+                Label(L10n.t("about.documentation", language: language),
+                      systemImage: "book.closed")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(Text(L10n.t("about.documentation", language: language)))
+
+            Link(destination: URL(string: "https://github.com/Qulierm/Numlex")!) {
+                Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(Text("GitHub"))
+        }
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     var body: some View {
         let language = self.language
         return SettingsDetailPage(destination: .about, language: language) {
-            SettingsGroup(title: L10n.t("about.app", language: language)) {
-                identity
+            // One surface card carrying the identity hero and the links.
+            SettingsGroup(title: nil) {
+                identityHero
+                Divider()
+                links
             }
 
+            // Updates stay a compact, aligned group: ONE check action and
+            // ONE automatic-check toggle (no generic security prose).
             SettingsGroup(title: L10n.t("settings.updates", language: language)) {
                 if model.updates.isAvailable {
-                    // ONE action: the button is the only "Check for
-                    // Updates…" affordance on the page (no row title
-                    // repeating it).
-                    HStack {
-                        Button(L10n.t("updates.checkNow", language: language)) {
+                    SettingsRow(title: L10n.t("updates.checkNow", language: language),
+                                symbol: "arrow.triangle.2.circlepath") {
+                        Button(L10n.t("updates.checkNowShort", language: language)) {
                             model.updates.checkForUpdates()
                         }
                         .disabled(!model.updates.canCheckForUpdates)
-                        Spacer(minLength: 0)
                     }
-                    .padding(.vertical, 10)
-
                     SettingsRow(title: L10n.t("updates.auto", language: language),
                                 symbol: "clock.arrow.circlepath",
                                 divider: true) {
@@ -635,11 +653,6 @@ private struct AboutSettingsPage: View {
                             )
                         )
                     }
-                    Text(L10n.t("updates.secure", language: language))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.vertical, 10)
                 } else {
                     Text(L10n.t("updates.unavailable", language: language))
                         .font(.system(size: 12))
@@ -1499,9 +1512,15 @@ private struct NumbersSettingsPage: View {
                     detail: customPatternDetail,
                     divider: true,
                 ) {
-                    TextField("",
+                    TextField("#,##0.00",
                               text: presentationBinding(\.customPattern))
-                        .textFieldStyle(.plain)
+                        // r96: a REAL, always-visible native field: the
+                        // empty state must read as a text field before
+                        // it is focused, and the canonical grammar
+                        // sample is its placeholder (the pattern itself
+                        // is locale-neutral, so it is not translated).
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel(Text(L10n.t("customPattern.label", language: language)))
                         .font(.system(size: 12, design: .monospaced))
                         .frame(maxWidth: 180, alignment: .trailing)
                 }
@@ -1534,16 +1553,7 @@ private struct NumbersSettingsPage: View {
             // r90: the currency-rate attribution lives here — the most
             // relevant home for it (it describes the numbers the answer
             // column shows). ONE understated footer line, no duplicate.
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.t("currencyRates", language: language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Link("open.er-api.com",
-                     destination: URL(string: "https://open.er-api.com")!)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+
         }
         .alert(
             L10n.t("numbers.confirmTitle", language: language),
@@ -1678,7 +1688,6 @@ private struct StylingSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("styling.column.surface", language: language),
-                    detail: L10n.t("styling.column.surfaceCap", language: language),
                     divider: true,
                 ) {
                     Picker("", selection: Binding(
