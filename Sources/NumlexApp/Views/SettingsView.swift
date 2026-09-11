@@ -226,8 +226,8 @@ private struct SettingsDetailPage<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(L10n.t(destination.titleKey, language: language))
                         .font(.system(size: 22, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
@@ -241,7 +241,8 @@ private struct SettingsDetailPage<Content: View>: View {
                 content
             }
             .padding(.horizontal, 22)
-            .padding(.vertical, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 20)
             .frame(maxWidth: 640, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -279,19 +280,24 @@ private struct SettingsGroup<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             if let title {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
             }
-            let rows = content
             if surface {
-                rows
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(SettingsCardBackground())
+                // ONE card per logical group with the related rows
+                // stacked inside and a hairline between them — the
+                // reference density, never one card per toggle.
+                VStack(alignment: .leading, spacing: 0) {
+                    content
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(SettingsCardBackground())
             } else {
-                rows
+                content
             }
         }
     }
@@ -306,17 +312,29 @@ private struct SettingsRow<Control: View>: View {
     let title: String
     let detail: String?
     let symbol: String?
+    let divider: Bool
     let control: Control
 
     init(title: String, detail: String? = nil, symbol: String? = nil,
+         divider: Bool = false,
          @ViewBuilder control: () -> Control) {
         self.title = title
         self.detail = detail
         self.symbol = symbol
+        self.divider = divider
         self.control = control()
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if divider {
+                Divider().padding(.leading, symbol == nil ? 0 : 32)
+            }
+            row
+        }
+    }
+
+    private var row: some View {
         HStack(alignment: .center, spacing: 12) {
             if let symbol {
                 Image(systemName: symbol)
@@ -338,6 +356,7 @@ private struct SettingsRow<Control: View>: View {
             Spacer(minLength: 12)
             control
         }
+        .padding(.vertical, 11)
     }
 }
 
@@ -446,7 +465,8 @@ private struct GeneralSettingsPage: View {
                 SettingsRow(
                     title: L10n.t("hideSidebarBtn", language: language),
                     detail: L10n.t("hideSidebarBtnCap", language: language),
-                    symbol: "sidebar.left"
+                    symbol: "sidebar.left",
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("hideSidebarBtn", language: language),
                                    isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
@@ -454,7 +474,8 @@ private struct GeneralSettingsPage: View {
                 SettingsRow(
                     title: L10n.t("showTotalBar", language: language),
                     detail: L10n.t("showTotalBarCap", language: language),
-                    symbol: "sum"
+                    symbol: "sum",
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("showTotalBar", language: language),
                                    isOn: boolBinding(\AppSettings.showTotalBar))
@@ -616,21 +637,24 @@ private struct EditingSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("opStar", language: language),
-                    detail: L10n.t("opStarCap", language: language)
+                    detail: L10n.t("opStarCap", language: language),
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("opStar", language: language),
                                    isOn: inputBinding(\.replaceAsterisk))
                 }
                 SettingsRow(
                     title: L10n.t("opBacktick", language: language),
-                    detail: L10n.t("opBacktickCap", language: language)
+                    detail: L10n.t("opBacktickCap", language: language),
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("opBacktick", language: language),
                                    isOn: inputBinding(\.replaceBacktick))
                 }
                 SettingsRow(
                     title: L10n.t("opQuick", language: language),
-                    detail: L10n.t("opQuickCap", language: language)
+                    detail: L10n.t("opQuickCap", language: language),
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("opQuick", language: language),
                                    isOn: inputBinding(\.quickOperators))
@@ -647,7 +671,8 @@ private struct EditingSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("autoPrev", language: language),
-                    detail: L10n.t("autoPrevCap", language: language)
+                    detail: L10n.t("autoPrevCap", language: language),
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("autoPrev", language: language),
                                    isOn: inputBinding(\.insertPreviousAnswer))
@@ -1319,14 +1344,16 @@ private struct NumbersSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("numbers.grouping", language: language),
-                    detail: L10n.t("numbers.groupingCap", language: language)
+                    detail: L10n.t("numbers.groupingCap", language: language),
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("numbers.grouping", language: language),
                                    isOn: regionalBinding(\.showThousandsSeparator))
                 }
                 SettingsRow(
                     title: L10n.t("numbers.compact", language: language),
-                    detail: L10n.t("numbers.compactCap", language: language)
+                    detail: L10n.t("numbers.compactCap", language: language),
+                    divider: true,
                 ) {
                     SettingsSwitch(title: L10n.t("numbers.compact", language: language),
                                    isOn: regionalBinding(\.useCompactNotation))
@@ -1358,7 +1385,8 @@ private struct NumbersSettingsPage: View {
                 if model.settings.presentation.notation == .fraction {
                     SettingsRow(
                         title: L10n.t("fraction.label", language: language),
-                        detail: L10n.t("fraction.cap", language: language)
+                        detail: L10n.t("fraction.cap", language: language),
+                        divider: true,
                     ) {
                         Picker("",
                                selection: presentationBinding(\.fractionPreset)) {
@@ -1373,7 +1401,8 @@ private struct NumbersSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("negative.label", language: language),
-                    detail: L10n.t("negative.cap", language: language)
+                    detail: L10n.t("negative.cap", language: language),
+                    divider: true,
                 ) {
                     Picker("",
                            selection: presentationBinding(\.negativeStyle)) {
@@ -1388,7 +1417,8 @@ private struct NumbersSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("currency.label", language: language),
-                    detail: L10n.t("currency.cap", language: language)
+                    detail: L10n.t("currency.cap", language: language),
+                    divider: true,
                 ) {
                     Picker("",
                            selection: presentationBinding(\.currencyPlacement)) {
@@ -1403,7 +1433,8 @@ private struct NumbersSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("customPattern.label", language: language),
-                    detail: customPatternDetail
+                    detail: customPatternDetail,
+                    divider: true,
                 ) {
                     TextField("",
                               text: presentationBinding(\.customPattern))
@@ -1416,7 +1447,8 @@ private struct NumbersSettingsPage: View {
                 // notation (custom through the validated pattern).
                 SettingsRow(
                     title: L10n.t("customPattern.preview", language: language),
-                    detail: nil
+                    detail: nil,
+                    divider: true,
                 ) {
                     Text(formatPreview)
                         .font(.system(size: 12, design: .monospaced))
@@ -1584,7 +1616,8 @@ private struct StylingSettingsPage: View {
                 }
                 SettingsRow(
                     title: L10n.t("styling.column.surface", language: language),
-                    detail: L10n.t("styling.column.surfaceCap", language: language)
+                    detail: L10n.t("styling.column.surfaceCap", language: language),
+                    divider: true,
                 ) {
                     Picker("", selection: Binding(
                         get: { model.settings.styling.answerColumnSurface },
