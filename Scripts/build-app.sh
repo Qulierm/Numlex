@@ -96,6 +96,44 @@ if [ ! -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
 fi
 cp "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
+# ---------------------------------------------------------------------------
+# Alternate app icon (user-selectable Light) + the two Settings preview
+# tiles. Byte-exact copies of the committed sources; the build FAILS CLOSED on
+# a missing source or on any hash drift, so a packaged release can never ship
+# a silently different icon. The Dark primary (Assets.car + AppIcon.icns) is
+# never touched: selecting Dark resets to the bundle default instead.
+# ---------------------------------------------------------------------------
+LIGHT_ICON_SRC="$ROOT/Sources/NumlexApp/Resources/AppIconLight.icns"
+LIGHT_ICON_SHA="d6d3c7108b437f4f0e51ad7a8989ad5b59a3e01e1a2e7044a2ac027c54c83e40"
+DARK_PREVIEW_SRC="$ROOT/Sources/NumlexApp/Resources/AppIconDarkPreview.png"
+DARK_PREVIEW_SHA="f2b66202656f9d04372010d251a54668d1a9d153648bb4940465c43e85902932"
+LIGHT_PREVIEW_SRC="$ROOT/Sources/NumlexApp/Resources/AppIconLightPreview.png"
+LIGHT_PREVIEW_SHA="4367adca2ded31ca07fe7cfcd7f1be4cab3b1e3a1fe927dc4d1a5855d505cf2e"
+for pair in "$LIGHT_ICON_SRC|$LIGHT_ICON_SHA" \
+            "$DARK_PREVIEW_SRC|$DARK_PREVIEW_SHA" \
+            "$LIGHT_PREVIEW_SRC|$LIGHT_PREVIEW_SHA"; do
+  src="${pair%%|*}"
+  want="${pair##*|}"
+  name="$(basename "$src")"
+  if [ ! -f "$src" ]; then
+    echo "Missing alternate icon resource: $src"
+    exit 1
+  fi
+  got="$(shasum -a 256 "$src" | awk '{print $1}')"
+  if [ "$got" != "$want" ]; then
+    echo "Alternate icon resource hash drift: $name"
+    echo "  expected $want"
+    echo "  actual   $got"
+    exit 1
+  fi
+  cp "$src" "$RESOURCES_DIR/$name"
+  packed="$(shasum -a 256 "$RESOURCES_DIR/$name" | awk '{print $1}')"
+  if [ "$packed" != "$want" ]; then
+    echo "Packaged alternate icon resource mismatch: $name"
+    exit 1
+  fi
+done
+
 
 # ---------------------------------------------------------------------------
 # Sparkle 2.9.6 embedding (secure in-app updates).

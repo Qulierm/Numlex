@@ -11,7 +11,7 @@ cloud-synced; every preference is stored on your Mac.
 
 | Tab | Icon | Owns |
 | --- | --- | --- |
-| **General** | gear | Interface language, Light/Dark appearance, notebook window behaviour, currency-rate attribution |
+| **General** | gear | Interface language, Auto/Light/Dark appearance, Dock/App Switcher icon, notebook window behaviour, currency-rate attribution |
 | **Editing** | pencil tip | Operator helpers and automatic insertions — everything that rewrites text as you type |
 | **Numbers** | globe | Regional number format, paste conversion, how answers are displayed and copied |
 | **Constants** | function | Global constants and custom units (one segmented surface) |
@@ -27,7 +27,8 @@ Numbers, Constants, Styling).
 | Control | Values | Notes |
 | --- | --- | --- |
 | Interface language | the app's shipped languages | Localizes the UI only — it never changes the numeric format. |
-| Appearance | Light / Dark | Applies to the whole app immediately (one persisted settings write). |
+| Appearance | Auto / Light / Dark | Applies to the whole app immediately (one persisted settings write). **Auto** follows the macOS appearance live: the process appearance is released to the system (`NSApp.appearance = nil`, no SwiftUI scheme override), so window chrome, native menus, Liquid Glass surfaces, the answer palettes and the TextKit editor repaint when macOS switches Light ↔ Dark. **Light** and **Dark** pin the app and ignore system changes. The default for a fresh or legacy store is Light; Auto is an explicit choice and roundtrips. |
+| Application icon | Dark / Light | The **Dock and App Switcher** icon only. Dark (the default) is the signed bundle icon — the modern Liquid Glass `Assets.car` primary; Light is the alternate icon shipped inside the app. Switching applies immediately and is remembered across launches, and it is color/image only: it never changes the Finder icon of the installed bundle, the code signature, the window geometry, the caret/selection or any document. Mirrors: the app never writes a Finder icon (`NSWorkspace.setIcon` is not used), so update trust and permissions stay intact. |
 
 ### Notebook
 

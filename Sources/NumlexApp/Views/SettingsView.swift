@@ -280,20 +280,34 @@ private struct GeneralSettingsTab: View {
                     // The ONE write path (model.setAppearance: one
                     // settings write, one persist, one process-wide
                     // NSApp.appearance application) — a direct settings
-                    // write would skip the live switch.
+                    // write would skip the live switch. Order is Auto,
+                    // Light, Dark; the segmented control is wide enough
+                    // for the longest translation at the 520 pt minimum.
                     Picker("", selection: Binding(
                         get: { model.settings.appearance },
                         set: { model.setAppearance($0) }
                     )) {
-                        ForEach(AppAppearance.allCases, id: \.self) { a in
-                            Text(L10n.t(
-                                a == .light ? "appearanceLight" : "appearanceDark",
-                                language: language)).tag(a)
+                        ForEach(AppAppearance.uiOrder, id: \.self) { a in
+                            Text(L10n.t(appearanceKey(a), language: language)).tag(a)
                         }
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 128)
+                    .frame(width: 190)
+                }
+                // Icon choice: two native selectable preview tiles built
+                // from the supplied PNGs. Dark is the bundle default; the
+                // choice only drives the Dock/App Switcher icon (the
+                // Finder bundle icon is never touched).
+                SettingsRow(
+                    title: L10n.t("appIcon", language: language),
+                    detail: L10n.t("appIconCap", language: language)
+                ) {
+                    AppIconPicker(
+                        selection: model.settings.appIcon,
+                        language: language,
+                        onSelect: { model.setAppIcon($0) }
+                    )
                 }
             }
 
@@ -1825,5 +1839,90 @@ struct NativeSettingsView: View {
     @Bindable var model: AppModel
     var body: some View {
         SettingsView(model: model)
+    }
+}
+
+/// The localized label key for one appearance choice.
+@MainActor
+private func appearanceKey(_ a: AppAppearance) -> String {
+    switch a {
+    case .system: return "appearanceAuto"
+    case .light: return "appearanceLight"
+    case .dark: return "appearanceDark"
+    }
+}
+
+/// The two-tile application-icon selector: native buttons with the exact
+/// supplied preview PNGs (never generated from a display string), a
+/// localized label under each tile and one accent checkmark on the
+/// selected tile. Plain button style keeps focus/keyboard behavior and
+/// accessibility (each tile is a real selectable control); the row width
+/// never changes on selection, so the Settings window cannot reflow.
+private struct AppIconPicker: View {
+    let selection: AppIconChoice
+    let language: AppLanguage
+    let onSelect: (AppIconChoice) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(AppIconChoice.uiOrder, id: \.self) { choice in
+                tile(choice)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tile(_ choice: AppIconChoice) -> some View {
+        let selected = selection == choice
+        let label = L10n.t(choice == .dark ? "appIconDark" : "appIconLight",
+                           language: language)
+        Button {
+            onSelect(choice)
+        } label: {
+            VStack(spacing: 4) {
+                ZStack(alignment: .topTrailing) {
+                    Group {
+                        if let image = AppIconResources.previewImage(for: choice) {
+                            Image(nsImage: image)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: 56, height: 56)
+                        } else {
+                            // Missing development preview: a neutral
+                            // placeholder — never a crash, never a
+                            // silently different asset.
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.secondary.opacity(0.15))
+                                .frame(width: 56, height: 56)
+                                .overlay(Image(systemName: "app.dashed")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.secondary))
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(selected ? Color.accentColor : Color.secondary.opacity(0.25),
+                                          lineWidth: selected ? 2 : 1)
+                    )
+                    if selected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.accentColor, Color(nsColor: .windowBackgroundColor))
+                            .offset(x: 5, y: -5)
+                    }
+                }
+                Text(label)
+                    .font(Design.labelSmall)
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityValue(selected ? "selected" : "not selected")
+        .help(label)
     }
 }

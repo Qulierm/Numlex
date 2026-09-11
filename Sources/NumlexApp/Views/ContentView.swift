@@ -4,6 +4,12 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     var model: AppModel
+    /// The EFFECTIVE color scheme: `.system` (Auto) follows macOS here,
+    /// and the pinned modes are forced by the root's
+    /// `preferredColorScheme`, so this single environment read is the
+    /// authoritative effective appearance for every AppKit-backed
+    /// surface (the editor especially).
+    @Environment(\.colorScheme) private var colorScheme
     /// Shared scroll offset (top-down, editor-content points). The editor's
     /// clip view is the primary surface; the answer column renders at this
     /// offset and its wheel deltas write it back, so both stay 1:1.
@@ -124,6 +130,7 @@ struct ContentView: View {
             inputPrefs: settings.input,
             styling: settings.styling,
             appAppearance: settings.appearance,
+            effectiveDark: colorScheme == .dark,
             constants: settings.customConstants,
             numberContext: model.numberContext,
             unitContext: model.unitContext,

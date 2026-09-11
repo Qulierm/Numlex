@@ -30,10 +30,18 @@ enum AppAppearanceController {
     private static var applied: AppAppearance?
 
     /// Applies the choice process-wide (idempotent).
+    ///
+    /// `.system` (Auto) assigns `nil`, AppKit's documented "follow the
+    /// system" spelling: the process then tracks macOS live. `.light` and
+    /// `.dark` pin the stable Aqua/DarkAqua instances.
     static func apply(_ appearance: AppAppearance) {
         guard let app = NSApp else { return } // never from App.init
         guard appearance != applied else { return }
-        app.appearance = (appearance == .light) ? aqua : darkAqua
+        switch appearance {
+        case .system: app.appearance = nil
+        case .light: app.appearance = aqua
+        case .dark: app.appearance = darkAqua
+        }
         applied = appearance
     }
 

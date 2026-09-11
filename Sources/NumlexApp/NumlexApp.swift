@@ -14,6 +14,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppAppearanceController.apply(
             AppAppearanceController.persistedAppearance())
+        // The icon capture must happen BEFORE the persisted choice is
+        // applied: it records the icon AppKit itself resolved from the
+        // bundle, which is the documented fallback if a host's null reset
+        // (`applicationIconImage = nil`) does not take visual effect.
+        AppIconController.captureLaunchIcon()
+        AppIconController.apply(AppIconController.persistedChoice())
         // r77b: instrumented motion-evidence harness — inert unless the
         // process is launched with `--motion-evidence <dir>` (validation
         // runs with an isolated HOME; never part of normal operation).
@@ -62,7 +68,8 @@ struct NumlexApp: App {
     // surfaces from the very first frame.
     private func themedRoot<Content: View>(_ content: Content) -> some View {
         content.preferredColorScheme(
-            model.settings.appearance == .light ? .light : .dark)
+            model.settings.appearance.colorSchemeIsDarkOverride
+                .map { $0 ? ColorScheme.dark : ColorScheme.light })
     }
 
     var body: some Scene {

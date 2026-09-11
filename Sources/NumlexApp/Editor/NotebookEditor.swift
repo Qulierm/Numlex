@@ -30,10 +30,16 @@ struct NotebookEditor: NSViewRepresentable {
     /// through `NotebookPalette` — the same resolver the settings
     /// preview uses.
     var styling: StylingPreferences
-    /// r38: the app-wide Light/Dark choice (the persisted
-    /// AppSettings.appearance). Drives the deterministic in-place
-    /// re-resolution of the dynamic Design tokens in the TextKit view.
+    /// r38: the app-wide Light/Dark/Auto choice (the persisted
+    /// AppSettings.appearance). Kept so the editor can reason about the
+    /// pinned modes and tests can assert the persisted contract.
     var appAppearance: AppAppearance
+    /// The EFFECTIVE color scheme resolved from the SwiftUI environment
+    /// (`.system` follows macOS; pinned modes are forced by
+    /// `preferredColorScheme`). This, not the persisted enum, is the
+    /// signal that must trigger the color-only `refreshAppearance()`
+    /// when macOS switches Light<->Dark while Auto is active.
+    var effectiveDark: Bool
     /// r33: the GLOBAL user constants, seeded into the syntax
     /// classifier so constant names paint green exactly like declared
     /// names (and constant-driven lines evaluate the same way).
@@ -144,6 +150,7 @@ struct NotebookEditor: NSViewRepresentable {
             inputPrefs: inputPrefs,
             styling: styling,
             appAppearance: appAppearance,
+            effectiveDark: effectiveDark,
             constants: constants,
             onPreviousAnswerTrigger: onPreviousAnswerTrigger,
             onScroll: onScroll,
@@ -243,6 +250,8 @@ final class NotebookEditorCoordinator: NSObject {
     /// r38: the app-wide Light/Dark choice; a change triggers the
     /// color-only in-place refresh (no re-layout, no reflow).
     private var appAppearance: AppAppearance = .light
+    /// The last effective scheme this coordinator repainted for.
+    private var effectiveDark: Bool = false
     /// r87: the app's UI language (localizes the native Highlight
     /// menu items the coordinator builds).
     private var appLanguage: AppLanguage = .en
@@ -626,6 +635,7 @@ final class NotebookEditorCoordinator: NSObject {
                 inputPrefs: InputPreferences,
                 styling: StylingPreferences,
                 appAppearance: AppAppearance,
+                effectiveDark: Bool,
                 constants: [UserConstant],
                 onPreviousAnswerTrigger: ((Character, Int) -> Bool)?,
                 onScroll: @escaping (CGFloat) -> Void,
@@ -728,8 +738,17 @@ final class NotebookEditorCoordinator: NSObject {
         // untouched (no re-layout, no reflow), but the dynamic Design
         // tokens must be re-resolved under the new effective appearance
         // and repainted in place — deterministically, not by hope.
+        // The COLOR-ONLY trigger: the persisted pinned mode changed OR
+        // the effective scheme changed underneath Auto. A system
+        // Light<->Dark switch while a pinned mode is active never
+        // reaches here (preferredColorScheme keeps the environment
+        // fixed), so pinned modes cannot repaint spuriously.
         let appAppearanceChanged = appAppearance != self.appAppearance
-        if appAppearanceChanged { self.appAppearance = appAppearance }
+            || effectiveDark != self.effectiveDark
+        if appAppearanceChanged {
+            self.appAppearance = appAppearance
+            self.effectiveDark = effectiveDark
+        }
         textView.numberContext = numberContext
         if needsRelayout {
             textView.lineNumbers = lineNumbers

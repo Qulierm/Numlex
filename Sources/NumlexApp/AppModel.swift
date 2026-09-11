@@ -413,8 +413,14 @@ final class AppModel {
         // frame always matches the persisted choice (this init runs on
         // the main actor — the App struct creates the model there).
         let appearance = settings.appearance
+        let icon = settings.appIcon
         MainActor.assumeIsolated {
             AppAppearanceController.apply(appearance)
+            // The AppDelegate already captured the launch icon and applied
+            // the same choice; this is the idempotent re-application that
+            // guarantees the first visible frame matches the persisted
+            // store even when the scene builds the model first.
+            AppIconController.apply(icon)
         }
         // r77: seed the answer appearance state with the loaded sheet's
         // lines — initial load never plays insertion animations.
@@ -1031,6 +1037,20 @@ final class AppModel {
         // Called from the SwiftUI settings binding — main actor.
         MainActor.assumeIsolated {
             AppAppearanceController.apply(appearance)
+        }
+    }
+
+    /// THE one icon-change path: mutate the observable setting, persist
+    /// the store, then apply the choice process-wide through the one
+    /// controller. A missing/corrupt Light resource fails safe — the
+    /// persisted value still roundtrips, and the process keeps its
+    /// current icon instead of showing a generic placeholder.
+    func setAppIcon(_ choice: AppIconChoice) {
+        guard choice != settings.appIcon else { return }
+        settings.appIcon = choice
+        persist()
+        MainActor.assumeIsolated {
+            _ = AppIconController.apply(choice)
         }
     }
 

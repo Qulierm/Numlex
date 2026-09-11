@@ -49,7 +49,16 @@ let package = Package(
             ],
             path: "Sources/NumlexApp",
             // Consumed by Scripts/build-app.sh when assembling Numlex.app.
-            exclude: ["Resources/Info.plist", "Resources/AppIcon.icns"]
+            exclude: ["Resources/Info.plist", "Resources/AppIcon.icns"],
+            // The alternate app icon + the two Settings preview tiles must
+            // be reachable at runtime. `.copy` keeps the bytes identical
+            // (the loader prefers Bundle.main in a packaged app and falls
+            // back to Bundle.module under `swift run`).
+            resources: [
+                .copy("Resources/AppIconLight.icns"),
+                .copy("Resources/AppIconDarkPreview.png"),
+                .copy("Resources/AppIconLightPreview.png"),
+            ]
         ),
         // Shared, portable test cases (no test-framework dependency).
         .target(

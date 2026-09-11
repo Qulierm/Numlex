@@ -202,9 +202,11 @@ resizes down to a 260pt content height for compact desks; the default stays
 
 ## Styling and constants
 
-Choose Light or Dark for the whole app, then tune font size, font design and role
-colors, decimal places, input helpers, line numbers, interface language, the
-currency display, and an option to hide the sidebar button once collapsed —
+Choose Auto (follow macOS), Light or Dark for the whole app, pick the
+Dock/App Switcher icon (Dark — the signed bundle icon and the default — or
+Light), then tune font size, font design and role colors, decimal places, input
+helpers, line numbers, interface language, the currency display, and an option
+to hide the sidebar button once collapsed —
 reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. Define up to 100 app-wide constants (`PI = 3.141592653589793`,
 `Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
 live through the same strict engine — function arguments included.
@@ -259,7 +261,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,055 shared cases, runnable two ways:
+The engine suite covers 1,067 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

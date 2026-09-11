@@ -8,12 +8,13 @@ import NumlexCore
 /// the palette resolver are app-layer UI state (not exercised here).
 public let r38Cases: [EngineCase] = [
     EngineCase("r38-appearance-raw-order-stability") {
-        try expectEqual(AppAppearance.allCases, [.light, .dark],
-                        "exactly two cases, light before dark")
-        try expectEqual(AppAppearance.allCases.map(\.rawValue), ["light", "dark"],
+        try expectEqual(AppAppearance.allCases, [.system, .light, .dark],
+                        "three cases: system (Auto), light, dark")
+        try expectEqual(AppAppearance.allCases.map(\.rawValue), ["system", "light", "dark"],
                         "raw values are the stable wire values")
         try expectEqual(AppAppearance(rawValue: "light")!, .light)
         try expectEqual(AppAppearance(rawValue: "dark")!, .dark)
+        try expectEqual(AppAppearance(rawValue: "system")!, .system)
         try expect(AppAppearance(rawValue: "LIGHT") == nil,
                    "raw values are case-sensitive wire values")
         // Codable roundtrip of the bare enum in both directions.

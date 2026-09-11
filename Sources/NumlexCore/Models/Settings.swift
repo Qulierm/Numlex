@@ -10,7 +10,61 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
 /// to `.light` (the r36 permanent-light behavior), so existing stores
 /// keep behaving exactly as before.
 public enum AppAppearance: String, Codable, CaseIterable, Sendable, Equatable {
+    /// Follow the macOS appearance: the app sets `NSApp.appearance = nil`
+    /// and the SwiftUI root applies NO `preferredColorScheme`, so system
+    /// changes flow live into the chrome, menus, glass and TextKit.
+    case system
     case light, dark
+
+    /// The Settings picker order (Auto, Light, Dark). Raw values are the
+    /// stable persisted spellings (`system`/`light`/`dark`); `light` and
+    /// `dark` keep their historical raw values byte-for-byte.
+    public static let uiOrder: [AppAppearance] = [.system, .light, .dark]
+
+    /// The pinned color-scheme override: `nil` for Auto (follow the
+    /// system), `true` for Dark, `false` for Light. Deliberately
+    /// optional — a two-way ternary would silently map every non-light
+    /// value to dark, which is exactly the bug Auto must not have. The
+    /// app layer maps this to SwiftUI's `ColorScheme`; the core stays
+    /// UI-framework free.
+    public var colorSchemeIsDarkOverride: Bool? {
+        switch self {
+        case .system: return nil
+        case .light: return false
+        case .dark: return true
+        }
+    }
+
+    /// The EFFECTIVE light/dark resolution for the AppKit-backed editor:
+    /// Auto resolves through the process appearance, pinned modes are
+    /// themselves.
+    public func effectiveIsDark(processIsDark: Bool) -> Bool {
+        switch self {
+        case .system: return processIsDark
+        case .light: return false
+        case .dark: return true
+        }
+    }
+}
+
+/// The app-global Dock/App Switcher icon choice. `dark` is the default and
+/// the bundle's modern primary icon (Assets.car + the AppIcon.icns fallback);
+/// `light` is the alternate ICNS shipped in the app resources. The choice is
+/// color/image only — it never affects the Finder bundle icon, the code
+/// signature or any document.
+public enum AppIconChoice: String, Codable, CaseIterable, Sendable, Equatable {
+    case dark
+    case light
+
+    /// The Settings picker order (Dark first: it is the default).
+    public static let uiOrder: [AppIconChoice] = [.dark, .light]
+
+    /// Tolerant decode: a missing key (legacy store) or a malformed raw
+    /// value falls back to the default `.dark` instead of failing the store.
+    public static func resolve(_ raw: String?) -> AppIconChoice {
+        guard let raw, let v = AppIconChoice(rawValue: raw.lowercased()) else { return .dark }
+        return v
+    }
 }
 
 
@@ -104,9 +158,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// sheet (never embedded in `.nlx` exports). Source expressions
     /// only — no computed snapshots.
     public var customConstants: [UserConstant]
-    /// r38: the app-wide Light/Dark appearance (persisted; the
+    /// r38: the app-wide Light/Dark/Auto appearance (persisted; the
     /// authoritative source for the one NSApp.appearance application).
     public var appearance: AppAppearance
+    /// The app-global Dock/App Switcher icon choice (persisted; the
+    /// authoritative source for the one NSApp.applicationIconImage
+    /// application). Additive: a missing key or a malformed value falls
+    /// back to `.dark`, the modern bundle primary. Never in `.nlx`.
+    public var appIcon: AppIconChoice
     /// r73: the regional number settings. `nil` means the store has
     /// no `regional` key at all — the PRE-r73 legacy store — and the
     /// app keeps the pre-r73 US behavior (decimal `.`, grouping `,`,
@@ -139,7 +198,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         customUnits: []
 )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -155,6 +214,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.regional = regional
         self.customUnits = customUnits
         self.presentation = presentation
+        self.appIcon = appIcon
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -191,6 +251,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // fall back to `.light` instead of failing the whole store
         // (StorePayload.version is NOT bumped; nothing is migrated).
         appearance = (try? c.decodeIfPresent(AppAppearance.self, forKey: .appearance)) ?? .light
+        // Additive and failure-proof: a missing key (legacy store), an
+        // invalid raw value or a wrong JSON type all fall back to the
+        // bundle default `.dark` — the modern primary icon. StorePayload
+        // version is NOT bumped and nothing is migrated.
+        appIcon = AppIconChoice.resolve(
+            (try? c.decodeIfPresent(String.self, forKey: .appIcon)) ?? nil)
         // r73: additive — pre-r73 stores carry no `regional` key at
         // all: `nil` is the legacy signal (pre-r73 US behavior). A
         // present block decodes per-key tolerantly (see
