@@ -35,7 +35,7 @@ Numbers, Constants, Styling).
 | --- | --- | --- |
 | Line numbers | on | Shows the line number beside each input line. |
 | Hide sidebar button when collapsed | off | Hides the toolbar button while the sidebar is collapsed; reopen the sidebar with **⌃⌘S** (Control-Command-S) or View → Toggle Sidebar. |
-| Show total bar | on | Hides the sheet's bottom Total panel. Inline `total` lines keep evaluating and rendering — the toggle never disables the command. |
+| Show total bar | on | Hides the sheet's bottom Total panel (the footer that sums the evaluated magnitude of every ordinary scalar answer — unitless, unit-bearing and money rows included — and formats the one unitless result with the global number settings). Inline `total` lines keep evaluating and rendering — the toggle never disables the command. |
 
 ### Updates
 
@@ -226,7 +226,7 @@ lines without an answer — headings, comments, prose — can be highlighted too
 | --- | --- |
 | Answer column width | 200 pt |
 | Line-number gutter | with line numbers on: 54 pt indent (36 pt gutter + 18 pt leading); hidden: 18 pt — the gutter is fully reclaimed, and toggling never accumulates drift |
-| Total bar vs inline `total` | the bottom Total panel sums the sheet's unitless answers and is toggled on the General tab; inline `total` lines are a separate sheet command that is always active |
+| Total bar vs inline `total` | the bottom Total panel is dimension-agnostic: it sums the evaluated magnitude of every ordinary scalar answer row once (unitless numbers, unit-bearing quantities such as `2 kg`, money such as `$3`, named scalars and exact integers) into one plain unitless value — no unit conversion, no FX normalization and no unit/currency suffix — and excludes inline `total` rows so the two never double-count; inline `total` lines are a separate section-scoped command that is always active and still sums only unitless scalars |
 
 ## Persistence
 

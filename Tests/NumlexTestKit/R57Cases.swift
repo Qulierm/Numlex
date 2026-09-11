@@ -389,8 +389,9 @@ public let r57Cases: [EngineCase] = [
 
     EngineCase("r57-source-guards") {
         // The flag is derived-only: the view trusts evaluated metadata
-        // (never source regex), the footer excludes total rows from its
-        // unitless sum, and nothing about totals is persisted.
+        // (never source regex), the footer delegates the whole
+        // eligibility contract (inline total rows included) to
+        // `SheetFooterTotal`, and nothing about totals is persisted.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -412,8 +413,10 @@ public let r57Cases: [EngineCase] = [
         try expect(view.contains("line.isTotal"), "view trusts metadata")
         try expect(view.contains("Design.panelSeparator"), "neutral rule color")
         try expect(view.contains("weight: totalWeight"), "total-only weight")
-        try expect(view.contains("guard !line.isTotal else { return nil }"),
-                   "footer excludes totals")
+        try expect(view.contains("SheetFooterTotal.aggregate(rows)"),
+                   "footer delegates to the core footer aggregate")
+        try expect(!view.contains("guard !line.isTotal else { return nil }"),
+                   "the view no longer filters rows itself")
         let sheet = try src("Sources/NumlexCore/Models/Sheet.swift")
         try expect(!sheet.contains("isTotal"), "never persisted")
     },

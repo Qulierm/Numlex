@@ -123,7 +123,20 @@ the sheet start or the previous `total` — and starts a fresh section below.
 The answer renders semibold under a gray rule placed exactly between the
 neighboring answers, and it behaves like any other answer: Copy, per-answer
 rounding and tokens all work, and wrapped logical lines keep their gutter
-number centered on the block.
+number centered on the block. Money, unit-bearing quantities, booleans, dates
+and error rows never enter a section `total`.
+
+The window also has a persistent bottom Total panel (turn it off under
+Settings → General → Show total bar). It is a separate, dimension-agnostic
+contract: it adds the evaluated magnitude of every ordinary scalar answer row
+once — unitless numbers, unit-bearing quantities (`2 kg`), money (`$3`),
+named scalars and exact integers — and shows one plain unitless number with no
+unit conversion, no FX normalization and no unit or currency suffix
+(`2 kg`, `$3` and `4 EUR` total `9`). Inline `total` rows are excluded so the
+two totals never double-count, and booleans, dates, locations/DMS, error and
+blank rows do not contribute. Per-answer rounding and number-format overrides
+never change the bottom Total; it follows the global notation and regional
+settings.
 
 ## Conversions
 
@@ -229,7 +242,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,019 shared cases, runnable two ways:
+The engine suite covers 1,031 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

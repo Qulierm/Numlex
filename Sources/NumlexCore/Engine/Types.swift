@@ -223,7 +223,10 @@ public enum LineResult: Equatable, Sendable {
     /// + 25% tip`): the value carries full engine precision and an ISO
     /// currency code; the display is the shared money presentation
     /// (`$600.00`), never `600 USD`. Money results never enter the
-    /// numeric Total and never mix across currencies.
+    /// INLINE `total` section sum and never mix across currencies;
+    /// they DO contribute their evaluated output magnitude to the
+    /// persistent bottom Total panel (`SheetFooterTotal`, which is
+    /// deliberately dimension-agnostic).
     case money(value: Double, code: String)
     /// A date answer (`May 5 + 43 days`): component form, never a
     /// Double and never tokenized as a number. Display is compact
@@ -241,7 +244,9 @@ public enum LineResult: Equatable, Sendable {
     /// presentation radix: the explicit converter's radix, else the
     /// first non-decimal radix of the line, else decimal. Renders and
     /// copies as the canonical radix text (no decimal rounding menu);
-    /// contributes its exact value to totals (deterministic) and is
+    /// contributes its exact value to BOTH totals (deterministic:
+    /// the inline section sum and the bottom footer, whose Double
+    /// projection is exact while |v| <= 2^53) and is
     /// tokenizable. Never persisted as a schema: re-derived per pass.
     case integer(value: Int64, radix: Int)
     /// r85: a `location of <place>` answer: the resolved place's
@@ -338,7 +343,8 @@ public struct SheetLine: Equatable, Sendable {
     /// r57: derived presentation flag for an evaluated inline `total`
     /// command row (successful `.number` only). The answer renders
     /// semibold with a gray rule above it and is excluded from the
-    /// bottom summary sum. Defaulted so every existing constructor
+    /// bottom footer total (`SheetFooterTotal`) so the section subtotal
+    /// is never double-counted. Defaulted so every existing constructor
     /// call stays source-compatible; never persisted to the store or
     /// to `.nlx` — each pass re-derives it from the sheet text.
     public var isTotal: Bool = false

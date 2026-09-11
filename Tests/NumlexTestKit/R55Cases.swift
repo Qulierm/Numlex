@@ -660,17 +660,26 @@ public let r55Cases: [EngineCase] = [
         }
     },
 
-    EngineCase("r55-weather-excluded-from-total") {
-        // The summary bar sums only unitless numbers; a unit-bearing
-        // weather result is structurally excluded.
-        if case .number(_, let u, _, _) = r55Results("weather in London",
-                                               weather: r55Context())[0] {
-            try expect(u != nil, "weather carries its unit", "unit")
-            try expectEqual(u, "C°", "celsius label")
-        } else {
+    EngineCase("r55-weather-footer-total-eligibility") {
+        // A unit-bearing weather result is excluded from the inline
+        // `total` SECTION sum, but it IS an ordinary scalar answer row
+        // for the persistent bottom footer total (`SheetFooterTotal`),
+        // which is dimension-agnostic.
+        let line = r55Results("weather in London", weather: r55Context())[0]
+        guard case .number(let v, let u, _, _) = line else {
             throw CaseFailure(message: "ready weather must be a number",
                               location: "R55Cases")
         }
+        try expect(u != nil, "weather carries its unit", "unit")
+        try expectEqual(u, "C°", "celsius label")
+        try expect(InlineTotal.contribution(of: line, isTotalRow: false) == nil,
+                   "weather never enters the inline section total", "inline")
+        try expectClose(SheetFooterTotal.contribution(of: line, isTotalRow: false) ?? .nan,
+                        v, 1e-12,
+                        "weather contributes its magnitude to the footer")
+        try expectEqual(SheetFooterTotal.eligibleRowCount(
+                            [SheetLine(sourceLineIndex: 0, result: line)]), 1,
+                        "the weather row is footer-eligible")
     },
 
     EngineCase("r55-deterministic-under-snapshot-change") {

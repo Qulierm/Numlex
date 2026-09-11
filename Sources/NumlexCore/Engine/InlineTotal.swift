@@ -22,7 +22,9 @@ import Foundation
 ///   contributes ONCE (row sum, not dependency-DAG deduplication):
 ///   finite unitless `.number` and `.variable` values, including
 ///   token-derived scalar rows. Money, unit-bearing quantities
-///   (weather included), dates and inactive tokens never contribute.
+///   (weather included), dates and inactive tokens never contribute to
+///   THIS section sum (the persistent bottom Total panel has its own,
+///   dimension-agnostic contract — see `SheetFooterTotal`).
 ///   A prior total row never enters a new section, but an ordinary
 ///   later reference TO a total is an ordinary result row of ITS
 ///   section and contributes normally. An empty section totals 0, and
@@ -41,9 +43,12 @@ import Foundation
 ///   separately on `SheetLine.isTotal` (defaulted, never persisted).
 /// - Accumulation is O(n): both sheet loops feed one shared
 ///   `TotalAccumulator` top-down instead of rescanning prefixes.
-///   The persistent bottom-panel Total is deliberately NOT sectioned:
-///   it keeps summing every ordinary unitless row of the whole sheet
-///   (total rows excluded), so section subtotals never double-count.
+///   The persistent bottom-panel Total is deliberately NOT sectioned
+///   and lives in `SheetFooterTotal`: it sums the evaluated magnitude
+///   of every ordinary scalar row of the whole sheet (unitless
+///   numbers, unit-bearing quantities, money, named scalars and exact
+///   integers; total rows excluded), so section subtotals never
+///   double-count.
 public enum InlineTotal {
     /// Whether the logical line is a total command in the CURRENT
     /// environment: the strict standalone shape, suppressed whenever
@@ -60,8 +65,11 @@ public enum InlineTotal {
         return env.entry(display: "total") == nil
     }
 
-    /// The eligible contribution of one evaluated row, or nil when the
-    /// row never contributes. Total rows are excluded by the caller
+    /// The eligible contribution of one evaluated row to the SECTION
+    /// total, or nil when the row never contributes here (money,
+    /// unit-bearing quantities, booleans, dates, locations/DMS and
+    /// non-scalar rows are excluded — the bottom footer total has its
+    /// own, broader contract in `SheetFooterTotal`). Total rows are excluded by the caller
     /// via `isTotalRow` so a total can never double-count an earlier
     /// total (direct ordinary references to a total line are ordinary
     /// rows and contribute normally).

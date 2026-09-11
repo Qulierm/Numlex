@@ -374,19 +374,15 @@ struct AnswerColumnView: View {
     }
 
     private var summary: (value: String, unit: String?)? {
-        // r57/r58: the bottom Total is the OVERALL sheet total — it
-        // sums ordinary unitless `.number` rows of the whole sheet
-        // (never sectioned) and inline `total` command rows
-        // (`isTotal`) are EXCLUDED so the feature never
-        // double-counts them. (Assignment `.variable` rows were never
-        // included here and still aren't; that scope is deliberately
-        // unchanged.)
-        let numeric = rows.compactMap { line -> Double? in
-            guard !line.isTotal else { return nil }
-            if case .number(let v, let u, _, _) = line.result, u == nil { return v } else { return nil }
-        }
-        guard !numeric.isEmpty else { return nil }
-        var sum = numeric.reduce(0, +)
+        // The bottom Total is the OVERALL sheet total, dimension-
+        // agnostic and unitless: `SheetFooterTotal` owns the whole
+        // eligibility contract (every ordinary scalar answer row —
+        // unitless numbers, unit-bearing quantities, money, named
+        // scalars and exact integers — counted once in display order,
+        // with inline `total` rows excluded so the feature never
+        // double-counts). The view must not encode result-type
+        // eligibility itself: it only formats the aggregate.
+        guard var sum = SheetFooterTotal.aggregate(rows) else { return nil }
         if sum.truncatingRemainder(dividingBy: 1) != 0 {
             sum = (sum * pow(10, Double(decimalPlaces))).rounded() / pow(10, Double(decimalPlaces))
         }
