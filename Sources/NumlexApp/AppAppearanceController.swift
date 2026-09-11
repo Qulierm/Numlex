@@ -49,6 +49,13 @@ enum AppAppearanceController {
     /// settings (missing key / invalid value / unreadable store all
     /// decode to `.light` — the r36 behavior).
     static func persistedAppearance() -> AppAppearance {
-        Persistence.load()?.settings.appearance ?? .light
+        // r97: a FRESH install (no store yet, or an unreadable one) starts
+        // in Auto, so `NSApp.appearance = nil` from the very first frame
+        // and the process follows macOS live. Existing stores are never
+        // migrated: whatever they persisted (light/dark/system) is
+        // returned exactly, and a LEGACY store whose `appearance` key is
+        // missing/malformed still decodes to the historical `.light`
+        // (that fallback lives in AppSettings.init(from:)).
+        Persistence.load()?.settings.appearance ?? .system
     }
 }

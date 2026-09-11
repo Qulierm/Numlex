@@ -23,11 +23,26 @@ public let r38Cases: [EngineCase] = [
             try expectEqual(try JSONDecoder().decode(AppAppearance.self, from: data), a)
         }
     },
-    EngineCase("r38-appearance-settings-default-light") {
-        try expectEqual(AppSettings().appearance, .light,
-                        "the plain initializer defaults to light")
-        try expectEqual(AppSettings.defaults.appearance, .light,
-                        "the shared defaults constant is light")
+    EngineCase("r38-appearance-settings-default-system") {
+        // r97: a FRESH install starts in Auto so the app follows macOS
+        // from the first frame; the legacy missing-key fallback below is
+        // what keeps existing stores unchanged.
+        try expectEqual(AppSettings().appearance, .system,
+                        "the plain initializer defaults to Auto")
+        try expectEqual(AppSettings.defaults.appearance, .system,
+                        "the shared defaults constant is Auto")
+        try expectEqual(AppSettings().appIcon, .dark,
+                        "the fresh default icon is the modern Dark one")
+        try expectEqual(AppSettings.defaults.appIcon, .dark,
+                        "the shared defaults icon constant is Dark")
+    },
+    EngineCase("r38-appearance-legacy-defaults-still-light") {
+        // Backward compatibility is unchanged: only a store where the
+        // `appearance` key is MISSING/malformed decodes `.light`.
+        try expectEqual(AppIconChoice.resolve(nil), .dark,
+                        "an absent icon choice resolves Dark")
+        try expectEqual(AppIconChoice.resolve("neon"), .dark,
+                        "an invalid icon choice resolves Dark")
     },
     EngineCase("r38-appearance-legacy-missing-key") {
         // A pre-r38 store: the settings object exists but carries no
@@ -42,6 +57,8 @@ public let r38Cases: [EngineCase] = [
         try expectEqual(s.language, .ru)
     },
     EngineCase("r38-appearance-invalid-key-fallback") {
+        try expectEqual(AppSettings().appearance, .system,
+                        "fresh installs are Auto before any decode")
         // Invalid raw value: unknown but well-formed string -> light.
         let bad = """
         {"decimalPlaces":10,"fontSizeKey":"tf","language":"en","sheetName":"Sheet",

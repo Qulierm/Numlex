@@ -51,15 +51,15 @@ the app keeps working.
 
 ## Release history and bootstrap
 
-**4.8.0 was the first updater-enabled release; 4.8.1 is the current one.**
+**4.8.0 was the first updater-enabled release; 4.8.2 is the current one.**
 
 - Users on **4.7.0 or earlier have no updater**: install the current release
-  (4.8.1) manually once from the released `.dmg`, exactly as before. Those
+  (4.8.2) manually once from the released `.dmg`, exactly as before. Those
   builds cannot be pointed at an older updater-enabled release — the manual
   step is "install the latest release once".
 - **4.8.0 and later update in-app** with the flow above (4.8.0 itself sees and
-  installs 4.8.1).
-- The published feed advertises the current release (4.8.1 as of this
+  installs 4.8.2).
+- The published feed advertises the current release (4.8.2 as of this
   writing). A build checking the feed sees either its own version ("up to
   date") or a newer one — never an error for a build that is up to date.
 

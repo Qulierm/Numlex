@@ -4,11 +4,12 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     case en, ru, de, fr, it, zh
 }
 
-/// r38: the app-wide native appearance. Persisted in the store (the
+/// r38/r97: the app-wide native appearance. Persisted in the store (the
 /// single source of truth — no separate UserDefaults key). Raw values
-/// are stable (`light`, `dark`); legacy stores without the key decode
-/// to `.light` (the r36 permanent-light behavior), so existing stores
-/// keep behaving exactly as before.
+/// are stable (`system`, `light`, `dark`); a FRESH install defaults to
+/// `.system` (Auto follows macOS live), while a LEGACY store without the
+/// key still decodes to `.light` (the r36 permanent-light behavior), so
+/// existing stores keep behaving exactly as before.
 public enum AppAppearance: String, Codable, CaseIterable, Sendable, Equatable {
     /// Follow the macOS appearance: the app sets `NSApp.appearance = nil`
     /// and the SwiftUI root applies NO `preferredColorScheme`, so system
@@ -198,7 +199,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         customUnits: []
 )
 
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .light, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark) {
+    /// r97: a fresh install starts in Auto (`appearance = .system`) and
+    /// with the modern Dark app icon; both are only DEFAULTS — a store
+    /// that persisted an explicit choice decodes that exact value.
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark) {
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language

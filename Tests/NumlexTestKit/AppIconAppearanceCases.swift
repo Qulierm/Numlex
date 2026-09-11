@@ -105,11 +105,14 @@ public let appIconAppearanceCases: [EngineCase] = [
         }
     },
 
-    EngineCase("appearance-legacy-defaults-still-light") {
-        // `AppSettings()` and the shared defaults keep Light — the new
-        // Auto case is user-selectable, never a silent new default.
-        try expectEqual(AppSettings().appearance, .light, "init default stays light")
-        try expectEqual(AppSettings.defaults.appearance, .light, "defaults constant stays light")
+    EngineCase("appearance-fresh-system-legacy-light") {
+        // r97: a FRESH install defaults to Auto (nothing persisted), while
+        // the LEGACY missing/malformed key still decodes to Light so
+        // existing stores keep their choice; the icon default is Dark.
+        try expectEqual(AppSettings().appearance, .system, "fresh init default is Auto")
+        try expectEqual(AppSettings.defaults.appearance, .system, "fresh defaults constant is Auto")
+        try expectEqual(AppSettings().appIcon, .dark, "fresh icon default is Dark")
+        try expectEqual(AppSettings.defaults.appIcon, .dark, "defaults icon constant is Dark")
         let missing = """
         {"decimalPlaces":10,"fontSizeKey":"tf","language":"en","sheetName":"Sheet",
          "lineNumbers":true,"fontColor":"white"}
@@ -496,6 +499,38 @@ public let appIconAppearanceCases: [EngineCase] = [
         }
         try expect(capture.lowerBound < apply.lowerBound,
                    "the delegate captures the true primary before applying the choice")
+    },
+
+    EngineCase("appearance-fresh-vs-legacy-source") {
+        guard let ctl = appIconSource("Sources/NumlexApp/AppAppearanceController.swift") else {
+            throw CaseFailure(message: "AppAppearanceController missing", location: "AppIconCases")
+        }
+        // r97: a FRESH install (no readable store) starts in Auto…
+        try expect(ctl.contains("Persistence.load()?.settings.appearance ?? .system"),
+                   "the no-store launch falls back to Auto")
+        // …while the LEGACY missing-key decode stays Light in the model.
+        guard let settings = appIconSource("Sources/NumlexCore/Models/Settings.swift") else {
+            throw CaseFailure(message: "Settings.swift missing", location: "AppIconCases")
+        }
+        try expect(settings.contains("forKey: .appearance)) ?? .light"),
+                   "a missing/malformed appearance key still decodes Light")
+        try expect(settings.contains("appearance: AppAppearance = .system"),
+                   "the fresh AppSettings default is Auto")
+        try expect(settings.contains("appIcon: AppIconChoice = .dark"),
+                   "the fresh AppSettings icon default is Dark")
+        // Persistence exactness for the three explicit choices.
+        for a in AppAppearance.allCases {
+            var s = AppSettings()
+            s.appearance = a
+            let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
+            try expectEqual(back.appearance, a, "explicit \(a.rawValue) roundtrips exactly")
+        }
+        for icon in AppIconChoice.allCases {
+            var s = AppSettings()
+            s.appIcon = icon
+            let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
+            try expectEqual(back.appIcon, icon, "explicit icon \(icon.rawValue) roundtrips exactly")
+        }
     },
 
     EngineCase("appearance-controller-source-invariants") {
