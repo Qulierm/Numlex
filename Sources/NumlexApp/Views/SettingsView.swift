@@ -2,69 +2,111 @@ import AppKit
 import SwiftUI
 import NumlexCore
 
-/// r34/r75 — the ONE settings-window geometry source (points). Width
-/// range plus CONTENT height range (NSWindow content size — the
+/// r34/r75/r90 — the ONE settings-window geometry source (points).
+/// Width/height ranges are CONTENT sizes (NSWindow content size — the
 /// titlebar is extra, and the configurator applies these through
-/// contentMinSize / contentMaxSize, never frame minSize/maxSize). The
-/// window opens at 560x460 (r75 compact single column: 520...640
-/// content width, 460...540 content height); r75 narrowed the range
-/// because every tab is now ONE readable column and the old 690...820
-/// two-column range left the window needlessly wide. r76 keeps this
-/// range: the five native tab labels (General, Editing, Numbers,
-/// Constants, Styling) fit the 520 pt minimum with room to spare.
+/// contentMinSize / contentMaxSize, never frame minSize/maxSize).
+///
+/// r90: the settings window is now a native split navigation — a
+/// category sidebar (min 148 / ideal 158 / max 172 pt) plus ONE focused
+/// detail page — so the content is intentionally larger than the old
+/// five-tab window but still compact (min 660x500, ideal 700x540, max
+/// 780x640) rather than a giant clone of the reference. Measured on
+/// macOS 26: the split view clamps the width at the declared 660 pt
+/// minimum, while its own sidebar chrome asks for the IDEAL height
+/// (540 pt) as the practical floor — the declared 500 pt minimum is
+/// therefore a lower bound the window never reaches in practice.
 private enum SettingsGeometry {
-    static let minWidth: CGFloat = 520
-    static let idealWidth: CGFloat = 560
-    static let maxWidth: CGFloat = 640
-    static let minHeight: CGFloat = 460
-    static let idealHeight: CGFloat = 460
-    static let maxHeight: CGFloat = 540
+    static let minWidth: CGFloat = 660
+    static let idealWidth: CGFloat = 700
+    static let maxWidth: CGFloat = 780
+    static let minHeight: CGFloat = 500
+    static let idealHeight: CGFloat = 540
+    static let maxHeight: CGFloat = 640
+
+    /// The leading category sidebar: compact, always visible, wide
+    /// enough for the longest localized label (German
+    /// "Erscheinungsbild", Spanish "Actualizaciones") without clipping.
+    static let sidebarMinWidth: CGFloat = 148
+    static let sidebarIdealWidth: CGFloat = 166
+    static let sidebarMaxWidth: CGFloat = 172
 }
 
-/// The Settings scene content (r21, r33, r34, r74, r76): one native
-/// macOS `TabView` with exactly FIVE focused tabs —
-/// General (interface + notebook, understated rate attribution),
-/// Editing (operator helpers + automatic input insertions),
-/// Numbers (r73 region + the three independent display/paste toggles,
-/// one live example block), Constants (the GLOBAL user-defined
-/// constants, one scrollable row table) and Styling (typography,
-/// syntax colors and a full-width live preview).
-/// r76: every tab is ONE readable column of LOGICAL GROUPS on the
-/// shared SettingsPage scaffold; every boolean preference is a NATIVE
-/// switch (never a custom-drawn control), grouped so each tab has one
-/// clear job. Geometry comes from SettingsGeometry (560x460 content
-/// initial; 520...640 x 460...540).
+/// r90: the SEVEN settings destinations, in sidebar order. Session-local
+/// navigation state only — never persisted into AppSettings/.nlx.
+enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
+    case general
+    case appearance
+    case editing
+    case numbers
+    case constantsUnits
+    case styling
+    case updates
+
+    var id: String { rawValue }
+
+    /// The localized sidebar label key.
+    var labelKey: String {
+        switch self {
+        case .general: return "settings.general"
+        case .appearance: return "settings.appearance"
+        case .editing: return "settings.editing"
+        case .numbers: return "settings.numbers"
+        // Concise sidebar label; the detail page title is the full name.
+        case .constantsUnits: return "settings.constantsUnitsShort"
+        case .styling: return "settings.styling"
+        case .updates: return "settings.updates"
+        }
+    }
+
+    /// The full detail-page title key (may differ from the sidebar label).
+    var titleKey: String {
+        switch self {
+        case .constantsUnits: return "settings.constantsUnits"
+        default: return labelKey
+        }
+    }
+
+    /// The concise localized subtitle shown under the page title.
+    var subtitleKey: String { "settings.\(rawValue).subtitle" }
+
+    /// SF Symbols only — restrained, hierarchical, never branded art.
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .appearance: return "circle.lefthalf.filled"
+        case .editing: return "pencil.tip"
+        case .numbers: return "number"
+        case .constantsUnits: return "function"
+        case .styling: return "paintbrush"
+        case .updates: return "arrow.triangle.2.circlepath"
+        }
+    }
+}
+
 struct SettingsView: View {
     @Bindable var model: AppModel
+    /// Session-local navigation state (never persisted into the store).
+    @State private var destination: SettingsDestination = .general
+    /// Pinned sidebar visibility: the settings sidebar is ALWAYS visible
+    /// (hiding it would leave the window unnavigable), so the native
+    /// toggle is neutralized by a CONSTANT binding — native policy, no
+    /// state churn during layout (a state binding re-written on every
+    /// change made the window fight its own resize).
+
+    private var language: AppLanguage { model.settings.language }
 
     var body: some View {
-        TabView {
-            GeneralSettingsTab(model: model)
-                .tabItem {
-                    Label(L10n.t("settings.general", language: model.settings.language),
-                          systemImage: "gear")
-                }
-            EditingSettingsTab(model: model)
-                .tabItem {
-                    Label(L10n.t("settings.editing", language: model.settings.language),
-                          systemImage: "pencil.tip")
-                }
-            NumbersSettingsTab(model: model)
-                .tabItem {
-                    Label(L10n.t("settings.numbers", language: model.settings.language),
-                          systemImage: "globe")
-                }
-            ConstantsSettingsTab(model: model)
-                .tabItem {
-                    Label(L10n.t("settings.constants", language: model.settings.language),
-                          systemImage: "function")
-                }
-            StylingSettingsTab(model: model)
-                .tabItem {
-                    Label(L10n.t("settings.styling", language: model.settings.language),
-                          systemImage: "paintbrush")
-                }
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            sidebar
+        } detail: {
+            detail
         }
+        .navigationSplitViewStyle(.balanced)
+        // The split navigation must not grow a window toolbar with a
+        // sidebar toggle inside Settings (the window chrome belongs to
+        // the scene; the sidebar is always visible at this size).
+        .toolbar(removing: .sidebarToggle)
         .frame(minWidth: SettingsGeometry.minWidth,
                idealWidth: SettingsGeometry.idealWidth,
                maxWidth: SettingsGeometry.maxWidth,
@@ -74,37 +116,148 @@ struct SettingsView: View {
         // Window chrome the scene APIs cannot express: resizability and
         // the designed CONTENT size range (the SwiftUI frame above
         // drives the content bounds; the configurator mirrors them on
-        // the NSWindow from the SAME SettingsGeometry source). The
-        // title stays the native tab title
-        // (General/Editing/Numbers/Constants/Styling — the System
-        // Settings convention); the configurator never fights it.
+        // the NSWindow from the SAME SettingsGeometry source).
         .background(SettingsWindowConfigurator())
+    }
+
+    /// The always-visible native category list plus the restrained
+    /// bottom identity (app preview icon, name and the bundle version
+    /// read at runtime — never a hardcoded release fact).
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            List(selection: $destination) {
+                Section {
+                    ForEach(SettingsDestination.allCases) { item in
+                        Label(L10n.t(item.labelKey, language: language),
+                              systemImage: item.symbol)
+                            .lineLimit(1)
+                            .tag(item)
+                    }
+                } header: {
+                    Text(L10n.t("settings.sidebarTitle", language: language))
+                }
+            }
+            .listStyle(.sidebar)
+            .frame(minWidth: SettingsGeometry.sidebarMinWidth,
+                   idealWidth: SettingsGeometry.sidebarIdealWidth,
+                   maxWidth: SettingsGeometry.sidebarMaxWidth)
+
+            Divider()
+            SettingsSidebarIdentity(language: language,
+                                    iconChoice: model.settings.appIcon)
+        }
+        .navigationSplitViewColumnWidth(min: SettingsGeometry.sidebarMinWidth,
+                                        ideal: SettingsGeometry.sidebarIdealWidth,
+                                        max: SettingsGeometry.sidebarMaxWidth)
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch destination {
+        case .general: GeneralSettingsPage(model: model)
+        case .appearance: AppearanceSettingsPage(model: model)
+        case .editing: EditingSettingsPage(model: model)
+        case .numbers: NumbersSettingsPage(model: model)
+        case .constantsUnits: ConstantsUnitsSettingsPage(model: model)
+        case .styling: StylingSettingsPage(model: model)
+        case .updates: UpdatesSettingsPage(model: model)
+        }
+    }
+}
+
+/// The bottom sidebar identity: the current app-icon preview (the same
+/// packaged PNG the picker uses — no new raster), the app name and the
+/// version read dynamically from the bundle. Informational only: it is
+/// not a button, never takes focus, and is separated by a subtle rule.
+private struct SettingsSidebarIdentity: View {
+    let language: AppLanguage
+    let iconChoice: AppIconChoice
+
+    /// The packaged bundle version, with a development fallback only.
+    static var bundleVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            ?? "dev"
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let image = AppIconResources.previewImage(for: iconChoice) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.15))
+                    .frame(width: 36, height: 36)
+            }
+            Text("Numlex")
+                .font(.system(size: 11, weight: .semibold))
+            Text(Self.bundleVersion)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("Numlex \(Self.bundleVersion)"))
     }
 }
 
 // MARK: - Shared components (r74 page layout, r76 groups and switches)
 
-/// r74/r76 shared page layout: ONE single readable column inside a
-/// top-aligned ScrollView with 20 pt page insets on every side (the
-/// overlay scroll indicator rides over the inset, so content always
-/// stays inside the viewport). Every tab uses this scaffold, so all
-/// five share the same layout rules; a tab that overflows the minimum
-/// window height scrolls instead of enlarging the window.
-private struct SettingsPage<Content: View>: View {
+/// r90: the shared detail-page scaffold — one top-aligned scroll view
+/// with the category title, a concise subtitle and then the content
+/// cards. Every destination uses it, so the whole Settings window
+/// shares one hierarchy; a page that overflows the window scrolls
+/// instead of resizing it, and each page starts at its own top.
+private struct SettingsDetailPage<Content: View>: View {
+    let destination: SettingsDestination
+    let language: AppLanguage
     let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    init(destination: SettingsDestination, language: AppLanguage,
+         @ViewBuilder content: () -> Content) {
+        self.destination = destination
+        self.language = language
         self.content = content()
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.t(destination.titleKey, language: language))
+                        .font(.system(size: 22, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(L10n.t(destination.subtitleKey, language: language))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 content
             }
-            .padding(20)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
+            .frame(maxWidth: 640, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+    }
+}
+
+/// The one restrained card surface: a low-tint rounded rectangle, theme
+/// aware, never per-row glass and never a competing material.
+private struct SettingsCardBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
+            .fill(Color.primary.opacity(0.045))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+            )
     }
 }
 
@@ -136,10 +289,7 @@ private struct SettingsGroup<Content: View>: View {
                 rows
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
+                    .background(SettingsCardBackground())
             } else {
                 rows
             }
@@ -155,16 +305,26 @@ private struct SettingsGroup<Content: View>: View {
 private struct SettingsRow<Control: View>: View {
     let title: String
     let detail: String?
+    let symbol: String?
     let control: Control
 
-    init(title: String, detail: String? = nil, @ViewBuilder control: () -> Control) {
+    init(title: String, detail: String? = nil, symbol: String? = nil,
+         @ViewBuilder control: () -> Control) {
         self.title = title
         self.detail = detail
+        self.symbol = symbol
         self.control = control()
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, alignment: .center)
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 13))
@@ -238,15 +398,15 @@ private struct SettingsEmptyState: View {
     }
 }
 
-// MARK: - General tab (r76: interface + notebook, one clear home each)
+// MARK: - General page (r90: language + notebook behaviour)
 
-private struct GeneralSettingsTab: View {
+private struct GeneralSettingsPage: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
 
     /// One persisted boolean binding (every control writes through
-    /// model.persist(), exactly like the previous rows).
+    /// model.persist(), exactly like before).
     private func boolBinding(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
         Binding(
             get: { model.settings[keyPath: keyPath] },
@@ -255,15 +415,11 @@ private struct GeneralSettingsTab: View {
     }
 
     var body: some View {
-        // r76: General keeps exactly two jobs — how the app speaks and
-        // looks (Interface) and how the notebook window behaves
-        // (Notebook). Editing helpers moved to their own Editing tab;
-        // number display/paste moved to Numbers; the currency-rate
-        // attribution is an understated footer line, not a section.
         let language = self.language
-        return SettingsPage {
+        return SettingsDetailPage(destination: .general, language: language) {
             SettingsGroup(title: L10n.t("general.interface", language: language)) {
-                SettingsRow(title: L10n.t("language", language: language)) {
+                SettingsRow(title: L10n.t("language", language: language),
+                            symbol: "globe") {
                     Picker("", selection: Binding(
                         get: { model.settings.language },
                         set: { model.settings.language = $0; model.persist() }
@@ -276,13 +432,58 @@ private struct GeneralSettingsTab: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                 }
-                SettingsRow(title: L10n.t("appearance", language: language)) {
-                    // The ONE write path (model.setAppearance: one
-                    // settings write, one persist, one process-wide
-                    // NSApp.appearance application) — a direct settings
-                    // write would skip the live switch. Order is Auto,
-                    // Light, Dark; the segmented control is wide enough
-                    // for the longest translation at the 520 pt minimum.
+            }
+
+            SettingsGroup(title: L10n.t("general.notebook", language: language)) {
+                SettingsRow(
+                    title: L10n.t("linenumber", language: language),
+                    detail: L10n.t("linenumberCap", language: language),
+                    symbol: "list.number"
+                ) {
+                    SettingsSwitch(title: L10n.t("linenumber", language: language),
+                                   isOn: boolBinding(\AppSettings.lineNumbers))
+                }
+                SettingsRow(
+                    title: L10n.t("hideSidebarBtn", language: language),
+                    detail: L10n.t("hideSidebarBtnCap", language: language),
+                    symbol: "sidebar.left"
+                ) {
+                    SettingsSwitch(title: L10n.t("hideSidebarBtn", language: language),
+                                   isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
+                }
+                SettingsRow(
+                    title: L10n.t("showTotalBar", language: language),
+                    detail: L10n.t("showTotalBarCap", language: language),
+                    symbol: "sum"
+                ) {
+                    SettingsSwitch(title: L10n.t("showTotalBar", language: language),
+                                   isOn: boolBinding(\AppSettings.showTotalBar))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Appearance page (Auto/Light/Dark + application icon)
+
+/// r90: everything about how Numlex LOOKS, in one focused place. The
+/// appearance picker keeps the one write path (model.setAppearance) and
+/// the icon chooser keeps the exact supplied previews and the one icon
+/// write path (model.setAppIcon); the Dock/App Switcher scope caption
+/// stays factual.
+private struct AppearanceSettingsPage: View {
+    @Bindable var model: AppModel
+
+    private var language: AppLanguage { model.settings.language }
+
+    var body: some View {
+        let language = self.language
+        return SettingsDetailPage(destination: .appearance, language: language) {
+            // The page title already names the category: the card carries
+            // the control row only (no duplicated section header).
+            SettingsGroup(title: nil) {
+                SettingsRow(title: L10n.t("appearance", language: language),
+                            symbol: "circle.lefthalf.filled") {
                     Picker("", selection: Binding(
                         get: { model.settings.appearance },
                         set: { model.setAppearance($0) }
@@ -293,66 +494,60 @@ private struct GeneralSettingsTab: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 190)
-                }
-                // Icon choice: two native selectable preview tiles built
-                // from the supplied PNGs. Dark is the bundle default; the
-                // choice only drives the Dock/App Switcher icon (the
-                // Finder bundle icon is never touched).
-                SettingsRow(
-                    title: L10n.t("appIcon", language: language),
-                    detail: L10n.t("appIconCap", language: language)
-                ) {
-                    AppIconPicker(
-                        selection: model.settings.appIcon,
-                        language: language,
-                        onSelect: { model.setAppIcon($0) }
-                    )
+                    .frame(width: 240)
                 }
             }
 
-            SettingsGroup(title: L10n.t("general.notebook", language: language)) {
-                SettingsRow(
-                    title: L10n.t("linenumber", language: language),
-                    detail: L10n.t("linenumberCap", language: language)
-                ) {
-                    SettingsSwitch(title: L10n.t("linenumber", language: language),
-                                   isOn: boolBinding(\AppSettings.lineNumbers))
-                }
-                SettingsRow(
-                    title: L10n.t("hideSidebarBtn", language: language),
-                    detail: L10n.t("hideSidebarBtnCap", language: language)
-                ) {
-                    SettingsSwitch(title: L10n.t("hideSidebarBtn", language: language),
-                                   isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
-                }
-                // r80: the sheet's bottom Total panel (the answer
-                // column's footer bar). OFF removes only that panel —
-                // inline total lines keep evaluating and rendering.
-                SettingsRow(
-                    title: L10n.t("showTotalBar", language: language),
-                    detail: L10n.t("showTotalBarCap", language: language)
-                ) {
-                    SettingsSwitch(title: L10n.t("showTotalBar", language: language),
-                                   isOn: boolBinding(\AppSettings.showTotalBar))
-                }
+            // The two supplied previews as a comfortable full-width
+            // chooser (not crammed into a trailing accessory slot).
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.t("appIcon", language: language))
+                    .font(.system(size: 13, weight: .semibold))
+                Text(L10n.t("appIconCap", language: language))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                AppIconPicker(
+                    selection: model.settings.appIcon,
+                    language: language,
+                    onSelect: { model.setAppIcon($0) }
+                )
+                .padding(.top, 2)
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SettingsCardBackground())
+        }
+    }
+}
 
-            // Updates (Sparkle 2.9.6). The automatic-check preference is
-            // Sparkle's OWN UserDefaults-backed value — it is never copied
-            // into AppSettings/.nlx. Unavailable packaged metadata (for
-            // example `swift run Numlex`) disables the group with a plain
-            // explanation instead of a crash.
-            SettingsGroup(title: L10n.t("updates.group", language: language)) {
+// MARK: - Updates page (Sparkle 2.9.6, its own focused home)
+
+/// r90: the secure-update controls get their own destination. The
+/// automatic-check preference stays Sparkle's OWN UserDefaults value
+/// (never copied into AppSettings/.nlx); unavailable packaged metadata
+/// keeps the plain explanation instead of a crash.
+private struct UpdatesSettingsPage: View {
+    @Bindable var model: AppModel
+
+    private var language: AppLanguage { model.settings.language }
+
+    var body: some View {
+        let language = self.language
+        return SettingsDetailPage(destination: .updates, language: language) {
+            // The page title already names the category.
+            SettingsGroup(title: nil) {
                 if model.updates.isAvailable {
-                    SettingsRow(title: L10n.t("updates.checkNow", language: language)) {
+                    SettingsRow(title: L10n.t("updates.checkNow", language: language),
+                                symbol: "arrow.triangle.2.circlepath") {
                         Button(L10n.t("updates.checkNow", language: language)) {
                             model.updates.checkForUpdates()
                         }
                         .disabled(!model.updates.canCheckForUpdates)
                     }
                     SettingsRow(title: L10n.t("updates.auto", language: language),
-                                detail: L10n.t("updates.autoCap", language: language)) {
+                                detail: L10n.t("updates.autoCap", language: language),
+                                symbol: "clock.arrow.circlepath") {
                         SettingsSwitch(
                             title: L10n.t("updates.auto", language: language),
                             isOn: Binding(
@@ -364,6 +559,7 @@ private struct GeneralSettingsTab: View {
                     Text(L10n.t("updates.secure", language: language))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(L10n.t("updates.unavailable", language: language))
                         .font(.system(size: 12))
@@ -374,23 +570,9 @@ private struct GeneralSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
-            // Currency-rate attribution: ONE understated footer line —
-            // the bundled fiat catalog is converted with the open
-            // provider table fetched at launch (no API key).
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.t("currencyRates", language: language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Link("open.er-api.com",
-                     destination: URL(string: "https://open.er-api.com")!)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 }
-
 // MARK: - Editing tab (r76: operator helpers + automatic input insertions)
 
 /// r76: the Editing tab owns EVERYTHING that rewrites what the user
@@ -398,7 +580,7 @@ private struct GeneralSettingsTab: View {
 /// It is deliberately separate from Numbers: input grouping
 /// (this tab) shapes the text as it is typed; answer grouping and
 /// rounding (Numbers tab) shape what the app DISPLAYS.
-private struct EditingSettingsTab: View {
+private struct EditingSettingsPage: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
@@ -423,7 +605,7 @@ private struct EditingSettingsTab: View {
 
     var body: some View {
         let language = self.language
-        return SettingsPage {
+        return SettingsDetailPage(destination: .editing, language: language) {
             SettingsGroup(title: L10n.t("operators", language: language)) {
                 SettingsRow(
                     title: L10n.t("opPad", language: language),
@@ -485,7 +667,7 @@ private struct EditingSettingsTab: View {
 /// change persists and re-evaluates every sheet live. `.nlx` exports
 /// never embed constants — that is stated in the intro, never in the
 /// rows.
-private struct ConstantsSettingsTab: View {
+private struct ConstantsUnitsSettingsPage: View {
     @Bindable var model: AppModel
     /// Focus target for the fresh row's name field (Add and
     /// Enter-in-Value land here for immediate overwrite).
@@ -517,7 +699,7 @@ private struct ConstantsSettingsTab: View {
         // r75: the SAME shared 20 pt page scaffold as every other tab;
         // r76: the table surface matches the restrained group surface
         // (no per-card glass in Settings at all).
-        SettingsPage {
+        SettingsDetailPage(destination: .constantsUnits, language: language) {
             // r84: the page sections (Constants | Units) — the switch
             // sits flush with the page insets like the tab content.
             Picker("", selection: $section) {
@@ -934,7 +1116,7 @@ private struct ConstantsSettingsTab: View {
 /// Changing the region never reinterprets silently: the owner
 /// evaluates the selected sheet under both contexts first and only
 /// opens the confirmation dialog when an answer actually changes.
-private struct NumbersSettingsTab: View {
+private struct NumbersSettingsPage: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
@@ -1090,7 +1272,7 @@ private struct NumbersSettingsTab: View {
             set: { if !$0 { model.cancelRegionChange() } }
         )
         let language = self.language
-        return SettingsPage {
+        return SettingsDetailPage(destination: .numbers, language: language) {
             // 1. NUMBER FORMAT — what shape numbers have everywhere.
             SettingsGroup(title: L10n.t("numbers.region", language: language)) {
                 SettingsRow(
@@ -1253,6 +1435,20 @@ private struct NumbersSettingsTab: View {
                                    isOn: regionalBinding(\.convertForeignOnPaste))
                 }
             }
+
+            // r90: the currency-rate attribution lives here — the most
+            // relevant home for it (it describes the numbers the answer
+            // column shows). ONE understated footer line, no duplicate.
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.t("currencyRates", language: language))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("open.er-api.com",
+                     destination: URL(string: "https://open.er-api.com")!)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         .alert(
             L10n.t("numbers.confirmTitle", language: language),
@@ -1288,7 +1484,7 @@ private struct NumbersSettingsTab: View {
 /// (no duplicated RGB values anywhere) and keeps the REAL notebook
 /// font size (including 30 pt, never shrunk); the page scrolls
 /// instead of the window enlarging.
-private struct StylingSettingsTab: View {
+private struct StylingSettingsPage: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
@@ -1318,7 +1514,7 @@ private struct StylingSettingsTab: View {
 
     var body: some View {
         let language = self.language
-        return SettingsPage {
+        return SettingsDetailPage(destination: .styling, language: language) {
             // 1. TYPOGRAPHY.
             SettingsGroup(title: L10n.t("styling.typography", language: language)) {
                 SettingsRow(title: L10n.t("styling.fontsize", language: language)) {
@@ -1742,7 +1938,35 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
         var observers: [NSObjectProtocol] = []
     }
 
+    /// A view that reports when it lands in its window. `makeNSView`
+    /// alone can run BEFORE the NSWindow exists (SwiftUI builds the
+    /// view tree first), which used to leave the window without the
+    /// resizable style bit and without the designed content bounds —
+    /// `viewDidMoveToWindow` is the earliest guaranteed moment.
+    @MainActor
+    final class ProbeView: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { onWindow?(window) }
+        }
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// Applies the designed chrome to a window: resizable + the CONTENT
+    /// size range from the ONE geometry source, then the one-time
+    /// out-of-range snap.
+    @MainActor
+    static func configure(_ window: NSWindow) {
+        if !window.styleMask.contains(.resizable) {
+            window.styleMask.insert(.resizable)
+        }
+        window.contentMinSize = NSSize(width: SettingsGeometry.minWidth,
+                                       height: SettingsGeometry.minHeight)
+        window.contentMaxSize = NSSize(width: SettingsGeometry.maxWidth,
+                                       height: SettingsGeometry.maxHeight)
+    }
 
     /// Content range from the ONE geometry source (never frame sizes).
     private var contentMin: NSSize {
@@ -1770,9 +1994,15 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = ProbeView()
+        view.onWindow = { window in
+            MainActor.assumeIsolated {
+                Self.configure(window)
+            }
+        }
         Task { @MainActor in
             guard let window = view.window else { return }
+            Self.configure(window)
             window.styleMask.insert(.resizable)
             // Content (not frame) bounds: 520x460 ... 640x540, mirroring
             // the root SwiftUI frame exactly (same SettingsGeometry

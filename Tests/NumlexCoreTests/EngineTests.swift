@@ -275,6 +275,11 @@ struct EngineTests {
         try `case`.body()
     }
 
+    @Test(arguments: settingsNavigationCases)
+    func settingsNavigationCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
     @Test(arguments: appIconAppearanceCases)
     func appIconAppearanceCase(`case`: EngineCase) throws {
         try `case`.body()

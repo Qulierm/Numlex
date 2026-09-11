@@ -202,6 +202,11 @@ struct NumlexApp: App {
         Settings {
             themedRoot(NativeSettingsView(model: model))
         }
+        // r90: the Settings window is resizable WITHIN the designed
+        // content range (SettingsGeometry's min/ideal/max): `.contentMinSize`
+        // makes SwiftUI honour the frame's minimum instead of fitting the
+        // content exactly, which is what the split navigation needs.
+        .windowResizability(.contentMinSize)
         // r34: the Settings scene used to resurrect its persisted frame
         // from an older (wider) build after every relaunch; with state
         // restoration disabled the window always opens at the designed

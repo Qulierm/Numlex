@@ -105,16 +105,24 @@ public let r59Cases: [EngineCase] = [
     },
     EngineCase("r59-settings-geometry-untouched") {
         // SettingsGeometry lives in the app target (not importable
-        // here), so pin it at the source. r75 re-validated the pin
-        // after the deliberate narrowing to the compact single-column
-        // range (520...640 x 460...540) — the MAIN window geometry must
-        // still not move with the settings change.
+        // here), so pin it at the source. r90 re-validated the pin
+        // after the deliberate move to the split navigation (sidebar +
+        // one focused detail page): the compact range is now
+        // 660...780 x 500...640 with the 700x540 ideal, plus the
+        // 148/158/172 pt sidebar — the MAIN window geometry must still
+        // not move with the settings change.
         let text = try r59ReadSource("Sources/NumlexApp/Views/SettingsView.swift")
-        for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
-                    "maxWidth: CGFloat = 640",
-                    "minHeight: CGFloat = 460", "idealHeight: CGFloat = 460"] {
+        for pin in ["minWidth: CGFloat = 660", "idealWidth: CGFloat = 700",
+                    "maxWidth: CGFloat = 780",
+                    "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
+                    "maxHeight: CGFloat = 640",
+                    "sidebarMinWidth: CGFloat = 148",
+                    "sidebarIdealWidth: CGFloat = 166",
+                    "sidebarMaxWidth: CGFloat = 172"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }
+        try expect(!text.contains("TabView"), "no top tab strip remains")
+        try expect(!text.contains(".tabItem"), "no tabItem strip remains")
     },
     EngineCase("r59-no-560-main-floor") {
         for rel in ["Sources/NumlexApp/NumlexApp.swift",

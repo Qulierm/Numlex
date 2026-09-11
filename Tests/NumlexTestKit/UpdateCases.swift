@@ -201,7 +201,10 @@ private let updateSourceInvariantCases: [EngineCase] = [
         guard let view = updateRepoFile("Sources/NumlexApp/Views/SettingsView.swift") else {
             throw CaseFailure(message: "SettingsView.swift missing")
         }
-        try expectEqual(view.contains("updates.group"), true, "General tab group")
+        // r90: the update controls live on their own focused Settings
+        // destination (the page title already names the category, so the
+        // card itself carries no duplicate section header).
+        try expectEqual(view.contains("UpdatesSettingsPage"), true, "dedicated Updates page")
         try expectEqual(view.contains("model.updates.checkForUpdates()"), true, "manual check")
         try expectEqual(view.contains("setAutomaticallyChecksForUpdates"), true, "automatic toggle")
         try expectEqual(view.contains("updates.secure"), true, "security note")
