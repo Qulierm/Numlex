@@ -9,28 +9,79 @@ import NumlexCore
 /// like the other app-layer invariants.
 public let settingsNavigationCases: [EngineCase] = [
 
-    EngineCase("settings-nav-fixed-sidebar-not-split") {
+    EngineCase("settings-nav-horizontal-top") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // r92: the Settings root is a FIXED sidebar column beside the
-        // detail page, not a NavigationSplitView. The split container
-        // reserved an empty window toolbar band and drew its own
-        // floating sidebar toggle — exactly the large blank zone above
-        // every page that the user reported.
-        try expect(text.contains("HStack(spacing: 0)"), "one fixed sidebar + detail row")
-        try expect(!text.contains("NavigationSplitView("), "no split navigation in Settings")
-        try expect(text.contains("List(selection: $destination)"), "one selectable sidebar list")
-        try expect(!text.contains("TabView"), "no root TabView")
-        try expect(!text.contains(".tabItem"), "no tabItem strip")
-        try expect(text.contains(".listStyle(.sidebar)"), "native sidebar list style")
-        try expect(text.contains(".frame(width: SettingsGeometry.sidebarIdealWidth)"),
-                   "the sidebar is pinned to the designed width")
-        try expect(text.contains(".overlay(alignment: .trailing)"),
-                   "the separator costs no layout width")
+        // r93: HORIZONTAL TOP NAVIGATION — a compact category bar below
+        // the native titlebar with the selected page filling the rest.
+        // There is no left sidebar and no split container.
+        try expect(text.contains("VStack(spacing: 0)"), "one vertical root: bar + detail")
+        try expect(text.contains("topNavigation"), "a dedicated top navigation bar")
+        try expect(!text.contains("NavigationSplitView("), "no split navigation")
+        try expect(!text.contains("List(selection: $destination)"), "no left sidebar list")
+        try expect(!text.contains(".listStyle(.sidebar)"), "no sidebar list style")
+        try expect(!text.contains("navigationSplitViewColumnWidth"), "no split column width")
+        try expect(!text.contains("sidebarIdealWidth"), "no sidebar width constant")
+        try expect(!text.contains("SettingsSidebarIdentity"), "no sidebar identity footer")
+        // ONE bar of real buttons, one selected item, symbol + title.
+        try expect(text.contains("ForEach(SettingsDestination.allCases) { item in"),
+                   "the bar iterates the destinations in order")
+        try expect(text.contains("private func topNavigationItem("), "one item builder")
+        try expect(text.contains("Label(title, systemImage: item.symbol)"),
+                   "every item shows its SF Symbol with its title")
+        try expect(text.contains(".buttonStyle(.plain)"), "native borderless buttons")
+        try expect(text.contains(".frame(maxWidth: .infinity)"), "equal item widths")
+        // Keyboard + VoiceOver contract.
+        try expect(text.contains(".accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)"),
+                   "exactly one item is announced as selected")
+        try expect(text.contains(".onKeyPress(.leftArrow)") && text.contains(".onKeyPress(.rightArrow)"),
+                   "arrow keys move the selection")
+        try expect(text.contains("private func moveSelection("), "one selection mover")
+        try expect(text.contains("@FocusState private var barFocused"), "the bar tracks focus")
+        try expect(text.contains(".accessibilityElement(children: .ignore)"),
+                   "the item icon is decorative (the title names it)")
+        // Session-local selection, default General.
+        try expect(text.contains("@State private var destination: SettingsDestination = .general"),
+                   "session-local selection defaulting to General")
+        try expect(!text.contains("settings.settingsDestination"), "no persisted destination key")
+        // The bar is not custom titlebar chrome.
+        let code = settingsNavWithoutComments(text)
+        try expect(!code.contains("NSTitlebarAccessoryViewController"), "no fake titlebar tabs")
+        try expect(!code.contains("trafficLight"), "no fake traffic lights")
         // Exactly one detail destination is rendered at a time.
         try expect(text.contains("@ViewBuilder\n    private var detail: some View"),
                    "one detail builder")
         let switches = text.components(separatedBy: "case .general: GeneralSettingsPage").count
         try expectEqual(switches, 2, "general is the first detail branch")
+    },
+
+    EngineCase("settings-nav-six-destinations-in-order") {
+        let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
+        // The horizontal bar exposes exactly SIX destinations, in this
+        // order, with About last.
+        let order = ["general", "editing", "numbers", "constantsUnits", "styling", "about"]
+        var last = -1
+        for name in order {
+            guard let r = text.range(of: "case \(name)\n") else {
+                throw CaseFailure(message: "missing destination case \(name)",
+                                  location: "SettingsNav")
+            }
+            let idx = text.distance(from: text.startIndex, to: r.lowerBound)
+            try expect(idx > last, "\(name) appears in navigation order")
+            last = idx
+        }
+        try expect(!text.contains("case appearance"), "no appearance destination")
+        try expect(!text.contains("case updates"), "no updates destination")
+        try expect(!text.contains("UpdatesSettingsPage"), "no updates page")
+        try expect(text.contains("case .about: AboutSettingsPage(model: model)"),
+                   "About is the last detail branch")
+        try expectEqual(text.components(separatedBy: "enum SettingsDestination").count - 1, 1,
+                        "one destination enum")
+        try expect(text.contains("String, CaseIterable, Hashable, Identifiable"),
+                   "stable Hashable/CaseIterable destinations")
+        try expect(text.contains("@State private var destination: SettingsDestination = .general"),
+                   "session-local state defaulting to General")
+        try expect(!text.contains("settings.settingsDestination"),
+                   "no persisted destination key")
     },
 
     EngineCase("settings-nav-symbols-and-labels") {
@@ -44,10 +95,10 @@ public let settingsNavigationCases: [EngineCase] = [
         // The merged General page still owns the appearance/icon art.
         try expect(text.contains("symbol: \"circle.lefthalf.filled\""),
                    "the appearance row keeps its SF Symbol inside General")
-        try expect(text.contains("Label(L10n.t(item.labelKey, language: language)"),
-                   "rows use localized labels")
+        try expect(text.contains("Label(title, systemImage: item.symbol)"),
+                   "top-navigation items pair the symbol with the title")
         try expect(text.contains(".lineLimit(1)"), "labels stay on one line")
-        try expect(!text.contains("Image(\"icon"), "no raster sidebar art")
+        try expect(!text.contains("Image(\"icon"), "no raster navigation art")
         // Retained destination labels come from the existing keys.
         for key in ["settings.general", "settings.editing", "settings.numbers",
                     "settings.styling"] {
@@ -190,11 +241,16 @@ public let settingsNavigationCases: [EngineCase] = [
 
     EngineCase("settings-no-sidebar-footer") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // r92: the bottom sidebar identity is gone — the app icon and
-        // version live ONLY on the About page, so the sidebar is just
-        // the category list and its rows sit at the top.
+        // r93: there is no sidebar at all, so there is no bottom
+        // identity either — the app icon and version live ONLY on the
+        // About page and the categories live in the horizontal top bar.
         try expect(!text.contains("SettingsSidebarIdentity"),
                    "no bottom sidebar identity view")
+        // The General page still has the MAIN-window "hide sidebar
+        // button" preference — that is unrelated to Settings navigation.
+        try expect(!text.contains("sidebarIdealWidth")
+                   && !text.contains("columnVisibility: .constant(.all)"),
+                   "no Settings sidebar column remains")
         try expect(text.contains("CFBundleShortVersionString"),
                    "the version is read from the bundle at runtime")
         try expect(!text.contains("\"4.8.1\""), "no hardcoded release version in layout")
@@ -202,7 +258,7 @@ public let settingsNavigationCases: [EngineCase] = [
     },
 
     EngineCase("settings-navigation-localization-complete") {
-        let keys = ["settings.sidebarTitle", "settings.updates",
+        let keys = ["settings.navigationLabel", "settings.updates",
                     "settings.constantsUnits", "settings.constantsUnitsShort",
                     "settings.about", "settings.aboutShort", "about.app",
                     // The merged General page's own labels.
@@ -220,7 +276,7 @@ public let settingsNavigationCases: [EngineCase] = [
         // French shares the English spelling of "Application", so only
         // the other languages are required to differ for that key.
         for lang in [AppLanguage.ru, .de, .it, .zh] {
-            for key in ["settings.sidebarTitle", "settings.about", "about.app",
+            for key in ["settings.navigationLabel", "settings.about", "about.app",
                         "general.notebook"] {
                 try expect(L10n.t(key, language: lang) != L10n.t(key, language: .en),
                            "\(lang.rawValue) localizes \(key)")
@@ -241,8 +297,8 @@ public let settingsNavigationCases: [EngineCase] = [
             }
         }
         // The Spanish-contaminated Italian settings block stays repaired.
-        try expectEqual(L10n.t("settings.sidebarTitle", language: .it), "Impostazioni",
-                        "Italian sidebar title")
+        try expectEqual(L10n.t("settings.navigationLabel", language: .it),
+                        "Categorie di impostazioni", "Italian navigation label")
         try expectEqual(L10n.t("settings.updates", language: .it), "Aggiornamenti",
                         "Italian Updates label")
     },
@@ -256,14 +312,15 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(text.contains("window.contentMinSize = contentMin"), "content min size")
         try expect(text.contains("window.contentMaxSize = contentMax"), "content max size")
         try expect(text.contains("snapIfOutOfRange"), "stale frames snap once")
-        // The sidebar width comes from the same constants (a fixed
-        // column now — no split-view column-width range).
-        try expect(text.contains(".frame(width: SettingsGeometry.sidebarIdealWidth)"),
-                   "sidebar width from the shared source")
-        try expect(text.contains("static let sidebarIdealWidth: CGFloat = 146"),
-                   "one fixed sidebar width is declared")
-        try expect(!text.contains("sidebarMinWidth") && !text.contains("sidebarMaxWidth"),
-                   "the unused min/max sidebar constants are gone")
+        // r93: the page content keeps its measured width as ONE
+        // constant (the top bar freed the old sidebar column).
+        try expect(text.contains("static let detailWidth: CGFloat = 534"),
+                   "the detail width is one constant")
+        try expect(text.contains(".frame(width: SettingsGeometry.detailWidth"),
+                   "the content container consumes it")
+        try expect(text.contains(".frame(maxWidth: .infinity, alignment: .center)"),
+                   "the content stays centered under the bar")
+        try expect(!text.contains("sidebarIdealWidth"), "no sidebar width constant remains")
         try expect(!text.contains("navigationSplitViewColumnWidth"),
                    "no split-view column width remains")
         // r91 geometry: narrower sidebar, SAME right detail width.
@@ -271,7 +328,7 @@ public let settingsNavigationCases: [EngineCase] = [
                     "maxWidth: CGFloat = 760",
                     "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
                     "maxHeight: CGFloat = 640",
-                    "sidebarIdealWidth: CGFloat = 146"] {
+                    "detailWidth: CGFloat = 534"] {
             try expect(text.contains(pin), "r91 geometry keeps \(pin)")
         }
         // The invariant that matters to the user: the RIGHT detail column

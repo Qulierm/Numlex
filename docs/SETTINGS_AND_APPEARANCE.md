@@ -5,11 +5,12 @@ current `main` branch. It is written for authors of the published
 documentation: every claim here is pinned by the Swift source and the
 canonical engine tests. Released builds may lag behind `main`.
 
-Settings are organized into **six native sidebar pages**, each one readable column of
-grouped rows with native switches, pickers and sliders. Nothing here is
-cloud-synced; every preference is stored on your Mac.
+Settings are organized into **six categories**, selected from a **horizontal
+navigation bar at the top of the window**, each page one readable column of grouped
+rows with native switches, pickers and sliders. Nothing here is cloud-synced; every
+preference is stored on your Mac.
 
-| Destination | Icon | Owns |
+| Category | Icon | Owns |
 | --- | --- | --- |
 | **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon, and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
 | **Editing** | pencil tip | Operator helpers and automatic insertions — everything that rewrites text as you type |
@@ -18,18 +19,25 @@ cloud-synced; every preference is stored on your Mac.
 | **Styling** | paintbrush | Typography, answer column, syntax colors, live preview |
 | **About** | info circle | The app icon and version, plus Check for Updates and the automatic-check schedule (never part of `.nlx`) |
 
-The window is a **fixed** native sidebar column beside ONE focused detail page: no
-split-view container, so nothing can be collapsed and no sidebar-toggle button exists.
-The sidebar is 146 pt (fixed) and the detail column is 534 pt at the ideal 680 pt
-window; the content range is 640–760 × 500–640 pt (ideal 680 × 540) and each page
-scrolls on its own. The selected category is session-only and is never persisted into
-the settings store.
+The navigation is a **horizontal bar of native buttons directly below the compact
+native titlebar** — there is no left sidebar and no split-view container. Each item
+shows its SF Symbol and its concise localized title at an equal width; the selected
+item carries the system accent fill and the `.isSelected` accessibility trait, and the
+arrow keys move the selection while the bar has focus. Categories, in order: General,
+Editing, Numbers, Constants, Styling, About (the top bar uses the concise
+"Constants"; the page title is the full "Constants & Units").
+
+The selected page fills the rest of the window and is the ONLY thing that scrolls: the
+content container keeps its measured **534 pt** width and is centered under the bar
+(the window frees the old 146 pt sidebar column, but the page does not stretch). The
+window content range is 640–760 × 500–640 pt (ideal 680 × 540). The selection is
+session-only, defaults to General and is never persisted into the settings store.
 
 The Settings window carries no toolbar: its empty NSToolbar is hidden through public
 AppKit, so the compact native titlebar ("Numlex Settings"), the traffic lights and the
-draggable region sit directly above the content — no reserved blank band. Pages show
-their title and then their group headings; there are no redundant page subtitles, and
-obvious captions are omitted.
+draggable region sit directly above the bar — no reserved blank band. Pages show their
+title and then their group headings; there are no redundant page subtitles, and obvious
+captions are omitted.
 
 ## General
 

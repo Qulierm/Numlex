@@ -115,11 +115,13 @@ public let r59Cases: [EngineCase] = [
                     "maxWidth: CGFloat = 760",
                     "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
                     "maxHeight: CGFloat = 640",
-                    "sidebarIdealWidth: CGFloat = 146"] {
+                    "detailWidth: CGFloat = 534"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }
-        try expect(!text.contains("TabView"), "no top tab strip remains")
+        try expect(!text.contains("TabView"), "no legacy top tab strip remains")
         try expect(!text.contains(".tabItem"), "no tabItem strip remains")
+        try expect(text.contains("VStack(spacing: 0)"),
+                   "the settings root is the horizontal top navigation + detail")
     },
     EngineCase("r59-no-560-main-floor") {
         for rel in ["Sources/NumlexApp/NumlexApp.swift",

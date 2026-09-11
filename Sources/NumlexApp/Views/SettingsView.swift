@@ -28,13 +28,11 @@ private enum SettingsGeometry {
     static let idealHeight: CGFloat = 540
     static let maxHeight: CGFloat = 640
 
-    /// The leading category sidebar: one FIXED width (r92 — nothing can
-    /// collapse the column, so it has no range), wide enough for the
-    /// longest localized label ("Информации"/"Информация"... the short
-    /// "About"/"Informazioni" labels all fit) with the native sidebar
-    /// list typography. It preserves the detail width exactly:
-    /// 680 - 146 = 534, the same figure the 700 - 166 window gave.
-    static let sidebarIdealWidth: CGFloat = 146
+    /// r93: the page content container (the old right detail column).
+    /// The horizontal top navigation freed the 146 pt sidebar column,
+    /// but the CONTENT keeps its measured width — the page is centered
+    /// under the bar instead of stretching cards across the window.
+    static let detailWidth: CGFloat = 534
 }
 
 /// r90/r91: the SIX settings destinations, in sidebar order. Session-
@@ -93,26 +91,23 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     /// Session-local navigation state (never persisted into the store).
     @State private var destination: SettingsDestination = .general
-    /// Pinned sidebar visibility: the settings sidebar is ALWAYS visible
-    /// (hiding it would leave the window unnavigable), so the native
-    /// toggle is neutralized by a CONSTANT binding — native policy, no
-    /// state churn during layout (a state binding re-written on every
-    /// change made the window fight its own resize).
+    /// Keyboard focus of the horizontal category bar: it is ONE focus
+    /// stop reached with Tab, and the arrow keys move the selection
+    /// inside it (never persisted).
+    @FocusState private var barFocused: Bool
 
     private var language: AppLanguage { model.settings.language }
 
     var body: some View {
-        // r92: a fixed, ALWAYS-visible native sidebar column beside the
-        // one focused detail page. The previous NavigationSplitView
-        // reserved an empty window toolbar and drew its own floating
-        // sidebar toggle even after the toolbar was hidden — that band
-        // was exactly the large blank zone between the titlebar and the
-        // page heading. The sidebar here is an ordinary native
-        // `List(.sidebar)` at the designed width (146 pt at ideal),
-        // separated by a hairline; nothing can collapse it, so no
-        // toggle exists to remove and no toolbar band is reserved.
-        HStack(spacing: 0) {
-            sidebar
+        // r93: HORIZONTAL TOP NAVIGATION. The Settings categories are a
+        // compact bar directly below the native titlebar and the
+        // selected page fills everything below it — there is no left
+        // sidebar (and no split-view container, so nothing can be
+        // collapsed and no sidebar-toggle exists). The navigation stays
+        // fixed while the detail page scrolls vertically.
+        VStack(spacing: 0) {
+            topNavigation
+            Divider()
             detail
         }
         .frame(minWidth: SettingsGeometry.minWidth,
@@ -124,11 +119,11 @@ struct SettingsView: View {
         // The Settings scene must not grow the (empty) window toolbar:
         // the compact native titlebar is all the chrome this window
         // needs. The declarative `.toolbarVisibility(.hidden, for:
-        // .windowToolbar)` was prototyped first and rejected: on this
-        // Settings scene it removes the WHOLE titlebar (no traffic
-        // lights, no window title, no drag region). The configurator
-        // therefore hides the empty NSToolbar through public AppKit and
-        // reasserts the visible window title — native chrome intact.
+        // .windowToolbar)` was prototyped and rejected: on this Settings
+        // scene it removes the WHOLE titlebar (no traffic lights, no
+        // window title, no drag region). The configurator therefore
+        // hides the empty NSToolbar through public AppKit and reasserts
+        // the visible window title — native chrome intact.
         // Window chrome the scene APIs cannot express: resizability and
         // the designed CONTENT size range (the SwiftUI frame above
         // drives the content bounds; the configurator mirrors them on
@@ -136,30 +131,80 @@ struct SettingsView: View {
         .background(SettingsWindowConfigurator())
     }
 
-    /// The always-visible native category sidebar: the ordinary macOS
-    /// sidebar List (native material, selection, keyboard navigation)
-    /// pinned to the designed width, with the hairline separator drawn
-    /// as an overlay so it costs no layout width — the detail column
-    /// keeps its full 534 pt at the ideal 680 pt window.
-    private var sidebar: some View {
-        List(selection: $destination) {
-            Section {
-                ForEach(SettingsDestination.allCases) { item in
-                    Label(L10n.t(item.labelKey, language: language),
-                          systemImage: item.symbol)
-                        .lineLimit(1)
-                        .tag(item)
-                }
-            } header: {
-                Text(L10n.t("settings.sidebarTitle", language: language))
+    /// The horizontal category bar: one row of REAL native buttons,
+    /// each with its SF Symbol and concise localized title at an equal
+    /// width, the selected item filled with the system accent — the
+    /// same selection language the previous sidebar rows used. A
+    /// segmented `Picker` was tried first: on macOS it renders the TEXT
+    /// only and silently drops the SF Symbols, so the bar uses buttons,
+    /// which keep the symbol, native focus, the `.isSelected` trait and
+    /// arrow-key handling. Exactly one destination is selected, the
+    /// selection is session-local, and nothing moves or rescales when
+    /// it changes.
+    private var topNavigation: some View {
+        HStack(spacing: 4) {
+            ForEach(SettingsDestination.allCases) { item in
+                topNavigationItem(item)
             }
         }
-        .listStyle(.sidebar)
-        .frame(width: SettingsGeometry.sidebarIdealWidth)
-        .frame(maxHeight: .infinity)
-        .overlay(alignment: .trailing) {
-            Divider()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        // ONE focus stop: Tab reaches the bar, the arrow keys move the
+        // selection inside it, and the focus ring marks the bar.
+        .focusable()
+        .focused($barFocused)
+        .focusEffectDisabled()
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(barFocused ? Color.accentColor.opacity(0.7) : Color.clear,
+                              lineWidth: 2)
+                .padding(.horizontal, 8)
+        )
+        .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
+        .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// One navigation item: a borderless native Button whose label is
+    /// the SF Symbol plus the localized title. The icon is decorative
+    /// (the text names the item for VoiceOver), exactly one item carries
+    /// the selected trait, and the arrow keys move the selection while
+    /// the bar has keyboard focus.
+    private func topNavigationItem(_ item: SettingsDestination) -> some View {
+        let title = L10n.t(item.labelKey, language: language)
+        let selected = destination == item
+        return Button {
+            destination = item
+        } label: {
+            Label(title, systemImage: item.symbol)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity)
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(selected ? Color.accentColor : Color.clear)
+        )
+        .foregroundStyle(selected ? Color.white : Color.primary)
+        .help(title)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Arrow-key navigation across the fixed category order (wrapping).
+    private func moveSelection(_ delta: Int) {
+        let all = SettingsDestination.allCases
+        guard let index = all.firstIndex(of: destination) else { return }
+        let next = (index + delta + all.count) % all.count
+        destination = all[next]
+        barFocused = true
     }
 
     @ViewBuilder
@@ -209,10 +254,10 @@ private struct SettingsDetailPage<Content: View>: View {
                 content
             }
             .padding(.horizontal, 22)
-            .padding(.top, 10)
+            .padding(.top, 11)
             .padding(.bottom, 20)
-            .frame(maxWidth: 640, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(width: SettingsGeometry.detailWidth, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 }
