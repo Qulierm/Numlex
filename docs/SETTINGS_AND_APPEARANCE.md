@@ -52,51 +52,59 @@ captions are omitted.
 
 ## First launch
 
-A genuinely new install (an empty data directory) opens on the **welcome
-bloom** instead of the notebook: four short expressions in the REAL editor
-palette float around the packaged Dark app icon and resolve into it —
+A genuinely new install (an empty data directory) opens on the **welcome bloom**
+instead of the notebook. Ten short calculations in the REAL editor palette float
+in two airy columns around the packaged Dark app icon and gather into it:
 
-| Corner | Expression | Palette roles |
-| --- | --- | --- |
-| top-left | `128 × 4 = 512` | numbers + operators |
-| top-right | `price = 24` | variable (green) |
-| bottom-left | `3.5 km → 3500 m` | units (purple) |
-| bottom-right | `$42 + $18 = $60` | money markers (purple) |
+| Column | Rows |
+| --- | --- |
+| left | `128 × 4 = 512`, `18% of 240 = 43.2`, `3.5 km → 3500 m`, `2h 15m + 45m = 3h`, `√144 = 12` |
+| right | `price = 24`, `$42 + $18 = $60`, `12 kg ÷ 3 = 4 kg`, `2^10 = 1024`, `9 ft → 2.74 m` |
 
-Every color comes from the app's own editor tokens (`Design.numberColor`,
-`variableColor`, `conversionColor`, `moneyMarkerColor`, `baseText`) on
+Every run resolves through the app's own editor tokens (`Design.numberColor` for
+numerals, `variableColor` for the variable, `conversionColor` for units and time
+units, `moneyMarkerColor` for currency markers, `baseText` for operators) on
 `Design.editorBackground`, so the field matches the notebook in Auto, Light and
-Dark automatically. There is no slogan and no marketing copy; the icon is the
-visual anchor and the notebook, sidebar and TextKit are never created behind
-the screen.
+Dark automatically. There is no slogan and no marketing copy, and the notebook,
+sidebar and TextKit are never created behind the screen.
 
-The choreography is one deterministic ~2 s sequence: the icon fades/scales in
-(~0.35 s), the four expressions type themselves in with a per-token stagger,
-their result runs brighten once, the expressions converge into the icon, four
-thin palette-colored arcs sweep around it and fade, the icon takes one
-restrained pulse with a single light sweep, and the localized **Get Started**
-button fades in and takes focus. Nothing repeats, nothing ticks after the
-sequence, and only opacity/offset/scale/rotation/trim change — the window and
-every final frame are laid out from the first pass, so the window never
-resizes. With **Reduce Motion** the whole sequence is skipped: the icon and the
-button are shown immediately, the button is focused and interactive at once,
-and no staged state or sleep runs.
+The choreography is one deterministic one-shot sequence of roughly two seconds:
+the icon fades in, the rows stream in with a per-row and per-token stagger, the
+result runs brighten once, the rows gather into the icon in two tight batches,
+and the icon answers with a **monochrome silver splash** — fourteen fine radial
+rays with fixed varied lengths, a soft expanding wave and eight droplets, all
+drawn from `Design.baseText` / the neutral label tones (never the palette hues),
+plus one icon-masked silver sheen. The localized **Get Started** button then
+fades in and takes focus. The button is monochrome too: its fill is the icon
+family's dominant tone (near-white silver in Dark, graphite in Light) with the
+opposite tone as the label, a 1 pt rim, a restrained shadow and an explicit
+keyboard focus ring — no system accent colour. Nothing repeats, nothing ticks
+after the sequence, and only opacity/offset/scale/rotation/trim change, so the
+window never resizes.
 
-Completion is a small versioned marker (`welcome-v1`) inside the app's data
-directory — the same directory as `store.json`, and the one `--data-dir`
-redirects, so validation runs are fully isolated. It is written atomically only
-when Get Started is pressed; closing the window first leaves no marker and the
-bloom returns next launch. If the marker cannot be written the app still opens
-for that session and shows the bloom again later.
+With **Reduce Motion** the whole sequence is skipped: the icon and the button are
+shown immediately, focused and interactive at once, with no staged state,
+splash or sleep.
 
-Existing users are never shown the bloom: any prior artifact — `store.json`
-(even corrupt or unreadable), `rates.json`, `weather.json` or `locations.json`
-— counts as an existing install, and in that case the completion marker is
-recorded best-effort **without** modifying those files, so a later cache delete
-cannot turn that user into a "new" one. Onboarding never creates, edits or
-persists a sheet, never changes the store schema/version, `AppSettings` (an
-explicit Light/Dark/Auto choice and app icon survive untouched) or any `.nlx`
-file, and the first-launch state lives outside the store and `UserDefaults`.
+Pressing Get Started records a versioned completion marker (`welcome-v1`) in the
+app's data directory — the same directory as `store.json`, and the one
+`--data-dir` redirects — mounts the notebook BENEATH the welcome and slides the
+welcome panel fully up out of the content bounds over ~0.75 s (a top-edge move,
+clipped), progressively revealing the real sidebar and editor. The actual
+NSWindow, its titlebar, traffic lights and screen frame are never touched or
+animated. Pointer events are blocked until the curtain settles, and the editor
+receives focus only after it has cleared. Under Reduce Motion the welcome is
+removed immediately with no slide or delay.
+
+If the marker cannot be written the app still opens for that session and shows
+the bloom again later. Existing users are never onboarded: any prior artifact —
+`store.json` (even corrupt or unreadable), `rates.json`, `weather.json` or
+`locations.json` — counts as an existing install, and the marker is then recorded
+best-effort without modifying those files, so a later cache delete cannot turn
+that user into a "new" one. Onboarding never creates, edits or persists a sheet,
+never changes the store schema/version, `AppSettings` (an explicit
+Light/Dark/Auto choice and app icon survive untouched) or any `.nlx` file, and
+the first-launch state lives outside the store and `UserDefaults`.
 
 ## General
 

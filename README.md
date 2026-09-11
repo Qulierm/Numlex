@@ -218,21 +218,29 @@ About carries the app identity plus the update controls.
 
 ## First launch
 
-A genuinely new install opens on a short, native **calculation bloom**: four
-real expressions in the app's own editor palette float around the app icon,
-type themselves in, gather into the icon and dissolve into a ring of colored
-arcs while the icon gives one restrained pulse — then a single **Get Started**
-button appears. It is decorative animation only (no marketing copy), it runs
-once for about two seconds and then stops, and it honours **Reduce Motion**:
-with it on, the icon and the button are simply there, immediately usable.
-Nothing of the notebook is created behind it, the window keeps its normal size
-and chrome, and the only thing the first launch records is a small versioned
-marker (`welcome-v1`) in the app's data directory, separate from your settings
-and sheets. Existing installs never see the bloom (any existing store or
-cached data file counts as an existing install, even if the store is
-unreadable); the bloom reappears next launch only if you close the window
-before pressing Get Started. Your Light/Dark/Auto choice and app icon are never
-changed by it.
+A genuinely new install opens on a short, native **calculation bloom**: ten real
+calculations in the app's own editor palette stream into two airy columns around
+the app icon, gather into it and disappear, and the icon answers with a one-shot
+**silver splash** (fine monochrome rays, a soft expanding wave and a few
+droplets). A single monochrome **Get Started** button — silver on Dark, graphite
+on Light, matching the icon rather than the accent colour — then appears. The
+whole sequence runs once for roughly two seconds and stops; with **Reduce
+Motion** the icon and button are simply there, immediately usable, with no
+staged animation at all.
+
+Pressing Get Started records a small versioned marker (`welcome-v1`) in the
+app's data directory (separate from your settings and sheets), mounts the
+notebook underneath and slides the welcome panel up out of the window like a
+curtain — the window itself never moves, resizes or loses its titlebar. The
+notebook, its sidebar and TextKit are not created behind the welcome, and focus
+lands in the editor only after the curtain has cleared.
+
+Existing installs never see the bloom: any prior artifact — the store (even
+corrupt or unreadable), the currency-rate cache, the weather cache or the
+location cache — counts as an existing install, and in that case the completion
+marker is recorded best-effort without touching those files. Closing the window
+before pressing Get Started leaves no marker, so the bloom returns next launch.
+Your Light/Dark/Auto choice and app icon are never changed by any of this.
 
 ## Files and storage
 
@@ -282,7 +290,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,102 shared cases, runnable two ways:
+The engine suite covers 1,103 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

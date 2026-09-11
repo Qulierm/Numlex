@@ -36,6 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// r98: the curtain timing, in one place (shared by the animation and the
+/// completion task so they can never disagree).
+enum RevealTiming {
+    static let duration: Double = 0.75
+    static let durationNanoseconds: UInt64 = 750_000_000
+}
+
 @main
 struct NumlexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -47,13 +54,21 @@ struct NumlexApp: App {
     /// "is this a genuinely new install?" is never answered by the app's
     /// own side effects. The welcome screen replaces the main content
     /// until the user starts; no store, settings or `.nlx` byte changes.
-    @State private var showWelcome: Bool
+    /// r98: the curtain stage. While the welcome covers the window the
+    /// editor is NOT mounted; on activation it mounts UNDERNEATH and the
+    /// welcome panel slides fully upward inside the fixed native window.
+    /// The NSWindow itself is never moved or resized.
+    @State private var revealStage: RevealStage = .welcome
+    /// The pending curtain completion (cancelled when the window closes).
+    @State private var curtainTask: Task<Void, Never>?
 
     init() {
         // 1) Decide first (non-creating directory lookup)…
         let dataDirectory = Persistence.dataDirectory(createIfNeeded: false)
-        _showWelcome = State(initialValue:
-            FirstLaunch.evaluateAtLaunch(in: dataDirectory))
+        let isNewInstall = FirstLaunch.evaluateAtLaunch(in: dataDirectory)
+        // Existing installs mount the editor IMMEDIATELY (`.app`), so they
+        // never see a flash of the welcome.
+        _revealStage = State(initialValue: isNewInstall ? .welcome : .app)
         // 2) …then build the model (which may create/load the directory).
         // The appearance pin lives in the AppDelegate hook, not here: at
         // this point NSApplication does not exist yet (NSApp would be
@@ -74,22 +89,41 @@ struct NumlexApp: App {
         _model = State(initialValue: AppModel())
     }
 
-    /// r97: the ONE dismissal path. Records the versioned completion marker
-    /// (best effort — a failed write still enters the app for this session
-    /// and simply shows the welcome again next launch), swaps in the main
-    /// content and hands the keyboard focus to the already-selected sheet.
-    /// It never creates, edits or persists a sheet.
-    private func completeWelcome() {
+    /// r98: the curtain stages.
+    ///  * `.welcome`  — only the welcome is mounted (no editor, no TextKit,
+    ///                  no rates work behind it);
+    ///  * `.revealing` — the editor is mounted BENEATH the welcome, which
+    ///                  slides up out of the content bounds;
+    ///  * `.app`      — the welcome is gone and the editor owns the window.
+    enum RevealStage { case welcome, revealing, app }
+
+    /// r97/r98: the ONE dismissal path. Records the versioned completion
+    /// marker (best effort — a failed write still enters the app for this
+    /// session and simply shows the welcome again next launch), mounts the
+    /// editor beneath, slides the curtain away and hands the keyboard focus
+    /// to the already-selected sheet. It never creates, edits or persists a
+    /// sheet, and it never touches the NSWindow frame.
+    private func beginReveal() {
         _ = FirstLaunch.markCompleted(in: Persistence.dataDirectory())
-        showWelcome = false
-        // Transient one-shot focus request for the EXISTING selection (the
-        // same mechanism freshly created sheets use); consumed by the
-        // editor and never persisted.
-        DispatchQueue.main.async {
+        withAnimation(revealAnimation) { revealStage = .revealing }
+        // The hand-off runs only AFTER the curtain has cleared, so focus is
+        // never requested while the editor is still covered.
+        curtainTask?.cancel()
+        curtainTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: RevealTiming.durationNanoseconds)
+            guard !Task.isCancelled else { return }
+            revealStage = .app
             if let id = model.selectedSheet?.id {
                 model.focusSheetID = id
             }
         }
+    }
+
+    /// Reduce Motion removes the curtain immediately: no slide, no delay.
+    private var revealAnimation: Animation? {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? nil
+            : .timingCurve(0.55, 0, 0.3, 1, duration: RevealTiming.duration)
     }
 
     // r38: the SwiftUI side of the one appearance mechanism. Both scene
@@ -104,18 +138,34 @@ struct NumlexApp: App {
                 .map { $0 ? ColorScheme.dark : ColorScheme.light })
     }
 
-    /// r97: the launch root. The welcome REPLACES the notebook (it is not
-    /// an overlay: nothing from ContentView/TextKit/the sidebar is
-    /// instantiated while it is up), and the window geometry contract below
-    /// is shared by both branches so the window never changes size or
-    /// position during the hand-off.
+    /// r98: the launch root. The welcome REPLACES the notebook until
+    /// activation (nothing from ContentView/TextKit/the sidebar exists
+    /// behind it), then the editor mounts BENEATH and the welcome panel
+    /// slides fully upward inside the fixed window — the "window moves up"
+    /// feel without touching the real NSWindow. The window geometry
+    /// contract below is shared by every stage.
     @ViewBuilder
     private var launchRoot: some View {
-        if showWelcome {
+        switch revealStage {
+        case .welcome:
             WelcomeView(language: model.settings.language,
-                        onGetStarted: completeWelcome)
-                .transition(.opacity)
-        } else {
+                        onGetStarted: beginReveal)
+        case .revealing:
+            ZStack {
+                // Mounted immediately BEFORE the removal animation, so the
+                // slide progressively reveals the real interface from the
+                // bottom up. Pointer events are blocked until it settles.
+                ContentView(model: model)
+                    .allowsHitTesting(false)
+                WelcomeView(language: model.settings.language,
+                            onGetStarted: {})
+                    .transition(.asymmetric(
+                        insertion: .identity,
+                        removal: .move(edge: .top)))
+                    .zIndex(1)
+            }
+            .clipped()
+        case .app:
             ContentView(model: model)
         }
     }

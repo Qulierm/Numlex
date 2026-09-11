@@ -1,29 +1,30 @@
 import Foundation
 import NumlexCore
 
-/// r97 (revised): the first-launch "calculation bloom" — the pure
-/// first-launch policy matrix plus the source contracts of the native
-/// composition, the one-shot choreography and the launch integration.
-/// The app target is not importable from the test kit, so the view/launch
-/// invariants are pinned at the source (like the other app-layer cases).
+/// r98: the first-launch welcome — the pure first-launch policy matrix plus
+/// the source contracts of the calculation field, the monochrome silver
+/// splash, the monochrome button and the curtain reveal. The app target is
+/// not importable from the test kit, so view/launch invariants are pinned at
+/// the source (like the other app-layer cases).
 public let welcomeCases: [EngineCase] = [
 
     // MARK: - First-launch policy (pure)
 
     EngineCase("welcome-marker-name-is-versioned") {
-        try expectEqual(FirstLaunch.markerFileName, "welcome-v1",
-                        "the completion marker is versioned")
+        try expectEqual(FirstLaunch.markerFileName, "welcome-v1", "versioned marker")
         try expect(!FirstLaunch.markerFileName.contains("store"), "not the store")
         try expectEqual(FirstLaunch.artifactFileNames,
                         ["store.json", "rates.json", "weather.json", "locations.json"],
-                        "exactly the known data-directory artifacts")
+                        "the known data-directory artifacts")
     },
 
     EngineCase("welcome-empty-directory-shows-welcome") {
         let dir = try welcomeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try expect(FirstLaunch.shouldShowWelcome(in: dir), "a new install")
+        try expect(FirstLaunch.shouldShowWelcome(in: dir), "a genuinely new install")
         try expect(!FirstLaunch.isCompleted(in: dir), "no marker yet")
+        try expect(FirstLaunch.evaluateAtLaunch(in: dir),
+                   "the launch entry point agrees")
     },
 
     EngineCase("welcome-any-prior-artifact-suppresses") {
@@ -39,19 +40,14 @@ public let welcomeCases: [EngineCase] = [
     EngineCase("welcome-corrupt-store-still-suppresses") {
         let dir = try welcomeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // Presence — not decodability — decides.
         try Data([0x00, 0xFF, 0x13, 0x37]).write(
             to: dir.appendingPathComponent("store.json"))
         try expect(!FirstLaunch.shouldShowWelcome(in: dir),
                    "a corrupt store still suppresses onboarding")
-        try expect(Persistence.load(from: dir) == nil,
-                   "and it is genuinely unreadable")
+        try expect(Persistence.load(from: dir) == nil, "and is genuinely unreadable")
     },
 
-    EngineCase("welcome-existing-install-records-marker-without-touching-store") {
-        // The ONE allowed migration effect: an existing install gets the
-        // completion marker best-effort, so deleting a cache later never
-        // turns that user into a "new" one. Store bytes stay identical.
+    EngineCase("welcome-existing-install-records-marker-only") {
         let dir = try welcomeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         var payload = StorePayload(sheets: [], selectedIndex: 0,
@@ -60,75 +56,62 @@ public let welcomeCases: [EngineCase] = [
         payload.settings.appIcon = .light
         Persistence.save(payload, to: dir)
         let before = try Data(contentsOf: Persistence.storeURL(in: dir))
-        try expect(!FirstLaunch.evaluateAtLaunch(in: dir),
-                   "an existing install never sees the welcome")
-        try expect(FirstLaunch.isCompleted(in: dir),
-                   "…and the completion marker was recorded")
+        try expect(!FirstLaunch.evaluateAtLaunch(in: dir), "no onboarding")
+        try expect(FirstLaunch.isCompleted(in: dir), "marker recorded best-effort")
         try expectEqual(try Data(contentsOf: Persistence.storeURL(in: dir)), before,
-                        "the store bytes are byte-identical")
+                        "store bytes byte-identical")
         guard let reloaded = Persistence.load(from: dir) else {
             throw CaseFailure(message: "store still decodes", location: "Welcome")
         }
         try expectEqual(reloaded.settings.appearance, .light, "explicit appearance kept")
         try expectEqual(reloaded.settings.appIcon, .light, "explicit icon kept")
         try expectEqual(StorePayload.currentVersion, 2, "schema version untouched")
-        // Deleting the cache later must not resurrect onboarding.
-        try FileManager.default.removeItem(at: dir.appendingPathComponent("store.json"))
+        try FileManager.default.removeItem(at: Persistence.storeURL(in: dir))
         try expect(!FirstLaunch.shouldShowWelcome(in: dir),
-                   "the marker keeps the install 'known' after a cache delete")
+                   "a later cache delete cannot resurrect onboarding")
     },
 
-    EngineCase("welcome-cache-only-directory-suppresses") {
+    EngineCase("welcome-cache-only-suppresses-without-store") {
         let dir = try welcomeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data("{}".utf8).write(to: dir.appendingPathComponent("rates.json"))
-        try expect(!FirstLaunch.evaluateAtLaunch(in: dir),
-                   "a previous user with no saved edit is still an existing user")
+        try expect(!FirstLaunch.evaluateAtLaunch(in: dir), "existing cache user")
         try expect(FirstLaunch.isCompleted(in: dir), "marker recorded")
-        try expect(!FileManager.default.isReadableFile(
-                    atPath: Persistence.storeURL(in: dir).path),
-                   "no store was created")
+        try expect(!FileManager.default.fileExists(
+                    atPath: Persistence.storeURL(in: dir).path), "no store created")
     },
 
     EngineCase("welcome-marker-completes-and-is-idempotent") {
         let dir = try welcomeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try expect(FirstLaunch.evaluateAtLaunch(in: dir), "a fresh install")
-        try expect(!FirstLaunch.isCompleted(in: dir),
-                   "the launch itself writes nothing")
+        try expect(FirstLaunch.evaluateAtLaunch(in: dir), "fresh install")
+        try expect(!FirstLaunch.isCompleted(in: dir), "launch writes nothing")
         try expectEqual(FirstLaunch.markCompleted(in: dir), true, "Get Started writes")
         let marker = dir.appendingPathComponent(FirstLaunch.markerFileName)
-        try expectEqual(try String(contentsOf: marker, encoding: .utf8), "1\n",
-                        "the marker carries its version payload")
+        try expectEqual(try String(contentsOf: marker, encoding: .utf8), "1\n", "payload")
         try expectEqual(FirstLaunch.markCompleted(in: dir), true, "idempotent")
-        try expectEqual(try String(contentsOf: marker, encoding: .utf8), "1\n",
-                        "the marker content is stable")
+        try expectEqual(try String(contentsOf: marker, encoding: .utf8), "1\n", "stable")
         try expect(!FirstLaunch.shouldShowWelcome(in: dir), "no welcome next launch")
     },
 
     EngineCase("welcome-aborted-launch-keeps-welcome") {
         let dir = try welcomeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        _ = FirstLaunch.evaluateAtLaunch(in: dir)   // decided, nothing pressed
-        try expect(!FirstLaunch.isCompleted(in: dir), "no marker was written")
-        try expect(FirstLaunch.shouldShowWelcome(in: dir),
-                   "the welcome returns on the next launch")
+        _ = FirstLaunch.evaluateAtLaunch(in: dir)
+        try expect(!FirstLaunch.isCompleted(in: dir), "no marker")
+        try expect(FirstLaunch.shouldShowWelcome(in: dir), "welcome returns")
     },
 
-    EngineCase("welcome-decision-works-before-the-directory-exists") {
+    EngineCase("welcome-decision-works-before-directory-exists") {
         let dir = try welcomeTempDir(deleting: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        try expect(!FileManager.default.fileExists(atPath: dir.path),
-                   "the fixture directory does not exist yet")
-        try expect(FirstLaunch.shouldShowWelcome(in: dir),
-                   "the pure decision works on a non-existent directory")
-        try expect(FirstLaunch.evaluateAtLaunch(in: dir),
-                   "and the launch entry point does too")
-        try expect(!FirstLaunch.isCompleted(in: dir),
-                   "with no artifact present nothing is written")
+        try expect(!FileManager.default.fileExists(atPath: dir.path), "not created yet")
+        try expect(FirstLaunch.shouldShowWelcome(in: dir), "decision is non-creating")
+        try expect(FirstLaunch.evaluateAtLaunch(in: dir), "launch entry point too")
+        try expect(!FirstLaunch.isCompleted(in: dir), "nothing written with no artifact")
     },
 
-    // MARK: - Launch integration (source)
+    // MARK: - Launch integration + curtain reveal (source)
 
     EngineCase("welcome-decision-precedes-model-and-store") {
         let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
@@ -139,61 +122,87 @@ public let welcomeCases: [EngineCase] = [
         try expect(decision.lowerBound < modelInit.lowerBound,
                    "the decision is captured before the model")
         try expect(app.contains("Persistence.dataDirectory(createIfNeeded: false)"),
-                   "the decision uses the NON-creating directory lookup")
-        try expect(app.contains("WelcomeView(language: model.settings.language"),
-                   "the bloom is wired to the launch root")
-        try expect(app.contains("onGetStarted: completeWelcome"),
-                   "the ONE dismissal path is completeWelcome")
-        let complete = welcomeSlice(app, from: "private func completeWelcome()",
-                                    to: "\n    }")
+                   "non-creating directory lookup")
+        try expect(app.contains("_revealStage = State(initialValue: isNewInstall ? .welcome : .app)"),
+                   "existing installs mount the editor immediately")
+    },
+
+    EngineCase("welcome-curtain-reveal-contract") {
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        // Three stages, and the editor only exists from `.revealing` on.
+        for stage in ["case welcome, revealing, app", "case .welcome:",
+                      "case .revealing:", "case .app:"] {
+            try expect(app.contains(stage), "stage \(stage)")
+        }
+        try expect(app.contains("ContentView(model: model)\n                    .allowsHitTesting(false)"),
+                   "the editor mounts beneath but cannot take pointer events")
+        try expect(app.contains(".transition(.asymmetric(") && app.contains("removal: .move(edge: .top)"),
+                   "the curtain leaves by moving up")
+        try expect(app.contains(".clipped()"), "the slide is clipped to the content bounds")
+        try expect(app.contains("withAnimation(revealAnimation) { revealStage = .revealing }"),
+                   "one animated stage change")
+        try expect(app.contains("enum RevealTiming") && app.contains("duration: Double = 0.75"),
+                   "the curtain duration is one bounded constant")
+        try expect(app.contains("Task.sleep(nanoseconds: RevealTiming.durationNanoseconds)"),
+                   "completion is scheduled by the same constant")
+        try expect(app.contains("guard !Task.isCancelled else { return }"),
+                   "the completion task is cancellation-safe")
+        // Focus is handed over only AFTER the curtain clears.
+        guard let finish = app.range(of: "revealStage = .app") else {
+            throw CaseFailure(message: "no completion stage", location: "Welcome")
+        }
+        let tail = String(app[finish.upperBound...].prefix(300))
+        try expect(tail.contains("model.focusSheetID = id"),
+                   "focus is requested after the curtain has cleared")
+        // Reduce Motion drops the curtain without a slide or a delay.
+        try expect(app.contains("NSWorkspace.shared.accessibilityDisplayShouldReduceMotion"),
+                   "Reduce Motion drives the curtain animation")
+        // The NSWindow frame is never animated.
+        for banned in ["setFrame", "setFrameOrigin", "animator()"] {
+            try expect(!app.contains(banned), "no window frame API: \(banned)")
+        }
+        let complete = welcomeSlice(app, from: "private func beginReveal()", to: "\n    }")
         try expect(!complete.contains("newSheet"), "no sheet is created on dismissal")
         try expect(!complete.contains("persist("), "dismissal never persists")
-        try expect(app.contains("model.focusSheetID = id"),
-                   "the hand-off requests focus for the existing selection")
-        try expect(app.contains("FirstLaunch.markCompleted(in: Persistence.dataDirectory())"),
-                   "completion records the marker")
     },
 
-    // MARK: - Composition (source)
+    // MARK: - Calculation field (source)
 
-    EngineCase("welcome-slogan-and-website-visuals-are-gone") {
+    EngineCase("welcome-calculation-field-is-ten-correct-rows") {
         let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
-        for banned in ["Think freely", "We’ll do the math", "freely.", "math.",
-                       "B68BE6", "A4CCFB", "182, 139, 230", "164, 204, 251",
-                       "11, 11, 14", "design: .serif", "design: .monospaced"] {
-            try expect(!view.contains(banned), "no rejected slogan/website visual: \(banned)")
+        // Exactly ten expressions: five slots per column, two columns.
+        try expectEqual(view.components(separatedBy: ".init(column: .left, slot:").count - 1, 5,
+                        "five left-column rows")
+        try expectEqual(view.components(separatedBy: ".init(column: .right, slot:").count - 1, 5,
+                        "five right-column rows")
+        // Correct arithmetic / semantics for the result runs.
+        try expectEqual(128 * 4, 512, "128 × 4")
+        try expectEqual(Int(0.18 * 240), 43, "18% of 240 starts 43…")
+        try expectEqual(3.5 * 1000, 3500, "3.5 km")
+        try expectEqual((2 * 60 + 15) + 45, 180, "2h15m + 45m = 3h (180 min)")
+        try expectEqual(12 * 12, 144, "√144")
+        try expectEqual(42 + 18, 60, "$42 + $18")
+        try expectEqual(12 / 3, 4, "12 kg ÷ 3")
+        try expectEqual(1 << 10, 1024, "2^10")
+        try expectClose(9 * 0.3048, 2.7432, 0.0001, "9 ft ≈ 2.74 m (0.3048 m/ft)")
+        // Token roles: units purple, variable green, money markers purple,
+        // numbers / operators from the editor palette.
+        for fragment in [".unit(\"km\"), .op(\" → \")", ".unit(\"m\")",
+                         ".unit(\"h\")", ".unit(\"kg\")", ".unit(\"ft\")",
+                         ".variable(\"price\")", ".money(\"$\")",
+                         ".op(\"√\"), .number(\"144\")", ".op(\"^\")"] {
+            try expect(view.contains(fragment), "token role \(fragment)")
         }
-        try expect(!view.contains("Swoosh"), "no website underline shape")
-        let docs = try welcomeSource("README.md")
-        try expect(!docs.contains("Think freely"), "no slogan in the README")
-        let settings = try welcomeSource("docs/SETTINGS_AND_APPEARANCE.md")
-        try expect(!settings.contains("Think freely"), "no slogan in the docs")
-    },
-
-    EngineCase("welcome-calculation-expressions-are-exact") {
-        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
-        // The four expressions, token by token (arithmetic must be right).
-        for fragment in [
-            ".number(\"128\"), .op(\" × \"), .number(\"4\")", ".number(\"512\")",
-            ".variable(\"price\"), .op(\" = \"), .number(\"24\")",
-            ".number(\"3.5\"), .op(\" \"), .unit(\"km\"), .op(\" → \")",
-            ".number(\"3500\")", ".unit(\"m\")",
-            ".money(\"$\"), .number(\"42\"), .op(\" + \")", ".number(\"18\")",
-            ".op(\" = \")", ".number(\"60\")",
-        ] {
-            try expect(view.contains(fragment), "expression fragment \(fragment)")
-        }
-        // Anchors: one expression per corner.
-        for anchor in [".topLeft", ".topRight", ".bottomLeft", ".bottomRight"] {
-            try expect(view.contains("anchor: \(anchor)"), "expression at \(anchor)")
-        }
-        try expectEqual(128 * 4, 512, "A is correct arithmetic")
-        try expectEqual(42 + 18, 60, "D is correct arithmetic")
-        try expectEqual(3.5 * 1000, 3500, "C is a correct km→m conversion")
-        // No opaque cards or glass in the field.
-        try expect(!view.contains("SettingsCardBackground"), "no card surface")
-        try expect(!view.contains(".glassEffect("), "no glass rectangles")
-        try expect(!view.contains("RoundedRectangle(cornerRadius: 12"), "no expression cards")
+        // Two airy columns on a fixed grid: 5 slots, one anchor per column.
+        try expect(view.contains("let x: CGFloat = expression.column == .left ? -238 : 238"),
+                   "two column anchors")
+        try expect(view.contains("let y: CGFloat = -118 + CGFloat(expression.slot) * 59"),
+                   "a fixed vertical slot grid")
+        try expect(!view.contains("RoundedRectangle(cornerRadius: 12"),
+                   "no opaque calculation cards")
+        try expect(!view.contains(".glassEffect("), "no competing glass")
+        try expect(view.contains(".font(.system(size: 16, weight: token.weight, design: .rounded))"),
+                   "compact ~16 pt rows")
     },
 
     EngineCase("welcome-colors-come-from-the-editor-palette") {
@@ -201,12 +210,124 @@ public let welcomeCases: [EngineCase] = [
         for token in ["Design.numberColor", "Design.variableColor",
                       "Design.conversionColor", "Design.moneyMarkerColor",
                       "Design.baseText", "Design.editorBackground"] {
-            try expect(view.contains(token), "the field uses \(token)")
+            try expect(view.contains(token), "uses \(token)")
         }
-        // Colour comes from the app tokens, never copied hexes.
-        try expect(view.contains("Color(nsColor: Design."), "tokens resolve to SwiftUI Color")
-        try expect(!view.contains("Color(srgb255"), "no hardcoded sRGB in the welcome")
-        try expect(!view.contains("Color(red:"), "no hardcoded RGB in the welcome")
+        try expect(!view.contains("Color(srgb255"), "no hardcoded sRGB")
+        try expect(!view.contains("Color(red:"), "no hardcoded RGB")
+    },
+
+    // MARK: - Silver splash (source)
+
+    EngineCase("welcome-splash-is-monochrome-silver") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        // The rejected coloured arcs are gone.
+        try expect(!view.contains("WelcomeArc"), "no colored arc shape")
+        try expect(!view.contains("arcStyles"), "no colored arc palette")
+        try expect(!view.contains("arcProgress"), "no colored arc progress")
+        // The splash draws from neutral/icon tones only.
+        try expect(view.contains("private var silver: Color { Color(nsColor: Design.baseText) }"),
+                   "silver from the icon family (baseText)")
+        try expect(view.contains("private var silverSoft: Color { Color(nsColor: .secondaryLabelColor) }"),
+                   "the wave uses a neutral label tone")
+        for hue in ["Design.numberColor", "Design.variableColor",
+                    "Design.conversionColor", "Design.moneyMarkerColor"] {
+            let splash = welcomeSlice(view, from: "private var splash: some View",
+                                      to: "private func icon(")
+            try expect(!splash.contains(hue), "the splash never uses \(hue)")
+        }
+        // Deterministic counts: 14 rays, 8 droplets, one wave.
+        try expectEqual(view.components(separatedBy: "static let rays:").count - 1, 1, "one ray table")
+        try expectEqual(view.components(separatedBy: "static let droplets:").count - 1, 1,
+                        "one droplet table")
+        try expect(view.contains("(8, 96, 0.00, 2.5)"), "the ray table is literal/fixed")
+        try expect(view.contains("(20, 74, 3.5, 0.02)"), "the droplet table is literal/fixed")
+        try expect(view.contains("Circle()\n                .stroke(silverSoft.opacity(waveFaded ? 0 : 0.45)"),
+                   "one soft expanding wave")
+        // No runtime randomness anywhere in the welcome.
+        for banned in ["random", "shuffled", "SystemRandomNumberGenerator"] {
+            try expect(!view.contains(banned), "no runtime randomness: \(banned)")
+        }
+    },
+
+    // MARK: - Monochrome button (source)
+
+    EngineCase("welcome-button-is-monochrome-and-accessible") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        guard let buttonStart = view.range(of: "private struct GetStartedButton: View")?.lowerBound else {
+            throw CaseFailure(message: "GetStartedButton missing", location: "Welcome")
+        }
+        let button = String(view[buttonStart...])
+        try expect(!button.contains(".borderedProminent"), "no system-accent prominent style")
+        try expect(button.contains("private var fill: Color { Color(nsColor: Design.baseText) }"),
+                   "the fill is the icon family's dominant tone")
+        try expect(button.contains("Color(nsColor: Design.editorBackground)"),
+                   "the label is the opposite end of the same pair")
+        try expect(button.contains("Color(nsColor: .keyboardFocusIndicatorColor)"),
+                   "an explicit accessible focus ring")
+        try expect(button.contains("@FocusState private var focused: Bool"), "focus state")
+        try expect(button.contains("RoundedRectangle(cornerRadius: 10, style: .continuous)"),
+                   "continuous rounded shape")
+        try expect(button.contains(".keyboardShortcut(.defaultAction)"), "Return/Space")
+        try expect(button.contains("frame(minWidth: 196)"), "compact premium width")
+        try expect(button.contains(".opacity(hovering ? 0.94 : 1)"), "subtle hover only")
+        try expect(button.contains(".onHover"), "hover is tracked")
+        try expect(button.contains("welcome.getStarted") && button.contains("welcome.getStartedHint"),
+                   "localized label + hint")
+        // The welcome keeps the hidden-until-revealed and double-guard rules.
+        try expect(view.contains(".allowsHitTesting(buttonRevealed && !activating)"),
+                   "a hidden button cannot be clicked")
+        try expect(view.contains(".accessibilityHidden(!buttonRevealed)"),
+                   "a hidden button is hidden from VoiceOver")
+        try expect(view.contains("guard !activating else { return }"), "double guard")
+    },
+
+    // MARK: - Choreography (source)
+
+    EngineCase("welcome-bloom-is-one-shot-within-budget") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        for banned in ["TimelineView", "repeatForever", "phaseAnimator", "Timer(", "repeating"] {
+            try expect(!view.contains(banned), "no \(banned)")
+        }
+        try expect(view.contains(".task { await bloom() }"), "one structured task")
+        try expect(view.contains("if Task.isCancelled { return }"), "cancellation checks")
+        for stage in ["iconRevealed", "tokensRevealed", "emphasized", "converged",
+                      "splashBurst", "splashFaded", "waveProgress", "waveFaded",
+                      "pulsed", "sheenProgress", "buttonRevealed"] {
+            try expect(view.contains("$\(stage)") || view.contains("\(stage) ="),
+                       "stage \(stage)")
+        }
+        for prop in ["opacity(", "offset(", "scaleEffect(", "rotationEffect("] {
+            try expect(view.contains(prop), "geometry-neutral \(prop)")
+        }
+        // The splash is one-shot and bounded (~0.55–0.75 s of animation).
+        try expect(view.contains("withAnimation(.easeOut(duration: 0.55)) { waveProgress = 1 }"),
+                   "the wave expands once")
+        try expect(view.contains("duration: 0.42").self, "rays travel once")
+        try expect(view.contains("duration: 0.26"), "rays fade once")
+        // The staged sleeps stay inside the ~2.4 s budget.
+        let sleeps = ["140_000_000", "480_000_000", "330_000_000", "350_000_000",
+                      "340_000_000", "200_000_000"]
+        for s in sleeps { try expect(view.contains(s), "sleep \(s)") }
+        let total = sleeps.reduce(0) { $0 + Int($1.replacingOccurrences(of: "_", with: ""))! / 1_000_000 }
+        try expect(total >= 1700 && total <= 1900, "staged sleeps ≈1.84 s (got \(total) ms)")
+    },
+
+    EngineCase("welcome-reduce-motion-skips-everything") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        try expect(view.contains("@Environment(\\.accessibilityReduceMotion)"), "Reduce Motion")
+        guard let rm = view.range(of: "if reduceMotion {"),
+              let ret = view.range(of: "return", range: rm.upperBound..<view.endIndex)
+        else { throw CaseFailure(message: "reduce-motion branch missing", location: "Welcome") }
+        let branch = String(view[rm.upperBound..<ret.lowerBound])
+        try expect(branch.contains("iconRevealed = true"), "icon immediately")
+        try expect(branch.contains("buttonRevealed = true"), "button immediately")
+        try expect(branch.contains("buttonFocused = true"), "focused immediately")
+        try expect(!branch.contains("Task.sleep"), "zero sleeps")
+        try expect(!branch.contains("withAnimation"), "no animation")
+        for stage in ["tokensRevealed", "emphasized", "converged", "splashBurst", "waveProgress"] {
+            try expect(!branch.contains("\(stage) = true"),
+                       "\(stage) never runs under Reduce Motion")
+        }
     },
 
     EngineCase("welcome-icon-and-fixed-geometry") {
@@ -214,92 +335,18 @@ public let welcomeCases: [EngineCase] = [
         try expect(view.contains("AppIconResources.previewImage(for: .dark)"),
                    "the packaged Dark primary preview")
         try expect(view.contains("app.dashed"), "the missing-preview fallback")
-        try expect(view.contains("frame(width: 110, height: 110)"),
-                   "the icon is the visual anchor (~104–116 pt)")
+        try expect(view.contains("frame(width: 110, height: 110)"), "the icon anchor")
+        try expect(view.contains("static let canvas = CGSize(width: 800, height: 600)"),
+                   "the fixed design canvas")
         try expect(view.contains("let scale = min(1, min(geo.size.width"),
                    "one geometry-derived scale factor")
-        try expect(view.contains("canvas = CGSize(width: 800, height: 600)"),
-                   "the fixed design canvas")
-        try expect(!view.contains(".frame(minWidth: 0") , "no collapsing frames")
-    },
-
-    EngineCase("welcome-bloom-is-one-shot-within-budget") {
-        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
-        // No perpetual animation machinery at all.
-        for banned in ["TimelineView", "repeatForever", "phaseAnimator",
-                       "Timer(", "repeating"] {
-            try expect(!view.contains(banned), "no \(banned)")
+        try expect(view.contains(".frame(width: geo.size.width, height: geo.size.height)"),
+                   "the composition fills the window without an intrinsic size")
+        // No rejected slogan / website visuals anywhere.
+        for banned in ["Think freely", "We’ll do the math", "B68BE6", "A4CCFB",
+                       "design: .serif", "design: .monospaced", "Swoosh"] {
+            try expect(!view.contains(banned), "no rejected visual: \(banned)")
         }
-        try expect(view.contains(".task { await bloom() }"),
-                   "one structured task drives the sequence")
-        try expect(view.contains("if Task.isCancelled { return }"),
-                   "the task checks cancellation")
-        // Stage markers.
-        for stage in ["iconRevealed", "tokensRevealed", "emphasized", "converged",
-                      "arcProgress", "arcsFaded", "pulsed", "sheenProgress",
-                      "buttonRevealed"] {
-            try expect(view.contains("$\(stage)") || view.contains("\(stage) ="),
-                       "stage \(stage) exists")
-        }
-        // Geometry-neutral properties only.
-        for prop in ["opacity(", "offset(", "scaleEffect(", ".trim(", "rotationEffect("] {
-            try expect(view.contains(prop), "uses \(prop)")
-        }
-        // The scheduled delays sum to the ~1.8–2.1 s budget (1.65 s of
-        // sleeps, then the button fade completes it).
-        let sleeps = ["180_000_000", "570_000_000", "250_000_000", "100_000_000",
-                      "150_000_000", "150_000_000", "100_000_000"]
-        for s in sleeps { try expect(view.contains(s), "sleep \(s) present") }
-        let total = sleeps.reduce(0) { $0 + Int($1.replacingOccurrences(of: "_", with: ""))! / 1_000_000 }
-        try expect(total >= 1500 && total <= 1700,
-                   "the staged sleeps total ~1.65 s (got \(total) ms)")
-        try expect(view.contains("duration: 0.4"), "the button fade completes the budget")
-    },
-
-    EngineCase("welcome-reduce-motion-is-immediate-and-clean") {
-        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
-        try expect(view.contains("@Environment(\\.accessibilityReduceMotion)"),
-                   "Reduce Motion is observed")
-        guard let rm = view.range(of: "if reduceMotion {"),
-              let ret = view.range(of: "return", range: rm.upperBound..<view.endIndex)
-        else { throw CaseFailure(message: "reduce-motion branch missing", location: "Welcome") }
-        let branch = String(view[rm.upperBound..<ret.lowerBound])
-        try expect(branch.contains("iconRevealed = true"), "icon shown immediately")
-        try expect(branch.contains("buttonRevealed = true"), "button shown immediately")
-        try expect(branch.contains("buttonFocused = true"), "button focused immediately")
-        try expect(!branch.contains("Task.sleep"), "zero sleeps under Reduce Motion")
-        try expect(!branch.contains("withAnimation"), "no animation under Reduce Motion")
-        // The decorative field never appears as static clutter: the stages
-        // that reveal it stay false in that branch.
-        for stage in ["tokensRevealed", "emphasized", "converged"] {
-            try expect(!branch.contains("\(stage) = true"),
-                       "\(stage) stays hidden under Reduce Motion")
-        }
-    },
-
-    EngineCase("welcome-button-and-accessibility") {
-        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
-        try expect(view.contains("welcome.getStarted"), "the localized button key")
-        try expect(view.contains("welcome.getStartedHint"), "a localized hint")
-        try expect(view.contains(".buttonStyle(.borderedProminent)"), "native prominent")
-        try expect(view.contains(".controlSize(.large)"), "large control")
-        try expect(view.contains("frame(minWidth: 190)"), "compact width")
-        try expect(view.contains(".keyboardShortcut(.defaultAction)"),
-                   "Return/Space activate it")
-        try expect(view.contains(".allowsHitTesting(buttonRevealed && !activating)"),
-                   "a hidden button cannot be clicked")
-        try expect(view.contains(".accessibilityHidden(!buttonRevealed)"),
-                   "a hidden button is hidden from VoiceOver")
-        try expect(view.contains("guard !activating else { return }"), "double guard")
-        // The icon identifies Numlex; the decorative field and arcs are hidden.
-        try expect(view.contains(".accessibilityLabel(Text(\"Numlex\"))"),
-                   "the icon names the app")
-        try expect(view.contains("accessibilityHidden(true)"),
-                   "the decorative pieces are hidden")
-        let field = welcomeSlice(view, from: "private func calculationField(scale: CGFloat)",
-                                 to: "private func expressionRow")
-        try expect(field.contains(".accessibilityHidden(true)"),
-                   "the calculation field is one hidden decorative element")
     },
 
     EngineCase("welcome-copy-is-complete-in-six-languages") {
@@ -310,14 +357,11 @@ public let welcomeCases: [EngineCase] = [
                 try expect(!value.isEmpty, "\(lang.rawValue) empty \(key)")
             }
         }
-        try expectEqual(L10n.t("welcome.getStarted", language: .en), "Get Started",
-                        "English label")
-        try expectEqual(L10n.t("welcome.getStarted", language: .ru), "Начать",
-                        "natural Russian label")
-        // No slogan key exists to translate.
+        try expectEqual(L10n.t("welcome.getStarted", language: .en), "Get Started", "English")
+        try expectEqual(L10n.t("welcome.getStarted", language: .ru), "Начать", "Russian")
         for lang in AppLanguage.allCases {
             try expectEqual(L10n.t("welcome.slogan", language: lang), "welcome.slogan",
-                            "no slogan localization key")
+                            "no slogan key")
         }
     }
 ]
