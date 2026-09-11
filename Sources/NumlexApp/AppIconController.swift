@@ -38,12 +38,57 @@ enum AppIconResources {
         return developmentBundle()?.url(forResource: name, withExtension: ext)
     }
 
-    /// The alternate Light application icon (the exact committed ICNS).
-    static func lightIconImage() -> NSImage? {
+    /// The name of the alternate modern iconstack compiled into the main
+    /// bundle's Assets.car (`actool --alternate-app-icon AppIconLight`).
+    /// This is the production path: a NAMED catalog asset carries the same
+    /// rendition ladder and the same 128 pt logical size as the primary
+    /// `AppIcon`, so the Dock/App Switcher icon cannot change size when the
+    /// user switches.
+    static let alternateCatalogIconName = "AppIconLight"
+
+    /// The alternate Light application icon: the named modern asset first,
+    /// the committed ICNS only as a development/failure fallback (a build
+    /// without Assets.car, e.g. `swift run`).
+    ///
+    /// `NSImage(named:)` is a main-bundle lookup that AppKit caches — it is
+    /// read-only, uses no private API and never writes Finder metadata.
+    static func lightCatalogIcon() -> NSImage? {
+        NSImage(named: NSImage.Name(alternateCatalogIconName))
+    }
+
+    /// The exact committed ICNS fallback (never resized on disk).
+    static func lightFallbackIcon() -> NSImage? {
         guard let url = url(forResource: "AppIconLight", withExtension: "icns") else {
             return nil
         }
         return NSImage(contentsOf: url)
+    }
+
+    /// The Light application icon, resolved in production order:
+    /// 1. the named modern `AppIconLight` asset from the main bundle's
+    ///    Assets.car (identical geometry to the primary AppIcon);
+    /// 2. the exact ICNS fallback, normalized IN MEMORY to the bundle
+    ///    default's logical size (128x128) so the dev/failure path cannot
+    ///    recreate the oversized-icon regression.
+    static func lightIconImage(normalizedTo side: CGFloat) -> NSImage? {
+        if let catalog = lightCatalogIcon() { return catalog }
+        guard let fallback = lightFallbackIcon() else { return nil }
+        return normalized(fallback, to: side)
+    }
+
+    /// A logical-size normalization (in-memory only; the resource bytes are
+    /// never rewritten). Returns the original image when it already matches.
+    static func normalized(_ image: NSImage, to side: CGFloat) -> NSImage {
+        guard side > 0 else { return image }
+        if abs(image.size.width - side) < 0.5 && abs(image.size.height - side) < 0.5 {
+            return image
+        }
+        let scaled = NSImage(size: NSSize(width: side, height: side))
+        scaled.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        scaled.unlockFocus()
+        return scaled
     }
 
     /// The Settings preview tile for a choice: the two supplied PNGs,
@@ -84,6 +129,12 @@ enum AppIconController {
     /// The icon image AppKit resolved from the bundle at launch (may be
     /// nil, which is itself the bundle default).
     private static var launchIcon: NSImage?
+    /// The logical side the icon must be drawn at: the bundle default's own
+    /// size (128 pt on macOS 26), so every path agrees with Dark.
+    private static var bundleIconSide: CGFloat {
+        let side = launchIcon?.size.width ?? 0
+        return side > 0 ? side : 128
+    }
     private static var didCaptureLaunchIcon = false
 
     /// Captures the bundle-resolved icon ONCE, before any user choice is
@@ -108,7 +159,8 @@ enum AppIconController {
         case .light:
             // A missing/corrupt resource fails safe: keep whatever icon
             // is showing and DO NOT pretend the choice was applied.
-            guard let image = AppIconResources.lightIconImage() else { return false }
+            guard let image = AppIconResources.lightIconImage(normalizedTo: bundleIconSide)
+            else { return false }
             app.applicationIconImage = image
             applied = .light
             return true

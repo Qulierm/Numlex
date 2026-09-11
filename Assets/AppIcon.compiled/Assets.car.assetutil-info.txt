@@ -17,6 +17,7 @@
       "kCRThemePartName",
       "kCRThemeSizeName",
       "kCRThemeIdentifierName",
+      "kCRThemeDimension1Name",
       "kCRThemeDimension2Name",
       "kCRThemeLayerName",
       "kCRThemeScaleName"
@@ -26,7 +27,102 @@
     "PlatformVersion" : "26.0",
     "SchemaVersion" : 2,
     "StorageVersion" : 17,
-    "Timestamp" : 1788692817
+    "Timestamp" : 1789136854
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      1,
+      1
+    ],
+    "Colorspace" : "extended gray",
+    "Name" : "AppIconLight_Assets\/Color-1",
+    "NameIdentifier" : 27771,
+    "Scale" : 1,
+    "SHA1Digest" : "983C8AF8C4745AD80656DC26108F8917DE7A4FE04A958643025DD4D71663B9CF",
+    "SizeOnDisk" : 244
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      1,
+      1
+    ],
+    "Colorspace" : "gray gamma 22",
+    "Name" : "AppIconLight_Assets\/Color-2",
+    "NameIdentifier" : 63708,
+    "Scale" : 1,
+    "SHA1Digest" : "C223ADF8EF2C4E9628D8AD3EA596DA0D94B154DDDB2DBD6E29694100CFFCCE4A",
+    "SizeOnDisk" : 244
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      0.92500001192092896,
+      1
+    ],
+    "Colorspace" : "gray gamma 22",
+    "Name" : "AppIconLight_Assets\/Color-3",
+    "NameIdentifier" : 34109,
+    "Scale" : 1,
+    "SHA1Digest" : "703D678EFDCEECEAFB22A0BFA844A9B30E18A542A242F63F819904D9CFF2A3CE",
+    "SizeOnDisk" : 244
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      0.19200000166893005,
+      1
+    ],
+    "Colorspace" : "gray gamma 22",
+    "Name" : "AppIconLight_Assets\/Color-4",
+    "NameIdentifier" : 4510,
+    "Scale" : 1,
+    "SHA1Digest" : "13FAAF70CD9311D6274F000FE6CF0E9744EF474B5D96DC408A886FDF5D380102",
+    "SizeOnDisk" : 244
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      0.078000001609325409,
+      1
+    ],
+    "Colorspace" : "gray gamma 22",
+    "Name" : "AppIconLight_Assets\/Color-5",
+    "NameIdentifier" : 40447,
+    "Scale" : 1,
+    "SHA1Digest" : "6B2AD658D91AC72A76169470AF65FC47888AF585954E102A9B2570C5EA8665BC",
+    "SizeOnDisk" : 244
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      0.25099998712539673,
+      0.25099998712539673,
+      0.25099998712539673,
+      1
+    ],
+    "Colorspace" : "srgb",
+    "Name" : "AppIconLight_Assets\/Color-6",
+    "NameIdentifier" : 10848,
+    "Scale" : 1,
+    "SHA1Digest" : "0D7132D201F23CDBAF44EC8A0BC7922A33AB9CAAED1C0DCADCF737392F655860",
+    "SizeOnDisk" : 260
+  },
+  {
+    "AssetType" : "Color",
+    "Color components" : [
+      0,
+      0,
+      0,
+      1
+    ],
+    "Colorspace" : "srgb",
+    "Name" : "AppIconLight_Assets\/Color-7",
+    "NameIdentifier" : 46785,
+    "Scale" : 1,
+    "SHA1Digest" : "C41EED90076320761230D430877416EF4CFAF9B9EED99429DA3CA4F7EA1D7108",
+    "SizeOnDisk" : 260
   },
   {
     "AssetType" : "Color",
@@ -110,10 +206,10 @@
     "Opaque" : false,
     "PixelHeight" : 32,
     "PixelWidth" : 32,
-    "RenditionName" : "AppIcon16x16_NSAppearanceNameSystem_2942039A-04F3-4445-9CD7-7EAE90812AD5-1194-00000000644D677D.png",
+    "RenditionName" : "AppIcon16x16_NSAppearanceNameSystem_18F48FFF-4979-469A-BE43-F8FF171952BD-1402-0000000096E5429E.png",
     "Scale" : 2,
-    "SHA1Digest" : "CEFA2B7EC207FAA28F20017D61AA4BE6A99E3FBB1855B3B0675E3E63CEA3A87A",
-    "SizeOnDisk" : 330
+    "SHA1Digest" : "AE36275446AA8708DCCE0FF692DA0BE8FAFFD6F040AA5727BC99584BFFD77DAF",
+    "SizeOnDisk" : 334
   },
   {
     "AssetType" : "Icon Image",
@@ -128,9 +224,9 @@
     "Opaque" : false,
     "PixelHeight" : 64,
     "PixelWidth" : 64,
-    "RenditionName" : "AppIcon32x32_NSAppearanceNameSystem_E9D0186A-9D7E-43A2-9FFF-BAC538697876-1194-0000000064511189.png",
+    "RenditionName" : "AppIcon32x32_NSAppearanceNameSystem_2D5A57EC-70CC-48EC-B7B8-57D0E8A01D0E-1402-0000000096E69779.png",
     "Scale" : 2,
-    "SHA1Digest" : "D633E716C4CEAA4C415613787AC86EB6BB0B1ED56CAC56BD50028497DD87027A",
+    "SHA1Digest" : "7B7058A7DF2A2018352B4D9971CB26BE3C448D3BF5DF1147AA53BC56060B1F4D",
     "SizeOnDisk" : 330
   },
   {
@@ -146,9 +242,9 @@
     "Opaque" : false,
     "PixelHeight" : 128,
     "PixelWidth" : 128,
-    "RenditionName" : "AppIcon64x64_NSAppearanceNameSystem_8D3D6CB4-BF22-46C4-BB59-1856D166BED1-1194-0000000064546EB6.png",
+    "RenditionName" : "AppIcon64x64_NSAppearanceNameSystem_205AC77E-FEA7-4BE6-9776-07B0C2ECD4F1-1402-0000000096E93FD7.png",
     "Scale" : 2,
-    "SHA1Digest" : "FA9BB902EB8984C654B085DE795E2B09FF8EE54B50F749E758EF631F2776C9D8",
+    "SHA1Digest" : "6FDDD25A17E64F7B5AF613AE60FE727E9683C34E450EEC688EC8E9DEEF654D09",
     "SizeOnDisk" : 330
   },
   {
@@ -164,9 +260,9 @@
     "Opaque" : false,
     "PixelHeight" : 256,
     "PixelWidth" : 256,
-    "RenditionName" : "AppIcon128x128_NSAppearanceNameSystem_8C132E6F-2E86-4101-9E9E-EA01F4722482-1194-000000006458ADF9.png",
+    "RenditionName" : "AppIcon128x128_NSAppearanceNameSystem_3F6EFEC1-EBA3-4C35-BB78-583A7C08FF62-1402-0000000096ED9D24.png",
     "Scale" : 2,
-    "SHA1Digest" : "0A2FCFE6540771483229F821427DE3AF556AE733B4AF5C69DE376A9BF7E839A9",
+    "SHA1Digest" : "01763593CC7A342A437AFEE247058A1455B5D53B42E3DA451CCE37FC8A1BE0D9",
     "SizeOnDisk" : 61638
   },
   {
@@ -182,9 +278,9 @@
     "Opaque" : false,
     "PixelHeight" : 512,
     "PixelWidth" : 512,
-    "RenditionName" : "AppIcon256x256_NSAppearanceNameSystem_B4511B15-8084-4770-B62A-5AF73ED07993-1194-000000006465F433.png",
+    "RenditionName" : "AppIcon256x256_NSAppearanceNameSystem_8D99031D-1EB0-489C-9CF0-7AB2C6158FDA-1402-0000000096F7ACCB.png",
     "Scale" : 2,
-    "SHA1Digest" : "1984536AF61101C8838B8EFA71B1D3CDCFA0C872D4604BB9C95B5B24D2CCD07B",
+    "SHA1Digest" : "53B72ADEF06EBF0B7E53A42C52D73657866BDF0EDF7768402F8C16B0533D160C",
     "SizeOnDisk" : 206996
   },
   {
@@ -200,9 +296,9 @@
     "Opaque" : false,
     "PixelHeight" : 1024,
     "PixelWidth" : 1024,
-    "RenditionName" : "AppIcon512x512_NSAppearanceNameSystem_B0C7BBA4-74C8-4554-BC69-DA28897ACC89-1194-000000006480EC10.png",
+    "RenditionName" : "AppIcon512x512_NSAppearanceNameSystem_2A4AA7AE-C82E-4F8A-B2AA-B24F18FB5CFB-1402-00000000970DFF9B.png",
     "Scale" : 2,
-    "SHA1Digest" : "066FE93C43008DB3083D5F98BF9FD804B8B599F5A2B031A5FF50D72F51AEDFB3",
+    "SHA1Digest" : "E6B8A5D04ECA54F6875FB298AAA8601A849FCF57E9219C017919AF21533BCD9D",
     "SizeOnDisk" : 739474
   },
   {
@@ -218,10 +314,136 @@
     "Opaque" : false,
     "PixelHeight" : 1024,
     "PixelWidth" : 1024,
-    "RenditionName" : "AppIcon1024x1024_NSAppearanceNameSystem_0A7F7825-7A04-40D9-9F16-DFAA898E255B-1194-0000000064CDEC88.png",
+    "RenditionName" : "AppIcon1024x1024_NSAppearanceNameSystem_A56A01BE-404D-46EB-80B7-7EEA3119F04C-1402-00000000974FF17A.png",
     "Scale" : 1,
-    "SHA1Digest" : "08E6C8C120FAA0FABABD58EDBA1A73AB37C8F45B573F2A120E85DD802E382181",
+    "SHA1Digest" : "B12ED7F7A5276454587AC3BB83A2B55A0DB4EFEF49B28654A750B0DA75881347",
     "SizeOnDisk" : 739486
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 1,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 32,
+    "PixelWidth" : 32,
+    "RenditionName" : "AppIconLight16x16_NSAppearanceNameSystem_0D25A416-F13C-4048-880A-4AE908B1DE63-1402-0000000095BF4F4D.png",
+    "Scale" : 2,
+    "SHA1Digest" : "DAA4BE6864E571DC68D38E4242ED195C6C0B91B85D1BA8371793D385C5B3787A",
+    "SizeOnDisk" : 334
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 2,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 64,
+    "PixelWidth" : 64,
+    "RenditionName" : "AppIconLight32x32_NSAppearanceNameSystem_A0A654E7-7C9D-4B2F-A1B4-8E929BD8C012-1402-0000000095DFDB7C.png",
+    "Scale" : 2,
+    "SHA1Digest" : "D1A89765D26DF9E5A674320ED141F5F0D257903F8CF3405CD84B38498CA30E13",
+    "SizeOnDisk" : 334
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 3,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 128,
+    "PixelWidth" : 128,
+    "RenditionName" : "AppIconLight64x64_NSAppearanceNameSystem_69364848-2FE3-46F2-B993-D3E6CBC51151-1402-0000000095E251CB.png",
+    "Scale" : 2,
+    "SHA1Digest" : "5E122C5FF6B7B4896A6B672C251E6CCBC9BB3D3E7043D6C994FD34B7BDFB76E2",
+    "SizeOnDisk" : 330
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 4,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 256,
+    "PixelWidth" : 256,
+    "RenditionName" : "AppIconLight128x128_NSAppearanceNameSystem_85DF515D-0E7F-4F7E-9416-C26A933DE692-1402-0000000095E79A35.png",
+    "Scale" : 2,
+    "SHA1Digest" : "6DE265461177CFD96348000A3CEF8BF9F64E137735103660C83B7A47F2285D62",
+    "SizeOnDisk" : 54447
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 5,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 512,
+    "PixelWidth" : 512,
+    "RenditionName" : "AppIconLight256x256_NSAppearanceNameSystem_D9369BAA-9FE9-46D3-ACB9-33E38B8DA700-1402-0000000095FD92E4.png",
+    "Scale" : 2,
+    "SHA1Digest" : "3EA1D9465813A8311E7B4676B6CB0E1BC9BFDAAE741966AD61CA6D665418B9B5",
+    "SizeOnDisk" : 182427
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 6,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 1024,
+    "PixelWidth" : 1024,
+    "RenditionName" : "AppIconLight512x512_NSAppearanceNameSystem_05578D2F-FB7E-4B9A-A26F-24E76180683F-1402-0000000096184F16.png",
+    "Scale" : 2,
+    "SHA1Digest" : "F6173566A57526A577A0340CF65A96FD89666E90498FBB44AC78E10EFCFDD03D",
+    "SizeOnDisk" : 661959
+  },
+  {
+    "AssetType" : "Icon Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Encoding" : "ARGB",
+    "Icon Index" : 7,
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Opaque" : false,
+    "PixelHeight" : 1024,
+    "PixelWidth" : 1024,
+    "RenditionName" : "AppIconLight1024x1024_NSAppearanceNameSystem_C74D48C1-AF2C-4A3A-B473-69EC57CD0B97-1402-0000000096655C6A.png",
+    "Scale" : 1,
+    "SHA1Digest" : "F3E5883B47065A83A862262C0F63C4FCA3ACA3CC84D0F62C62DCCA995CAA424A",
+    "SizeOnDisk" : 661959
   },
   {
     "Appearance" : "NSAppearanceNameDarkAqua",
@@ -336,6 +558,120 @@
     "Scale" : 1,
     "SHA1Digest" : "CFEAD6A63678D860BFE0BDA9C4B6400814C8987437D36E4A9D219937E93586A7",
     "SizeOnDisk" : 378
+  },
+  {
+    "Appearance" : "NSAppearanceNameDarkAqua",
+    "AssetType" : "IconGroup",
+    "Colorspace" : "generic",
+    "LayerCount" : 1,
+    "Layers" : [
+      {
+        "AssetType" : "Image",
+        "BitsPerComponent" : 8,
+        "ColorModel" : "Monochrome",
+        "Colorspace" : "gray gamma 22",
+        "Compression" : "deepmap2",
+        "Encoding" : "Gray",
+        "LayerGradientColorName" : "AppIconLight_Assets\/Gradient-3",
+        "LayerHasLightingEffects" : true,
+        "LayerIndex" : 0,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "104,327",
+        "LayerSize" : "815,369",
+        "Name" : "AppIconLight_Assets\/Image 32",
+        "NameIdentifier" : 39567,
+        "Opaque" : false,
+        "PixelHeight" : 194,
+        "PixelWidth" : 429,
+        "RenditionName" : "IconGroup",
+        "Scale" : 1,
+        "SHA1Digest" : "903286617C31F074AC3E16AF98522E5B573F38FE051050EF840DA161C0C3EBC8",
+        "SizeOnDisk" : 4540,
+        "Template Mode" : "automatic"
+      }
+    ],
+    "Name" : "AppIconLight\/Group",
+    "NameIdentifier" : 32233,
+    "RenditionName" : "IconGroup",
+    "Scale" : 1,
+    "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+    "SizeOnDisk" : 383
+  },
+  {
+    "Appearance" : "NSAppearanceNameAqua",
+    "AssetType" : "IconGroup",
+    "Colorspace" : "generic",
+    "LayerCount" : 1,
+    "Layers" : [
+      {
+        "AssetType" : "Image",
+        "BitsPerComponent" : 8,
+        "ColorModel" : "Monochrome",
+        "Colorspace" : "gray gamma 22",
+        "Compression" : "deepmap2",
+        "Encoding" : "Gray",
+        "LayerGradientColorName" : "AppIconLight_Assets\/Gradient-3",
+        "LayerHasLightingEffects" : true,
+        "LayerIndex" : 0,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "104,327",
+        "LayerSize" : "815,369",
+        "Name" : "AppIconLight_Assets\/Image 32",
+        "NameIdentifier" : 39567,
+        "Opaque" : false,
+        "PixelHeight" : 194,
+        "PixelWidth" : 429,
+        "RenditionName" : "IconGroup",
+        "Scale" : 1,
+        "SHA1Digest" : "903286617C31F074AC3E16AF98522E5B573F38FE051050EF840DA161C0C3EBC8",
+        "SizeOnDisk" : 4540,
+        "Template Mode" : "automatic"
+      }
+    ],
+    "Name" : "AppIconLight\/Group",
+    "NameIdentifier" : 32233,
+    "RenditionName" : "IconGroup",
+    "Scale" : 1,
+    "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+    "SizeOnDisk" : 383
+  },
+  {
+    "Appearance" : "ISAppearanceTintable",
+    "AssetType" : "IconGroup",
+    "Colorspace" : "generic",
+    "LayerCount" : 1,
+    "Layers" : [
+      {
+        "AssetType" : "Image",
+        "BitsPerComponent" : 8,
+        "ColorModel" : "Monochrome",
+        "Colorspace" : "gray gamma 22",
+        "Compression" : "deepmap2",
+        "Encoding" : "Gray",
+        "LayerGradientColorName" : "AppIconLight_Assets\/Gradient-3",
+        "LayerHasLightingEffects" : true,
+        "LayerIndex" : 0,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "104,327",
+        "LayerSize" : "815,369",
+        "Name" : "AppIconLight_Assets\/Image 32",
+        "NameIdentifier" : 39567,
+        "Opaque" : false,
+        "PixelHeight" : 194,
+        "PixelWidth" : 429,
+        "RenditionName" : "IconGroup",
+        "Scale" : 1,
+        "SHA1Digest" : "903286617C31F074AC3E16AF98522E5B573F38FE051050EF840DA161C0C3EBC8",
+        "SizeOnDisk" : 4540,
+        "Template Mode" : "automatic"
+      }
+    ],
+    "Name" : "AppIconLight\/Group",
+    "NameIdentifier" : 32233,
+    "RenditionName" : "IconGroup",
+    "Scale" : 1,
+    "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+    "SizeOnDisk" : 383
   },
   {
     "Appearance" : "NSAppearanceNameDarkAqua",
@@ -584,6 +920,270 @@
     "SizeOnDisk" : 470
   },
   {
+    "Appearance" : "NSAppearanceNameDarkAqua",
+    "AssetType" : "IconImageStack",
+    "CanvasHeight" : 1024,
+    "CanvasWidth" : 1024,
+    "Colorspace" : "generic",
+    "CompositeImagePresent" : false,
+    "LayerCount" : 2,
+    "Layers" : [
+      {
+        "Colorspace" : "generic",
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerSize" : "0,0",
+        "Name" : "AppIconLight_Assets\/Gradient-2",
+        "NameIdentifier" : 48128,
+        "Scale" : 1,
+        "SHA1Digest" : "5BAB8EE7AD8561465A719AC11A464E275FF17E76047F0144EC0272E462AB9D71",
+        "SizeOnDisk" : 316
+      },
+      {
+        "Appearance" : "NSAppearanceNameDarkAqua",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      },
+      {
+        "Appearance" : "NSAppearanceNameAqua",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      },
+      {
+        "Appearance" : "ISAppearanceTintable",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      }
+    ],
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "RenditionName" : "AppIconLight.iconstack",
+    "Scale" : 1,
+    "SHA1Digest" : "2D78BF0F1C676208995463C9984B0604ED2A6DE0B73C2095D7EA78FD5928B976",
+    "SizeOnDisk" : 470
+  },
+  {
+    "Appearance" : "NSAppearanceNameAqua",
+    "AssetType" : "IconImageStack",
+    "CanvasHeight" : 1024,
+    "CanvasWidth" : 1024,
+    "Colorspace" : "generic",
+    "CompositeImagePresent" : false,
+    "LayerCount" : 2,
+    "Layers" : [
+      {
+        "Colorspace" : "generic",
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerSize" : "0,0",
+        "Name" : "AppIconLight_Assets\/Gradient-1",
+        "NameIdentifier" : 12191,
+        "Scale" : 1,
+        "SHA1Digest" : "EA11D11412227B727D4EE9986F476188CAB18DA149E177DE0354FCB1B25E07EE",
+        "SizeOnDisk" : 316
+      },
+      {
+        "Appearance" : "NSAppearanceNameDarkAqua",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      },
+      {
+        "Appearance" : "NSAppearanceNameAqua",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      },
+      {
+        "Appearance" : "ISAppearanceTintable",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      }
+    ],
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "RenditionName" : "AppIconLight.iconstack",
+    "Scale" : 1,
+    "SHA1Digest" : "E1D51FD4C9E327C636CE9AB197887A6B199EDB72405EB23780349DDB8EB77373",
+    "SizeOnDisk" : 470
+  },
+  {
+    "Appearance" : "ISAppearanceTintable",
+    "AssetType" : "IconImageStack",
+    "CanvasHeight" : 1024,
+    "CanvasWidth" : 1024,
+    "Colorspace" : "generic",
+    "CompositeImagePresent" : false,
+    "LayerCount" : 2,
+    "Layers" : [
+      {
+        "Colorspace" : "generic",
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerSize" : "0,0",
+        "Name" : "AppIconLight_Assets\/Gradient-1",
+        "NameIdentifier" : 12191,
+        "Scale" : 1,
+        "SHA1Digest" : "EA11D11412227B727D4EE9986F476188CAB18DA149E177DE0354FCB1B25E07EE",
+        "SizeOnDisk" : 316
+      },
+      {
+        "Appearance" : "NSAppearanceNameDarkAqua",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      },
+      {
+        "Appearance" : "NSAppearanceNameAqua",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      },
+      {
+        "Appearance" : "ISAppearanceTintable",
+        "AssetType" : "IconGroup",
+        "Colorspace" : "generic",
+        "LayerGathersSpecularByElement" : true,
+        "LayerHasSpecular" : true,
+        "LayerOpacity" : 1,
+        "LayerPosition" : "0,0",
+        "LayerShadowOpacity" : 0.5,
+        "LayerShadowStyle" : 3,
+        "LayerSize" : "0,0",
+        "LayerTranslucency" : 0.5,
+        "Name" : "AppIconLight\/Group",
+        "NameIdentifier" : 32233,
+        "Scale" : 1,
+        "SHA1Digest" : "EF38D942181AD1C2E2405100CA62EC1D0526D77A53ADE295C39507C17E46AA22",
+        "SizeOnDisk" : 383
+      }
+    ],
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "RenditionName" : "AppIconLight.iconstack",
+    "Scale" : 1,
+    "SHA1Digest" : "E1D51FD4C9E327C636CE9AB197887A6B199EDB72405EB23780349DDB8EB77373",
+    "SizeOnDisk" : 470
+  },
+  {
+    "AssetType" : "Image",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "Monochrome",
+    "Colorspace" : "gray gamma 22",
+    "Compression" : "deepmap2",
+    "Encoding" : "Gray",
+    "Name" : "AppIconLight_Assets\/Image 32",
+    "NameIdentifier" : 39567,
+    "Opaque" : false,
+    "PixelHeight" : 194,
+    "PixelWidth" : 429,
+    "RenditionName" : "image.png",
+    "Scale" : 1,
+    "SHA1Digest" : "903286617C31F074AC3E16AF98522E5B573F38FE051050EF840DA161C0C3EBC8",
+    "SizeOnDisk" : 4540,
+    "Template Mode" : "automatic"
+  },
+  {
     "AssetType" : "Image",
     "BitsPerComponent" : 8,
     "ColorModel" : "Monochrome",
@@ -617,6 +1217,77 @@
       "512x512 index:6 idiom:universal",
       "1024x1024 index:7 idiom:universal"
     ]
+  },
+  {
+    "AssetType" : "MultiSized Image",
+    "Name" : "AppIconLight",
+    "NameIdentifier" : 54224,
+    "Scale" : 1,
+    "SHA1Digest" : "3C5F3814C5495629DD91C8DB50DF9D9C92A4A0DF200BD1976CC8DD7C162AD6B7",
+    "SizeOnDisk" : 308,
+    "Sizes" : [
+      "16x16 index:1 idiom:universal",
+      "32x32 index:2 idiom:universal",
+      "64x64 index:3 idiom:universal",
+      "128x128 index:4 idiom:universal",
+      "256x256 index:5 idiom:universal",
+      "512x512 index:6 idiom:universal",
+      "1024x1024 index:7 idiom:universal"
+    ]
+  },
+  {
+    "AssetType" : "Named Gradient",
+    "Gradient Colors" : [
+      "AppIconLight_Assets\/Color-2",
+      "AppIconLight_Assets\/Color-3"
+    ],
+    "Gradient Start\/Stop" : "0.500,0.000 - 0.500,1.000",
+    "Gradient Stops" : [
+      0,
+      1
+    ],
+    "Gradient Type" : 1,
+    "Name" : "AppIconLight_Assets\/Gradient-1",
+    "NameIdentifier" : 12191,
+    "Scale" : 1,
+    "SHA1Digest" : "EA11D11412227B727D4EE9986F476188CAB18DA149E177DE0354FCB1B25E07EE",
+    "SizeOnDisk" : 316
+  },
+  {
+    "AssetType" : "Named Gradient",
+    "Gradient Colors" : [
+      "AppIconLight_Assets\/Color-4",
+      "AppIconLight_Assets\/Color-5"
+    ],
+    "Gradient Start\/Stop" : "0.500,0.000 - 0.500,1.000",
+    "Gradient Stops" : [
+      0,
+      1
+    ],
+    "Gradient Type" : 1,
+    "Name" : "AppIconLight_Assets\/Gradient-2",
+    "NameIdentifier" : 48128,
+    "Scale" : 1,
+    "SHA1Digest" : "5BAB8EE7AD8561465A719AC11A464E275FF17E76047F0144EC0272E462AB9D71",
+    "SizeOnDisk" : 316
+  },
+  {
+    "AssetType" : "Named Gradient",
+    "Gradient Colors" : [
+      "AppIconLight_Assets\/Color-6",
+      "AppIconLight_Assets\/Color-7"
+    ],
+    "Gradient Start\/Stop" : "0.500,0.000 - 0.500,0.685",
+    "Gradient Stops" : [
+      0,
+      1
+    ],
+    "Gradient Type" : 1,
+    "Name" : "AppIconLight_Assets\/Gradient-3",
+    "NameIdentifier" : 18529,
+    "Scale" : 1,
+    "SHA1Digest" : "930F906328C64FFBCAA7CFE6819B6AFEC0C5E0DE8420CBA2CC40005F8EB087FF",
+    "SizeOnDisk" : 316
   },
   {
     "AssetType" : "Named Gradient",
@@ -681,11 +1352,28 @@
     "Encoding" : "ARGB",
     "Name" : "ZZZZPackedAsset-2.0.0-gamut0",
     "Opaque" : false,
-    "PixelHeight" : 132,
-    "PixelWidth" : 198,
+    "PixelHeight" : 198,
+    "PixelWidth" : 262,
     "RenditionName" : "ZZZZPackedAsset-2.0.0-gamut0",
     "Scale" : 2,
-    "SHA1Digest" : "CFB79BDD4F48E38F4F1C75DEC6DB5C3768F5B595FC3FFD1CF8CE58D5217A6DBD",
-    "SizeOnDisk" : 28407
+    "SHA1Digest" : "8788BA9C14042DB2C532EA9C4338B689638D5A5D4C7093647AF3D3564E6B2071",
+    "SizeOnDisk" : 42596
+  },
+  {
+    "AssetType" : "PackedImage",
+    "BitsPerComponent" : 8,
+    "ColorModel" : "RGB",
+    "Colorspace" : "srgb",
+    "Compression" : "lzfse",
+    "Dimension1" : 1,
+    "Encoding" : "ARGB",
+    "Name" : "ZZZZPackedAsset-2.0.0-gamut0",
+    "Opaque" : false,
+    "PixelHeight" : 102,
+    "PixelWidth" : 102,
+    "RenditionName" : "ZZZZPackedAsset-2.0.0-gamut0",
+    "Scale" : 2,
+    "SHA1Digest" : "A9BE8AA41A9034B8E55D7CF07E4427DC9BF382DC19542D0F428AC048BE833569",
+    "SizeOnDisk" : 10478
   }
 ]

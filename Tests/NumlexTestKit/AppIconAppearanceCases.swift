@@ -244,15 +244,160 @@ public let appIconAppearanceCases: [EngineCase] = [
 
     // MARK: - Source invariants (one writer per AppKit property)
 
+    EngineCase("icon-light-composer-source-geometry") {
+        guard let darkJSON = appIconSource("Assets/AppIcon.icon/icon.json"),
+              let lightJSON = appIconSource("Assets/AppIconLight.icon/icon.json")
+        else { throw CaseFailure(message: "icon packages missing", location: "AppIconCases") }
+        let dark = try JSONSerialization.jsonObject(with: Data(darkJSON.utf8)) as? [String: Any]
+        let light = try JSONSerialization.jsonObject(with: Data(lightJSON.utf8)) as? [String: Any]
+        guard let dark, let light,
+              let dGroup = (dark["groups"] as? [[String: Any]])?.first,
+              let lGroup = (light["groups"] as? [[String: Any]])?.first,
+              let dLayer = (dGroup["layers"] as? [[String: Any]])?.first,
+              let lLayer = (lGroup["layers"] as? [[String: Any]])?.first
+        else { throw CaseFailure(message: "icon.json shape unexpected", location: "AppIconCases") }
+        // Backgrounds differ; the foreground geometry must not.
+        try expectEqual(dark["fill"] as? String, "system-dark", "Dark uses system-dark")
+        try expectEqual(light["fill"] as? String, "system-light", "Light uses system-light")
+        let dPos = dLayer["position"] as? [String: Any]
+        let lPos = lLayer["position"] as? [String: Any]
+        try expectEqual(dPos?["scale"] as? Double, lPos?["scale"] as? Double, "same scale")
+        try expectEqual(dPos?["scale"] as? Double, 1.9, "scale is 1.9")
+        let dTr = dPos?["translation-in-points"] as? [Double]
+        let lTr = lPos?["translation-in-points"] as? [Double]
+        try expectEqual(dTr, lTr, "same translation")
+        try expectEqual(lLayer["name"] as? String, dLayer["name"] as? String, "same layer name")
+        try expectEqual(lLayer["image-name"] as? String, dLayer["image-name"] as? String,
+                        "same mask image name")
+        try expectEqual(dGroup["shadow"] as? [String: Any] != nil,
+                        lGroup["shadow"] as? [String: Any] != nil, "both carry a shadow")
+        try expectEqual(dGroup["translucency"] as? [String: Any] != nil,
+                        lGroup["translucency"] as? [String: Any] != nil,
+                        "both carry translucency")
+        let dFill = dLayer["fill"] as? [String: Any]
+        let lFill = lLayer["fill"] as? [String: Any]
+        try expectEqual(dFill?["orientation"] != nil, lFill?["orientation"] != nil,
+                        "both carry a gradient orientation")
+        let dGrad = dFill?["linear-gradient"] as? [String]
+        let lGrad = lFill?["linear-gradient"] as? [String]
+        try expect(dGrad != lGrad, "Light uses its own (dark) gradient")
+        try expectEqual(lGrad?.first, "srgb:0.25114,0.25114,0.25114,1.00000",
+                        "Light top stop is the reverse-derived value")
+        try expectEqual(lGrad?.last, "srgb:0.00000,0.00000,0.00000,1.00000",
+                        "Light bottom stop is the reverse-derived value")
+        // The foreground MASK BYTES are shared (identical file hash).
+        let maskPath = "Assets/AppIconLight.icon/Assets/Image 32.png"
+        guard let data = try? Data(contentsOf: appIconRepoRoot().appendingPathComponent(maskPath)) else {
+            throw CaseFailure(message: "Light mask missing", location: "AppIconCases")
+        }
+        try expectEqual(sha256Hex(data),
+                        "b293279246cb9e37396b89878c5d631e6ff8c35a6e7fd95a2622b483d5c0080d",
+                        "Light reuses the Dark foreground mask byte-exactly")
+    },
+
+    EngineCase("icon-dual-catalog-provenance") {
+        // The committed catalog is the CI artifact and carries BOTH named
+        // iconstacks with the full modern rendition ladder.
+        guard let car = try? Data(contentsOf: appIconRepoRoot()
+            .appendingPathComponent("Assets/AppIcon.compiled/Assets.car")) else {
+            throw CaseFailure(message: "compiled Assets.car missing", location: "AppIconCases")
+        }
+        try expectEqual(sha256Hex(car),
+                        "be00c077a667c61da549c125efdde6e3d8448bb6bcf7b0f593777d6c6737ed1d",
+                        "catalog hash is the verified CI artifact")
+        try expectEqual(car.count, 3_407_048, "catalog size matches the artifact")
+        guard let inventory = appIconSource("Assets/AppIcon.compiled/Assets.car.assetutil-info.txt"),
+              let start = inventory.firstIndex(of: "["),
+              let entries = try JSONSerialization.jsonObject(
+                with: Data(inventory[start...].utf8)) as? [[String: Any]]
+        else { throw CaseFailure(message: "inventory missing/unparsable", location: "AppIconCases") }
+        for name in ["AppIcon", "AppIconLight"] {
+            let stacks = entries.filter {
+                ($0["AssetType"] as? String) == "IconImageStack" && ($0["Name"] as? String) == name
+            }
+            try expect(stacks.count >= 1, "\(name) IconImageStack present")
+            let px = Set(entries.compactMap { e -> Int? in
+                guard (e["AssetType"] as? String) == "Icon Image",
+                      (e["Name"] as? String) == name else { return nil }
+                return e["PixelWidth"] as? Int
+            })
+            for need in [32, 64, 128, 256, 512, 1024] {
+                try expect(px.contains(need), "\(name) rendition \(need)")
+            }
+        }
+        guard let metaJSON = appIconSource("Assets/AppIcon.compiled/icon-build-metadata.json"),
+              let meta = try JSONSerialization.jsonObject(with: Data(metaJSON.utf8)) as? [String: Any]
+        else { throw CaseFailure(message: "metadata missing", location: "AppIconCases") }
+        try expectEqual(meta["app-icon"] as? String, "AppIcon", "primary name")
+        try expectEqual(meta["alternate-app-icon"] as? String, "AppIconLight", "alternate name")
+        try expectEqual(meta["assets-car-sha256"] as? String, sha256Hex(car), "metadata hash agrees")
+        try expectEqual(meta["alternate-source-icon-json-sha256"] as? String,
+                        "d6e6fb4d915e26080a53e3be0593c12aab147d21ace68167b4b0d72830a205e5",
+                        "alternate source hash recorded")
+        try expect((meta["iconstacks"] as? [String])?.contains("AppIconLight") == true,
+                   "metadata records both iconstacks")
+        guard let plist = appIconSource("Assets/AppIcon.compiled/Assets.car-partial.plist") else {
+            throw CaseFailure(message: "partial plist missing", location: "AppIconCases")
+        }
+        try expect(plist.contains("<string>AppIcon</string>"),
+                   "partial plist keeps the primary icon name")
+    },
+
+    EngineCase("icon-dual-compile-pipeline-wiring") {
+        guard let compiler = appIconSource("Scripts/compile-modern-app-icon.sh") else {
+            throw CaseFailure(message: "compiler missing", location: "AppIconCases")
+        }
+        try expect(compiler.contains("--alternate-app-icon"), "compiler passes the alternate")
+        try expect(compiler.contains("AppIconLight.icon"), "compiler knows the Light package")
+        try expect(compiler.contains("IconImageStack"), "compiler requires real iconstacks")
+        try expect(compiler.contains("rendition"), "compiler checks the rendition ladder")
+        try expect(compiler.contains("alternate-source-icon-json-sha256"),
+                   "compiler records the alternate source hash")
+        guard let workflow = appIconSource(".github/workflows/build-modern-app-icon.yml") else {
+            throw CaseFailure(message: "workflow missing", location: "AppIconCases")
+        }
+        try expect(workflow.contains("Assets/AppIconLight.icon/**"),
+                   "workflow triggers on the Light source")
+        try expect(workflow.contains("validate-icon-sources.sh"),
+                   "workflow runs the source calibration")
+        try expect(workflow.contains("ci/light-modern-app-icon"),
+                   "workflow supports the focused CI branch")
+        guard let validator = appIconSource("Scripts/validate-icon-sources.sh") else {
+            throw CaseFailure(message: "validator missing", location: "AppIconCases")
+        }
+        try expect(validator.contains("compare-icon-renders"), "validator uses the comparator")
+        try expect(FileManager.default.fileExists(atPath: appIconRepoRoot()
+            .appendingPathComponent("Scripts/compare-icon-renders.swift").path),
+                   "CoreGraphics comparator is tracked")
+        // build-app.sh must refuse a catalog without the alternate stack.
+        guard let build = appIconSource("Scripts/build-app.sh") else {
+            throw CaseFailure(message: "build-app.sh missing", location: "AppIconCases")
+        }
+        try expect(build.contains("AppIconLight") && build.contains("IconImageStack"),
+                   "build-app.sh asserts the dual catalog")
+    },
+
     EngineCase("icon-controller-source-invariants") {
         guard let icon = appIconSource("Sources/NumlexApp/AppIconController.swift") else {
             throw CaseFailure(message: "AppIconController missing", location: "AppIconCases")
         }
         try expect(icon.contains("app.applicationIconImage = nil"),
                    "dark resets through AppKit's null-resettable contract")
-        try expect(icon.contains("AppIconResources.lightIconImage()"),
-                   "light uses the packaged alternate ICNS")
-        try expect(icon.contains("guard let image = AppIconResources.lightIconImage() else { return false }"),
+        // The packaged Light path is the NAMED modern asset first; the ICNS
+        // is only a development/failure fallback, normalized in memory.
+        try expect(icon.contains("NSImage(named: NSImage.Name(alternateCatalogIconName))"),
+                   "Light prefers the named AppIconLight catalog asset")
+        try expect(icon.contains("static let alternateCatalogIconName = \"AppIconLight\""),
+                   "the alternate catalog name is AppIconLight")
+        try expect(icon.contains("lightIconImage(normalizedTo: bundleIconSide)"),
+                   "the controller normalizes the Light icon to the bundle size")
+        try expect(icon.contains("static func normalized(_ image: NSImage, to side: CGFloat) -> NSImage"),
+                   "an in-memory normalization helper exists")
+        try expect(!withoutComments(icon).contains("NSWorkspace"),
+                   "no Finder icon machinery in the resolution path")
+        try expect(icon.contains("static func lightFallbackIcon() -> NSImage?"),
+                   "the ICNS stays available as the development fallback")
+        try expect(icon.contains("guard let image = AppIconResources.lightIconImage(normalizedTo: bundleIconSide)"),
                    "a missing Light resource fails safe (no generic icon)")
         try expect(icon.contains("captureLaunchIcon"),
                    "the bundle-resolved launch icon is captured for the fallback")

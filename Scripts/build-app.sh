@@ -75,17 +75,55 @@ PLIST
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CONTENTS/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$CONTENTS/Info.plist")" == "26.0" ]]
 
-# Modern icon (primary): the Xcode 26 Liquid Glass Assets.car compiled by
+# Modern icons: ONE Xcode 26 Liquid Glass Assets.car carrying BOTH named
+# iconstacks — AppIcon (primary, CFBundleIconName) and AppIconLight
+# (alternate, selected at runtime through NSImage(named:)). Compiled by
 # Scripts/compile-modern-app-icon.sh on the macos-26 Actions runner and
 # committed to Assets/AppIcon.compiled/ (see Assets/README.md provenance).
-# Declared via CFBundleIconName=AppIcon in Info.plist; on macOS 26 the
-# modern Assets.car rendition takes precedence over the ICNS fallback.
 CAR="$ROOT/Assets/AppIcon.compiled/Assets.car"
 if [ ! -s "$CAR" ]; then
   echo "Missing modern icon: $CAR (run the 'Build Modern App Icon' GitHub Action first)"
   exit 1
 fi
 cp "$CAR" "$RESOURCES_DIR/Assets.car"
+
+# Fail closed: the packaged catalog MUST carry both named iconstacks with
+# full rendition ladders. A missing alternate would silently downgrade the
+# Light choice to the ICNS fallback (the original sizing regression).
+if command -v xcrun >/dev/null 2>&1; then
+  CARINFO="$(mktemp)"
+  if xcrun --sdk macosx assetutil --info "$RESOURCES_DIR/Assets.car" > "$CARINFO" 2>/dev/null; then
+    python3 - "$CARINFO" <<'PYCAR'
+import json, sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+start = text.find("[")
+entries = json.loads(text[start:]) if start >= 0 else []
+by_name = {}
+for e in entries:
+    if e.get("Name"):
+        by_name.setdefault(e["Name"], []).append(e)
+fail = []
+for name in ("AppIcon", "AppIconLight"):
+    stacks = [e for e in by_name.get(name, []) if e.get("AssetType") == "IconImageStack"]
+    px = {e.get("PixelWidth") for e in by_name.get(name, [])
+          if e.get("AssetType") == "Icon Image" and isinstance(e.get("PixelWidth"), int)}
+    if not stacks:
+        fail.append(f"{name}: no IconImageStack")
+    if not {512, 1024} <= px:
+        fail.append(f"{name}: missing modern renditions (present: {sorted(px)})")
+    print(f"ok:   packaged {name}: {len(stacks)} stacks, renditions {sorted(px)}")
+if fail:
+    for f in fail:
+        print("FAIL: " + f, file=sys.stderr)
+    sys.exit(1)
+PYCAR
+  else
+    echo "build-app: assetutil unavailable; skipping the dual-iconstack assertion"
+  fi
+  rm -f "$CARINFO"
+else
+  echo "build-app: xcrun unavailable; skipping the dual-iconstack assertion"
+fi
 
 # Legacy fallback (required on systems that ignore Assets.car): the
 # user-supplied AppIcon.icns, installed byte-exact by
