@@ -1,0 +1,50 @@
+{
+  "fill": "system-light",
+  "groups": [
+    {
+      "layers": [
+        {
+          "fill": {
+            "linear-gradient": [
+              "srgb:0.25114,0.25114,0.25114,1.00000",
+              "srgb:0.00000,0.00000,0.00000,1.00000"
+            ],
+            "orientation": {
+              "start": {
+                "x": 0.5,
+                "y": 0
+              },
+              "stop": {
+                "x": 0.5,
+                "y": 0.6852500486964369
+              }
+            }
+          },
+          "image-name": "Image 32.png",
+          "name": "Image 32",
+          "position": {
+            "scale": 1.9,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

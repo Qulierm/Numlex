@@ -1,5 +1,8 @@
-# Build the modern (Xcode 26 / Liquid Glass) Numlex app icon from the
-# tracked Icon Composer package Assets/AppIcon.icon.
+# Build the modern (Xcode 26 / Liquid Glass) Numlex app icons from the
+# two tracked Icon Composer packages: Assets/AppIcon.icon (primary,
+# CFBundleIconName=AppIcon) and Assets/AppIconLight.icon (alternate,
+# compiled into the SAME Assets.car via --alternate-app-icon so the app
+# can switch its Dock/App Switcher icon through NSImage(named:)).
 #
 # Manual re-run instructions (artifact is NOT a release):
 #   UI:      GitHub repo → Actions → "Build Modern App Icon" → Run workflow
@@ -17,10 +20,13 @@ on:
   push:
     branches:
       - ci/modern-app-icon
+      - ci/light-modern-app-icon
     paths:
       - .github/workflows/build-modern-app-icon.yml
       - Scripts/compile-modern-app-icon.sh
+      - Scripts/validate-icon-sources.sh
       - Assets/AppIcon.icon/**
+      - Assets/AppIconLight.icon/**
       - Assets/AppIcon.compiled/**
 
 concurrency:
@@ -53,7 +59,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Compile Assets.car (ictool IR + actool)
+      - name: Calibrate the Icon Composer sources (Dark exact, Light bounded)
+        shell: bash
+        run: |
+          # Local renderer gate: the Same Icon Composer engine the packaged
+          # renditions come from. Dark must be byte-identical to the
+          # supplied preview; Light must keep the exact alpha geometry with
+          # a bounded RGB tolerance.
+          bash Scripts/validate-icon-sources.sh
+
+      - name: Compile Assets.car (primary + alternate in one actool pass)
         shell: bash
         run: |
           bash Scripts/compile-modern-app-icon.sh \
@@ -69,6 +84,8 @@ jobs:
             ${{ runner.temp }}/modern-icon-out/Assets.car-partial.plist
             ${{ runner.temp }}/modern-icon-out/Assets.car.assetutil-info.txt
             ${{ runner.temp }}/modern-icon-out/icon-build-metadata.json
+            ${{ runner.temp }}/modern-icon-out/appicon-manifest.json
+            ${{ runner.temp }}/modern-icon-out/alticon-manifest.json
             ${{ runner.temp }}/modern-icon-out/ictool.log
             ${{ runner.temp }}/modern-icon-out/actool.log
             ${{ runner.temp }}/modern-icon-out/xcode-version.txt
