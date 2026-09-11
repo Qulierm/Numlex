@@ -438,9 +438,12 @@ private func evalNamedLine(_ line: String,
     // line that is neither strict nor natural (unknown prose, mixed
     // currencies, function calls on money) stays a hidden generic
     // error — no word-stripping fallback is introduced.
-    switch NaturalCalculation.moneyOutcome(line, env: env, context: context) {
+    switch NaturalCalculation.moneyOutcome(line, env: env, context: context,
+                                           rates: rates) {
     case .money(let v, let c):
         return .money(value: v, code: c)
+    case .ratesUnavailable:
+        return .error(message: "Rates unavailable")
     case .malformed, .none:
         break
     }
@@ -628,6 +631,7 @@ func evalLineTyped(_ line: String,
     // to the legacy routes, exactly as before r83.
     if !BooleanLogic.hasAssignment(line), PercentageGrammar.percentShape(line, env: env) {
         switch PercentageGrammar.percentOutcome(line, env: env, context: context,
+                                                rates: rates,
                                                 unitContext: unitContext) {
         case .value(let r):
             return r
@@ -684,9 +688,12 @@ func evalLineTyped(_ line: String,
         return evalNamedLine(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
                              context: context)
     }
-    switch NaturalCalculation.tryMoney(line: line, env: env, context: context) {
+    switch NaturalCalculation.tryMoney(line: line, env: env, context: context,
+                                       rates: rates) {
     case .money(let value, let code):
         return .money(value: value, code: code)
+    case .ratesUnavailable:
+        return .error(message: "Rates unavailable")
     case .malformed:
         return .error(message: "Invalid expression")
     case .none:

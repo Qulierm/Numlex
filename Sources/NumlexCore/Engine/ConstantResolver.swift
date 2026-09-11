@@ -311,16 +311,12 @@ public enum ConstantResolver {
         for r in CurrencyPresentation.markerOccurrences(in: expr) {
             covered.append(r)
         }
-        // ISO currency annotations: `100 USD` — the code is a value
-        // annotation, not a free word.
-        if let isoRe = try? NSRegularExpression(
-            pattern: #"(?<=[0-9.])[ ]*([A-Z]{3})(?![A-Za-z0-9_])"#) {
-            for m in isoRe.matches(in: expr, range: full) where m.numberOfRanges >= 2 {
-                let code = ns.substring(with: m.range(at: 1))
-                if FiatCurrencies.codes.contains(code) {
-                    covered.append(m.range(at: 1))
-                }
-            }
+        // ISO currency annotations: `100 USD` / `100 usd` — the code is
+        // a value annotation, not a free word. The ONE shared scanner
+        // keeps the coverage case-insensitive and always in sync with
+        // the money grammar.
+        for o in CurrencyAnnotations.isoOccurrences(in: expr) {
+            covered.append(o.range)
         }
 
         guard let wordRe = try? NSRegularExpression(pattern: #"(?<![0-9])[A-Za-z_]\w*"#)
@@ -362,10 +358,14 @@ public enum ConstantResolver {
     /// (no word stripping, no unit parsing).
     static func evaluateValue(_ expr: String, env: TypedEnv,
                               context: NumberFormatContext = .legacy) -> TypedQty? {
+        // Constants are deterministic and OFFLINE: no live rate table is
+        // available here, so a single-currency money constant resolves
+        // exactly like its uppercase spelling while a MIXED-currency
+        // constant that would need conversion stays inactive.
         switch NaturalCalculation.moneyOutcome(expr, env: env, context: context) {
         case .money(let v, let c):
             return .money(v, code: c)
-        case .malformed:
+        case .malformed, .ratesUnavailable:
             return nil
         case .none:
             guard let (v, codes) = strictScalar(expr, env: env) else { return nil }

@@ -239,10 +239,19 @@ public enum PercentageGrammar {
     /// operand is malformed, and so is the phrase.
     /// `table` overrides the environment projection (the token route
     /// passes its placeholder table).
+    /// Why an operand could not be evaluated: an ordinary malformed
+    /// operand, or a cross-currency money operand whose pair is missing
+    /// from the supplied rate table (surfaced as `Rates unavailable`).
+    enum OperandFailure: Error, Equatable {
+        case malformed
+        case ratesUnavailable
+    }
+
     static func operandValue(_ text: String, named: String?,
                              env: TypedEnv,
                              context: NumberFormatContext,
-                             table: [String: TypedScalar]? = nil) -> OperandValue? {
+                             table: [String: TypedScalar]? = nil,
+                             rates: Rates = Rates()) -> Result<OperandValue, OperandFailure> {
         let envCopy = env
         let baseTable = table ?? typedTable(env)
         var src = text
@@ -257,22 +266,28 @@ public enum PercentageGrammar {
         }
         // Money first (markers and money names), then the strict typed
         // engine. A malformed money operand fails the whole phrase.
-        let money = NaturalCalculation.moneyOutcome(src, env: envCopy, context: context)
+        let money = NaturalCalculation.moneyOutcome(src, env: envCopy, context: context,
+                                                    rates: rates)
         switch money {
         case .money(let v, let code):
-            return OperandValue(value: v, kind: .plain, shape: .plain, currency: code, fraction: nil)
+            return .success(OperandValue(value: v, kind: .plain, shape: .plain,
+                                         currency: code, fraction: nil))
         case .malformed:
-            return nil
+            return .failure(.malformed)
+        case .ratesUnavailable:
+            return .failure(.ratesUnavailable)
         case .none:
             break
         }
-        guard let (value, kind, shape) = try? evaluateOperand(src, variables: baseTable, context: context) else { return nil }
-        guard value.isFinite else { return nil }
+        guard let (value, kind, shape) = try? evaluateOperand(src, variables: baseTable, context: context) else {
+            return .failure(.malformed)
+        }
+        guard value.isFinite else { return .failure(.malformed) }
         var o = OperandValue(value: value, kind: kind, shape: shape, currency: nil, fraction: nil)
         if shape == .fraction {
             o.fraction = Rational.fromDouble(value)
         }
-        return o
+        return .success(o)
     }
 
     // MARK: - the forms
@@ -650,7 +665,8 @@ public enum PercentageGrammar {
     /// the legacy `50%` → 0.5.
     static func spacedTerminalPercent(line: String, env: TypedEnv,
                                       context: NumberFormatContext,
-                                      table: [String: TypedScalar]? = nil) -> Outcome? {
+                                      table: [String: TypedScalar]? = nil,
+                                      rates: Rates = Rates()) -> Outcome? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasSuffix("%") else { return nil }
         // The trailing run of `%` glyphs (a legacy double-percent
@@ -674,10 +690,15 @@ public enum PercentageGrammar {
               !prefix.contains(where: { $0.isLetter }),
               topLevelLastOperator(prefix) == "/" || topLevelLastOperator(prefix) == "÷"
         else { return nil }
-        guard let op = operandValue(prefix, named: nil, env: env, context: context, table: table) else {
+        switch operandValue(prefix, named: nil, env: env, context: context,
+                            table: table, rates: rates) {
+        case .success(let op):
+            return .value(.percent(value: op.value))
+        case .failure(.ratesUnavailable):
+            return .error("Rates unavailable")
+        case .failure(.malformed):
             return .error("Invalid expression")
         }
-        return .value(.percent(value: op.value))
     }
 
     /// The last top-level (paren-depth 0) arithmetic operator in the
@@ -726,10 +747,12 @@ public enum PercentageGrammar {
     public static func percentOutcome(_ line: String, env: TypedEnv,
                                       context: NumberFormatContext,
                                       table: [String: TypedScalar]? = nil,
+                                      rates: Rates = Rates(),
                                       unitContext: UnitContext = .builtIns) -> Outcome {
         // The terminal conversion is checked first: it is the most
         // specific reading of a trailing ` %`.
-        if let t = spacedTerminalPercent(line: line, env: env, context: context, table: table) {
+        if let t = spacedTerminalPercent(line: line, env: env, context: context,
+                                         table: table, rates: rates) {
             return t
         }
         // r84: a line owned by the mixed-unit stage (`50% of 200 km`)
@@ -755,11 +778,15 @@ public enum PercentageGrammar {
                     // original case (the environment keys are display
                     // names).
                     let named: String? = p.isWord ? p.text : nil
-                    guard let v = operandValue(p.text, named: named, env: env,
-                                               context: context, table: table) else {
+                    switch operandValue(p.text, named: named, env: env,
+                                        context: context, table: table, rates: rates) {
+                    case .success(let v):
+                        ops.append(v)
+                    case .failure(.ratesUnavailable):
+                        return .error("Rates unavailable")
+                    case .failure(.malformed):
                         return .error("Invalid expression")
                     }
-                    ops.append(v)
                 }
                 guard let r = form.eval(ops) else { return .notPercent }
                 return .value(r)

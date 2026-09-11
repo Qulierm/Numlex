@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Replaces the old blind word-stripping fallback for currency-looking
 /// input: a line that carries a currency marker (a symbol adjacent to a
-/// number, or an uppercase ISO code annotating a number) MUST parse as a
+/// number, or an ISO code annotating a number) MUST parse as a
 /// complete money expression or return a hidden generic error — it can
 /// never fall through to a leading-number result.
 ///
@@ -24,8 +24,19 @@ import Foundation
 ///   Uncancelled rates are a hidden error, never a number;
 /// - a terminal prose period after a completed expression is accepted
 ///   (`8 hrs.`) — a decimal dot is never stripped;
-/// - one currency per line: a second, different currency is a hidden
-///   error (`$10 + €5`);
+/// - one currency per line is NO LONGER required: a line may combine
+///   currencies with additive/subtractive arithmetic (`500 usd - 300 eur`,
+///   `$500 - 300 eur`, `500 usd + €300`). The FIRST money operand in
+///   source order anchors the result and every other currency operand is
+///   converted into it through the supplied `Rates` before `+`/`-`; a
+///   missing pair is an explicit `Rates unavailable` state, never a
+///   numeric fallback. Currency ×/÷ currency stays rejected (no implicit
+///   `USD²`), while money × scalar and money ÷ scalar keep working.
+///   Same-currency lines are byte-for-byte the legacy behavior;
+/// - ISO annotations are ASCII-case-insensitive (`usd`, `Usd`, `USD` all
+///   canonicalize to `USD`) through the ONE shared
+///   `CurrencyAnnotations` scanner, which the highlighter and the shape
+///   probes use too. The source text is never rewritten;
 /// - prose: a BOUNDED neutral word list (`lunch was`, `earnings`,
 ///   `people`, `tip`, `sales tax`, ...) is dropped; declared named
 ///   values (single or multiword) keep their values; any other word
@@ -38,6 +49,12 @@ public enum NaturalCalculation {
     public enum Outcome: Equatable {
         case money(value: Double, code: String)
         case malformed
+        /// The line IS money and needs cross-currency rates the supplied
+        /// table cannot provide (a missing/invalid pair, or a table-less
+        /// context). Surfaced distinctly so callers show
+        /// `Rates unavailable` — never a numeric fallback, a partial
+        /// result or a fabricated rate.
+        case ratesUnavailable
         case none
     }
 
@@ -65,8 +82,6 @@ public enum NaturalCalculation {
 
     private static let wordRe = try? NSRegularExpression(
         pattern: #"(?<![0-9])[A-Za-z_]\w*"#)
-    private static let isoAnnotationRe = try? NSRegularExpression(
-        pattern: #"(?<=[0-9.])\s+([A-Z]{3})(?![A-Za-z0-9_])"#)
 
     // MARK: - Time factors
 
@@ -177,10 +192,14 @@ public enum NaturalCalculation {
            case .integer(let v, let radix) = ir {
             return (name, .intValue(value: v, radix: radix))
         }
-        // A money right-hand side is always recorded as money.
-        switch moneyOutcome(rhsRaw, env: env, context: context) {
+        // A money right-hand side is always recorded as money; a
+        // cross-currency right-hand side the table cannot convert is an
+        // explicit `Rates unavailable` value (never a scalar fallback).
+        switch moneyOutcome(rhsRaw, env: env, context: context, rates: rates) {
         case .money(let v, let c):
             return (name, .money(value: v, code: c))
+        case .ratesUnavailable:
+            return (name, .error("Rates unavailable"))
         case .malformed, .none:
             break
         }
@@ -255,41 +274,36 @@ public enum NaturalCalculation {
     /// Detects and evaluates a natural money line against the typed
     /// environment (declared names resolve to their values).
     public static func tryMoney(line: String, env: TypedEnv,
-                                   context: NumberFormatContext = .legacy) -> Outcome {
+                                   context: NumberFormatContext = .legacy,
+                                   rates: Rates = Rates()) -> Outcome {
         if BooleanLogic.hasAssignment(line) { return .none }  // assignments own their `=`
-        return moneyOutcome(line, env: env, context: context)
+        return moneyOutcome(line, env: env, context: context, rates: rates)
     }
 
     /// The money core. `.none` when the line is NOT money-looking (no
     /// valid marker/ISO annotation); `.malformed` when it IS
-    /// money-looking but cannot complete (mixed currencies, unknown
-    /// words, uncancelled rates, non-finite) — the caller turns
-    /// `.malformed` into a hidden generic error, never a number.
+    /// money-looking but cannot complete (unknown words, uncancelled
+    /// rates, currency ×/÷ currency, non-finite); `.ratesUnavailable`
+    /// when a cross-currency pair is missing from the table. Callers
+    /// turn `.malformed` into a hidden generic error and
+    /// `.ratesUnavailable` into the explicit `Rates unavailable` state
+    /// — never a number.
     static func moneyOutcome(_ line: String, env: TypedEnv,
-                            context: NumberFormatContext = .legacy) -> Outcome {
+                            context: NumberFormatContext = .legacy,
+                            rates: Rates = Rates()) -> Outcome {
         guard let wordRe else { return .none }
         let ns = line as NSString
-        let full = NSRange(location: 0, length: ns.length)
 
-        // --- Locate currency markers (prefix AND postfix) --------------
-        let symbolRanges = markerOccurrences(in: line)
-        var codes: Set<String> = []
-        for r in symbolRanges {
-            let marker = ns.substring(with: r)
-            if let code = CurrencyPresentation.code(forMarker: marker) {
-                codes.insert(code)
-            }
-        }
-
-        // --- ISO code annotations: `100 USD` ---------------------------
-        var isoRanges: [NSRange] = []
-        if codes.isEmpty, let isoRe = isoAnnotationRe {
-            for m in isoRe.matches(in: line, range: full) where m.numberOfRanges >= 2 {
-                let code = ns.substring(with: m.range(at: 1))
-                guard FiatCurrencies.codes.contains(code) else { continue }
-                codes.insert(code)
-                isoRanges = [m.range(at: 1)]
-                break
+        // --- Every currency occurrence (shared scanner) ----------------
+        // Symbol markers AND case-insensitive ISO annotations, each
+        // canonical UPPERCASE with exact UTF-16 ranges. The source text
+        // is never rewritten.
+        let occurrences = CurrencyAnnotations.occurrences(in: line)
+        let nameMatches = NamedValues.matches(in: line, env: env)
+        var namedMoney: [(range: NSRange, value: Double, code: String)] = []
+        for m in nameMatches {
+            if case .money(let v, let c) = m.entry.qty, v.isFinite {
+                namedMoney.append((m.range, v, c.uppercased()))
             }
         }
 
@@ -299,86 +313,123 @@ public enum NaturalCalculation {
         // The derivation is expression-shaped (a digit or operator):
         // plain prose mentioning a money name stays prose, and the full
         // grammar below still has to complete for anything to evaluate.
-        // Multiple names with DIFFERENT codes are malformed; one code
-        // (or several names agreeing on it) opens the context. An
-        // explicit marker/ISO plus a named money still must agree —
-        // the same-currency checks below apply to both sources.
-        if codes.isEmpty {
-            guard isExpressionLike(line) else { return .none }
-            var nameCodes: Set<String> = []
-            for m in NamedValues.matches(in: line, env: env) {
-                if case .money(_, let c) = m.entry.qty {
-                    nameCodes.insert(c.uppercased())
-                }
-            }
-            guard nameCodes.count == 1 else {
-                return nameCodes.isEmpty ? .none : .malformed
-            }
-            codes = nameCodes
+        if occurrences.isEmpty {
+            guard !namedMoney.isEmpty, isExpressionLike(line) else { return .none }
         }
-        guard !codes.isEmpty else { return .none }
-        // Two different currencies are never silently combined.
-        guard codes.count == 1, let code = codes.first else { return .malformed }
+
+        var codes = Set(occurrences.map(\.code))
+        codes.formUnion(namedMoney.map(\.code))
+        // The result anchor: the FIRST money operand in source order
+        // (explicit or named) — never an unordered `Set.first`.
+        guard let anchor = CurrencyArithmetic.anchor(
+            occurrences: occurrences,
+            namedMoney: namedMoney.map { (location: $0.range.location, code: $0.code) })
+        else { return .none }
+
         // r47: a money line carrying a function call is REJECTED — a
         // currency must never be preserved through sqrt/log/... (no
         // implicit stripping, no currency conversion). Hidden generic
         // error, exactly like the other malformed money shapes.
         if FunctionCalls.hasCallHead(line) { return .malformed }
 
+        // --- Cross-currency factors ------------------------------------
+        // One code: legacy path (no conversion, no rates required).
+        // Several codes: every operand converts into the anchor through
+        // the supplied table; a missing pair is explicit.
+        let mixed = codes.count > 1
+        var factorsByCode: [String: Double] = [:]
+        if mixed {
+            guard let f = CurrencyArithmetic.factors(codes: codes, anchor: anchor,
+                                                     rates: rates) else {
+                return .ratesUnavailable
+            }
+            factorsByCode = f
+        }
+        var factorVars: [String: Double] = [:]
+        var nextFactor = 0
+        func factorName(for code: String) -> String {
+            let name = "__fx\(nextFactor)"
+            nextFactor += 1
+            factorVars[name] = factorsByCode[code] ?? 1
+            return name
+        }
+
         // --- Clean the expression ---------------------------------------
         var cleaned = line
-        for r in symbolRanges.sorted(by: { $0.location > $1.location }) {
-            cleaned = (cleaned as NSString).replacingCharacters(in: r, with: "")
-        }
-        if symbolRanges.isEmpty {
-            for r in isoRanges.sorted(by: { $0.location > $1.location }) {
-                let loc = r.location > 0
-                    && (cleaned as NSString).character(at: r.location - 1) == 0x20
-                    ? r.location - 1 : r.location
-                let len = r.length + (loc == r.location ? 0 : 1)
-                cleaned = (cleaned as NSString).replacingCharacters(
-                    in: NSRange(location: loc, length: len), with: "")
+        if mixed {
+            // Rewrite every annotated amount into an explicit conversion
+            // product `(AMOUNT * factor)`, so the shared expression
+            // engine keeps its exact precedence and the anchor stays the
+            // numeric result's currency. The annotation text is removed;
+            // the amount digits are never re-parsed.
+            var edits: [(range: NSRange, text: String)] = []
+            for o in occurrences {
+                let start = CurrencyAnnotations.amountStart(in: line, amountEnd: o.amountEnd)
+                guard start < o.amountEnd else { return .malformed }
+                let name = factorName(for: o.code)
+                edits.append((o.range, ""))                                  // drop the annotation
+                edits.append((NSRange(location: start, length: 0), "("))
+                edits.append((NSRange(location: o.amountEnd, length: 0), " * \(name))"))
+            }
+            for e in edits.sorted(by: { $0.range.location > $1.range.location }) {
+                cleaned = (cleaned as NSString).replacingCharacters(in: e.range, with: e.text)
+            }
+        } else {
+            // Legacy single-currency deletion: symbols and ISO codes are
+            // removed in ONE descending pass (a two-phase deletion would
+            // apply stale offsets after the first mutation).
+            var deletions: [NSRange] = occurrences.filter { $0.shape == .symbolMarker }
+                .map(\.range)
+            for o in occurrences where o.shape == .isoCode {
+                let loc = o.range.location > 0
+                    && ns.character(at: o.range.location - 1) == 0x20
+                    ? o.range.location - 1 : o.range.location
+                let len = o.range.length + (loc == o.range.location ? 0 : 1)
+                deletions.append(NSRange(location: loc, length: len))
+            }
+            for r in deletions.sorted(by: { $0.location > $1.location }) {
+                cleaned = (cleaned as NSString).replacingCharacters(in: r, with: "")
             }
         }
 
         // --- Declared names resolve to their values ---------------------
         // Scalar entries stay usable under their display name; compound
         // names are substituted with tokenizer placeholders (a
-        // multiword name can never be a single identifier token).
+        // multiword name can never be a single identifier token). In the
+        // cross-currency path a money name also carries its own factor.
         var placeholderVars: [String: Double] = [:]
         for e in env.entries {
             switch e.qty {
             case .scalar(let v, _, _) where v.isFinite:
                 placeholderVars[e.display] = v
             case .money(let v, _) where v.isFinite:
-                // A single-word money name may appear as a plain word
-                // in another money line; the word loop enforces the
-                // same-currency rule for names the line actually uses.
                 placeholderVars[e.display] = v
             default:
                 break
             }
         }
         let matches = NamedValues.matches(in: cleaned, env: env)
+        var replacements: [Int: String] = [:]
         for (idx, m) in matches.enumerated() {
+            let ph = namePlaceholder(idx)
             switch m.entry.qty {
             case .scalar(let v, _, _) where v.isFinite:
-                // r53: every match (scalar AND money) is substituted
-                // with a placeholder below, so the placeholder itself
-                // must carry the value — exactly like `strictExprCore`.
-                placeholderVars[namePlaceholder(idx)] = v
+                placeholderVars[ph] = v
+                replacements[idx] = ph
             case .money(let v, let c):
-                guard c.caseInsensitiveCompare(code) == .orderedSame else { return .malformed }
-                placeholderVars[namePlaceholder(idx)] = v
+                let code = c.uppercased()
+                guard mixed || code == anchor else { return .malformed }
+                placeholderVars[ph] = v
+                replacements[idx] = mixed ? "(\(ph) * \(factorName(for: code)))" : ph
             default:
-                break
+                replacements[idx] = ph
             }
         }
         if !matches.isEmpty {
             var substituted = cleaned
             for (idx, m) in matches.enumerated().reversed() {
                 substituted = (substituted as NSString)
-                    .replacingCharacters(in: m.range, with: namePlaceholder(idx))
+                    .replacingCharacters(in: m.range, with: replacements[idx] ?? namePlaceholder(idx))
             }
             cleaned = substituted
         }
@@ -406,11 +457,12 @@ public enum NaturalCalculation {
                 let len = m.range.length + (loc == m.range.location ? 0 : 1)
                 cleaned = (cleaned as NSString).replacingCharacters(
                     in: NSRange(location: loc, length: len), with: "")
-            } else if lower == "of" || placeholderVars[word] != nil {
+            } else if lower == "of" || placeholderVars[word] != nil || factorVars[word] != nil {
                 // A single-word MONEY name used on this line must agree
-                // with the line's currency.
-                if case .money(_, let c)? = env.entry(display: word)?.qty,
-                   c.caseInsensitiveCompare(code) != .orderedSame {
+                // with the line's currency — unless the line is
+                // cross-currency, where the name carries its own factor.
+                if !mixed, case .money(_, let c)? = env.entry(display: word)?.qty,
+                   c.caseInsensitiveCompare(anchor) != .orderedSame {
                     badWord = true
                     break
                 }
@@ -426,13 +478,17 @@ public enum NaturalCalculation {
         guard trimmed.range(of: #"\d"#, options: .regularExpression) != nil else {
             return .malformed
         }
+        // Currency ×/÷ currency never silently squares a currency.
+        if mixed, CurrencyArithmetic.hasCurrencyProductOrQuotient(trimmed) {
+            return .malformed
+        }
 
+        var vars = placeholderVars
+        vars.merge(factorVars) { _, new in new }
         do {
-            let raw = try evaluateExpression(trimmed,
-                                             variables: placeholderVars,
-                                             context: context)
+            let raw = try evaluateExpression(trimmed, variables: vars, context: context)
             guard raw.isFinite else { return .malformed }
-            return .money(value: roundResult(raw, decimalPlaces: 10), code: code)
+            return .money(value: roundResult(raw, decimalPlaces: 10), code: anchor)
         } catch {
             return .malformed
         }
@@ -526,8 +582,14 @@ public enum NaturalCalculation {
         var hasBadWord = false
         var chars = [unichar](repeating: 0, count: ns.length)
         for u in 0..<ns.length { chars[u] = ns.character(at: u) }
+        // Currency annotations (symbols and case-insensitive ISO codes)
+        // are GRAMMAR, not prose: a word inside one is never a bad word
+        // (`TOKEN - 300 eur` must survive this pass untouched).
+        let annotationRanges = CurrencyAnnotations.occurrences(in: line).map(\.range)
         for m in wordRe.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
             let word = ns.substring(with: m.range)
+            if annotationRanges.contains(where: { m.range.location >= $0.location
+                && NSMaxRange(m.range) <= NSMaxRange($0) }) { continue }
             let lower = word.lowercased()
             if neutralWords.contains(lower) {
                 for u in m.range.location..<NSMaxRange(m.range) {

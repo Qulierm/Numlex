@@ -230,6 +230,13 @@ public enum SyntaxClassifier {
     /// same shared matcher).
     private static func lineIsNatural(_ line: String, env: TypedEnv) -> Bool {
         if !NaturalCalculation.markerOccurrences(in: line).isEmpty { return true }
+        // An ISO-annotated line is money-shaped — unless it is a
+        // conversion (`10 USD to RUB`), which keeps its dedicated
+        // conversion palette exactly as before.
+        if CurrencyAnnotations.hasAnnotation(in: line),
+           conversionShape(line.trimmingCharacters(in: .whitespaces)) == nil {
+            return true
+        }
         // r82: the shared `=` recognizer — `==`, `!=`, `<=`, `>=`
         // comparison lines can never look like natural assignments.
         if let split = BooleanLogic.assignmentSplit(line) {
@@ -237,9 +244,7 @@ public enum SyntaxClassifier {
             guard NaturalCalculation.naturalLHS(lhs) != nil else { return false }
             let rhs = split.rhs
             if !NaturalCalculation.markerOccurrences(in: rhs).isEmpty { return true }
-            if rhs.range(of: #"\d\s+[A-Z]{3}\b"#, options: .regularExpression) != nil {
-                return true
-            }
+            if CurrencyAnnotations.hasAnnotation(in: rhs) { return true }
             // Incomplete marker while typing (`monthly rent = $`).
             if rhs.range(of: #"[$€£¥₽]"#, options: .regularExpression) != nil {
                 return true
@@ -352,8 +357,11 @@ public enum SyntaxClassifier {
         for r in CurrencyPresentation.markerOccurrences(in: line) {
             spans.append(SyntaxSpan(role: .moneyMarker, range: r))
         }
-        for m in matches(#"\b[A-Z]{3}\b"#, in: ns) where isCurrencyCode(ns.substring(with: m)) {
-            spans.append(SyntaxSpan(role: .moneyMarker, range: m))
+        // ISO codes annotate case-insensitively (`500 usd`): the ONE
+        // shared scanner supplies the exact ranges, so highlight and
+        // evaluation can never disagree. The source text is untouched.
+        for o in CurrencyAnnotations.isoOccurrences(in: line) {
+            spans.append(SyntaxSpan(role: .moneyMarker, range: o.range))
         }
         // Time UNIT aliases (singular and plural) are conversion
         // content; `per` is grammar prose and stays base white.

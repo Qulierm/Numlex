@@ -356,12 +356,18 @@ public func resolveSheet(
                         currency: currency, fraction: q.fraction))
                 } else {
                     let named: String? = p.isWord ? p.text : nil
-                    guard let v = PercentageGrammar.operandValue(
-                            p.text, named: named, env: env, context: context) else {
+                    switch PercentageGrammar.operandValue(
+                            p.text, named: named, env: env, context: context,
+                            rates: rates) {
+                    case .success(let v):
+                        ops.append(v)
+                    case .failure(.ratesUnavailable):
+                        return .error(message: "Rates unavailable")
+                    case .failure(.malformed):
                         failed = true
                         break
                     }
-                    ops.append(v)
+                    if failed { break }
                 }
             }
             if failed {
@@ -508,10 +514,23 @@ public func resolveSheet(
                 }
                 do {
                     let q = try TokenExpr.evaluate(rhs, markerQuantities: rhsMap, vars: varsAll(),
-                                             context: context, unitContext: unitContext)
+                                             context: context, rates: rates,
+                                             unitContext: unitContext)
+                    // A currency-typed right-hand side records MONEY
+                    // (the anchor is the first money operand in the
+                    // token algebra); every other unit stays rejected —
+                    // no measurement becomes a scalar silently.
+                    if let unit = q.unit, isCurrencyCode(unit) {
+                        let code = unit.uppercased()
+                        env.set(display: lhs, qty: .money(q.v, code: code))
+                        return .money(value: roundResult(q.v, decimalPlaces: decimalPlaces),
+                                      code: code)
+                    }
                     guard q.unit == nil else { return .error(message: "Units cannot be assigned") }
                     env.set(display: lhs, qty: .scalar(q.v))
                     return .variable(name: lhs, value: roundResult(q.v, decimalPlaces: decimalPlaces))
+                } catch TokenExpr.ExprError.ratesUnavailable {
+                    return .error(message: "Rates unavailable")
                 } catch {
                     return .error(message: "Invalid expression")
                 }
@@ -616,7 +635,8 @@ public func resolveSheet(
         }
         do {
             let q = try TokenExpr.evaluate(exprLine, markerQuantities: qtyByPos, vars: varsAll(),
-                                            context: context, unitContext: unitContext)
+                                            context: context, rates: rates,
+                                            unitContext: unitContext)
             // Currency units are carried as the quantity's unit label:
             // the shared `formatQuantity` renders them through
             // `formatMoney` (`$920.00`), exactly like a bare money
@@ -629,6 +649,11 @@ public func resolveSheet(
                                unit: q.unit, kind: q.kind, fraction: q.fraction)
             }
             return .number(value: roundResult(q.v, decimalPlaces: decimalPlaces), unit: q.unit)
+        } catch TokenExpr.ExprError.ratesUnavailable {
+            // A cross-currency token arithmetic whose pair is missing
+            // from the current table: the explicit state, never the
+            // generic error and never a fabricated rate.
+            return .error(message: "Rates unavailable")
         } catch {
             // r85: a bitwise/base line TokenExpr cannot type joins the
             // exact engine (weak trigger only — strong lines were
@@ -787,12 +812,16 @@ enum TokenExpr {
         case invalid
         case incompatibleUnits
         case divisionByZero
+        /// A cross-currency pair the supplied table cannot convert —
+        /// surfaced as the explicit `Rates unavailable` state.
+        case ratesUnavailable
     }
 
     static func evaluate(_ line: String,
                          markerQuantities: [Int: Qty],
                          vars: [String: Double],
                          context: NumberFormatContext = .legacy,
+                         rates: Rates = Rates(),
                          unitContext: UnitContext = .builtIns) throws -> Qty {
         let ns = line as NSString
         var i = 0
@@ -916,6 +945,12 @@ enum TokenExpr {
                 if pct == 0, let code = parsePostfixMarker() {
                     return PE(q: Qty(v: v, unit: code), purePercent: false)
                 }
+                // Spaced case-insensitive ISO annotation: `500 usd`
+                // (the same spaced postfix form the money grammar
+                // accepts; no concatenated form is invented).
+                if pct == 0, let code = parseISOAnnotation() {
+                    return PE(q: Qty(v: v, unit: code), purePercent: false)
+                }
                 return PE(q: Qty(v: v, unit: nil,
                                  kind: pct > 0 ? .percent : .plain),
                           purePercent: pct > 0)
@@ -982,6 +1017,32 @@ enum TokenExpr {
                 throw ExprError.invalid
             }
             i += (marker as NSString).length
+            return code
+        }
+
+        /// A spaced ISO currency annotation right after an amount:
+        /// whitespace, then three ASCII letters that are a supported
+        /// fiat code (case-insensitive, boundary-safe). Returns the
+        /// canonical uppercase code and consumes the code, leaving the
+        /// caller's cursor after it.
+        func parseISOAnnotation() -> String? {
+            let save = i
+            skipWS()
+            guard i < ns.length, ns.character(at: i) != 0x2F else { i = save; return nil }
+            let start = i
+            var j = i
+            while j < ns.length, isLetter16(ns.character(at: j)) { j += 1 }
+            guard j - start == 3 else { i = save; return nil }
+            if j < ns.length {
+                let after = ns.character(at: j)
+                if isLetter16(after) || isDigit16(after) || after == 0x5F {
+                    i = save
+                    return nil
+                }
+            }
+            let raw = ns.substring(with: NSRange(location: start, length: 3))
+            guard let code = CurrencyAnnotations.canonicalCode(raw) else { i = save; return nil }
+            i = j
             return code
         }
 
@@ -1123,9 +1184,24 @@ enum TokenExpr {
                 guard let ua = aq.unit, let ub = bq.unit, sameQuantityUnit(ua, ub) else {
                     throw ExprError.incompatibleUnits
                 }
-                guard let vb = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua,
-                                                   context: unitContext) else {
-                    throw ExprError.incompatibleUnits
+                // Currency + / - currency: the accumulated LHS is the
+                // ANCHOR (first operand in evaluation order) and the
+                // RHS converts through the supplied table. A missing
+                // pair is the explicit unavailable state, never a
+                // silent same-number assumption.
+                let vb: Double
+                if isCurrencyCode(ua), isCurrencyCode(ub) {
+                    guard let conv = convertCurrencyValue(bq.v, from: ub, to: ua,
+                                                          rates: rates) else {
+                        throw ExprError.ratesUnavailable
+                    }
+                    vb = conv
+                } else {
+                    guard let conv = convertQuantityUnit(bq.v, fromLabel: ub, toLabel: ua,
+                                                         context: unitContext) else {
+                        throw ExprError.incompatibleUnits
+                    }
+                    vb = conv
                 }
                 let v = (op == "+") ? aq.v + vb : aq.v - vb
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
@@ -1193,6 +1269,18 @@ enum TokenExpr {
     private static func isLetter16(_ c: UInt16) -> Bool {
         (0x41...0x5A).contains(c) || (0x61...0x7A).contains(c)
     }
+}
+
+/// Converts a currency amount through the supplied table. Nil when the
+/// pair is missing or the result is not finite — the caller surfaces the
+/// explicit `Rates unavailable` state, never a fabricated rate.
+func convertCurrencyValue(_ value: Double, from: String, to: String,
+                          rates: Rates) -> Double? {
+    if from.caseInsensitiveCompare(to) == .orderedSame { return value }
+    guard let r = rates.rate(from: from.uppercased(), to: to.uppercased()),
+          r.isFinite else { return nil }
+    let v = value * r
+    return v.isFinite ? v : nil
 }
 
 /// The shared currency marker table (one file-scope copy,

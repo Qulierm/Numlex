@@ -270,6 +270,11 @@ struct EngineTests {
         try `case`.body()
     }
 
+    @Test(arguments: currencyCases)
+    func currencyCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
     @Test(arguments: footerTotalCases)
     func footerTotalCase(`case`: EngineCase) throws {
         try `case`.body()

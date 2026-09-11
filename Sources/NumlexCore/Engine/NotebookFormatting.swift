@@ -172,10 +172,7 @@ public enum NotebookFormatting {
     /// - a reference to a declared compound name in `env`.
     public static func isNaturalShape(_ line: String, env: TypedEnv) -> Bool {
         if !NaturalCalculation.markerOccurrences(in: line).isEmpty { return true }
-        if let m = line.range(of: #"(\d)\s+([A-Z]{3})\b"#, options: .regularExpression) {
-            let code = String(line[m].suffix(3))
-            if isCurrencyCode(code) { return true }
-        }
+        if CurrencyAnnotations.hasAnnotation(in: line) { return true }
         // r82: the shared `=` recognizer — a comparison line
         // (`x == 5`, `flag <= 3`) is never a natural assignment.
         if let split = BooleanLogic.assignmentSplit(line) {

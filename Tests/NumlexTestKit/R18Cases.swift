@@ -81,8 +81,20 @@ public let r18Cases: [EngineCase] = [
     },
 
     EngineCase("r18-food-materials-mixed-currency") {
+        // Cross-currency addition converts the RHS into the first
+        // operand's code (the shared 1 EUR = 1.1 USD test table), so a
+        // `$10 + food €5` line is 10 + 5/1.1 USD — no longer an error.
         let r = e18("$10 + food €5")
-        try expect(isError(r), "mixed currencies hide an error: \(r)")
+        try expect(isMoney(r, code: "USD"), "mixed currencies convert: \(r)")
+        try expectClose(moneyValue(r)!, 10 + 5 / 1.1, 1e-9, "10 + 5/1.1 USD")
+        // Missing rates stay the explicit state.
+        var v = [String: Double]()
+        let bare = evalLine("$10 + food €5", variables: &v, rates: Rates(), decimalPlaces: 7)
+        if case .error(let m)? = bare {
+            try expectEqual(m, "Rates unavailable", "explicit rates state")
+        } else {
+            try expect(false, "missing rates must error, got \(String(describing: bare))")
+        }
     },
 
     EngineCase("r18-materials-prose-stays-prose") {
@@ -156,12 +168,27 @@ public let r18Cases: [EngineCase] = [
         try expectClose(moneyValue(r)!, 1360, 1e-9, "USD 1,360")
     },
 
-    EngineCase("r18-token-mixed-currency-error") {
+    EngineCase("r18-token-mixed-currency-converts") {
+        // A money token combined with a different-currency literal
+        // converts the RHS into the token's (first operand) code.
         let u0 = UUID()
         let (lines, _) = twoLine(src: "$680.00", tail: M + " + €5",
                                  ids: [u0, UUID()], sources: [u0])
         let r = lines[1].result
-        try expect(isError(r), "different currencies error: \(r)")
+        guard case .number(let v, let u, _, _) = r else {
+            throw CaseFailure(message: "token + EUR must be a currency number, got \(r)",
+                              location: "r18")
+        }
+        try expectClose(v, 680 + 5 / 1.1, 1e-6, "680 + 5/1.1 (line rounding: 7 dp)")
+        try expectEqual(u ?? "", "USD", "token anchors USD")
+        // Missing rates: the explicit state, never a silent number.
+        let (missing, _) = resolveSheet(content: "$680.00\n" + M + " + €5",
+                                        lineIDs: [u0, UUID()],
+                                        references: [AnswerReference(sourceLineID: u0,
+                                                                     labelLine: 1, location: 8)],
+                                        rates: Rates(), decimalPlaces: 7)
+        try expectEqual(missing[1].result, .error(message: "Rates unavailable"),
+                        "token cross-currency needs rates")
     },
 
     EngineCase("r18-measurement-token-plus-money-error") {

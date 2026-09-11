@@ -91,6 +91,22 @@ percentages and money with the same grammar (`$240 + 10% tip`), and do date arit
 on plain month names (`Jan 10 + 12 days`). Named money reads naturally too:
 `apple = 5$` prices one apple, and `2 apples + 3 apples` totals in dollars.
 
+Currency codes are case-insensitive: `500 usd`, `500 UsD` and `500 USD` all mean
+500 US dollars (`usd`, `eur`, `gbp`, … — any of the 166 supported ISO codes). A
+line may combine currencies with `+` and `-`: the **first** money operand sets the
+result currency and every other operand is converted into it with the current
+rates, so with 1 EUR = 1.1 USD `500 usd - 300 eur` is `$227.27`. Symbols and codes
+mix freely (`$500 - 300 eur`, `500 usd - €300`), and plain scalars or percentages
+keep their meaning (`500 usd - 20` = `$480.00`, `500 usd - 10%` = `$450.00`).
+Currency × currency and currency ÷ currency stay errors (never a silent `USD²`),
+money × scalar and money ÷ scalar still work, and physical units still never
+convert implicitly. If the needed rate pair is missing, the answer is the explicit
+`Rates unavailable` state — never a guessed number, a partial sum or a stale rate.
+The same rules apply to named values and to answer tokens:
+`balance = 500 usd - 300 eur` stores US dollars, and `TOKEN - 300 eur` converts
+into the token's currency. Constants are offline, so a single-currency constant
+(`Rent = 500 usd`) resolves normally while a mixed-currency constant stays inactive.
+
 ### Built-in math functions
 
 The engine shares one pure function registry across every scalar path — free
@@ -242,7 +258,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,031 shared cases, runnable two ways:
+The engine suite covers 1,055 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

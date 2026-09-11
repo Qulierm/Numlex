@@ -113,10 +113,35 @@ private func bodyContextualPercent() throws {
 }
 
 private func bodyMixedCurrency() throws {
+    // Cross-currency addition converts the RHS into the FIRST operand's
+    // code (aRates: 1 EUR = 1.1 USD), so `a + b` = 10 + 20/1.1 USD.
     let lines = aSheet(["a = $10", "b = €20", "a + b", "a + 5"])
-    try expect(isError(lines[2].result), "mixed currencies are a hidden error")
-    try expect(!isNumber(lines[2].result), "mixed currency line is never .number")
+    if case .money(let v, let c) = lines[2].result {
+        try expectClose(v, 10 + 20 / 1.1, 1e-9, "10 USD + 20 EUR = 28.1818… USD")
+        try expectEqual(c, "USD", "first operand anchors USD")
+    } else {
+        try expect(false, "cross-currency addition must be money, got \(lines[2].result)")
+    }
+    try expect(!isNumber(lines[2].result), "money never degrades to .number")
     try expect(isMoney(lines[3].result, v: 15, code: "USD"), "a + 5 → $15.00")
+    // Reversed order anchors the first operand (EUR here).
+    let reversed = aSheet(["a = $10", "b = €20", "b - a", "b + a"])
+    if case .money(let v, let c) = reversed[2].result {
+        try expectClose(v, 20 - 10 * 1.1, 1e-9, "20 EUR - 10 USD = 9 EUR")
+        try expectEqual(c, "EUR", "first operand anchors EUR")
+    } else {
+        try expect(false, "reversed mixed subtraction must be money")
+    }
+    if case .money(let v, let c) = reversed[3].result {
+        try expectClose(v, 20 + 10 * 1.1, 1e-9, "20 EUR + 10 USD")
+        try expectEqual(c, "EUR", "EUR anchor")
+    } else {
+        try expect(false, "reversed mixed addition must be money")
+    }
+    // Without a convertible pair the line is the explicit state, never
+    // a number.
+    let noRates = aSheet(["a = $10", "b = €20", "a + b"], rates: Rates())
+    try expect(isError(noRates[2].result), "missing rates error without a table")
 }
 
 private func bodyMarkers() throws {
