@@ -50,6 +50,54 @@ draggable region sit directly above the bar — no reserved blank band. Pages sh
 title and then their group headings; there are no redundant page subtitles, and obvious
 captions are omitted.
 
+## First launch
+
+A genuinely new install (an empty data directory) opens on the **welcome
+bloom** instead of the notebook: four short expressions in the REAL editor
+palette float around the packaged Dark app icon and resolve into it —
+
+| Corner | Expression | Palette roles |
+| --- | --- | --- |
+| top-left | `128 × 4 = 512` | numbers + operators |
+| top-right | `price = 24` | variable (green) |
+| bottom-left | `3.5 km → 3500 m` | units (purple) |
+| bottom-right | `$42 + $18 = $60` | money markers (purple) |
+
+Every color comes from the app's own editor tokens (`Design.numberColor`,
+`variableColor`, `conversionColor`, `moneyMarkerColor`, `baseText`) on
+`Design.editorBackground`, so the field matches the notebook in Auto, Light and
+Dark automatically. There is no slogan and no marketing copy; the icon is the
+visual anchor and the notebook, sidebar and TextKit are never created behind
+the screen.
+
+The choreography is one deterministic ~2 s sequence: the icon fades/scales in
+(~0.35 s), the four expressions type themselves in with a per-token stagger,
+their result runs brighten once, the expressions converge into the icon, four
+thin palette-colored arcs sweep around it and fade, the icon takes one
+restrained pulse with a single light sweep, and the localized **Get Started**
+button fades in and takes focus. Nothing repeats, nothing ticks after the
+sequence, and only opacity/offset/scale/rotation/trim change — the window and
+every final frame are laid out from the first pass, so the window never
+resizes. With **Reduce Motion** the whole sequence is skipped: the icon and the
+button are shown immediately, the button is focused and interactive at once,
+and no staged state or sleep runs.
+
+Completion is a small versioned marker (`welcome-v1`) inside the app's data
+directory — the same directory as `store.json`, and the one `--data-dir`
+redirects, so validation runs are fully isolated. It is written atomically only
+when Get Started is pressed; closing the window first leaves no marker and the
+bloom returns next launch. If the marker cannot be written the app still opens
+for that session and shows the bloom again later.
+
+Existing users are never shown the bloom: any prior artifact — `store.json`
+(even corrupt or unreadable), `rates.json`, `weather.json` or `locations.json`
+— counts as an existing install, and in that case the completion marker is
+recorded best-effort **without** modifying those files, so a later cache delete
+cannot turn that user into a "new" one. Onboarding never creates, edits or
+persists a sheet, never changes the store schema/version, `AppSettings` (an
+explicit Light/Dark/Auto choice and app icon survive untouched) or any `.nlx`
+file, and the first-launch state lives outside the store and `UserDefaults`.
+
 ## General
 
 r91 merged the former Appearance page into General: language, appearance,

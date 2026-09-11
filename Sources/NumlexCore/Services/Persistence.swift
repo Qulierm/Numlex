@@ -59,36 +59,57 @@ public enum Persistence {
         return nil
     }()
 
-    /// The one data directory every persisted artifact lives in (see
-    /// `dataDirOverride`): the standard user-location folder, or the
-    /// explicit validation override directory.
-    public static func dataDirectory() -> URL {
-        let dir: URL
-        if let override = dataDirOverride {
-            dir = override
-        } else {
-            let base = FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            dir = base.appendingPathComponent("Numlex", isDirectory: true)
+    /// The canonical data-directory LOCATION (see `dataDirOverride`): the
+    /// standard user-location folder, or the explicit validation override
+    /// directory. Pure path resolution — never creates anything.
+    public static func dataDirectoryLocation() -> URL {
+        if let override = dataDirOverride { return override }
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return base.appendingPathComponent("Numlex", isDirectory: true)
+    }
+
+    /// The one data directory every persisted artifact lives in.
+    ///
+    /// `createIfNeeded: false` is what the r97 first-launch check uses: the
+    /// welcome decision must be taken BEFORE anything creates or loads the
+    /// directory, or "does this directory exist / does it already carry
+    /// artifacts" would be answered by the app's own side effects.
+    public static func dataDirectory(createIfNeeded: Bool = true) -> URL {
+        let dir = dataDirectoryLocation()
+        if createIfNeeded {
+            try? FileManager.default.createDirectory(at: dir,
+                                                     withIntermediateDirectories: true)
         }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     public static func appSupportURL() -> URL {
-        dataDirectory().appendingPathComponent("store.json")
+        storeURL(in: dataDirectory())
+    }
+
+    /// The store file inside an explicit directory (used by the first-launch
+    /// policy tests; the app itself always uses `appSupportURL()`).
+    public static func storeURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("store.json")
     }
 
     public static func load() -> StorePayload? {
-        let url = appSupportURL()
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        load(from: dataDirectory())
+    }
+
+    public static func load(from directory: URL) -> StorePayload? {
+        guard let data = try? Data(contentsOf: storeURL(in: directory)) else { return nil }
         return try? JSONDecoder().decode(StorePayload.self, from: data)
     }
 
     public static func save(_ payload: StorePayload) {
-        let url = appSupportURL()
+        save(payload, to: dataDirectory())
+    }
+
+    public static func save(_ payload: StorePayload, to directory: URL) {
         if let data = try? JSONEncoder().encode(payload) {
-            try? data.write(to: url, options: .atomic)
+            try? data.write(to: storeURL(in: directory), options: .atomic)
         }
     }
 }

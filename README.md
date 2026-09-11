@@ -216,6 +216,24 @@ Editing, Numbers, Constants & Units, Styling, About) with one focused page each 
 language, appearance and the application icon live together in General, and
 About carries the app identity plus the update controls.
 
+## First launch
+
+A genuinely new install opens on a short, native **calculation bloom**: four
+real expressions in the app's own editor palette float around the app icon,
+type themselves in, gather into the icon and dissolve into a ring of colored
+arcs while the icon gives one restrained pulse — then a single **Get Started**
+button appears. It is decorative animation only (no marketing copy), it runs
+once for about two seconds and then stops, and it honours **Reduce Motion**:
+with it on, the icon and the button are simply there, immediately usable.
+Nothing of the notebook is created behind it, the window keeps its normal size
+and chrome, and the only thing the first launch records is a small versioned
+marker (`welcome-v1`) in the app's data directory, separate from your settings
+and sheets. Existing installs never see the bloom (any existing store or
+cached data file counts as an existing install, even if the store is
+unreadable); the bloom reappears next launch only if you close the window
+before pressing Get Started. Your Light/Dark/Auto choice and app icon are never
+changed by it.
+
 ## Files and storage
 
 Sheets persist locally in Application Support. The only network traffic is the
@@ -264,7 +282,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,082 shared cases, runnable two ways:
+The engine suite covers 1,102 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

@@ -41,9 +41,20 @@ struct NumlexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // Single shared model instance injected into both the main window
     // and the Settings scene so they always stay in sync.
-    @State private var model = AppModel()
+    @State private var model: AppModel
+    /// r97: the FIRST-LAUNCH decision, captured in `init()` BEFORE the
+    /// model (and therefore `Persistence.load`/`dataDirectory`) runs, so
+    /// "is this a genuinely new install?" is never answered by the app's
+    /// own side effects. The welcome screen replaces the main content
+    /// until the user starts; no store, settings or `.nlx` byte changes.
+    @State private var showWelcome: Bool
 
     init() {
+        // 1) Decide first (non-creating directory lookup)…
+        let dataDirectory = Persistence.dataDirectory(createIfNeeded: false)
+        _showWelcome = State(initialValue:
+            FirstLaunch.evaluateAtLaunch(in: dataDirectory))
+        // 2) …then build the model (which may create/load the directory).
         // The appearance pin lives in the AppDelegate hook, not here: at
         // this point NSApplication does not exist yet (NSApp would be
         // nil), and applicationDidFinishLaunching is the earliest
@@ -60,6 +71,25 @@ struct NumlexApp: App {
         // — the open size is deterministic by design.
         UserDefaults.standard.removeObject(
             forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
+        _model = State(initialValue: AppModel())
+    }
+
+    /// r97: the ONE dismissal path. Records the versioned completion marker
+    /// (best effort — a failed write still enters the app for this session
+    /// and simply shows the welcome again next launch), swaps in the main
+    /// content and hands the keyboard focus to the already-selected sheet.
+    /// It never creates, edits or persists a sheet.
+    private func completeWelcome() {
+        _ = FirstLaunch.markCompleted(in: Persistence.dataDirectory())
+        showWelcome = false
+        // Transient one-shot focus request for the EXISTING selection (the
+        // same mechanism freshly created sheets use); consumed by the
+        // editor and never persisted.
+        DispatchQueue.main.async {
+            if let id = model.selectedSheet?.id {
+                model.focusSheetID = id
+            }
+        }
     }
 
     // r38: the SwiftUI side of the one appearance mechanism. Both scene
@@ -74,9 +104,25 @@ struct NumlexApp: App {
                 .map { $0 ? ColorScheme.dark : ColorScheme.light })
     }
 
+    /// r97: the launch root. The welcome REPLACES the notebook (it is not
+    /// an overlay: nothing from ContentView/TextKit/the sidebar is
+    /// instantiated while it is up), and the window geometry contract below
+    /// is shared by both branches so the window never changes size or
+    /// position during the hand-off.
+    @ViewBuilder
+    private var launchRoot: some View {
+        if showWelcome {
+            WelcomeView(language: model.settings.language,
+                        onGetStarted: completeWelcome)
+                .transition(.opacity)
+        } else {
+            ContentView(model: model)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            themedRoot(ContentView(model: model))
+            themedRoot(launchRoot)
                 // r59: the SwiftUI content minimum allows the COLLAPSED
                 // window size AND the compact 260 pt content height
                 // (MainWindowGeometry.minContentHeight — the one source
