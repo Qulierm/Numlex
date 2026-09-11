@@ -28,13 +28,13 @@ private enum SettingsGeometry {
     static let idealHeight: CGFloat = 540
     static let maxHeight: CGFloat = 640
 
-    /// The leading category sidebar: compact, always visible, wide
-    /// enough for the longest localized label (Spanish
-    /// "Actualizaciones", French "Mises à jour", Russian
-    /// "Оформление") with the native sidebar list typography.
-    static let sidebarMinWidth: CGFloat = 140
+    /// The leading category sidebar: one FIXED width (r92 — nothing can
+    /// collapse the column, so it has no range), wide enough for the
+    /// longest localized label ("Информации"/"Информация"... the short
+    /// "About"/"Informazioni" labels all fit) with the native sidebar
+    /// list typography. It preserves the detail width exactly:
+    /// 680 - 146 = 534, the same figure the 700 - 166 window gave.
     static let sidebarIdealWidth: CGFloat = 146
-    static let sidebarMaxWidth: CGFloat = 150
 }
 
 /// r90/r91: the SIX settings destinations, in sidebar order. Session-
@@ -47,7 +47,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     case numbers
     case constantsUnits
     case styling
-    case updates
+    case about
 
     var id: String { rawValue }
 
@@ -60,9 +60,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
         // Concise sidebar label; the detail page title is the full name.
         case .constantsUnits: return "settings.constantsUnitsShort"
         case .styling: return "settings.styling"
-        // The Updates page title is the full name; the sidebar uses the
-        // concise form (Italian "Aggiornamenti" did not fit otherwise).
-        case .updates: return "settings.updatesShort"
+        case .about: return "settings.aboutShort"
         }
     }
 
@@ -70,13 +68,13 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     var titleKey: String {
         switch self {
         case .constantsUnits: return "settings.constantsUnits"
-        case .updates: return "settings.updates"
+        // The About page title keeps the full localized name while the
+        // sidebar uses the short form (Russian "О программе" does not
+        // fit the narrow sidebar).
+        case .about: return "settings.about"
         default: return labelKey
         }
     }
-
-    /// The concise localized subtitle shown under the page title.
-    var subtitleKey: String { "settings.\(rawValue).subtitle" }
 
     /// SF Symbols only — restrained, hierarchical, never branded art.
     var symbol: String {
@@ -86,7 +84,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
         case .numbers: return "number"
         case .constantsUnits: return "function"
         case .styling: return "paintbrush"
-        case .updates: return "arrow.triangle.2.circlepath"
+        case .about: return "info.circle"
         }
     }
 }
@@ -104,25 +102,33 @@ struct SettingsView: View {
     private var language: AppLanguage { model.settings.language }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: .constant(.all)) {
+        // r92: a fixed, ALWAYS-visible native sidebar column beside the
+        // one focused detail page. The previous NavigationSplitView
+        // reserved an empty window toolbar and drew its own floating
+        // sidebar toggle even after the toolbar was hidden — that band
+        // was exactly the large blank zone between the titlebar and the
+        // page heading. The sidebar here is an ordinary native
+        // `List(.sidebar)` at the designed width (146 pt at ideal),
+        // separated by a hairline; nothing can collapse it, so no
+        // toggle exists to remove and no toolbar band is reserved.
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
             detail
         }
-        .navigationSplitViewStyle(.balanced)
-        // The split navigation must not grow a window toolbar with a
-        // sidebar toggle inside Settings (the window chrome belongs to
-        // the scene; the sidebar is always visible at this size). The
-        // declarative removal is kept AND the Settings window's own
-        // configurator removes the standard item through public AppKit
-        // (r91) — on macOS 26 the declarative form alone was not enough.
-        .toolbar(removing: .sidebarToggle)
         .frame(minWidth: SettingsGeometry.minWidth,
                idealWidth: SettingsGeometry.idealWidth,
                maxWidth: SettingsGeometry.maxWidth,
                minHeight: SettingsGeometry.minHeight,
                idealHeight: SettingsGeometry.idealHeight,
                maxHeight: SettingsGeometry.maxHeight)
+        // The Settings scene must not grow the (empty) window toolbar:
+        // the compact native titlebar is all the chrome this window
+        // needs. The declarative `.toolbarVisibility(.hidden, for:
+        // .windowToolbar)` was prototyped first and rejected: on this
+        // Settings scene it removes the WHOLE titlebar (no traffic
+        // lights, no window title, no drag region). The configurator
+        // therefore hides the empty NSToolbar through public AppKit and
+        // reasserts the visible window title — native chrome intact.
         // Window chrome the scene APIs cannot express: resizability and
         // the designed CONTENT size range (the SwiftUI frame above
         // drives the content bounds; the configurator mirrors them on
@@ -130,35 +136,30 @@ struct SettingsView: View {
         .background(SettingsWindowConfigurator())
     }
 
-    /// The always-visible native category list plus the restrained
-    /// bottom identity (app preview icon, name and the bundle version
-    /// read at runtime — never a hardcoded release fact).
+    /// The always-visible native category sidebar: the ordinary macOS
+    /// sidebar List (native material, selection, keyboard navigation)
+    /// pinned to the designed width, with the hairline separator drawn
+    /// as an overlay so it costs no layout width — the detail column
+    /// keeps its full 534 pt at the ideal 680 pt window.
     private var sidebar: some View {
-        VStack(spacing: 0) {
-            List(selection: $destination) {
-                Section {
-                    ForEach(SettingsDestination.allCases) { item in
-                        Label(L10n.t(item.labelKey, language: language),
-                              systemImage: item.symbol)
-                            .lineLimit(1)
-                            .tag(item)
-                    }
-                } header: {
-                    Text(L10n.t("settings.sidebarTitle", language: language))
+        List(selection: $destination) {
+            Section {
+                ForEach(SettingsDestination.allCases) { item in
+                    Label(L10n.t(item.labelKey, language: language),
+                          systemImage: item.symbol)
+                        .lineLimit(1)
+                        .tag(item)
                 }
+            } header: {
+                Text(L10n.t("settings.sidebarTitle", language: language))
             }
-            .listStyle(.sidebar)
-            .frame(minWidth: SettingsGeometry.sidebarMinWidth,
-                   idealWidth: SettingsGeometry.sidebarIdealWidth,
-                   maxWidth: SettingsGeometry.sidebarMaxWidth)
-
-            Divider()
-            SettingsSidebarIdentity(language: language,
-                                    iconChoice: model.settings.appIcon)
         }
-        .navigationSplitViewColumnWidth(min: SettingsGeometry.sidebarMinWidth,
-                                        ideal: SettingsGeometry.sidebarIdealWidth,
-                                        max: SettingsGeometry.sidebarMaxWidth)
+        .listStyle(.sidebar)
+        .frame(width: SettingsGeometry.sidebarIdealWidth)
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .trailing) {
+            Divider()
+        }
     }
 
     @ViewBuilder
@@ -169,48 +170,8 @@ struct SettingsView: View {
         case .numbers: NumbersSettingsPage(model: model)
         case .constantsUnits: ConstantsUnitsSettingsPage(model: model)
         case .styling: StylingSettingsPage(model: model)
-        case .updates: UpdatesSettingsPage(model: model)
+        case .about: AboutSettingsPage(model: model)
         }
-    }
-}
-
-/// The bottom sidebar identity: the current app-icon preview (the same
-/// packaged PNG the picker uses — no new raster), the app name and the
-/// version read dynamically from the bundle. Informational only: it is
-/// not a button, never takes focus, and is separated by a subtle rule.
-private struct SettingsSidebarIdentity: View {
-    let language: AppLanguage
-    let iconChoice: AppIconChoice
-
-    /// The packaged bundle version, with a development fallback only.
-    static var bundleVersion: String {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
-            ?? "dev"
-    }
-
-    var body: some View {
-        VStack(spacing: 6) {
-            if let image = AppIconResources.previewImage(for: iconChoice) {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 36, height: 36)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.secondary.opacity(0.15))
-                    .frame(width: 36, height: 36)
-            }
-            Text("Numlex")
-                .font(.system(size: 11, weight: .semibold))
-            Text(Self.bundleVersion)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("Numlex \(Self.bundleVersion)"))
     }
 }
 
@@ -236,21 +197,19 @@ private struct SettingsDetailPage<Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.t(destination.titleKey, language: language))
-                        .font(.system(size: 22, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(L10n.t(destination.subtitleKey, language: language))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // r92: the page title alone — the old one-line subtitle
+                // did not carry information beyond the title and the
+                // group headings, and it cost a full text row at the top
+                // of every page.
+                Text(L10n.t(destination.titleKey, language: language))
+                    .font(.system(size: 22, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 content
             }
             .padding(.horizontal, 22)
-            .padding(.top, 6)
+            .padding(.top, 10)
             .padding(.bottom, 20)
             .frame(maxWidth: 640, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -484,31 +443,24 @@ private struct GeneralSettingsPage: View {
                 }
             }
 
-            // The two supplied previews as a comfortable full-width
-            // chooser (not crammed into a trailing accessory slot); the
-            // icon write path stays model.setAppIcon.
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L10n.t("appIcon", language: language))
-                    .font(.system(size: 13, weight: .semibold))
-                Text(L10n.t("appIconCap", language: language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            // r92: the group heading IS the label — the tile names
+            // (Dark/Light) and the accessibility labels carry the rest,
+            // so no stacked caption remains. The Dock/App Switcher scope
+            // lives in the documentation, not in permanent UI prose.
+            // The icon write path stays model.setAppIcon.
+            SettingsGroup(title: L10n.t("appIcon", language: language)) {
                 AppIconPicker(
                     selection: model.settings.appIcon,
                     language: language,
                     onSelect: { model.setAppIcon($0) }
                 )
-                .padding(.top, 2)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(SettingsCardBackground())
 
             SettingsGroup(title: L10n.t("general.notebook", language: language)) {
                 SettingsRow(
                     title: L10n.t("linenumber", language: language),
-                    detail: L10n.t("linenumberCap", language: language),
                     symbol: "list.number"
                 ) {
                     SettingsSwitch(title: L10n.t("linenumber", language: language),
@@ -543,27 +495,79 @@ private struct GeneralSettingsPage: View {
 /// automatic-check preference stays Sparkle's OWN UserDefaults value
 /// (never copied into AppSettings/.nlx); unavailable packaged metadata
 /// keeps the plain explanation instead of a crash.
-private struct UpdatesSettingsPage: View {
+/// r92: About — the app's identity and its update controls in ONE
+/// calm page. The identity (current preview icon, name, bundle version)
+/// used to live in a bottom sidebar footer; it has exactly one home
+/// here now, so the sidebar is just the category list. The Sparkle
+/// controls stay exactly as before (their preference is Sparkle-owned,
+/// never in AppSettings/.nlx), with no duplicated title/button pair.
+@MainActor
+private struct AboutSettingsPage: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
 
+    /// The bundle version, read at runtime — a development fallback
+    /// only, never a hardcoded release fact.
+    static var bundleVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            ?? "dev"
+    }
+
+    /// The app identity: the SAME packaged preview the icon chooser
+    /// uses (no new raster), the app name, and the dynamic version.
+    private var identity: some View {
+        HStack(spacing: 12) {
+            if let image = AppIconResources.previewImage(for: model.settings.appIcon) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(Color.secondary.opacity(0.15))
+                    .frame(width: 60, height: 60)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Numlex")
+                    .font(.system(size: 16, weight: .semibold))
+                Text(Self.bundleVersion)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("Numlex \(Self.bundleVersion)"))
+    }
+
     var body: some View {
         let language = self.language
-        return SettingsDetailPage(destination: .updates, language: language) {
-            // The page title already names the category.
-            SettingsGroup(title: nil) {
+        return SettingsDetailPage(destination: .about, language: language) {
+            SettingsGroup(title: L10n.t("about.app", language: language)) {
+                identity
+            }
+
+            SettingsGroup(title: L10n.t("settings.updates", language: language)) {
                 if model.updates.isAvailable {
-                    SettingsRow(title: L10n.t("updates.checkNow", language: language),
-                                symbol: "arrow.triangle.2.circlepath") {
+                    // ONE action: the button is the only "Check for
+                    // Updates…" affordance on the page (no row title
+                    // repeating it).
+                    HStack {
                         Button(L10n.t("updates.checkNow", language: language)) {
                             model.updates.checkForUpdates()
                         }
                         .disabled(!model.updates.canCheckForUpdates)
+                        Spacer(minLength: 0)
                     }
+                    .padding(.vertical, 10)
+
                     SettingsRow(title: L10n.t("updates.auto", language: language),
-                                detail: L10n.t("updates.autoCap", language: language),
-                                symbol: "clock.arrow.circlepath") {
+                                symbol: "clock.arrow.circlepath",
+                                divider: true) {
                         SettingsSwitch(
                             title: L10n.t("updates.auto", language: language),
                             isOn: Binding(
@@ -576,6 +580,7 @@ private struct UpdatesSettingsPage: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 10)
                 } else {
                     Text(L10n.t("updates.unavailable", language: language))
                         .font(.system(size: 12))
@@ -584,11 +589,13 @@ private struct UpdatesSettingsPage: View {
                                 language: language))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .padding(.bottom, 8)
                 }
             }
         }
     }
 }
+
 // MARK: - Editing tab (r76: operator helpers + automatic input insertions)
 
 /// r76: the Editing tab owns EVERYTHING that rewrites what the user
@@ -1295,13 +1302,15 @@ private struct NumbersSettingsPage: View {
         return SettingsDetailPage(destination: .numbers, language: language) {
             // 1. NUMBER FORMAT — what shape numbers have everywhere.
             SettingsGroup(title: L10n.t("numbers.region", language: language)) {
-                SettingsRow(
-                    title: L10n.t("numbers.regionLabel", language: language),
-                    detail: L10n.t("numbers.regionCap", language: language)
-                ) {
+                // r92: one-line Region row (its long caption was removed)
+                // with the live examples directly below, separated by the
+                // same hairline the grouped rows use.
+                SettingsRow(title: L10n.t("numbers.regionLabel", language: language)) {
                     regionPicker
                 }
+                Divider()
                 sampleGrid
+                    .padding(.vertical, 9)
             }
 
             // 2. ANSWER DISPLAY — how RESULTS are rounded and grouped
@@ -1592,8 +1601,7 @@ private struct StylingSettingsPage: View {
             // where answers sit inside it.
             SettingsGroup(title: L10n.t("styling.column", language: language)) {
                 SettingsRow(
-                    title: L10n.t("styling.column.alignment", language: language),
-                    detail: L10n.t("styling.column.alignmentCap", language: language)
+                    title: L10n.t("styling.column.alignment", language: language)
                 ) {
                     Picker("", selection: Binding(
                         get: { model.settings.styling.answerColumnAlignment },
@@ -1966,11 +1974,13 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
         var observers: [NSObjectProtocol] = []
         private var observedWindows: Set<ObjectIdentifier> = []
 
-        /// r91: observes ONE window (idempotent per window) so the
-        /// standard sidebar-toggle item is removed after SwiftUI has
-        /// installed or reconfigured its toolbar. Both hooks DEFER the
-        /// removal to the next main-actor turn, so the toolbar is never
-        /// mutated inside the notification that announced the change.
+        /// r92: observes ONE window (idempotent per window) so the
+        /// compact chrome is reasserted whenever the window becomes key
+        /// — the empty window toolbar must not reappear and the window
+        /// must keep its resizable bit and designed content range after
+        /// a scene reconfiguration. The reassertion hops to the next
+        /// main-actor turn so no window state is mutated inside the
+        /// notification that announced the change.
         func observe(_ window: NSWindow) {
             let id = ObjectIdentifier(window)
             guard !observedWindows.contains(id) else { return }
@@ -1980,21 +1990,7 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
                 forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
             ) { _ in
                 MainActor.assumeIsolated {
-                    SettingsWindowConfigurator.scheduleSidebarToggleRemoval(for: window)
-                }
-            })
-            // SwiftUI (re)builds the Settings toolbar while the window
-            // lives; every announced toolbar addition is a cue to
-            // re-check this window for the standard toggle item. The
-            // notification object is deliberately not inspected (a
-            // Notification is not Sendable across the isolation hop) —
-            // the removal is idempotent and only ever touches THIS
-            // window's toolbar.
-            observers.append(center.addObserver(
-                forName: NSToolbar.willAddItemNotification, object: nil, queue: .main
-            ) { _ in
-                MainActor.assumeIsolated {
-                    SettingsWindowConfigurator.scheduleSidebarToggleRemoval(for: window)
+                    SettingsWindowConfigurator.configure(window)
                 }
             })
         }
@@ -2028,53 +2024,28 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
                                        height: SettingsGeometry.minHeight)
         window.contentMaxSize = NSSize(width: SettingsGeometry.maxWidth,
                                        height: SettingsGeometry.maxHeight)
+        hideEmptyToolbar(window)
     }
 
-    /// r91: removes the standard sidebar-toggle toolbar item from the
-    /// Settings window. The sidebar is ALWAYS visible (the root split
-    /// view pins `columnVisibility` to the constant `.all`), so the
-    /// button SwiftUI installs for the split navigation is dead chrome.
-    ///
-    /// The declarative `.toolbar(removing: .sidebarToggle)` stays, but on
-    /// macOS 26 it does not reliably suppress the button, so the window
-    /// itself removes the item through PUBLIC AppKit only: the standard
-    /// `NSToolbarItem.Identifier.toggleSidebar` identifier, plus any item
-    /// that still sends the native `toggleSidebar:` action. Index-based
-    /// removal walks backwards so multiple matches are all removed.
-    /// Only the Settings window is ever touched — the main window's
-    /// toolbar and `SidebarCommands()` are untouched.
+    /// r92: the Settings window has no toolbar items, so its toolbar is
+    /// hidden entirely. Hiding the (empty) NSToolbar collapses the
+    /// reserved toolbar band, which is what both put the sidebar list
+    /// and the page heading back under the compact native titlebar and
+    /// REMOVED the large blank zone the split navigation used to
+    /// reserve. Public AppKit only: the toolbar object is kept (never
+    /// nil, no fake titlebar, no traffic-light surgery), merely made
+    /// invisible — and reasserted because a scene reconfiguration can
+    /// bring the empty band back.
     @MainActor
-    static func removeSidebarToggle(from window: NSWindow) {
-        guard let toolbar = window.toolbar else { return }
-        var index = toolbar.items.count - 1
-        while index >= 0 {
-            let item = toolbar.items[index]
-            let id = item.itemIdentifier
-            // The standard identifier, the native toggleSidebar: action,
-            // AND SwiftUI's own split-view item: on macOS 26 the
-            // NavigationSplitView installs its toggle under the
-            // bundle-prefixed identifier
-            // `com.apple.SwiftUI.navigationSplitView.toggleSidebar`,
-            // which the declarative `.toolbar(removing: .sidebarToggle)`
-            // does not match. Reading an item's identifier is public
-            // API; nothing private is called.
-            let isSidebarToggle = id == .toggleSidebar
-                || item.action == #selector(NSSplitViewController.toggleSidebar(_:))
-                || id.rawValue.hasSuffix("toggleSidebar")
-            if isSidebarToggle {
-                toolbar.removeItem(at: index)
-            }
-            index -= 1
+    static func hideEmptyToolbar(_ window: NSWindow) {
+        if let toolbar = window.toolbar, toolbar.isVisible {
+            toolbar.isVisible = false
         }
-    }
-
-    /// Deferred wrapper: mutating a toolbar from inside the notification
-    /// (or the layout pass) that announced its item risks re-entrancy, so
-    /// every cue hops to the next main-actor turn first.
-    @MainActor
-    static func scheduleSidebarToggleRemoval(for window: NSWindow) {
-        Task { @MainActor in
-            Self.removeSidebarToggle(from: window)
+        // Hiding the toolbar collapses the reserved band but macOS also
+        // drops the centered window title with it; the native title is
+        // part of the chrome this window keeps, so it is reasserted.
+        if window.titleVisibility != .visible {
+            window.titleVisibility = .visible
         }
     }
 
@@ -2110,7 +2081,6 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             MainActor.assumeIsolated {
                 Self.configure(window)
                 coordinator.observe(window)
-                Self.scheduleSidebarToggleRemoval(for: window)
             }
         }
         Task { @MainActor in
@@ -2129,10 +2099,8 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             // sizes; a user resize inside the range is never touched).
             window.setContentSize(NSSize(width: SettingsGeometry.idealWidth,
                                          height: SettingsGeometry.idealHeight))
-            // The split-navigation toolbar may already exist at this
-            // point: strip its standard sidebar toggle immediately (the
-            // observers keep re-checking after later reconfigurations).
-            Self.removeSidebarToggle(from: window)
+            // The empty window toolbar is hidden again here (the
+            // observers re-check after later reconfigurations).
             // SwiftUI re-asserts its own style mask during scene
             // reconfiguration and drops the resizable bit; hold it. The
             // same first-open moment is where an AppKit frame restore
@@ -2149,7 +2117,7 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
                             window.styleMask.insert(.resizable)
                         }
                         snapIfOutOfRange(window)
-                        Self.removeSidebarToggle(from: window)
+                        Self.hideEmptyToolbar(window)
                     }
                 }
             )
@@ -2172,9 +2140,9 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
             // designed range: snap back to the designed initial size.
             // A user resize inside the range is never touched.
             snapIfOutOfRange(window)
-            // SwiftUI can rebuild the toolbar during a scene update; the
-            // standard sidebar toggle must not come back with it.
-            Self.removeSidebarToggle(from: window)
+            // A scene update can bring the empty toolbar band back; the
+            // window hides it again (r92).
+            Self.configure(window)
         }
     }
 

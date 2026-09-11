@@ -211,9 +211,10 @@ reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. De
 `Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
 live through the same strict engine — function arguments included.
 See [docs/SETTINGS_AND_APPEARANCE.md](docs/SETTINGS_AND_APPEARANCE.md) for the full
-settings reference: one category sidebar (General, Editing, Numbers,
-Constants & Units, Styling, Updates) with one focused detail page each —
-language, appearance and the application icon now live together in General.
+settings reference: one fixed category sidebar (General, Editing, Numbers,
+Constants & Units, Styling, About) with one focused detail page each —
+language, appearance and the application icon live together in General, and
+About carries the app identity plus the update controls.
 
 ## Files and storage
 
@@ -263,7 +264,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,081 shared cases, runnable two ways:
+The engine suite covers 1,080 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

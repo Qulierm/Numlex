@@ -87,7 +87,7 @@ let r88L10nCases: [EngineCase] = [
             "highlightGreen", "highlightBlue", "highlightPurple", "highlightPink",
             "settings.numbers", "settings.format", "settings.constants",
             "styling.column", "styling.columnCap",
-            "styling.column.alignment", "styling.column.alignmentCap",
+            "styling.column.alignment",
             "alignment.leading", "alignment.trailing",
             "styling.column.surface", "styling.column.surfaceCap",
             "surface.neutral", "surface.sand", "surface.slate",

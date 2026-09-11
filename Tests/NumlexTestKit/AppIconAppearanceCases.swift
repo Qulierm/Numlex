@@ -136,7 +136,7 @@ public let appIconAppearanceCases: [EngineCase] = [
     // MARK: - Localization
 
     EngineCase("appearance-icon-localization-all-six") {
-        let keys = ["appearanceAuto", "appIcon", "appIconCap", "appIconDark", "appIconLight"]
+        let keys = ["appearanceAuto", "appIcon", "appIconDark", "appIconLight"]
         for lang in AppLanguage.allCases {
             for key in keys {
                 let v = L10n.t(key, language: lang)

@@ -115,9 +115,7 @@ public let r59Cases: [EngineCase] = [
                     "maxWidth: CGFloat = 760",
                     "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
                     "maxHeight: CGFloat = 640",
-                    "sidebarMinWidth: CGFloat = 140",
-                    "sidebarIdealWidth: CGFloat = 146",
-                    "sidebarMaxWidth: CGFloat = 150"] {
+                    "sidebarIdealWidth: CGFloat = 146"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }
         try expect(!text.contains("TabView"), "no top tab strip remains")
