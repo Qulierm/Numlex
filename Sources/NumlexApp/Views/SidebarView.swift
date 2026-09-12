@@ -56,6 +56,9 @@ struct SidebarView: View {
     /// geometry change). SidebarGroup-based so General (nil id) can
     /// never match an idle nil by accident.
     @State private var dropTargetGroup: SidebarGroup?
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    /// Hover highlight for the temporary replay button.
+    @State private var replayHovering = false
 
     // MARK: r41 hover tracking
 
@@ -225,6 +228,42 @@ struct SidebarView: View {
 
             // The pinned bottom folder tabs.
             folderTabs
+
+            // TEMPORARY QA CONTROL — remove after onboarding sign-off.
+            // ONE simple code path: post the app-local notification; the
+            // scene root owns the session-only replay overlay, so this view
+            // never touches the model, the store or the first-launch marker.
+            // Sits BELOW the pinned tabs (a sibling row, so it can never
+            // cover them) and stays quiet: secondary text on a hairline
+            // hover fill rather than another glass surface.
+            Divider()
+                .padding(.horizontal, 4)
+
+            Button {
+                NotificationCenter.default.post(name: .replayWelcome, object: nil)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Replay Welcome")
+                        .font(.system(size: 12))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 28)
+                .contentShape(Rectangle())
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(replayHovering ? 0.07 : 0))
+                )
+            }
+            .buttonStyle(.plain)
+            .onHover { replayHovering = $0 }
+            .help("Replay the welcome animation")
+            .accessibilityLabel(Text("Replay Welcome"))
+            .accessibilityHint(Text("Temporarily replays the first-launch animation for testing"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)

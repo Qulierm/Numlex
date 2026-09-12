@@ -71,6 +71,26 @@ struct NumlexApp: App {
     /// The pending curtain completion (cancelled when the window closes).
     @State private var curtainTask: Task<Void, Never>?
 
+    // MARK: TEMPORARY QA CONTROL — remove after onboarding sign-off
+    //
+    // A session-only replay of the welcome animation, for visual testing.
+    // It is deliberately SEPARATE from the production first-launch stages:
+    // `revealStage` is never set back to `.welcome`, so ContentView/TextKit
+    // are neither unmounted nor recreated and the caret, scroll position,
+    // selection and sheet UUIDs are untouched. Nothing here reads or writes
+    // `welcome-v1`, calls `FirstLaunch`, or persists anything at all.
+    /// True only while the replay overlay is on screen.
+    @State private var replayWelcomePresented = false
+    /// Drives the replay panel's upward travel (same stable-offset contract
+    /// as the production curtain).
+    @State private var replayCurtainLifted = false
+    /// Re-identified on every presentation, so each replay mounts a BRAND
+    /// NEW WelcomeView whose staged @State restarts from its initial values.
+    @State private var replaySession = UUID()
+    /// The pending replay completion (cancelled on re-presentation, finish
+    /// or window closure).
+    @State private var replayTask: Task<Void, Never>?
+
     init() {
         // 1) Decide first (non-creating directory lookup)…
         let dataDirectory = Persistence.dataDirectory(createIfNeeded: false)
@@ -201,9 +221,89 @@ struct NumlexApp: App {
         }
     }
 
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    ///
+    /// The scene root is a STABLE container: the production `launchRoot`
+    /// stays mounted (and keeps its own identity and state) whether or not a
+    /// replay is running. A replay only INSERTS a sibling overlay above it,
+    /// so the editor, its TextKit storage, caret, scroll offset, selection
+    /// and the model are never re-created.
+    @ViewBuilder
+    private var sessionRoot: some View {
+        ZStack {
+            launchRoot
+                // While the replay covers the window the editor must not take
+                // pointer events; the welcome overlay owns them.
+                .allowsHitTesting(!replayWelcomePresented)
+            if replayWelcomePresented {
+                GeometryReader { geo in
+                    WelcomeView(language: model.settings.language,
+                                onGetStarted: finishReplay)
+                        // A fresh identity per presentation restarts the whole
+                        // staged animation from its initial frame.
+                        .id(replaySession)
+                        .offset(y: replayCurtainLifted ? -geo.size.height : 0)
+                        .shadow(color: .black.opacity(replayCurtainLifted ? 0 : 0.28),
+                                radius: 10, y: 4)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .zIndex(1)
+                }
+                .clipped()
+                // The overlay is a NESTED sibling, so the WelcomeView's own
+                // `.ignoresSafeArea()` cannot reach the window edges by
+                // itself: without this the editor stayed visible in the
+                // titlebar strip. Expanding the overlay container gives the
+                // replay exactly the same full-window coverage the
+                // production stages get as the root content.
+                .ignoresSafeArea()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .replayWelcome)) { _ in
+            presentReplayWelcome()
+        }
+    }
+
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    /// Presents the replay overlay once: only after the production reveal has
+    /// finished, never twice, and always from a clean curtain state.
+    private func presentReplayWelcome() {
+        guard revealStage == .app, !replayWelcomePresented else { return }
+        replayTask?.cancel()
+        replayCurtainLifted = false
+        replaySession = UUID()
+        replayWelcomePresented = true
+    }
+
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    /// The replay's Get Started: the SAME stable overlay panel slides fully
+    /// out of the content bounds (identical timing contract to the production
+    /// curtain), then only the overlay is removed and focus returns to the
+    /// current sheet. No marker is written and nothing is persisted.
+    private func finishReplay() {
+        guard replayWelcomePresented else { return }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        replayTask?.cancel()
+        if reduceMotion {
+            replayWelcomePresented = false
+            replayCurtainLifted = false
+            focusSelectedEditor()
+            return
+        }
+        replayTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled, replayWelcomePresented else { return }
+            withAnimation(RevealTiming.animation) { replayCurtainLifted = true }
+            try? await Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)
+            guard !Task.isCancelled else { return }
+            replayWelcomePresented = false
+            replayCurtainLifted = false
+            focusSelectedEditor()
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            themedRoot(launchRoot)
+            themedRoot(sessionRoot)
                 // r59: the SwiftUI content minimum allows the COLLAPSED
                 // window size AND the compact 260 pt content height
                 // (MainWindowGeometry.minContentHeight — the one source
@@ -366,4 +466,8 @@ extension Notification.Name {
     // sidebar.
     static let importSheet = Notification.Name("numlex.importSheet")
     static let exportSheet = Notification.Name("numlex.exportSheet")
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    /// Posted by the temporary sidebar "Replay Welcome" button; caught by the
+    /// scene root, which owns the session-only replay overlay.
+    static let replayWelcome = Notification.Name("numlex.replayWelcome")
 }

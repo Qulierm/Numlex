@@ -289,6 +289,109 @@ public let welcomeCases: [EngineCase] = [
         }
     },
 
+    // MARK: - TEMPORARY QA replay control (source)
+
+    EngineCase("welcome-temporary-replay-control-is-quarantined") {
+        let sidebar = try welcomeSource("Sources/NumlexApp/Views/SidebarView.swift")
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        // Exactly ONE temporary control, marked for removal.
+        try expectEqual(sidebar.components(separatedBy: "TEMPORARY QA CONTROL").count - 1, 2,
+                        "the control is marked (state + row)")
+        try expect(sidebar.contains("remove after onboarding sign-off"), "removal is obvious")
+        try expectEqual(sidebar.components(separatedBy: "Replay Welcome").count - 1, 2,
+                        "one label + one accessibility label")
+        try expectEqual(sidebar.components(separatedBy: ".replayWelcome").count - 1, 1,
+                        "exactly one post site")
+        try expect(sidebar.contains(".post(name: .replayWelcome, object: nil)"),
+                   "the row only posts the notification")
+        // The row is a sibling BELOW the pinned folder tabs, so it can never
+        // cover them, and it stays quiet (secondary text, plain style).
+        guard let tabs = sidebar.range(of: "            folderTabs")?.upperBound,
+              let replay = sidebar.range(of: "NotificationCenter.default.post(name: .replayWelcome",
+                                                                             range: tabs..<sidebar.endIndex)?.lowerBound
+        else { throw CaseFailure(message: "replay row not after folderTabs", location: "Sidebar") }
+        try expect(tabs < replay, "the row follows the pinned tabs")
+        try expect(sidebar.contains(".buttonStyle(.plain)"), "not a competing glass surface")
+        try expect(sidebar.contains(".foregroundStyle(.secondary)"), "visually quiet")
+        try expect(sidebar.contains(".frame(height: 28)"), "at least a 28 pt hit row")
+        try expect(sidebar.contains(".help(\"Replay the welcome animation\")"), "a clear tooltip")
+        try expect(sidebar.contains(".accessibilityLabel(Text(\"Replay Welcome\"))"), "a11y label")
+        try expect(sidebar.contains(".accessibilityHint("), "a11y hint")
+        // The sidebar never touches the model, the marker or the store.
+        let replayRow = String(sidebar[replay...])
+        for banned in ["markCompleted", "FirstLaunch", "Persistence", "model.save",
+                       "model.sheets", "revealStage"] {
+            try expect(!replayRow.contains(banned), "the row never touches \(banned)")
+        }
+        // The notification name is app-local and declared once.
+        try expect(app.contains("static let replayWelcome = Notification.Name(\"numlex.replayWelcome\")"),
+                   "one app-local notification")
+        try expectEqual(app.components(separatedBy: "static let replayWelcome").count - 1, 1,
+                        "declared exactly once")
+    },
+
+    EngineCase("welcome-replay-overlay-never-touches-production-state") {
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        // The scene root keeps the production launchRoot MOUNTED and only
+        // inserts a sibling overlay above it.
+        try expect(app.contains("private var sessionRoot: some View"), "one session root")
+        try expect(app.contains("themedRoot(sessionRoot)"), "the scene uses the session root")
+        try expect(app.contains("themedRoot(launchRoot)") == false, "launchRoot is retained inside it")
+        let root = welcomeSlice(app, from: "private var sessionRoot: some View", to: "private func presentReplayWelcome")
+        try expect(root.contains("launchRoot"), "the production root stays mounted")
+        try expect(root.contains(".allowsHitTesting(!replayWelcomePresented)"),
+                   "hit testing is blocked while the overlay covers")
+        try expect(root.contains("if replayWelcomePresented {"), "the overlay is conditional")
+        try expect(root.contains("WelcomeView(language: model.settings.language,"), "a real welcome")
+        try expect(root.contains(".id(replaySession)"),
+                   "a fresh identity restarts the staged animation")
+        try expect(root.contains(".offset(y: replayCurtainLifted ? -geo.size.height : 0)"),
+                   "the panel travels the full content height")
+        try expect(root.contains(".shadow(color: .black.opacity(replayCurtainLifted ? 0 : 0.28)"),
+                   "the same restrained panel shadow")
+        // The production first-launch machinery is untouched by the replay:
+        // the replay never resets the production stage.
+        let replayCode = welcomeSlice(app, from: "private func presentReplayWelcome",
+                                      to: "var body: some Scene")
+        for banned in ["revealStage = .welcome", "revealStage = .revealing", "revealStage = .app",
+                       "FirstLaunch", "markCompleted", "Persistence", "model.save", "store.json"] {
+            try expect(!replayCode.contains(banned), "replay never touches \(banned)")
+        }
+        // Presenting is guarded and idempotent; finishing resets its own
+        // curtain state and cancels stale work.
+        let present = welcomeSlice(app, from: "private func presentReplayWelcome", to: "private func finishReplay")
+        try expect(present.contains("guard revealStage == .app, !replayWelcomePresented else { return }"),
+                   "only after the production reveal, never twice")
+        try expect(present.contains("replayTask?.cancel()"), "stale work cancelled")
+        try expect(present.contains("replayCurtainLifted = false"), "curtain state reset")
+        try expect(present.contains("replaySession = UUID()"), "a new session each time")
+        // Finishing mirrors the production contract: stable identity, one
+        // animated travel, removal, then focus. Reduce Motion is immediate.
+        let finish = welcomeSlice(app, from: "private func finishReplay", to: "var body: some Scene")
+        try expect(finish.contains("guard replayWelcomePresented else { return }"), "one finish only")
+        try expect(finish.contains("withAnimation(RevealTiming.animation) { replayCurtainLifted = true }"),
+                   "the same reveal animation")
+        try expect(finish.contains("Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)"),
+                   "the same travel wait")
+        try expect(finish.contains("guard !Task.isCancelled, replayWelcomePresented else { return }"),
+                   "the animation step is guarded")
+        try expect(finish.contains("focusSelectedEditor()"), "focus returns to the current sheet")
+        try expect(finish.contains("NSWorkspace.shared.accessibilityDisplayShouldReduceMotion"),
+                   "Reduce Motion is honoured")
+        let reduceBranch = welcomeSlice(finish, from: "if reduceMotion {", to: "replayTask = Task")
+        try expect(reduceBranch.contains("replayWelcomePresented = false"), "removed immediately")
+        try expect(!reduceBranch.contains("withAnimation"), "no animation under Reduce Motion")
+        try expect(!reduceBranch.contains("Task.sleep"), "no delay under Reduce Motion")
+        // The editor is never re-created or duplicated.
+        for banned in ["AppModel()", "ContentView(model: model)"] {
+            try expect(!replayCode.contains(banned), "no duplicate editor: \(banned)")
+        }
+        try expect(app.contains("launchRoot"), "the production stage switch remains")
+        for stage in ["case .welcome:", "case .revealing:", "case .app:"] {
+            try expect(app.contains(stage), "production stage \(stage)")
+        }
+    },
+
     // MARK: - Monochrome button (source)
 
     EngineCase("welcome-button-is-monochrome-and-accessible") {
