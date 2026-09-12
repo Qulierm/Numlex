@@ -48,12 +48,12 @@ enum RevealTiming {
     /// The panel travels past the clipped content height by this much, so no
     /// bottom or titlebar sliver can survive the slide.
     static let overscan: CGFloat = 80
-    /// The curtain's fixed travel: the designed 600 pt content height plus the
-    /// overscan. A constant keeps the curtain free of any GeometryReader, so
-    /// the moving layer can never influence the base view's proposal.
-    static var travelDistance: CGFloat {
-        MainWindowGeometry.defaultContentHeight + overscan
-    }
+    /// The curtain's travel is read from the LIVE overlay bounds
+    /// (`proxy.size.height + overscan`) inside `visualEffect`, so it clears the
+    /// panel at any window height — the main window is vertically resizable and
+    /// `defaultContentHeight` is not a maximum. Reading geometry for a visual
+    /// transform never participates in layout, so no fixed distance and no
+    /// sizing `GeometryReader` are needed.
     /// One committed render turn before the slide starts (a mounted underlay
     /// must exist on screen first, or the editor would appear mid-travel).
     static let mountCommitNanoseconds: UInt64 = 24_000_000
@@ -541,14 +541,12 @@ struct LaunchContainer: View {
             }
             // The curtain is ONE branch with a stable id, so the production
             // WelcomeView keeps its identity (and its running bloom) when the
-            // editor appears beneath it. It carries no GeometryReader and no
-            // `.clipped()`: the WelcomeView already fills the window through
-            // its own GeometryReader, the travel is a fixed distance (the
-            // designed 600 pt content plus the overscan), and the window
-            // itself clips anything beyond its edges.
+            // editor appears beneath it. It carries no sizing GeometryReader
+            // and no `.clipped()`: the travel comes from the panel's own live
+            // bounds inside `visualEffect`, which is a purely visual transform,
+            // and the window itself clips anything beyond its edges.
             if stage != .app {
                 CurtainPanel(progress: progress,
-                             travel: RevealTiming.travelDistance,
                              shadowOpacity: progress > 0.001 ? 0 : 0.28,
                              content: WelcomeView(language: language, onGetStarted: onGetStarted))
                     .id(NumlexApp.productionWelcomeID)
@@ -575,7 +573,6 @@ struct ReplayOverlay: View {
 
     var body: some View {
         CurtainPanel(progress: progress,
-                     travel: RevealTiming.travelDistance,
                      shadowOpacity: progress > 0.001 ? 0 : 0.28,
                      content: WelcomeView(language: language, onGetStarted: onGetStarted))
             // The overlay layer covers the whole window, titlebar strip
@@ -595,24 +592,31 @@ struct ReplayOverlay: View {
 /// Animatable machinery on every display frame — the same guarantee the
 /// welcome canvases use. A plain `.offset(y: lifted ? -travel : 0)` on a
 /// state flag measurably JUMPED instead of travelling.
+///
+/// The distance travelled is the panel's OWN live height plus the overscan,
+/// read through `visualEffect`. `visualEffect` hands the closure a proxy whose
+/// geometry is used ONLY to build a visual transform, so the read can never
+/// feed back into layout: the panel stays exactly as large as the space it is
+/// given, at 600 pt or at any taller resizable window height, and still clears
+/// completely because the distance always exceeds its own height.
 struct CurtainPanel<Content: View>: View, @preconcurrency Animatable {
     var progress: Double
-    var travel: CGFloat
     var shadowOpacity: Double
     var content: Content
 
-    var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, Double>> {
-        get { AnimatablePair(progress, AnimatablePair(travel, shadowOpacity)) }
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(progress, shadowOpacity) }
         set {
             progress = newValue.first
-            travel = newValue.second.first
-            shadowOpacity = newValue.second.second
+            shadowOpacity = newValue.second
         }
     }
 
     var body: some View {
         content
-            .offset(y: -travel * CGFloat(progress))
+            .visualEffect { content, proxy in
+                content.offset(y: -(proxy.size.height + RevealTiming.overscan) * CGFloat(progress))
+            }
             .shadow(color: .black.opacity(shadowOpacity), radius: 10, y: 4)
     }
 }

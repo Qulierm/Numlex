@@ -402,12 +402,21 @@ public let welcomeCases: [EngineCase] = [
         let overlay = code(welcomeSlice(app, from: "struct ReplayOverlay: View", to: "struct CurtainPanel"))
         try expect(!launch.contains("GeometryReader"), "the launch container has no GeometryReader")
         try expect(!overlay.contains("GeometryReader"), "the replay overlay has no GeometryReader")
-        try expect(launch.contains("travel: RevealTiming.travelDistance"), "fixed travel")
-        try expect(overlay.contains("travel: RevealTiming.travelDistance"), "fixed travel")
+        try expect(!launch.contains("travel:"), "no travel scalar in the launch curtain")
+        try expect(!overlay.contains("travel:"), "no travel scalar in the replay curtain")
+        // The distance is the panel's LIVE height, read only for a visual
+        // transform, so a taller resizable window still clears completely.
+        try expect(app.contains("visualEffect { content, proxy in"), "live bounds via visualEffect")
+        try expect(app.contains("(proxy.size.height + RevealTiming.overscan) * CGFloat(progress)"),
+                   "travel = live overlay height + overscan, scaled by the interpolated progress")
+        try expect(!app.contains("travelDistance"), "no fixed travel distance exists")
+        let curtain = code(welcomeSlice(app, from: "struct CurtainPanel<Content: View>", to: "/// Transient view-environment flag"))
+        for banned in ["MainWindowGeometry.defaultContentHeight", "GeometryReader", "defaultSize",
+                       "proxy.size.width", "@State", "PreferenceKey", "Timer"] {
+            try expect(!curtain.contains(banned), "the curtain never uses \(banned)")
+        }
         // …and the fixed distance is the designed content height plus overscan.
-        try expect(app.contains("static var travelDistance: CGFloat {"), "one travel constant")
-        try expect(app.contains("MainWindowGeometry.defaultContentHeight + overscan"),
-                   "travel = designed height + overscan")
+        try expect(app.contains("static let overscan: CGFloat = 80"), "one overscan constant")
         // The base is never clipped or offset by the curtain.
         try expect(!launch.contains(".clipped()"), "the base is not clipped")
         try expect(!launch.contains(".offset("), "the base is never offset")
@@ -416,6 +425,48 @@ public let welcomeCases: [EngineCase] = [
         for banned in ["padding(.top, 52", "offset(y: -52", "setFrame", "scrollTo"] {
             try expect(!app.contains(banned), "no compensation: \(banned)")
         }
+    },
+
+    EngineCase("welcome-curtain-travels-its-live-height-only-visually") {
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        guard let start = app.range(of: "struct CurtainPanel<Content: View>")?.lowerBound,
+              let end = app.range(of: "/// Transient view-environment flag")?.lowerBound,
+              start < end else { throw CaseFailure(message: "curtain panel missing", location: "Welcome") }
+        let curtain = String(app[start..<end])
+        // Every animated scalar is covered by animatableData: the progress that
+        // drives the slide and the shadow opacity that rides with it.
+        try expect(curtain.contains("var progress: Double"), "progress is an input")
+        try expect(curtain.contains("var shadowOpacity: Double"), "shadow is an input")
+        try expect(curtain.contains("var animatableData: AnimatablePair<Double, Double>"),
+                   "the pair covers both scalars")
+        try expect(curtain.contains("progress = newValue.first"), "progress is written back")
+        try expect(curtain.contains("shadowOpacity = newValue.second"), "shadow is written back")
+        // The travel is the panel's live height plus the overscan, read ONLY
+        // for a visual transform so it can never participate in layout.
+        try expect(curtain.contains("visualEffect { content, proxy in"),
+                   "the transform is a visualEffect")
+        try expect(curtain.contains("proxy.size.height + RevealTiming.overscan"),
+                   "the live height is the distance")
+        try expect(curtain.contains("* CGFloat(progress)"), "scaled by the interpolated progress")
+        try expect(curtain.contains(".shadow(color: .black.opacity(shadowOpacity)"),
+                   "the restrained shadow survives")
+        // No layout-feedback mechanism of any kind.
+        for banned in ["GeometryReader", "PreferenceKey", "Layout", "frame(height",
+                       "NSApp", "padding(", "Timer", "DispatchQueue"] {
+            try expect(!curtain.contains(banned), "no \(banned) in the curtain")
+        }
+        // The old fixed distance must be gone for good, and neither the
+        // production nor the replay curtain may reintroduce a travel scalar.
+        try expect(!app.contains("travelDistance"), "no fixed travel constant")
+        try expect(!app.contains("MainWindowGeometry.defaultContentHeight"),
+                   "the curtain makes no fixed-height assumption")
+        try expect(!app.contains("travel: RevealTiming") && !app.contains("var travel: CGFloat"),
+                   "no travel argument or scalar anywhere")
+        // Both curtains pass only progress, shadow and content.
+        try expect(app.components(separatedBy: "CurtainPanel(progress: progress,").count == 3,
+                   "exactly two curtain call sites")
+        try expect(app.components(separatedBy: "shadowOpacity: progress > 0.001 ? 0 : 0.28").count == 3,
+                   "both call sites pass only progress/shadow/content")
     },
 
     EngineCase("welcome-curtain-reveal-contract") {
@@ -433,10 +484,10 @@ public let welcomeCases: [EngineCase] = [
         // state-flag offset measurably jumped, so this is the contract.
         try expect(app.contains("struct CurtainPanel<Content: View>: View, @preconcurrency Animatable"),
                    "an animatable curtain panel")
-        try expect(app.contains("var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, Double>>"),
-                   "the panel interpolates progress, travel and shadow")
-        try expect(app.contains(".offset(y: -travel * CGFloat(progress))"),
-                   "the offset is driven by the interpolated scalar")
+        try expect(app.contains("var animatableData: AnimatablePair<Double, Double>"),
+                   "the panel interpolates progress and shadow")
+        try expect(app.contains("(proxy.size.height + RevealTiming.overscan) * CGFloat(progress)"),
+                   "the offset is driven by the interpolated scalar over live bounds")
         try expect(app.contains("@State private var progress: Double = 0"),
                    "the progress is VIEW-owned state")
         try expect(app.contains(".onChange(of: revealRequested)"), "the app requests the lift")
@@ -617,8 +668,8 @@ public let welcomeCases: [EngineCase] = [
                    "a real welcome inside the curtain panel")
         try expect(app.contains(".id(replaySession)"),
                    "a fresh identity restarts the staged animation")
-        try expect(app.contains("travel: RevealTiming.travelDistance"),
-                   "the panel travels a FIXED distance (no GeometryReader)")
+        try expect(app.contains("visualEffect { content, proxy in"),
+                   "the panel travels its live height (no sizing GeometryReader)")
         try expect(app.contains("shadowOpacity: progress > 0.001 ? 0 : 0.28"),
                    "the same restrained panel shadow")
         // The production first-launch machinery is untouched by the replay:
