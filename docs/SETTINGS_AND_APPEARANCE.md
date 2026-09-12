@@ -420,3 +420,18 @@ lines without an answer — headings, comments, prose — can be highlighted too
 - Constants and custom units are app-global and are never embedded in `.nlx`.
 
 While a welcome reveal (production or replay) owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.
+
+## Bottom Total bar
+
+The sheet's bottom Total is a glass bubble in the answer panel. It shows the
+localized label beside the value while BOTH fit, and collapses to a trailing
+value-only bubble when the value would otherwise collide with the label: the
+label, its gap and its spacer claim are removed, and the bubble shrinks around
+the value (its right edge stays put, its height and the reserved footer space
+never change). The decision uses the actually rendered AppKit text widths —
+the label in the same 11 pt system font `Design.labelSmall` uses, the value in
+the palette's editor font with the live size and design — plus a 2 pt safety
+reserve, so the label disappears one step before any overlap or truncation.
+A very long value keeps the existing maximum width and one-line overflow
+behaviour, and the footer is announced once to assistive tech as
+"<label> <value>" in both modes.

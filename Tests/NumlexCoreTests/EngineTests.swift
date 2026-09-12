@@ -291,6 +291,7 @@ struct EngineTests {
     }
 
     @Test(arguments: footerTotalCases)
+    @Test(arguments: footerTotalLayoutCases)
     func footerTotalCase(`case`: EngineCase) throws {
         try `case`.body()
     }

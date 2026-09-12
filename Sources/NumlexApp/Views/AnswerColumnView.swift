@@ -373,6 +373,32 @@ struct AnswerColumnView: View {
         )
     }
 
+    /// Pixel-safe width of one string in a given font (ceil + a hair so
+    /// subpixel rounding can never make the label overlap the value).
+    private static func measuredWidth(_ text: String, font: NSFont) -> CGFloat {
+        guard !text.isEmpty else { return 0 }
+        let width = (text as NSString).size(withAttributes: [.font: font]).width
+        guard width.isFinite, width > 0 else { return 0 }
+        return ceil(width) + 0.5
+    }
+
+    /// The footer's REAL text metrics: the label in the same 11 pt system
+    /// font `Design.labelSmall` uses, the value in the palette's editor font
+    /// (system/rounded/serif/monospaced + the live size), so the switch is
+    /// driven by rendered widths, never by a row or character count.
+    private func footerTextMetrics(value: String) -> (label: CGFloat, value: CGFloat) {
+        let label = Self.measuredWidth(totalLabel, font: NSFont.systemFont(ofSize: 11))
+        let valueWidth = Self.measuredWidth(value, font: palette.editorFont(size: fontSize))
+        return (label, valueWidth)
+    }
+
+    /// The one accessibility phrase for the footer: localized label + the
+    /// exact displayed value (+ unit when the aggregate ever carries one).
+    private func footerAccessibilityLabel(value: String, unit: String?) -> String {
+        if let unit, !unit.isEmpty { return "\(totalLabel) \(value) \(unit)" }
+        return "\(totalLabel) \(value)"
+    }
+
     private var summary: (value: String, unit: String?)? {
         // The bottom Total is the OVERALL sheet total, dimension-
         // agnostic and unitless: `SheetFooterTotal` owns the whole
@@ -583,11 +609,21 @@ struct AnswerColumnView: View {
             .frame(maxHeight: .infinity)
 
             if showTotalBar, let s = summary {
-                HStack(spacing: 8) {
-                    Text(totalLabel)
-                        .font(Design.labelSmall)
-                        .foregroundStyle(.secondary)
-                    Spacer()
+                let metrics = footerTextMetrics(value: s.value)
+                let layout = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
+                                                      labelWidth: metrics.label,
+                                                      valueWidth: metrics.value)
+                HStack(spacing: FooterTotalLayout.labelGap) {
+                    // The label is REMOVED (not just faded) in compact mode:
+                    // no hidden view, no gap and no Spacer claim of its own.
+                    if layout.showsLabel {
+                        Text(totalLabel)
+                            .font(Design.labelSmall)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    Spacer(minLength: 0)
                     Text(s.value)
                         .font(palette.swiftUIFont(fontSize))
                         .foregroundStyle(Color(nsColor: Design.baseText))
@@ -603,10 +639,22 @@ struct AnswerColumnView: View {
                             value: s.value
                         )
                 }
-                .padding(.horizontal, 12)
+                .frame(width: layout.contentWidth, alignment: .leading)
+                .padding(.horizontal, FooterTotalLayout.innerPadding)
                 .padding(.vertical, 8)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .padding(8)
+                // The bubble shrinks from its LEADING edge: the trailing edge
+                // stays put inside the panel's inset slot, and the reserved
+                // vertical space is untouched in both modes.
+                .frame(width: FooterTotalLayout.bubbleWidth, alignment: .trailing)
+                .padding(FooterTotalLayout.outerInset)
+                // ONE announcement, in both modes: the localized label and
+                // the exact displayed value, never duplicated children.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
+                                                                  unit: s.unit)))
+                // Mode changes must not animate the bubble's geometry.
+                .transaction { if !reduceMotion { $0.animation = nil } }
             }
         }
         .frame(width: 200)
