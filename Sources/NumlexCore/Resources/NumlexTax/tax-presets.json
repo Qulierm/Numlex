@@ -6,153 +6,203 @@
       "name": "GST",
       "note": "Australia GST, 10%",
       "ratePercent": 10.0,
-      "region": "AU"
+      "region": "AU",
+      "sourceTitle": "Australian Taxation Office — GST",
+      "sourceURL": "https://www.ato.gov.au/businesses-and-organisations/gst-excise-and-indirect-taxes/gst"
     },
     {
       "name": "VAT",
       "note": "United Kingdom VAT, 20%",
       "ratePercent": 20.0,
-      "region": "GB"
+      "region": "GB",
+      "sourceTitle": "GOV.UK — VAT rates",
+      "sourceURL": "https://www.gov.uk/vat-rates"
     },
     {
       "name": "VAT",
       "note": "Germany VAT (Mehrwertsteuer), 19%",
       "ratePercent": 19.0,
-      "region": "DE"
+      "region": "DE",
+      "sourceTitle": "UStG §12 (gesetze-im-internet.de) — Steuersätze",
+      "sourceURL": "https://www.gesetze-im-internet.de/ustg_1980/__12.html"
     },
     {
       "name": "VAT",
       "note": "Netherlands VAT (BTW), 21%",
       "ratePercent": 21.0,
-      "region": "NL"
+      "region": "NL",
+      "sourceTitle": "Belastingdienst — Btw-tarieven",
+      "sourceURL": "https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/btw/btw_berekenen_aan_uw_klanten/btw_tarieven/btw_tarieven"
     },
     {
       "name": "VAT",
       "note": "France TVA, 20%",
       "ratePercent": 20.0,
-      "region": "FR"
+      "region": "FR",
+      "sourceTitle": "impots.gouv.fr — La TVA",
+      "sourceURL": "https://www.impots.gouv.fr/professionnel/la-tva"
     },
     {
       "name": "VAT",
       "note": "Italy IVA, 22%",
       "ratePercent": 22.0,
-      "region": "IT"
+      "region": "IT",
+      "sourceTitle": "Agenzia delle Entrate — Aliquote IVA",
+      "sourceURL": "https://www.agenziaentrate.gov.it/portale/web/guest/schede/iva/iva-aliquote"
     },
     {
       "name": "VAT",
       "note": "Spain IVA, 21%",
       "ratePercent": 21.0,
-      "region": "ES"
+      "region": "ES",
+      "sourceTitle": "Agencia Tributaria — IVA",
+      "sourceURL": "https://sede.agenciatributaria.gob.es/Sede/en_gb/iva.html"
     },
     {
       "name": "VAT",
       "note": "Ireland VAT, 23%",
       "ratePercent": 23.0,
-      "region": "IE"
+      "region": "IE",
+      "sourceTitle": "Revenue Commissioners — VAT rates",
+      "sourceURL": "https://www.revenue.ie/en/vat/vat-rates/index.aspx"
     },
     {
       "name": "VAT",
       "note": "Austria VAT (USt), 20%",
       "ratePercent": 20.0,
-      "region": "AT"
+      "region": "AT",
+      "sourceTitle": "Bundesministerium für Finanzen — Umsatzsteuer",
+      "sourceURL": "https://www.bmf.gv.at/services/steuern/umsatzsteuer.html"
     },
     {
       "name": "VAT",
       "note": "Belgium VAT (TVA/BTW), 21%",
       "ratePercent": 21.0,
-      "region": "BE"
+      "region": "BE",
+      "sourceTitle": "SPF Finances — TVA",
+      "sourceURL": "https://finances.belgium.be/fr/entreprises/tva"
     },
     {
       "name": "VAT",
       "note": "Poland VAT (PTU), 23%",
       "ratePercent": 23.0,
-      "region": "PL"
+      "region": "PL",
+      "sourceTitle": "Podatki.gov.pl — Stawki VAT",
+      "sourceURL": "https://www.podatki.gov.pl/vat/stawki-vat/"
     },
     {
       "name": "VAT",
       "note": "Portugal IVA, 23%",
       "ratePercent": 23.0,
-      "region": "PT"
+      "region": "PT",
+      "sourceTitle": "Portal das Finanças — Tabelas de taxas de IVA",
+      "sourceURL": "https://www.portaldasfinancas.gov.pt/pt/consultaTabelasTaxas.action"
     },
     {
       "name": "VAT",
       "note": "Sweden VAT (moms), 25%",
       "ratePercent": 25.0,
-      "region": "SE"
+      "region": "SE",
+      "sourceTitle": "Skatteverket — Moms",
+      "sourceURL": "https://www.skatteverket.se/foretag/moms.html"
     },
     {
       "name": "VAT",
       "note": "Denmark VAT (moms), 25%",
       "ratePercent": 25.0,
-      "region": "DK"
+      "region": "DK",
+      "sourceTitle": "Skattestyrelsen — Moms",
+      "sourceURL": "https://skat.dk/erhverv/moms"
     },
     {
       "name": "VAT",
       "note": "Norway VAT (mva), 25%",
       "ratePercent": 25.0,
-      "region": "NO"
+      "region": "NO",
+      "sourceTitle": "Skatteetaten — Merverdiavgift",
+      "sourceURL": "https://www.skatteetaten.no/bedrift-og-organisasjon/avgifter/mva/"
     },
     {
       "name": "VAT",
       "note": "Finland VAT (ALV), 25.5% (2024 standard rate)",
       "ratePercent": 25.5,
-      "region": "FI"
+      "region": "FI",
+      "sourceTitle": "Verohallinto — Value added tax",
+      "sourceURL": "https://www.vero.fi/en/businesses-and-corporations/taxes-and-charges/vat/"
     },
     {
       "name": "VAT",
       "note": "Switzerland VAT (MWST), 8.1% (2024 standard rate)",
       "ratePercent": 8.1,
-      "region": "CH"
+      "region": "CH",
+      "sourceTitle": "ESTV — Value added tax",
+      "sourceURL": "https://www.estv.admin.ch/estv/en/home/value-added-tax.html"
     },
     {
       "name": "GST",
       "note": "New Zealand GST, 15%",
       "ratePercent": 15.0,
-      "region": "NZ"
+      "region": "NZ",
+      "sourceTitle": "Inland Revenue — GST",
+      "sourceURL": "https://www.ird.govt.nz/gst"
     },
     {
       "name": "GST",
       "note": "Singapore GST, 9% (2024)",
       "ratePercent": 9.0,
-      "region": "SG"
+      "region": "SG",
+      "sourceTitle": "IRAS — GST rate",
+      "sourceURL": "https://www.iras.gov.sg/taxes/goods-services-tax-(gst)/gst-rate"
     },
     {
       "name": "Consumption Tax",
       "note": "Japan consumption tax, 10% standard",
       "ratePercent": 10.0,
-      "region": "JP"
+      "region": "JP",
+      "sourceTitle": "National Tax Agency — Consumption tax",
+      "sourceURL": "https://www.nta.go.jp/english/taxes/consumption_tax/index.htm"
     },
     {
       "name": "GST",
       "note": "Canada federal GST, 5% (provincial taxes excluded)",
       "ratePercent": 5.0,
-      "region": "CA"
+      "region": "CA",
+      "sourceTitle": "Canada Revenue Agency — GST/HST rates",
+      "sourceURL": "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/gst-hst-rates.html"
     },
     {
       "name": "GST",
       "note": "India GST standard rate, 18%",
       "ratePercent": 18.0,
-      "region": "IN"
+      "region": "IN",
+      "sourceTitle": "CBIC — Goods and Services Tax",
+      "sourceURL": "https://www.cbic.gov.in/entities/gst"
     },
     {
       "name": "VAT",
       "note": "South Africa VAT, 15%",
       "ratePercent": 15.0,
-      "region": "ZA"
+      "region": "ZA",
+      "sourceTitle": "SARS — Value-Added Tax",
+      "sourceURL": "https://www.sars.gov.za/customs-and-excise/valued-added-tax-vat/"
     },
     {
       "name": "VAT",
       "note": "Mexico IVA, 16%",
       "ratePercent": 16.0,
-      "region": "MX"
+      "region": "MX",
+      "sourceTitle": "SAT — IVA",
+      "sourceURL": "https://www.sat.gob.mx/consultas/44031/conoce-las-tasas-de-iva"
     },
     {
       "name": "Sales Tax",
       "note": "United States: no national rate — enter your local rate manually",
       "ratePercent": null,
-      "region": "US"
+      "region": "US",
+      "sourceTitle": "IRS — State and local sales tax deduction (sales tax is state/local; there is no national US sales tax rate)",
+      "sourceURL": "https://www.irs.gov/businesses/small-businesses-self-employed/state-and-local-sales-tax-deduction"
     }
   ],
   "snapshotDate": "2026-09-12",
-  "version": "tax-presets-2026.1"
+  "version": "tax-presets-2026.2"
 }

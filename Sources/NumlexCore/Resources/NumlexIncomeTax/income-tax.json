@@ -203,7 +203,7 @@
           "upTo": 18200
         },
         {
-          "rate": 0.16,
+          "rate": 0.15,
           "upTo": 45000
         },
         {
@@ -221,13 +221,13 @@
       ],
       "country": "AU",
       "currency": "AUD",
-      "note": "BLOCKER: the 2026–27 resident schedule could not be retrieved from the ATO at the snapshot; this is the verified 2025–26 schedule, NOT relabelled. Medicare levy and offsets excluded.",
+      "note": "Resident rates for 2026–27: the 18,201–45,000 bracket legislated down from 16% to 15% from 1 July 2026 (Budget 2025–26 fact sheet); thresholds unchanged. Medicare levy and offsets excluded.",
       "source": {
-        "title": "ATO — Resident tax rates 2025–26 (latest schedule retrieved)",
-        "url": "https://www.ato.gov.au/tax-rates-and-codes/tax-rates-australian-residents"
+        "title": "Australian Government Budget 2025–26 — Fact sheet: New tax cuts (personal tax rates for 2026–27)",
+        "url": "https://archive.budget.gov.au/2025-26/factsheets/download/factsheet-new-tax-cuts.pdf"
       },
-      "taxPeriod": "2025-26",
-      "taxYear": 2025
+      "taxPeriod": "2026-27",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -237,23 +237,23 @@
       "brackets": [
         {
           "rate": 0.0,
-          "upTo": 16129
+          "upTo": 16452
         },
         {
-          "rate": 0.15,
-          "upTo": 73504
+          "rate": 0.14,
+          "upTo": 74975
         },
         {
           "rate": 0.205,
-          "upTo": 130879
+          "upTo": 133497
         },
         {
           "rate": 0.26,
-          "upTo": 194011
+          "upTo": 197892
         },
         {
           "rate": 0.29,
-          "upTo": 269543
+          "upTo": 274934
         },
         {
           "rate": 0.33,
@@ -262,13 +262,13 @@
       ],
       "country": "CA",
       "currency": "CAD",
-      "note": "BLOCKER: canada.ca was unreachable from the generation network, so the 2026 federal schedule is unverified; this is the verified 2025 schedule, NOT relabelled. Provincial taxes excluded.",
+      "note": "Federal rates for 2026 (14% on the first bracket), with the 2026 maximum basic personal amount ($16,452) folded in as a 0% slice and the thresholds shifted accordingly (CRA indexation adjustment, 2.0% for 2026). Provincial taxes excluded.",
       "source": {
-        "title": "Canada Revenue Agency — 2025 federal income tax rates (latest retrieved)",
-        "url": "https://www.canada.ca/en/revenue-agency/services/tax/individuals/frequently-asked-questions-individuals/canadian-income-tax-rates-individuals-current-previous-years.html"
+        "title": "Canada Revenue Agency — Current year tax rates and income brackets (2026) / Indexation adjustment for 2026",
+        "url": "https://www.canada.ca/en/revenue-agency/services/tax/individuals/tax-rates-brackets/current-year.html"
       },
-      "taxPeriod": "2025",
-      "taxYear": 2025
+      "taxPeriod": "2026",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -307,12 +307,12 @@
       ],
       "country": "IN",
       "currency": "INR",
-      "note": "BLOCKER: no official FY 2026-27 (AY 2027-28) schedule was found at the snapshot; this is the verified AY 2026-27 schedule, NOT relabelled. Section 87A rebate, surcharge and cess excluded.",
+      "note": "Income tax for FY 2026-27 is charged from 1 April 2026 under the Act at the unchanged new-regime slabs (Budget 2026-27 proposed no slab change; the Income Tax Act 2025 took effect 1 April 2026). Section 87A rebate, surcharge and cess excluded; the standard deduction is not modelled.",
       "source": {
-        "title": "Income Tax Department — New regime slabs for AY 2026-27 (latest official schedule found)",
-        "url": "https://www.incometax.gov.in/iec/foportal/help/individual/return-applicable-1"
+        "title": "Finance Bill 2026 (Bill No. 3 of 2026, introduced 1 Feb 2026) and the Income Tax Department new-regime slab schedule",
+        "url": "https://www.indiabudget.gov.in/doc/Finance_Bill.pdf"
       },
-      "taxPeriod": "AY 2026-27 (FY 2025-26)",
+      "taxPeriod": "FY 2026-27 (AY 2027-28)",
       "taxYear": 0
     },
     {

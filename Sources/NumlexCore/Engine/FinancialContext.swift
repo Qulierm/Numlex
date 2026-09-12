@@ -73,12 +73,19 @@ public struct TaxPreset: Equatable, Sendable {
     public let name: String
     public let ratePercent: Double?
     public let note: String
+    /// The official source that substantiates the rate (or, for the US
+    /// manual row, that there is no national rate). Required and HTTPS.
+    public let sourceTitle: String
+    public let sourceURL: String
 
-    public init(region: String, name: String, ratePercent: Double?, note: String) {
+    public init(region: String, name: String, ratePercent: Double?, note: String,
+                sourceTitle: String, sourceURL: String) {
         self.region = region
         self.name = name
         self.ratePercent = ratePercent
         self.note = note
+        self.sourceTitle = sourceTitle
+        self.sourceURL = sourceURL
     }
 }
 

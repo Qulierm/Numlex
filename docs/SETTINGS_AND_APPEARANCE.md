@@ -214,7 +214,7 @@ localized **Tax** group on the General page; there is no eighth navigation tile.
 
 | Control | Values | Notes |
 | --- | --- | --- |
-| Preset region | Custom + the bundled presets | Seeds the tax name and rate once at selection time (AU GST 10, GB VAT 20, DE VAT 19, NL VAT 21, and more). The presets are a versioned packaged resource (`NumlexTax/tax-presets.json`, version `tax-presets-2026.1`, SHA-256 verified and fail-closed) — no rate table is hard-coded in Swift. The United States carries `ratePercent: null`: selecting it seeds the name only, leaves the rate UNSET and requires a manual entry; a manual 0% is allowed and distinct from unset. Manual edits afterwards stay user-owned. |
+| Preset region | Custom + the bundled presets | Seeds the tax name and rate once at selection time (AU GST 10, GB VAT 20, DE VAT 19, NL VAT 21, and more). The presets are a versioned packaged resource (`NumlexTax/tax-presets.json`, version `tax-presets-2026.2`, SHA-256 verified and fail-closed; every preset carries its official source title and HTTPS URL) — no rate table is hard-coded in Swift. The United States carries `ratePercent: null`: selecting it seeds the name only, leaves the rate UNSET and requires a manual entry; a manual 0% is allowed and distinct from unset. Manual edits afterwards stay user-owned. |
 | Tax name | free text (bounded) | Accepted case-insensitively by the tax phrases: `sales tax`, `VAT` and `GST` are always registered, plus this name. Default `Sales Tax`. |
 | Tax rate | percent, 0…<100 | Used by `+ VAT`, `VAT on …`, `pre-tax price of …` and `gross price of …`. Empty = automatic tax disabled; those phrases then fail with the exact actionable `set sales tax in Settings → Tax`. |
 

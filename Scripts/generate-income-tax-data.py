@@ -131,45 +131,51 @@ TABLES = [
         "country": "AU",
         "aliases": ["AU", "Australia"],
         "currency": "AUD",
-        "taxPeriod": "2025-26",
-        "brackets": [[18200, 0.0], [45000, 0.16], [135000, 0.30],
+        "taxPeriod": "2026-27",
+        "brackets": [[18200, 0.0], [45000, 0.15], [135000, 0.30],
                      [190000, 0.37], [None, 0.45]],
-        "sourceTitle": "ATO — Resident tax rates 2025–26 (latest schedule retrieved)",
-        "sourceURL": "https://www.ato.gov.au/tax-rates-and-codes/tax-rates-australian-residents",
-        "note": ("BLOCKER: the 2026–27 resident schedule could not be retrieved "
-                 "from the ATO at the snapshot; this is the verified 2025–26 "
-                 "schedule, NOT relabelled. Medicare levy and offsets excluded."),
+        "sourceTitle": ("Australian Government Budget 2025–26 — Fact sheet: New "
+                        "tax cuts (personal tax rates for 2026–27)"),
+        "sourceURL": ("https://archive.budget.gov.au/2025-26/factsheets/download/"
+                      "factsheet-new-tax-cuts.pdf"),
+        "note": ("Resident rates for 2026–27: the 18,201–45,000 bracket legislated "
+                 "down from 16% to 15% from 1 July 2026 (Budget 2025–26 fact "
+                 "sheet); thresholds unchanged. Medicare levy and offsets "
+                 "excluded."),
     },
     {
         "country": "CA",
         "aliases": ["CA", "Canada"],
         "currency": "CAD",
-        "taxPeriod": "2025",
-        "brackets": [[16129, 0.0], [73504, 0.15], [130879, 0.205],
-                     [194011, 0.26], [269543, 0.29], [None, 0.33]],
-        "sourceTitle": "Canada Revenue Agency — 2025 federal income tax rates (latest retrieved)",
+        "taxPeriod": "2026",
+        "brackets": [[16452, 0.0], [74975, 0.14], [133497, 0.205],
+                     [197892, 0.26], [274934, 0.29], [None, 0.33]],
+        "sourceTitle": ("Canada Revenue Agency — Current year tax rates and income "
+                        "brackets (2026) / Indexation adjustment for 2026"),
         "sourceURL": ("https://www.canada.ca/en/revenue-agency/services/tax/"
-                      "individuals/frequently-asked-questions-individuals/"
-                      "canadian-income-tax-rates-individuals-current-previous-years.html"),
-        "note": ("BLOCKER: canada.ca was unreachable from the generation network, "
-                 "so the 2026 federal schedule is unverified; this is the "
-                 "verified 2025 schedule, NOT relabelled. Provincial taxes "
-                 "excluded."),
+                      "individuals/tax-rates-brackets/current-year.html"),
+        "note": ("Federal rates for 2026 (14% on the first bracket), with the 2026 "
+                 "maximum basic personal amount ($16,452) folded in as a 0% "
+                 "slice and the thresholds shifted accordingly (CRA indexation "
+                 "adjustment, 2.0% for 2026). Provincial taxes excluded."),
     },
     {
         "country": "IN",
         "aliases": ["IN", "India"],
         "currency": "INR",
-        "taxPeriod": "AY 2026-27 (FY 2025-26)",
+        "taxPeriod": "FY 2026-27 (AY 2027-28)",
         "brackets": [[400000, 0.0], [800000, 0.05], [1200000, 0.10],
                      [1600000, 0.15], [2000000, 0.20], [2400000, 0.25],
                      [None, 0.30]],
-        "sourceTitle": ("Income Tax Department — New regime slabs for AY 2026-27 "
-                        "(latest official schedule found)"),
-        "sourceURL": "https://www.incometax.gov.in/iec/foportal/help/individual/return-applicable-1",
-        "note": ("BLOCKER: no official FY 2026-27 (AY 2027-28) schedule was found "
-                 "at the snapshot; this is the verified AY 2026-27 schedule, NOT "
-                 "relabelled. Section 87A rebate, surcharge and cess excluded."),
+        "sourceTitle": ("Finance Bill 2026 (Bill No. 3 of 2026, introduced "
+                        "1 Feb 2026) and the Income Tax Department new-regime "
+                        "slab schedule"),
+        "sourceURL": "https://www.indiabudget.gov.in/doc/Finance_Bill.pdf",
+        "note": ("Income tax for FY 2026-27 is charged from 1 April 2026 under "
+                 "the Act at the unchanged new-regime slabs (Budget 2026-27 "
+                 "proposed no slab change; the Income Tax Act 2025 took effect "
+                 "1 April 2026). Section 87A rebate, surcharge and cess "
+                 "excluded; the standard deduction is not modelled."),
     },
     {
         "country": "RU",

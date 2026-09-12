@@ -4,9 +4,111 @@
   "license": "Factual public data; the compiled dataset is CC0.",
   "resources": {
     "tax-presets.json": {
-      "sha256": "454c91428fbeb2c3dfaec72ff4409d53134d646ac8d338e2f87eae8e13c21c93"
+      "sha256": "a0a5ce81cce4d612ce9f5eb4c30c23b2afecb1b59879fe83d5f82460afe549da"
     }
   },
   "snapshotDate": "2026-09-12",
-  "version": "tax-presets-2026.1"
+  "sources": {
+    "AT": {
+      "title": "Bundesministerium für Finanzen — Umsatzsteuer",
+      "url": "https://www.bmf.gv.at/services/steuern/umsatzsteuer.html"
+    },
+    "AU": {
+      "title": "Australian Taxation Office — GST",
+      "url": "https://www.ato.gov.au/businesses-and-organisations/gst-excise-and-indirect-taxes/gst"
+    },
+    "BE": {
+      "title": "SPF Finances — TVA",
+      "url": "https://finances.belgium.be/fr/entreprises/tva"
+    },
+    "CA": {
+      "title": "Canada Revenue Agency — GST/HST rates",
+      "url": "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/gst-hst-rates.html"
+    },
+    "CH": {
+      "title": "ESTV — Value added tax",
+      "url": "https://www.estv.admin.ch/estv/en/home/value-added-tax.html"
+    },
+    "DE": {
+      "title": "UStG §12 (gesetze-im-internet.de) — Steuersätze",
+      "url": "https://www.gesetze-im-internet.de/ustg_1980/__12.html"
+    },
+    "DK": {
+      "title": "Skattestyrelsen — Moms",
+      "url": "https://skat.dk/erhverv/moms"
+    },
+    "ES": {
+      "title": "Agencia Tributaria — IVA",
+      "url": "https://sede.agenciatributaria.gob.es/Sede/en_gb/iva.html"
+    },
+    "FI": {
+      "title": "Verohallinto — Value added tax",
+      "url": "https://www.vero.fi/en/businesses-and-corporations/taxes-and-charges/vat/"
+    },
+    "FR": {
+      "title": "impots.gouv.fr — La TVA",
+      "url": "https://www.impots.gouv.fr/professionnel/la-tva"
+    },
+    "GB": {
+      "title": "GOV.UK — VAT rates",
+      "url": "https://www.gov.uk/vat-rates"
+    },
+    "IE": {
+      "title": "Revenue Commissioners — VAT rates",
+      "url": "https://www.revenue.ie/en/vat/vat-rates/index.aspx"
+    },
+    "IN": {
+      "title": "CBIC — Goods and Services Tax",
+      "url": "https://www.cbic.gov.in/entities/gst"
+    },
+    "IT": {
+      "title": "Agenzia delle Entrate — Aliquote IVA",
+      "url": "https://www.agenziaentrate.gov.it/portale/web/guest/schede/iva/iva-aliquote"
+    },
+    "JP": {
+      "title": "National Tax Agency — Consumption tax",
+      "url": "https://www.nta.go.jp/english/taxes/consumption_tax/index.htm"
+    },
+    "MX": {
+      "title": "SAT — IVA",
+      "url": "https://www.sat.gob.mx/consultas/44031/conoce-las-tasas-de-iva"
+    },
+    "NL": {
+      "title": "Belastingdienst — Btw-tarieven",
+      "url": "https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/btw/btw_berekenen_aan_uw_klanten/btw_tarieven/btw_tarieven"
+    },
+    "NO": {
+      "title": "Skatteetaten — Merverdiavgift",
+      "url": "https://www.skatteetaten.no/bedrift-og-organisasjon/avgifter/mva/"
+    },
+    "NZ": {
+      "title": "Inland Revenue — GST",
+      "url": "https://www.ird.govt.nz/gst"
+    },
+    "PL": {
+      "title": "Podatki.gov.pl — Stawki VAT",
+      "url": "https://www.podatki.gov.pl/vat/stawki-vat/"
+    },
+    "PT": {
+      "title": "Portal das Finanças — Tabelas de taxas de IVA",
+      "url": "https://www.portaldasfinancas.gov.pt/pt/consultaTabelasTaxas.action"
+    },
+    "SE": {
+      "title": "Skatteverket — Moms",
+      "url": "https://www.skatteverket.se/foretag/moms.html"
+    },
+    "SG": {
+      "title": "IRAS — GST rate",
+      "url": "https://www.iras.gov.sg/taxes/goods-services-tax-(gst)/gst-rate"
+    },
+    "US": {
+      "title": "IRS — State and local sales tax deduction (sales tax is state/local; there is no national US sales tax rate)",
+      "url": "https://www.irs.gov/businesses/small-businesses-self-employed/state-and-local-sales-tax-deduction"
+    },
+    "ZA": {
+      "title": "SARS — Value-Added Tax",
+      "url": "https://www.sars.gov.za/customs-and-excise/valued-added-tax-vat/"
+    }
+  },
+  "version": "tax-presets-2026.2"
 }

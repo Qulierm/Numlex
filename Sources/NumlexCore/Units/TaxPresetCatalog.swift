@@ -86,7 +86,8 @@ public struct TaxPresetCatalog: Sendable, Equatable {
         license = decoded.license
         presets = decoded.presets.map {
             TaxPreset(region: $0.region.uppercased(), name: $0.name,
-                      ratePercent: $0.ratePercent, note: $0.note)
+                      ratePercent: $0.ratePercent, note: $0.note,
+                      sourceTitle: $0.sourceTitle, sourceURL: $0.sourceURL)
         }
         guard !presets.isEmpty else { throw LoadError.malformed("presets") }
         // Region keys are unique; a rate is either nil (manual) or a
@@ -100,6 +101,14 @@ public struct TaxPresetCatalog: Sendable, Equatable {
                 guard rate.isFinite, rate >= 0, rate < 100 else {
                     throw LoadError.malformed("rate \(preset.region)")
                 }
+            }
+            // Official HTTPS provenance is part of the data contract:
+            // every preset must cite the government source that
+            // substantiates its rate (or its manual/no-national-rate
+            // status for the US row).
+            guard !preset.sourceTitle.isEmpty,
+                  preset.sourceURL.hasPrefix("https://") else {
+                throw LoadError.malformed("provenance \(preset.region)")
             }
         }
     }
@@ -134,6 +143,8 @@ public struct TaxPresetCatalog: Sendable, Equatable {
             let name: String
             let ratePercent: Double?
             let note: String
+            let sourceTitle: String
+            let sourceURL: String
         }
     }
 }

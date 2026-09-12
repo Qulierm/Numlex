@@ -326,7 +326,7 @@ public let financeCases: [EngineCase] = [
         guard let catalog = TaxPresetCatalog.shared else {
             throw CaseFailure(message: "tax preset catalog loads", location: "Finance")
         }
-        try expectEqual(catalog.version, "tax-presets-2026.1", "preset dataset version")
+        try expectEqual(catalog.version, "tax-presets-2026.2", "preset dataset version")
         try expectEqual(catalog.presets.count, 25, "25 bundled presets")
         try expectEqual(TaxPresets.preset(for: "AU")?.ratePercent, 10, "AU GST 10")
         try expectEqual(TaxPresets.preset(for: "GB")?.ratePercent, 20, "UK VAT 20")
@@ -340,11 +340,20 @@ public let financeCases: [EngineCase] = [
                        "unique region \(preset.region)")
             try expect(!preset.name.isEmpty, "\(preset.region) name")
             try expect(!preset.note.isEmpty, "\(preset.region) note")
+            // Official HTTPS provenance is mandatory for EVERY preset.
+            try expect(!preset.sourceTitle.isEmpty,
+                       "\(preset.region) source title")
+            try expect(preset.sourceURL.hasPrefix("https://"),
+                       "\(preset.region) HTTPS official source")
             if let rate = preset.ratePercent {
                 try expect(rate.isFinite && rate >= 0 && rate < 100,
                            "\(preset.region) rate domain")
             }
         }
+        // The US manual row cites official evidence that sales tax is
+        // state/local (no national rate).
+        try expect(TaxPresets.preset(for: "US")?.sourceURL.contains("irs.gov") == true,
+                   "US manual-row official evidence")
         // US preset selected: rate stays UNSET until the user enters one.
         let usUnset = FinancialContext(tax: TaxPreferences(preset: "US", name: "Sales Tax",
                                                            ratePercent: nil))
@@ -388,8 +397,8 @@ public let financeCases: [EngineCase] = [
         try expectFin("income tax on €50,000 in DE", "€8,491.38", tax: financial)
         try expectFin("income tax on ₹1,000,000 in IN", "₹40,000.00", tax: financial)
         try expectFin("income tax on ¥5,000,000 in JP", "¥476,500", tax: financial)
-        try expectFin("income tax on A$100,000 in AU", "A$20,788.00", tax: financial)
-        try expectFin("income tax on CA$100,000 in CA", "CA$14,037.93", tax: financial)
+        try expectFin("income tax on A$100,000 in AU", "A$20,520.00", tax: financial)
+        try expectFin("income tax on CA$100,000 in CA", "CA$13,323.35", tax: financial)
         try expectFin("income tax on ₽3,000,000 in RU", "₽402,000.00", tax: financial)
         try expectFin("income tax on €50,000 in FR", "€8,103.99", tax: financial)
         try expectFin("income tax on €50,000 in NL", "€18,076.22", tax: financial)
@@ -494,22 +503,23 @@ public let financeCases: [EngineCase] = [
         let periods: [String: String] = [
             "US": "2026", "GB": "2026/27", "DE": "2026",
             "FR": "2026 (income 2025)", "NL": "2026", "JP": "2026",
-            "RU": "2026", "AU": "2025-26", "CA": "2025",
-            "IN": "AY 2026-27 (FY 2025-26)",
+            "RU": "2026", "AU": "2026-27", "CA": "2026",
+            "IN": "FY 2026-27 (AY 2027-28)",
         ]
         for (country, period) in periods {
             try expectEqual(catalog.table(for: country)?.taxPeriod, period,
                             "\(country) honest tax period")
         }
-        // The three unverified-for-2026 tables carry an explicit
-        // blocker note; the verified seven do not.
-        for country in ["AU", "CA", "IN"] {
-            try expect(catalog.table(for: country)?.note.contains("BLOCKER") == true,
-                       "\(country) blocker note")
-        }
-        for country in ["US", "GB", "DE", "FR", "NL", "JP", "RU"] {
+        // 10/10 tables are applicable in calendar/fiscal 2026 and carry
+        // no blocker note.
+        for country in expected {
+            guard let period = catalog.table(for: country)?.taxPeriod else {
+                throw CaseFailure(message: "\(country) period", location: "Finance")
+            }
+            try expect(period.contains("2026"),
+                       "\(country) period applies in 2026 (got \(period))")
             try expect(catalog.table(for: country)?.note.contains("BLOCKER") != true,
-                       "\(country) verified for 2026")
+                       "\(country) has no 2026 blocker")
         }
     },
 
