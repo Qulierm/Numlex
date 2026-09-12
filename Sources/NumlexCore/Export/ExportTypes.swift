@@ -107,6 +107,10 @@ public struct ExportPresentationContext {
     public let financial: FinancialContext
     public let presentation: NumberPresentationPreferences
     public let language: AppLanguage
+    /// The notebook styling (font design + role colors) captured at
+    /// presentation — document construction never re-reads live
+    /// settings after this point.
+    public let styling: StylingPreferences
 
     public init(sheetID: UUID,
                 sheetTitle: String,
@@ -127,7 +131,8 @@ public struct ExportPresentationContext {
                 preferences: TemporalPreferences,
                 financial: FinancialContext,
                 presentation: NumberPresentationPreferences,
-                language: AppLanguage) {
+                language: AppLanguage,
+                styling: StylingPreferences = .defaults) {
         self.sheetID = sheetID
         self.sheetTitle = sheetTitle
         self.content = content
@@ -148,6 +153,7 @@ public struct ExportPresentationContext {
         self.financial = financial
         self.presentation = presentation
         self.language = language
+        self.styling = styling
     }
 
     /// Logical source lines (the evaluator's exact split).
@@ -242,14 +248,10 @@ public struct ExportSnapshot: Equatable, Sendable {
     public let lineCount: Int
     /// The captured UI language (localized Total label and statuses).
     public let language: AppLanguage
-    /// The captured snapshot instant (used as the PDF creation date,
-    /// so the same captured pass renders byte-identically).
-    public let createdAt: Date
 
     public init(sheetTitle: String, rows: [ExportRow], total: Double?,
                 totalText: String?, options: ExportOptions, lineCount: Int,
-                language: AppLanguage = .en,
-                createdAt: Date = Date()) {
+                language: AppLanguage = .en) {
         self.sheetTitle = sheetTitle
         self.rows = rows
         self.total = total
@@ -257,7 +259,6 @@ public struct ExportSnapshot: Equatable, Sendable {
         self.options = options
         self.lineCount = lineCount
         self.language = language
-        self.createdAt = createdAt
     }
 }
 

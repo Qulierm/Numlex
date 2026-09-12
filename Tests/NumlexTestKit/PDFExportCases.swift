@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import CoreText
+import AppKit
 import NumlexCore
 
 // MARK: - PDF/print export (snapshot, filters, pagination, renderer)
@@ -95,6 +96,165 @@ private func fakeMetrics(pageHeight: Double = 200) -> ExportLayoutMetrics {
     return m
 }
 
+
+private func syntheticRow(_ text: String, answer: String? = nil,
+                          tokens: [ExportToken] = [],
+                          kind: ExportRowKind = .expression,
+                          sourceLine: Int = 1) -> ExportRow {
+    ExportRow(sourceLineNumber: sourceLine, lineID: UUID(), kind: kind,
+              text: text, answer: answer, spans: [], tokens: tokens,
+              highlight: nil, isInlineTotal: false)
+}
+
+private func syntheticSnapshot(_ rows: [ExportRow],
+                               options: ExportOptions = ExportOptions(showTotal: false)) -> ExportSnapshot {
+    ExportSnapshot(sheetTitle: "Probe", rows: rows, total: nil, totalText: nil,
+                   options: options, lineCount: rows.count + 1)
+}
+
+/// The same width model the layout uses: plain text measured plainly, a
+/// token run measured with the token face plus ONE capsule padding per
+/// contiguous run, and one space width between wrapped atoms.
+private func segmentWidth(_ segments: [ExportSegment],
+                          measure: (String) -> Double,
+                          tokenPadding: Double) -> Double {
+    var width = 0.0
+    var lastToken: Int? = nil
+    for s in segments {
+        if s.isJoiningSpace {
+            width += measure(" ")
+            lastToken = nil
+            continue
+        }
+        if let t = s.tokenIndex {
+            width += measure(s.text)
+            if t != lastToken { width += tokenPadding }
+            lastToken = t
+        } else {
+            width += measure(s.text)
+            lastToken = nil
+        }
+    }
+    return width
+}
+
+private struct ExportBitmap {
+    let pixels: [UInt8]
+    let width: Int
+    let height: Int
+    let scale: Int
+
+    func rgb(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+        let i = (y * width + x) * 4
+        return (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
+    }
+
+    func isInk(_ x: Int, _ y: Int) -> Bool {
+        let c = rgb(x, y)
+        return c.0 < 250 || c.1 < 250 || c.2 < 250
+    }
+
+    /// The capsule fill (0.76, 0.86, 1.0) with a small tolerance; the
+    /// border stroke (0.55, 0.63, 0.74) and the label ink are excluded.
+    func isCapsuleFill(_ x: Int, _ y: Int) -> Bool {
+        let c = rgb(x, y)
+        return abs(c.0 - 194) < 24 && abs(c.1 - 219) < 24 && abs(c.2 - 255) < 24
+    }
+
+    /// Dark label/text ink (token text is near-black).
+    func isTextInk(_ x: Int, _ y: Int) -> Bool {
+        let c = rgb(x, y)
+        return c.0 < 120 && c.1 < 120 && c.2 < 120
+    }
+}
+
+private func renderExportBitmap(document: ExportRenderedDocument,
+                                page: Int, scale: Int = 1) -> ExportBitmap? {
+    let size = document.layout.pageSize
+    let w = Int(Double(size.width) * Double(scale))
+    let h = Int(Double(size.height) * Double(scale))
+    guard w > 0, h > 0, document.layout.pages.indices.contains(page) else { return nil }
+    let byteCount = w * h * 4
+    let buffer = UnsafeMutableRawPointer.allocate(byteCount: byteCount, alignment: 4)
+    defer { buffer.deallocate() }
+    guard let ctx = CGContext(data: buffer, width: w, height: h,
+                              bitsPerComponent: 8, bytesPerRow: w * 4,
+                              space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        return nil
+    }
+    ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    ctx.fill(CGRect(origin: .zero, size: size))
+    document.draw(page: document.layout.pages[page], in: ctx)
+    let pixels = [UInt8](UnsafeBufferPointer(start: buffer.assumingMemoryBound(to: UInt8.self),
+                                             count: byteCount))
+    return ExportBitmap(pixels: pixels, width: w, height: h, scale: scale)
+}
+
+private func inkCount(_ data: Data) -> Int {
+    guard let provider = CGDataProvider(data: data as CFData),
+          let pdf = CGPDFDocument(provider),
+          let page = pdf.page(at: 1) else { return 0 }
+    let media = page.getBoxRect(.mediaBox)
+    let w = Int(media.width), h = Int(media.height)
+    guard w > 0, h > 0 else { return 0 }
+    var pixels = [UInt8](repeating: 255, count: w * h * 4)
+    pixels.withUnsafeMutableBytes { buf in
+        if let ctx = CGContext(data: buf.baseAddress, width: w, height: h,
+                               bitsPerComponent: 8, bytesPerRow: w * 4,
+                               space: CGColorSpaceCreateDeviceRGB(),
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.drawPDFPage(page)
+        }
+    }
+    return pixels.enumerated().reduce(0) { count, pair in
+        pair.offset % 4 == 3 ? count : (pair.element < 250 ? count + 1 : count)
+    }
+}
+
+
+/// Reconstructs a row's resolved expression from its visual lines,
+/// re-inserting the single source space consumed at word-wrap breaks
+/// exactly where the source gap is one space character.
+private func reconstructExpression(row: ExportRow,
+                                   visuals: [ExportPlacedVisual]) -> String {
+    let ns = row.text as NSString
+    var out = ""
+    var prevEnd: Int? = nil
+    for placed in visuals {
+        for segment in placed.visual.textSegments {
+            if segment.isJoiningSpace {
+                out += " "
+                if let end = prevEnd { prevEnd = end + 1 }
+                continue
+            }
+            if segment.sourceRange.location != NSNotFound {
+                if let end = prevEnd, segment.sourceRange.location == end + 1,
+                   end < ns.length, ns.character(at: end) == 32 {
+                    out += " "
+                }
+                prevEnd = segment.sourceRange.location + segment.sourceRange.length
+            }
+            out += segment.text
+        }
+    }
+    return out
+}
+
+
+/// QA-only fixture dump (enabled with NUMLEX_EXPORT_FIXTURES=1): writes
+/// the real renderer's output for the stress fixtures so the report can
+/// cite page counts, hashes and pixel bounds.
+private func dumpExportFixture(_ document: ExportRenderedDocument, name: String) {
+    guard ProcessInfo.processInfo.environment["NUMLEX_EXPORT_FIXTURES"] != nil else { return }
+    let dir = "/tmp/qa-out"
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    try? document.pdfData().write(to: URL(fileURLWithPath: "\(dir)/\(name).pdf"))
+}
+
 public let pdfExportCases: [EngineCase] = [
 
     EngineCase("export-range-filters-and-original-line-numbers") {
@@ -183,7 +343,7 @@ public let pdfExportCases: [EngineCase] = [
         let rendered = ExportRenderedDocument(snapshot: snapshot,
                                               fonts: exportFonts(),
                                               palette: ExportPalette())
-        let line = rendered.renderedText(rowIndex: 1)
+        let line = rendered.resolvedText(rowIndex: 1)
         try expect(!line.contains("\u{FFFC}"), "no raw marker in rendered text")
         try expect(line.contains("10"), "token label rendered")
     },
@@ -290,10 +450,14 @@ public let pdfExportCases: [EngineCase] = [
         try expect(doc.pages.count >= 2, "long row fragments across pages")
         let placed = doc.pages.flatMap(\.visuals)
         try expectEqual(placed.count, 3, "three visual fragments")
-        try expectEqual(placed[0].visual.textRange.location, 0, "first fragment start")
-        try expectEqual(placed[1].visual.textRange.location,
-                        (placed[0].visual.textRange.location
-                         + placed[0].visual.textRange.length + 1),
+        func firstSource(_ placed: ExportPlacedVisual) -> NSRange? {
+            placed.visual.textSegments.first { !$0.isJoiningSpace }?.sourceRange
+        }
+        try expectEqual(firstSource(placed[0])?.location, 0, "first fragment start")
+        let lastEnd = placed[0].visual.textSegments.last { !$0.isJoiningSpace }
+            .map { $0.sourceRange.location + $0.sourceRange.length }
+        try expectEqual(firstSource(placed[1])?.location,
+                        lastEnd.map { $0 + 1 },
                         "second fragment continues after the space")
     },
 
@@ -460,6 +624,281 @@ public let pdfExportCases: [EngineCase] = [
         }
         try expectEqual(content(a), content(b), "identical content bytes")
         try expect(a.count > 500, "non-trivial page")
+    },
+
+
+    EngineCase("export-token-layout-width-matches-drawing") {
+        // A long token label in a narrow expression column: the LAYOUT
+        // must reserve the label plus capsule padding exactly where the
+        // renderer draws them, so nothing can overlap the answer column.
+        let label = "1234567.891011"
+        let marker = 6 // "value " prefix
+        let row = syntheticRow("value \u{FFFC} end", answer: label,
+                               tokens: [ExportToken(offset: marker, label: label,
+                                                    active: true)])
+        let snapshot = syntheticSnapshot([row])
+        var metrics = fakeMetrics(pageHeight: 400)
+        metrics.pageSize = CGSize(width: 200, height: 400)
+        metrics.margins = ExportInsets(top: 10, left: 10, bottom: 10, right: 10)
+        metrics.answerFraction = 0.5
+        metrics.columnGap = 10
+        metrics.gutterWidth = 0
+        metrics.tokenHorizontalPadding = 8
+        let measure: (String) -> Double = { Double(($0 as NSString).length) * 7 }
+        let options = ExportOptions(lineNumbers: false, showTotal: false)
+        let snapshot2 = syntheticSnapshot([row], options: options)
+        let doc = ExportLayoutEngine.layout(snapshot: snapshot2, metrics: metrics,
+                                            measure: measure)
+        let visuals = doc.pages.flatMap(\.visuals)
+        try expect(visuals.count >= 3, "long label wraps into fragments")
+        for placed in visuals {
+            let width = segmentWidth(placed.visual.textSegments, measure: measure,
+                                     tokenPadding: 8)
+            try expect(abs(width - placed.visual.textWidth) < 0.001,
+                       "layout and drawing width agree")
+            try expect(width <= doc.expressionWidth + 0.001,
+                       "fragment fits the column (got \(width))")
+        }
+        // Reconstruction: joining every segment in visual order yields
+        // the resolved text exactly (no dropped/duplicated characters).
+        let joined = reconstructExpression(row: row, visuals: visuals)
+        try expectEqual(joined, "value " + label + " end", "exact reconstruction")
+        // The token fragments together carry the label, and each
+        // token-bearing fragment paid the capsule padding.
+        let tokenTexts = visuals.flatMap(\.visual.textSegments)
+            .filter { $0.tokenIndex != nil }.map(\.text)
+        try expectEqual(tokenTexts.joined(), label, "label fragment concatenation")
+        for placed in visuals where placed.visual.textSegments.contains(where: { $0.tokenIndex != nil }) {
+            let tokenText = placed.visual.textSegments
+                .filter { $0.tokenIndex != nil }.map(\.text).joined()
+            try expect(placed.visual.textWidth >= measure(tokenText) + 8 - 0.001,
+                       "capsule padding reserved")
+        }
+    },
+
+    EngineCase("export-hard-break-long-words-and-graphemes") {
+        // 300+ character no-space expression with emoji and a combining
+        // sequence: every emitted fragment must fit the column and the
+        // reconstruction must be character-exact.
+        let emoji = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        let combining = "e\u{0301}"
+        let longWord = String(repeating: "a", count: 120) + emoji + combining
+            + String(repeating: "b", count: 220)
+        let row = syntheticRow(longWord, answer: String(repeating: "z", count: 300))
+        let options = ExportOptions(lineNumbers: false, showTotal: false)
+        let snapshot = syntheticSnapshot([row], options: options)
+        var metrics = fakeMetrics(pageHeight: 400)
+        metrics.pageSize = CGSize(width: 200, height: 400)
+        metrics.margins = ExportInsets(top: 10, left: 10, bottom: 10, right: 10)
+        metrics.answerFraction = 0.5
+        metrics.columnGap = 10
+        metrics.gutterWidth = 0
+        let measure: (String) -> Double = { Double(($0 as NSString).length) * 7 }
+        let doc = ExportLayoutEngine.layout(snapshot: snapshot, metrics: metrics,
+                                            measure: measure)
+        let visuals = doc.pages.flatMap(\.visuals)
+        try expect(visuals.count > 4, "long word fragments across many visuals")
+        for placed in visuals {
+            let width = segmentWidth(placed.visual.textSegments, measure: measure,
+                                     tokenPadding: 8)
+            try expect(width <= doc.expressionWidth + 0.001,
+                       "expression fragment fits (got \(width))")
+        }
+        let joined = visuals.flatMap(\.visual.textSegments).map(\.text).joined()
+        try expectEqual(joined, longWord, "grapheme-safe reconstruction")
+        try expect(joined.contains(emoji), "emoji family kept whole")
+        try expect(joined.contains(combining), "combining sequence kept whole")
+        try expect(!joined.contains("\u{FFFD}"), "no replacement glyph")
+        // Answer column hard-breaks too; ranges cover every character.
+        let answer = row.answer ?? ""
+        var rebuilt = ""
+        var previousEnd: Int? = nil
+        for placed in visuals {
+            guard let range = placed.visual.answerRange else { continue }
+            if let end = previousEnd, end + 1 == range.location {
+                let skipped = (answer as NSString).substring(with: NSRange(location: end, length: 1))
+                if skipped == " " { rebuilt += " " }
+            }
+            let piece = (answer as NSString).substring(with: range)
+            try expect(measure(piece) <= doc.answerWidth + 0.001,
+                       "answer fragment fits")
+            rebuilt += piece
+            previousEnd = range.location + range.length
+        }
+        try expectEqual(rebuilt, answer, "answer reconstruction")
+        dumpExportFixture(ExportRenderedDocument(snapshot: snapshot, fonts: exportFonts(),
+                                                 palette: ExportPalette(),
+                                                 metrics: metrics),
+                          name: "export-fixture-longword")
+    },
+
+    EngineCase("export-long-token-label-fragments-safely") {
+        // A label longer than the whole column must fragment between
+        // graphemes, each fragment keeping capsule padding.
+        let label = String(repeating: "9", count: 320)
+        let row = syntheticRow("\u{FFFC}", answer: nil,
+                               tokens: [ExportToken(offset: 0, label: label,
+                                                    active: true)])
+        let options = ExportOptions(lineNumbers: false, showTotal: false)
+        let snapshot = syntheticSnapshot([row], options: options)
+        var metrics = fakeMetrics(pageHeight: 400)
+        metrics.pageSize = CGSize(width: 200, height: 400)
+        metrics.margins = ExportInsets(top: 10, left: 10, bottom: 10, right: 10)
+        metrics.answerFraction = 0.5
+        metrics.columnGap = 10
+        metrics.gutterWidth = 0
+        let measure: (String) -> Double = { Double(($0 as NSString).length) * 7 }
+        let doc = ExportLayoutEngine.layout(snapshot: snapshot, metrics: metrics,
+                                            measure: measure)
+        let visuals = doc.pages.flatMap(\.visuals)
+        try expect(visuals.count >= 8, "label fragments across visuals")
+        for placed in visuals {
+            let width = segmentWidth(placed.visual.textSegments, measure: measure,
+                                     tokenPadding: 8)
+            try expect(width <= doc.expressionWidth + 0.001,
+                       "token fragment fits (got \(width))")
+        }
+        let joined = visuals.flatMap(\.visual.textSegments).map(\.text).joined()
+        try expectEqual(joined, label, "token label reconstruction")
+        dumpExportFixture(ExportRenderedDocument(snapshot: snapshot, fonts: exportFonts(),
+                                                 palette: ExportPalette(),
+                                                 metrics: metrics),
+                          name: "export-fixture-longtoken")
+    },
+
+    EngineCase("export-bitmap-capsule-geometry-and-margins") {
+        let label = "123456.789"
+        let row = syntheticRow("#heading\n".isEmpty ? "" : "value \u{FFFC}",
+                               answer: label,
+                               tokens: [ExportToken(offset: 6, label: label,
+                                                    active: true)])
+        let long = syntheticRow(String(repeating: "w", count: 300), sourceLine: 2)
+        let snapshot = syntheticSnapshot([row, long],
+                                         options: ExportOptions(showTotal: false))
+        let doc = ExportRenderedDocument(snapshot: snapshot,
+                                         fonts: exportFonts(size: 11),
+                                         palette: ExportPalette())
+        guard let bitmap = renderExportBitmap(document: doc, page: 0) else {
+            throw CaseFailure(message: "bitmap render failed", location: "Export")
+        }
+        let pageH = Int(doc.layout.pageSize.height)
+        let pageW = Int(doc.layout.pageSize.width)
+        // 1) No ink outside the page margins.
+        var minX = Int.max, maxX = Int.min
+        for y in 0..<pageH {
+            for x in 0..<pageW where bitmap.isInk(x, y) {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+            }
+        }
+        try expect(minX >= Int(doc.metrics.margins.left) - 3,
+                   "ink respects the left margin (minX=\(minX))")
+        try expect(maxX <= pageW - Int(doc.metrics.margins.right) + 3,
+                   "ink respects the right margin (maxX=\(maxX))")
+        // 2) The expression cell never spills into the answer column.
+        guard let placed0 = doc.layout.pages[0].visuals.first(where: { $0.visual.rowIndex == 0 }) else {
+            throw CaseFailure(message: "row 0 placement", location: "Export")
+        }
+        // CGBitmapContext memory rows are top-down (row 0 = top of the
+        // page), so the row band maps directly from top-down points.
+        let bandTop = Double(placed0.frame.minY)
+        let bandBottom = Double(placed0.frame.maxY)
+        let bandMinY = max(Int(bandTop) - 3, 0)
+        let bandMaxY = min(Int(bandBottom) + 3, pageH - 1)
+        var exprMaxX = Int.min
+        for y in bandMinY...bandMaxY {
+            for x in 0..<Int(doc.layout.answerX) where bitmap.isInk(x, y) {
+                exprMaxX = max(exprMaxX, x)
+            }
+        }
+        try expect(Double(exprMaxX) <= doc.layout.expressionX + doc.layout.expressionWidth + 3,
+                   "expression ink inside its column (got \(exprMaxX))")
+        // 3) Capsule fill pixels sit at the ROW's position (not mirrored
+        // near the page bottom) and surround the label ink.
+        var capsulePixels: [(Int, Int)] = []
+        for y in 0..<pageH {
+            for x in 0..<pageW where bitmap.isCapsuleFill(x, y) {
+                capsulePixels.append((x, y))
+            }
+        }
+        try expect(capsulePixels.count > 30, "capsule fill drawn")
+        let capsuleMinY = capsulePixels.map(\.1).min() ?? 0
+        let capsuleMaxY = capsulePixels.map(\.1).max() ?? 0
+        try expect(capsuleMinY >= bandMinY,
+                   "capsule not below the row (c=\(capsuleMinY) band=\(bandMinY)...\(bandMaxY))")
+        try expect(capsuleMaxY <= bandMaxY,
+                   "capsule not above the row (c=\(capsuleMaxY) band=\(bandMinY)...\(bandMaxY))")
+        try expect(capsuleMaxY < pageH / 2,
+                   "capsule is in the upper page band (not mirrored at the bottom; maxY=\(capsuleMaxY))")
+        let capsuleMinX = capsulePixels.map(\.0).min() ?? 0
+        let capsuleMaxX = capsulePixels.map(\.0).max() ?? 0
+        try expect(capsuleMaxX - capsuleMinX > Int(7 * 11 / 2),
+                   "capsule spans the label plus padding")
+        var textInsideCapsule = false
+        for y in capsuleMinY...capsuleMaxY {
+            for x in capsuleMinX...capsuleMaxX where bitmap.isTextInk(x, y) {
+                textInsideCapsule = true
+            }
+        }
+        try expect(textInsideCapsule, "label ink inside the capsule")
+    },
+
+    EngineCase("export-print-operation-save-to-pdf-matches-renderer") {
+        // The NONINTERACTIVE print path: the exact production paginated
+        // view, driven by a real NSPrintOperation that saves to a file.
+        try MainActor.assumeIsolated {
+            // The NONINTERACTIVE print path: the exact production paginated
+            // view, driven by a real NSPrintOperation that saves to a file.
+            _ = NSApplication.shared
+            let ctx = exportContext("1 + 1\n2 + 2\n3 + 3", title: "Print Probe")
+            let snapshot = try exportBuild(ctx, ExportOptions())
+            let doc = ExportRenderedDocument(snapshot: snapshot,
+                                             fonts: exportFonts(),
+                                             palette: ExportPalette())
+            let view = ExportPaginatedPrintView(document: doc)
+            var range = NSRange(location: 0, length: 0)
+            try expect(view.knowsPageRange(&range), "knowsPageRange")
+            try expectEqual(range.length, doc.pageCount, "page range length")
+            try expectEqual(view.rectForPage(1).height,
+                            CGFloat(doc.layout.pageSize.height), "page 1 geometry")
+            let path = FileManager.default.temporaryDirectory
+                .appendingPathComponent("numlex-print-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: path) }
+            let info = NSPrintInfo()
+            info.paperSize = NSSize(width: doc.layout.pageSize.width,
+                                    height: doc.layout.pageSize.height)
+            info.topMargin = 0
+            info.bottomMargin = 0
+            info.leftMargin = 0
+            info.rightMargin = 0
+            info.horizontalPagination = .fit
+            info.verticalPagination = .fit
+            info.jobDisposition = .save
+            info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = path
+            let operation = NSPrintOperation(view: view, printInfo: info)
+            operation.showsPrintPanel = false
+            operation.showsProgressPanel = false
+            operation.run()
+            try expect(FileManager.default.fileExists(atPath: path.path),
+                       "print operation wrote a PDF")
+            guard let data = try? Data(contentsOf: path),
+                  let provider = CGDataProvider(data: data as CFData),
+                  let printed = CGPDFDocument(provider) else {
+                throw CaseFailure(message: "printed PDF unreadable", location: "Export")
+            }
+            try expectEqual(printed.numberOfPages, doc.pageCount,
+                            "printed page count matches the renderer")
+            let media = printed.page(at: 1)?.getBoxRect(.mediaBox) ?? .zero
+            try expectEqual(Double(media.width), Double(doc.layout.pageSize.width),
+                            "printed page width")
+            try expectEqual(Double(media.height), Double(doc.layout.pageSize.height),
+                            "printed page height")
+            let printedInk = inkCount(data)
+            let directInk = inkCount(doc.pdfData())
+            try expect(printedInk > 100, "printed page has ink")
+            try expect(abs(printedInk - directInk) < max(directInk / 10, 200),
+                       "printed ink matches the direct renderer (\(printedInk) vs \(directInk))")
+        }
     },
 
     EngineCase("export-localization-six-languages") {

@@ -146,6 +146,13 @@ public struct ExportFonts {
             pageSize: pageSize,
             margins: margins)
     }
+
+    /// The measurer the LAYOUT uses: the exact faces the renderer draws.
+    public var measurer: ExportTextMeasurer {
+        ExportTextMeasurer(
+            plain: { ExportRenderedDocument.measure($0, font: self.expression) },
+            token: { ExportRenderedDocument.measure($0, font: self.token) })
+    }
 }
 
 // MARK: - The renderer
@@ -169,12 +176,9 @@ public struct ExportRenderedDocument {
         self.palette = palette
         let resolved = metrics ?? fonts.metrics(pageSize: ExportLayoutMetrics.letter.pageSize)
         self.metrics = resolved
-        self.layout = ExportLayoutEngine.layout(
-            snapshot: snapshot,
-            metrics: resolved,
-            measure: { text in
-                ExportRenderedDocument.measure(text, font: fonts.expression)
-            })
+        self.layout = ExportLayoutEngine.layout(snapshot: snapshot,
+                                                metrics: resolved,
+                                                measurer: fonts.measurer)
     }
 
     /// Single-line width of `text` in `font` (CoreText metrics).
@@ -187,8 +191,7 @@ public struct ExportRenderedDocument {
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
-        let width = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-        return width
+        return CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
     }
 
     public var pageCount: Int { layout.pages.count }
@@ -229,16 +232,16 @@ public struct ExportRenderedDocument {
 
     /// Draws one page into a context whose page-local coordinates are
     /// (0, 0, pageWidth, pageHeight) with the origin at the BOTTOM LEFT
-    /// (PDF/AppKit default).
+    /// (PDF/AppKit default). Every top-down layout coordinate is
+    /// converted here through the single `cgRect` helper, so text,
+    /// capsules and fills can never disagree about Y.
     public func draw(page: ExportPage, in ctx: CGContext) {
         let size = layout.pageSize
-        // White printable page.
         ctx.setFillColor(ExportColor.white.cgColor)
         ctx.fill(CGRect(origin: .zero, size: size))
 
         drawChrome(page: page, in: ctx)
 
-        let bodyStart = layout.contentTop
         for placed in page.visuals {
             let row = snapshot.rows[placed.visual.rowIndex]
             // Persistent line highlight behind the full body width.
@@ -248,9 +251,9 @@ public struct ExportRenderedDocument {
                 let top = placed.frame.minY
                 let bottom = max(placed.answerFrame?.maxY ?? placed.frame.maxY,
                                  placed.frame.maxY)
-                ctx.fill(rect(x: metrics.margins.left, top: top,
-                              width: size.width - metrics.margins.left - metrics.margins.right,
-                              height: max(bottom - top, 1), pageHeight: size.height))
+                ctx.fill(cgRect(x: metrics.margins.left, top: top,
+                                width: size.width - metrics.margins.left - metrics.margins.right,
+                                height: max(bottom - top, 1)))
             }
             // Gutter: the ORIGINAL source number, only on the row's
             // first visual line.
@@ -261,17 +264,15 @@ public struct ExportRenderedDocument {
                          x: metrics.margins.left + layout.gutterWidth - 8,
                          top: placed.frame.minY,
                          alignRightAt: metrics.margins.left + layout.gutterWidth - 8,
-                         pageHeight: size.height,
                          in: ctx)
             }
-            drawExpression(row: row, placed: placed, pageHeight: size.height, in: ctx)
-            drawAnswer(row: row, placed: placed, pageHeight: size.height, in: ctx)
+            drawExpression(row: row, placed: placed, in: ctx)
+            drawAnswer(row: row, placed: placed, in: ctx)
         }
 
         if let totalFrame = page.totalFrame, let totalText = snapshot.totalText {
-            drawTotal(totalText, frame: totalFrame, pageHeight: size.height, in: ctx)
+            drawTotal(totalText, frame: totalFrame, in: ctx)
         }
-        _ = bodyStart
     }
 
     // MARK: Chrome
@@ -284,7 +285,6 @@ public struct ExportRenderedDocument {
                  color: palette.baseText,
                  x: metrics.margins.left,
                  top: top,
-                 pageHeight: size.height,
                  in: ctx)
         let pageLabel = "\(page.index) / \(layout.pages.count)"
         drawLine(text: pageLabel,
@@ -293,26 +293,22 @@ public struct ExportRenderedDocument {
                  x: size.width - metrics.margins.right,
                  top: top,
                  alignRightAt: size.width - metrics.margins.right,
-                 pageHeight: size.height,
                  in: ctx)
-        // Hairline rule under the header.
         ctx.setStrokeColor(palette.rule.cgColor)
         ctx.setLineWidth(0.5)
         let ruleTop = top + metrics.chromeLineHeight + 6
-        ctx.stroke(rect(x: metrics.margins.left, top: ruleTop,
-                        width: size.width - metrics.margins.left - metrics.margins.right,
-                        height: 0.5, pageHeight: size.height))
+        ctx.stroke(cgRect(x: metrics.margins.left, top: ruleTop,
+                          width: size.width - metrics.margins.left - metrics.margins.right,
+                          height: 0.5))
     }
 
-    private func drawTotal(_ text: String, frame: CGRect,
-                           pageHeight: Double, in ctx: CGContext) {
+    private func drawTotal(_ text: String, frame: CGRect, in ctx: CGContext) {
         let label = L10n.t("total", language: snapshot.language)
         drawLine(text: label,
                  font: fonts.chrome,
                  color: palette.chromeText,
                  x: frame.minX,
                  top: frame.minY,
-                 pageHeight: pageHeight,
                  in: ctx)
         let labelWidth = ExportRenderedDocument.measure(label, font: fonts.chrome)
         drawLine(text: text,
@@ -320,22 +316,72 @@ public struct ExportRenderedDocument {
                  color: palette.baseText,
                  x: frame.minX + labelWidth + 10,
                  top: frame.minY,
-                 pageHeight: pageHeight,
                  in: ctx)
     }
 
+    // MARK: Row cells
+
     private func drawExpression(row: ExportRow, placed: ExportPlacedVisual,
-                                pageHeight: Double, in ctx: CGContext) {
-        let attributed = expressionText(row: row, range: placed.visual.textRange)
-        guard attributed.length > 0 else { return }
-        let width = max(Double(placed.frame.width), 1)
-        drawAttributed(attributed, x: Double(placed.frame.minX),
-                       top: Double(placed.frame.minY),
-                       width: width, pageHeight: pageHeight, in: ctx)
+                                in ctx: CGContext) {
+        ctx.saveGState()
+        // Defensive cell clip: fragments are guaranteed to fit by the
+        // layout, so this can never hide correctly wrapped content.
+        ctx.clip(to: cgRect(frame: placed.frame))
+        var x = Double(placed.frame.minX)
+        var index = 0
+        let segments = placed.visual.textSegments
+        while index < segments.count {
+            let segment = segments[index]
+            if let tokenIndex = segment.tokenIndex {
+                // Coalesce adjacent fragments of the SAME token into one
+                // capsule (a token broken at a line end stays one element
+                // per line).
+                var text = segment.text
+                let active = segment.active
+                var j = index + 1
+                while j < segments.count,
+                      segments[j].tokenIndex == tokenIndex {
+                    text += segments[j].text
+                    j += 1
+                }
+                let labelWidth = ExportRenderedDocument.measure(text, font: fonts.token)
+                let capsuleWidth = labelWidth + metrics.tokenHorizontalPadding
+                let capsuleHeight = max(metrics.tokenLineHeight, 8)
+                let capsuleTop = Double(placed.frame.minY)
+                    + (Double(placed.frame.height) - capsuleHeight) / 2
+                let rect = cgRect(x: x, top: capsuleTop,
+                                  width: capsuleWidth, height: capsuleHeight)
+                let path = CGPath(roundedRect: rect, cornerWidth: 5, cornerHeight: 5,
+                                  transform: nil)
+                ctx.setFillColor((active ? palette.tokenFill : palette.tokenFillInactive).cgColor)
+                ctx.addPath(path)
+                ctx.fillPath()
+                if active {
+                    ctx.setStrokeColor(palette.tokenBorder.cgColor)
+                    ctx.setLineWidth(0.5)
+                    ctx.addPath(path)
+                    ctx.strokePath()
+                }
+                drawLine(text: text, font: fonts.token,
+                         color: active ? palette.tokenText : palette.tokenTextInactive,
+                         x: x + metrics.tokenHorizontalPadding / 2,
+                         top: Double(placed.frame.minY),
+                         width: capsuleWidth,
+                         in: ctx)
+                x += capsuleWidth
+                index = j
+            } else {
+                let attributed = attributedPlainSegment(row: row, segment: segment)
+                x += drawAttributed(attributed, x: x,
+                                    top: Double(placed.frame.minY), in: ctx)
+                index += 1
+            }
+        }
+        ctx.restoreGState()
     }
 
     private func drawAnswer(row: ExportRow, placed: ExportPlacedVisual,
-                            pageHeight: Double, in ctx: CGContext) {
+                            in ctx: CGContext) {
         guard let answerRange = placed.visual.answerRange,
               let answerFrame = placed.answerFrame,
               let answer = row.answer else { return }
@@ -346,69 +392,50 @@ public struct ExportRenderedDocument {
         let base = row.kind == .heading ? palette.headingBody : palette.baseText
         let color = row.isInlineTotal ? palette.baseText : base
         let font = row.isInlineTotal ? fonts.semiboldAnswer : fonts.answer
+        ctx.saveGState()
+        ctx.clip(to: cgRect(frame: answerFrame))
         drawLine(text: text, font: font, color: color,
                  x: Double(answerFrame.minX), top: Double(answerFrame.minY),
-                 width: Double(answerFrame.width),
-                 pageHeight: pageHeight, in: ctx)
+                 width: Double(answerFrame.width), in: ctx)
+        ctx.restoreGState()
     }
 
     // MARK: Text building
 
-    /// Builds one visual line's attributed text: the shared syntax
-    /// roles (only when highlighting is on), the `#` heading
-    /// typography, and the inline token capsules replaced by their
-    /// labels. The layout measured the raw text; token labels are wider
-    /// than one U+FFFC, so the line's real width can exceed the layout
-    /// measurement — drawing stays within the cell and clips at the
-    /// answer column's edge (never overlapping it).
-    public func expressionText(row: ExportRow, range: NSRange) -> NSAttributedString {
+    /// The renderer's final inline text for one row (token labels
+    /// substituted for their U+FFFC markers) — exposed so tests can
+    /// prove no replacement glyph and no stored snapshot value ever
+    /// reaches the page.
+    public func resolvedText(rowIndex: Int) -> String {
+        guard snapshot.rows.indices.contains(rowIndex) else { return "" }
+        return ExportLayoutEngine.resolvedText(row: snapshot.rows[rowIndex])
+    }
+
+    /// The attributed text of one plain segment: the row's base
+    /// typography plus every syntax span intersecting the segment's
+    /// source range (token replacements are never re-colored).
+    private func attributedPlainSegment(row: ExportRow,
+                                        segment: ExportSegment) -> NSAttributedString {
         let ns = row.text as NSString
+        let range = segment.sourceRange
         let clampedLocation = min(max(range.location, 0), ns.length)
         let clampedLength = min(max(range.length, 0), ns.length - clampedLocation)
-        let rect = NSRange(location: clampedLocation, length: clampedLength)
-        let source = NSMutableAttributedString(string: ns.substring(with: rect),
-                                               attributes: baseAttributes(row: row))
-        if snapshot.options.syntaxHighlighting {
+        let clamped = NSRange(location: clampedLocation, length: clampedLength)
+        let source = NSMutableAttributedString(
+            string: ns.substring(with: clamped),
+            attributes: baseAttributes(row: row))
+        if snapshot.options.syntaxHighlighting, row.kind != .heading {
             for span in row.spans {
-                let spanRange = NSRange(location: span.range.location - clampedLocation,
-                                        length: span.range.length)
-                let start = max(spanRange.location, 0)
-                let end = min(NSMaxRange(spanRange), source.length)
+                let start = max(span.range.location - clamped.location, 0)
+                let end = min(NSMaxRange(span.range) - clamped.location, source.length)
                 guard end > start else { continue }
-                // Heading typography owns its own colors.
-                guard row.kind != .heading else { continue }
                 source.addAttribute(
                     NSAttributedString.Key(kCTForegroundColorAttributeName as String),
                     value: palette.color(for: span.role).cgColor,
                     range: NSRange(location: start, length: end - start))
             }
         }
-        // Inline tokens, replaced from LAST to FIRST so earlier offsets
-        // stay valid; the replacement carries the token face and ink.
-        let tokensInRange = row.tokens
-            .filter { $0.offset >= rect.location && $0.offset < NSMaxRange(rect) }
-            .sorted { $0.offset > $1.offset }
-        for token in tokensInRange {
-            let local = token.offset - rect.location
-            guard local >= 0, local < source.length else { continue }
-            let replacement = NSAttributedString(
-                string: token.label,
-                attributes: tokenAttributes(active: token.active))
-            source.replaceCharacters(in: NSRange(location: local, length: 1),
-                                     with: replacement)
-        }
         return source
-    }
-
-    /// The renderer's final inline text for one row (token labels
-    /// substituted for their U+FFFC markers) — exposed so tests can
-    /// prove no replacement glyph and no stored snapshot value ever
-    /// reaches the page.
-    public func renderedText(rowIndex: Int) -> String {
-        guard snapshot.rows.indices.contains(rowIndex) else { return "" }
-        let row = snapshot.rows[rowIndex]
-        let full = NSRange(location: 0, length: (row.text as NSString).length)
-        return expressionText(row: row, range: full).string
     }
 
     private func baseAttributes(row: ExportRow) -> [NSAttributedString.Key: Any] {
@@ -431,81 +458,31 @@ public struct ExportRenderedDocument {
         ]
     }
 
-    /// Marks a replaced token label so the capsule pass finds exactly
-    /// the runs the label replacement created (never a look-alike color).
-    static let tokenRunAttribute = NSAttributedString.Key("NumlexExportToken")
-
-    private func tokenAttributes(active: Bool) -> [NSAttributedString.Key: Any] {
-        [
-            NSAttributedString.Key(kCTFontAttributeName as String): fonts.token,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String):
-                (active ? palette.tokenText : palette.tokenTextInactive).cgColor,
-            Self.tokenRunAttribute: active,
-        ]
-    }
-
-    /// Draws one line of text, TOP-aligned at `top` (top-down). Text
-    /// uses its own typographic ascent so mixed token fonts share a
-    /// baseline; an optional right edge aligns the line's right side.
+    /// Draws one attributed run at `x`, top-aligned at `top` (top-down),
+    /// and returns its advance so the next segment continues inline.
     @discardableResult
     private func drawAttributed(_ attributed: NSAttributedString, x: Double,
-                                top: Double, width: Double,
-                                pageHeight: Double, in ctx: CGContext) -> CTLine {
+                                top: Double, in ctx: CGContext) -> Double {
+        guard attributed.length > 0 else { return 0 }
         let line = CTLineCreateWithAttributedString(attributed)
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
-        _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-        let baseline = pageHeight - top - Double(ascent)
+        let advance = Double(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
         ctx.textMatrix = .identity
-        ctx.textPosition = CGPoint(x: x, y: baseline)
-        // Inline token capsules behind the labels.
-        drawTokenCapsules(attributed: attributed, line: line, x: x, top: top,
-                          pageHeight: pageHeight, in: ctx)
+        ctx.textPosition = CGPoint(x: x, y: cgY(top: top, ascent: Double(ascent)))
         CTLineDraw(line, ctx)
-        return line
-    }
-
-    private func drawTokenCapsules(attributed: NSAttributedString, line: CTLine,
-                                   x: Double, top: Double,
-                                   pageHeight: Double, in ctx: CGContext) {
-        _ = pageHeight
-        // Token runs are the replaced labels: find runs in the token
-        // ink and draw their capsule boxes behind them.
-        var cursor = 0
-        while cursor < attributed.length {
-            var effective = NSRange(location: 0, length: 0)
-            let attrs = attributed.attributes(at: cursor, effectiveRange: &effective)
-            if let active = attrs[Self.tokenRunAttribute] as? Bool {
-                let start = CTLineGetOffsetForStringIndex(line, effective.location, nil)
-                let end = CTLineGetOffsetForStringIndex(line, NSMaxRange(effective), nil)
-                let rect = CGRect(x: x + Double(start) - 4,
-                                  y: top + 2,
-                                  width: max(Double(end - start) + 8, 4),
-                                  height: max(metrics.tokenLineHeight - 4, 4))
-                let path = CGPath(roundedRect: rect, cornerWidth: 5, cornerHeight: 5,
-                                  transform: nil)
-                ctx.setFillColor((active ? palette.tokenFill : palette.tokenFillInactive).cgColor)
-                ctx.addPath(path)
-                ctx.fillPath()
-                if active {
-                    ctx.setStrokeColor(palette.tokenBorder.cgColor)
-                    ctx.setLineWidth(0.5)
-                    ctx.addPath(path)
-                    ctx.strokePath()
-                }
-            }
-            cursor = NSMaxRange(effective)
-        }
+        return advance
     }
 
     /// One plain line (chrome, gutter, answers, total) with optional
-    /// right alignment at `alignRightAt`.
+    /// right alignment. The line is never wrapped here (the layout
+    /// already wrapped it); an optional `width` clips defensively.
     private func drawLine(text: String, font: CTFont, color: ExportColor,
                           x: Double, top: Double,
                           alignRightAt: Double? = nil,
                           width: Double? = nil,
-                          pageHeight: Double, in ctx: CGContext) {
+                          in ctx: CGContext) {
         guard !text.isEmpty else { return }
         _ = width
         let attributed = NSAttributedString(string: text, attributes: [
@@ -513,23 +490,36 @@ public struct ExportRenderedDocument {
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): color.cgColor,
         ])
         let line = CTLineCreateWithAttributedString(attributed)
-        let lineWidth = CTLineGetTypographicBounds(line, nil, nil, nil)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let advance = Double(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
         var startX = x
         if let alignRightAt {
-            startX = alignRightAt - lineWidth
+            startX = alignRightAt - advance
         }
-        var ascent: CGFloat = 0
-        _ = CTLineGetTypographicBounds(line, &ascent, nil, nil)
         ctx.textMatrix = .identity
-        ctx.textPosition = CGPoint(x: startX, y: pageHeight - top - Double(ascent))
+        ctx.textPosition = CGPoint(x: startX, y: cgY(top: top, ascent: Double(ascent)))
         CTLineDraw(line, ctx)
     }
 
     // MARK: Coordinates
 
-    /// Converts a top-down rect into the context's bottom-up origin.
-    private func rect(x: Double, top: Double, width: Double,
-                      height: Double, pageHeight: Double) -> CGRect {
-        CGRect(x: x, y: pageHeight - top - height, width: width, height: height)
+    /// Top-down Y -> baseline Y for text.
+    private func cgY(top: Double, ascent: Double) -> Double {
+        layout.pageSize.height - top - ascent
+    }
+
+    /// Top-down rect -> the context's bottom-up rect. THE single
+    /// conversion used by every fill, capsule and clip.
+    private func cgRect(x: Double, top: Double, width: Double,
+                        height: Double) -> CGRect {
+        CGRect(x: x, y: layout.pageSize.height - top - height,
+               width: width, height: height)
+    }
+
+    private func cgRect(frame: CGRect) -> CGRect {
+        cgRect(x: Double(frame.minX), top: Double(frame.minY),
+               width: Double(frame.width), height: Double(frame.height))
     }
 }

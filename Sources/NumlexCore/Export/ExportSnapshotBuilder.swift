@@ -173,8 +173,7 @@ public enum ExportSnapshotBuilder {
                                       totalText: totalText,
                                       options: options,
                                       lineCount: lineCount,
-                                      language: context.language,
-                                      createdAt: context.now)
+                                      language: context.language)
         return .success(snapshot)
     }
 

@@ -217,7 +217,8 @@ struct ContentView: View {
             preferences: settings.temporal,
             financial: model.financialContext,
             presentation: settings.presentation,
-            language: settings.language)
+            language: settings.language,
+            styling: settings.styling)
         exportOptions = exportOptions.clamped(toLineCount: context.lineCount)
         exportPresentation = ExportPresentation(
             mode: mode,
@@ -231,10 +232,12 @@ struct ContentView: View {
     private func renderedDocument(for presentation: ExportPresentation) throws -> ExportRenderedDocument {
         let snapshot = try ExportSnapshotBuilder.build(context: presentation.context,
                                                        options: exportOptions).get()
-        let settings = model.settings
+        // Document construction consumes ONLY the frozen presentation
+        // and the session options — never live settings.
+        let styling = presentation.context.styling
         let fonts = ExportFontCatalog.fonts(options: exportOptions,
-                                            styling: settings.styling)
-        let palette = ExportPalette.printPalette(styling: settings.styling)
+                                            styling: styling)
+        let palette = ExportPalette.printPalette(styling: styling)
         let metrics = fonts.metrics(pageSize: presentation.paperSize)
         return ExportRenderedDocument(snapshot: snapshot, fonts: fonts,
                                       palette: palette, metrics: metrics)
@@ -293,7 +296,7 @@ struct ContentView: View {
                 info.verticalPagination = .fit
                 info.isHorizontallyCentered = false
                 info.isVerticallyCentered = false
-                let view = ExportPrintView(document: doc)
+                let view = ExportPaginatedPrintView(document: doc)
                 let operation = NSPrintOperation(view: view, printInfo: info)
                 operation.showsPrintPanel = true
                 operation.showsProgressPanel = true

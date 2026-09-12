@@ -29,6 +29,10 @@ public struct ExportLayoutMetrics: Equatable, Sendable {
     public var headingLineHeight: Double
     public var chromeLineHeight: Double
     public var tokenLineHeight: Double
+    /// Total horizontal capsule padding around one token label. The
+    /// LAYOUT reserves this width and the renderer draws it, so the two
+    /// can never disagree.
+    public var tokenHorizontalPadding: Double
     public var rowSpacing: Double
     public var visualSpacing: Double
     public var headerHeight: Double
@@ -47,6 +51,7 @@ public struct ExportLayoutMetrics: Equatable, Sendable {
                 headingLineHeight: Double = 26,
                 chromeLineHeight: Double = 14,
                 tokenLineHeight: Double = 20,
+                tokenHorizontalPadding: Double = 8,
                 rowSpacing: Double = 6,
                 visualSpacing: Double = 2,
                 headerHeight: Double = 30,
@@ -63,6 +68,7 @@ public struct ExportLayoutMetrics: Equatable, Sendable {
         self.headingLineHeight = headingLineHeight
         self.chromeLineHeight = chromeLineHeight
         self.tokenLineHeight = tokenLineHeight
+        self.tokenHorizontalPadding = tokenHorizontalPadding
         self.rowSpacing = rowSpacing
         self.visualSpacing = visualSpacing
         self.headerHeight = headerHeight
@@ -84,69 +90,71 @@ public struct ExportLayoutMetrics: Equatable, Sendable {
         pageSize: CGSize(width: 595.276, height: 841.89))
 }
 
-/// The greedy word wrapper shared by layout and drawing: every visual
-/// line is an `NSRange` into the row's display text, so the renderer
-/// draws exactly the text the layout measured. An unbreakable word
-/// wider than the column stays on its own (clipped) line — it is never
-/// dropped and never overlaps the following line.
-public enum ExportTextWrapper {
-    public static func wrap(_ text: String,
-                            maxWidth: Double,
-                            measure: (String) -> Double) -> [NSRange] {
-        let ns = text as NSString
-        guard ns.length > 0 else { return [] }
-        var ranges: [NSRange] = []
-        var lineStart = 0
-        var cursor = 0
-        while cursor < ns.length {
-            // Find the end of the next word (the next space or the end).
-            var wordEnd = cursor
-            while wordEnd < ns.length, ns.character(at: wordEnd) != 32 { wordEnd += 1 }
-            let candidateEnd = wordEnd
-            let candidate = ns.substring(with: NSRange(location: lineStart,
-                                                       length: candidateEnd - lineStart))
-            let candidateWidth = measure(candidate)
-            let isSingleWord = lineStart == cursor
-            if !isSingleWord, candidateWidth > maxWidth, maxWidth > 0 {
-                // Break BEFORE this word: the previous line (already
-                // measured to fit) is complete.
-                ranges.append(NSRange(location: lineStart, length: cursor - 1 - lineStart))
-                lineStart = cursor
-                continue
-            }
-            if wordEnd >= ns.length {
-                let end = ns.length
-                ranges.append(NSRange(location: lineStart, length: end - lineStart))
-                lineStart = end
-                cursor = end
-                break
-            }
-            // Advance past the space.
-            cursor = wordEnd + 1
-        }
-        if ranges.isEmpty {
-            ranges.append(NSRange(location: 0, length: ns.length))
-        }
-        return ranges
+/// The measured width of one text atom: plain source text is measured
+/// with the body face, a token label with the token face. Both are the
+/// EXACT faces the renderer draws with.
+public struct ExportTextMeasurer {
+    public var plain: (String) -> Double
+    public var token: (String) -> Double
+
+    public init(plain: @escaping (String) -> Double,
+                token: @escaping (String) -> Double) {
+        self.plain = plain
+        self.token = token
+    }
+
+    /// One measurement for both kinds (tests, uniform faces).
+    public static func uniform(_ measure: @escaping (String) -> Double) -> ExportTextMeasurer {
+        ExportTextMeasurer(plain: measure, token: measure)
     }
 }
 
-/// One wrapped visual line of a row (expression range and, when the row
-/// has an answer, its independently wrapped answer range).
+/// One drawable segment of a resolved visual line. `sourceRange` is the
+/// exact range in the row's display text for plain runs; token labels
+/// carry the marker's range (length 1) but draw the resolved label.
+/// Concatenating the segments of every visual line (with the joining
+/// spaces between wrapped atoms) reconstructs the resolved text
+/// character for character — nothing is dropped or duplicated.
+public struct ExportSegment: Equatable, Sendable {
+    public let sourceRange: NSRange
+    public let text: String
+    /// Index into `ExportRow.tokens` for a substituted token label.
+    public let tokenIndex: Int?
+    public let active: Bool
+    public let isJoiningSpace: Bool
+
+    public init(sourceRange: NSRange, text: String, tokenIndex: Int? = nil,
+                active: Bool = false, isJoiningSpace: Bool = false) {
+        self.sourceRange = sourceRange
+        self.text = text
+        self.tokenIndex = tokenIndex
+        self.active = active
+        self.isJoiningSpace = isJoiningSpace
+    }
+}
+
+/// One wrapped visual line of a row: resolved expression segments plus,
+/// independently wrapped, the answer range (plain text).
 public struct ExportRowVisual: Equatable, Sendable {
     public let rowIndex: Int
-    public let textRange: NSRange
+    public let textSegments: [ExportSegment]
     public let answerRange: NSRange?
     public let height: Double
     public let isContinuation: Bool
+    /// The measured width of the resolved expression segments,
+    /// including token capsule padding. Guaranteed <= the expression
+    /// column width except for a single grapheme wider than the column.
+    public let textWidth: Double
 
-    public init(rowIndex: Int, textRange: NSRange, answerRange: NSRange?,
-                height: Double, isContinuation: Bool) {
+    public init(rowIndex: Int, textSegments: [ExportSegment],
+                answerRange: NSRange?, height: Double, isContinuation: Bool,
+                textWidth: Double) {
         self.rowIndex = rowIndex
-        self.textRange = textRange
+        self.textSegments = textSegments
         self.answerRange = answerRange
         self.height = height
         self.isContinuation = isContinuation
+        self.textWidth = textWidth
     }
 }
 
@@ -204,6 +212,265 @@ public struct ExportDocumentLayout: Equatable, Sendable {
     }
 }
 
+/// Grapheme-safe text breaking, shared by layout and tests. A word wider
+/// than its column is split between EXTENDED GRAPHEME CLUSTERS (never a
+/// UTF-16 surrogate pair or a composed sequence), so every emitted
+/// fragment is measurable and drawable without clipping.
+public enum ExportTextWrapper {
+    /// Extended grapheme clusters of a string (Swift `Character`s are
+    /// exactly the composed sequences Foundation would keep together).
+    public static func graphemes(_ text: String) -> [String] {
+        text.map(String.init)
+    }
+
+    /// Breaks one over-wide run of text (no spaces) into consecutive
+    /// ranges whose measured width is <= `maxWidth`. A single grapheme
+    /// wider than the column is emitted alone (it cannot be split
+    /// further); callers still clip defensively.
+    public static func graphemeRanges(_ text: String, maxWidth: Double,
+                                      measure: (String) -> Double) -> [NSRange] {
+        let ns = text as NSString
+        guard ns.length > 0, maxWidth > 0 else {
+            return ns.length > 0 ? [NSRange(location: 0, length: ns.length)] : []
+        }
+        var ranges: [NSRange] = []
+        var start = 0
+        var currentWidth = 0.0
+        let characters = Array(text)
+        // Map grapheme index to UTF-16 offset.
+        var offsets: [Int] = [0]
+        for ch in characters {
+            offsets.append(offsets[offsets.count - 1] + (String(ch) as NSString).length)
+        }
+        for (i, ch) in characters.enumerated() {
+            let chWidth = measure(String(ch))
+            if currentWidth > 0, currentWidth + chWidth > maxWidth {
+                ranges.append(NSRange(location: start, length: offsets[i] - start))
+                start = offsets[i]
+                currentWidth = 0
+            }
+            currentWidth += chWidth
+        }
+        if start < ns.length {
+            ranges.append(NSRange(location: start, length: ns.length - start))
+        }
+        return ranges
+    }
+
+    /// Greedy word wrapping with a grapheme-safe fallback for over-wide
+    /// words. Ranges cover the words (the spaces between them are the
+    /// break points and stay out of the ranges); a reconstructed string
+    /// joins consecutive ranges with a single space.
+    public static func wrap(_ text: String,
+                            maxWidth: Double,
+                            measure: (String) -> Double) -> [NSRange] {
+        let ns = text as NSString
+        guard ns.length > 0 else { return [] }
+        var ranges: [NSRange] = []
+        var cursor = 0
+        while cursor < ns.length {
+            // Skip leading spaces (they are break points).
+            while cursor < ns.length, ns.character(at: cursor) == 32 { cursor += 1 }
+            guard cursor < ns.length else { break }
+            var wordEnd = cursor
+            while wordEnd < ns.length, ns.character(at: wordEnd) != 32 { wordEnd += 1 }
+            let wordRange = NSRange(location: cursor, length: wordEnd - cursor)
+            let word = ns.substring(with: wordRange)
+            if measure(word) <= maxWidth || maxWidth <= 0 {
+                ranges.append(wordRange)
+            } else {
+                for r in graphemeRanges(word, maxWidth: maxWidth, measure: measure) {
+                    ranges.append(NSRange(location: wordRange.location + r.location,
+                                          length: r.length))
+                }
+            }
+            cursor = wordEnd
+        }
+        return ranges
+    }
+}
+
+// MARK: - Atom building
+
+/// One grapheme cell used by the hard-break pass: the drawable unit and
+/// the source segment it came from.
+private struct ExportGraphemeCell {
+    let unit: String
+    let segment: ExportSegment
+}
+
+/// An unbreakable layout atom: one word of the display text, resolved
+/// into drawable runs (plain substrings and token labels) with its
+/// exact measured width.
+struct ExportAtom: Equatable {
+    let segments: [ExportSegment]
+    let width: Double
+    /// True when the atom is a fragment produced by a grapheme break.
+    let isFragment: Bool
+}
+
+enum ExportAtomFactory {
+    /// Resolves one row's display text into word atoms, then hard-breaks
+    /// every atom wider than the column grapheme-safely. The returned
+    /// atoms, in order, reconstruct the resolved text when joined with
+    /// single spaces at word boundaries.
+    static func atoms(row: ExportRow, maxWidth: Double,
+                      measurer: ExportTextMeasurer,
+                      tokenPadding: Double) -> [ExportAtom] {
+        let ns = row.text as NSString
+        let tokensByOffset = Dictionary(uniqueKeysWithValues:
+            row.tokens.enumerated().map { ($0.element.offset, $0.offset) })
+        var atoms: [ExportAtom] = []
+        var cursor = 0
+        while cursor < ns.length {
+            while cursor < ns.length, ns.character(at: cursor) == 32 { cursor += 1 }
+            guard cursor < ns.length else { break }
+            var wordEnd = cursor
+            while wordEnd < ns.length, ns.character(at: wordEnd) != 32 { wordEnd += 1 }
+            var segments: [ExportSegment] = []
+            var p = cursor
+            while p < wordEnd {
+                if ns.character(at: p) == answerTokenMarkerUTF16,
+                   let tokenIndex = tokensByOffset[p] {
+                    let token = row.tokens[tokenIndex]
+                    segments.append(ExportSegment(
+                        sourceRange: NSRange(location: p, length: 1),
+                        text: token.label,
+                        tokenIndex: tokenIndex,
+                        active: token.active))
+                    p += 1
+                } else {
+                    var plainEnd = p + 1
+                    while plainEnd < wordEnd,
+                          ns.character(at: plainEnd) != answerTokenMarkerUTF16 {
+                        plainEnd += 1
+                    }
+                    // Never split a plain run at an orphan marker.
+                    if plainEnd < wordEnd, tokensByOffset[plainEnd] == nil {
+                        plainEnd += 1
+                    }
+                    segments.append(ExportSegment(
+                        sourceRange: NSRange(location: p, length: plainEnd - p),
+                        text: ns.substring(with: NSRange(location: p,
+                                                         length: plainEnd - p))))
+                    p = plainEnd
+                }
+            }
+            atoms.append(makeAtom(segments: segments, measurer: measurer,
+                                  tokenPadding: tokenPadding, isFragment: false))
+            cursor = wordEnd
+            if cursor < ns.length, ns.character(at: cursor) == 32 { cursor += 1 }
+        }
+        // Hard-break over-wide atoms.
+        var broken: [ExportAtom] = []
+        for atom in atoms {
+            if atom.width <= maxWidth || maxWidth <= 0 || atom.segments.isEmpty {
+                broken.append(atom)
+            } else {
+                broken.append(contentsOf: breakAtom(atom, maxWidth: maxWidth,
+                                                    measurer: measurer,
+                                                    tokenPadding: tokenPadding))
+            }
+        }
+        return broken
+    }
+
+    static func makeAtom(segments: [ExportSegment],
+                         measurer: ExportTextMeasurer, tokenPadding: Double,
+                         isFragment: Bool) -> ExportAtom {
+        var width = 0.0
+        var tokenCount = 0
+        for s in segments {
+            if s.tokenIndex != nil {
+                width += measurer.token(s.text)
+                tokenCount += 1
+            } else {
+                width += measurer.plain(s.text)
+            }
+        }
+        width += tokenPadding * Double(max(tokenCount, 0))
+        return ExportAtom(segments: segments, width: width, isFragment: isFragment)
+    }
+
+    /// Splits an atom between grapheme clusters, preserving run
+    /// identity (a plain run stays plain; a token label fragment keeps
+    /// its token index and its capsule padding).
+    static func breakAtom(_ atom: ExportAtom, maxWidth: Double,
+                          measurer: ExportTextMeasurer,
+                          tokenPadding: Double) -> [ExportAtom] {
+        var cells: [ExportGraphemeCell] = []
+        for segment in atom.segments {
+            for unit in ExportTextWrapper.graphemes(segment.text) {
+                cells.append(ExportGraphemeCell(unit: unit, segment: segment))
+            }
+        }
+        guard !cells.isEmpty else { return [atom] }
+        var fragments: [ExportAtom] = []
+        var current: [ExportGraphemeCell] = []
+        var currentWidth = 0.0
+        // Capsule padding is charged ONCE per contiguous token run in a
+        // fragment (exactly how makeAtom measures the grouped run).
+        var lastTokenIndex: Int? = nil
+        for cell in cells {
+            let tokenIndex = cell.segment.tokenIndex
+            var w = tokenIndex != nil ? measurer.token(cell.unit)
+                                      : measurer.plain(cell.unit)
+            if let tokenIndex, tokenIndex != lastTokenIndex {
+                w += tokenPadding
+            }
+            if !current.isEmpty, currentWidth + w > maxWidth {
+                fragments.append(makeFragment(current, measurer: measurer,
+                                              tokenPadding: tokenPadding))
+                current = []
+                currentWidth = 0
+                lastTokenIndex = nil
+                if let tokenIndex, tokenIndex != lastTokenIndex {
+                    w = measurer.token(cell.unit) + tokenPadding
+                }
+            }
+            current.append(cell)
+            currentWidth += w
+            lastTokenIndex = tokenIndex
+        }
+        if !current.isEmpty {
+            fragments.append(makeFragment(current, measurer: measurer,
+                                          tokenPadding: tokenPadding))
+        }
+        return fragments.isEmpty ? [atom] : fragments
+    }
+
+    /// Re-groups consecutive cells sharing a source segment (same token
+    /// index or same plain range) into drawable runs, so a fragmented
+    /// token keeps its capsule identity and plain text stays whole.
+    private static func makeFragment(_ cells: [ExportGraphemeCell],
+                                     measurer: ExportTextMeasurer,
+                                     tokenPadding: Double) -> ExportAtom {
+        var segments: [ExportSegment] = []
+        var i = 0
+        while i < cells.count {
+            let source = cells[i].segment
+            var text = cells[i].unit
+            var j = i + 1
+            while j < cells.count,
+                  cells[j].segment.tokenIndex == source.tokenIndex,
+                  cells[j].segment.sourceRange == source.sourceRange,
+                  cells[j].segment.active == source.active,
+                  cells[j].segment.isJoiningSpace == source.isJoiningSpace {
+                text += cells[j].unit
+                j += 1
+            }
+            segments.append(ExportSegment(sourceRange: source.sourceRange,
+                                          text: text,
+                                          tokenIndex: source.tokenIndex,
+                                          active: source.active,
+                                          isJoiningSpace: source.isJoiningSpace))
+            i = j
+        }
+        return makeAtom(segments: segments, measurer: measurer,
+                        tokenPadding: tokenPadding, isFragment: true)
+    }
+}
+
 /// The deterministic pagination engine. Rows stay intact when they fit;
 /// only a single row taller than the whole body area is fragmented
 /// across pages. The Total appears once after the last exported row
@@ -212,7 +479,14 @@ public enum ExportLayoutEngine {
 
     public static func layout(snapshot: ExportSnapshot,
                               metrics: ExportLayoutMetrics,
-                              measure: (String) -> Double) -> ExportDocumentLayout {
+                              measure: @escaping (String) -> Double) -> ExportDocumentLayout {
+        layout(snapshot: snapshot, metrics: metrics,
+               measurer: .uniform(measure))
+    }
+
+    public static func layout(snapshot: ExportSnapshot,
+                              metrics: ExportLayoutMetrics,
+                              measurer: ExportTextMeasurer) -> ExportDocumentLayout {
         let page = metrics.pageSize
         let contentX = metrics.margins.left
         let contentWidth = max(page.width - metrics.margins.left - metrics.margins.right, 1)
@@ -228,28 +502,33 @@ public enum ExportLayoutEngine {
         let contentTop = metrics.margins.top + headerHeight
         let pageBottom = page.height - metrics.margins.bottom
         let bodyHeight = max(pageBottom - contentTop, 1)
+        let spaceWidth = measurer.plain(" ")
 
-        // 1) Wrap every row into visual lines.
+        // 1) Resolve + wrap every row into visual lines.
         var visualsByRow: [[ExportRowVisual]] = []
         for (index, row) in snapshot.rows.enumerated() {
-            let exprRanges = ExportTextWrapper.wrap(row.text,
-                                                    maxWidth: expressionWidth,
-                                                    measure: measure)
+            let atoms = ExportAtomFactory.atoms(
+                row: row, maxWidth: expressionWidth, measurer: measurer,
+                tokenPadding: metrics.tokenHorizontalPadding)
+            let lines = wrapAtoms(atoms, maxWidth: expressionWidth,
+                                  spaceWidth: spaceWidth)
             let answerRanges = row.answer.map {
-                ExportTextWrapper.wrap($0, maxWidth: answerWidth, measure: measure)
+                ExportTextWrapper.wrap($0, maxWidth: answerWidth,
+                                       measure: measurer.plain)
             } ?? []
-            let count = max(exprRanges.count, answerRanges.count, 1)
+            let count = max(lines.count, answerRanges.count, 1)
             let bodyHeightForRow = rowLineHeight(row, metrics: metrics)
             var visuals: [ExportRowVisual] = []
             for k in 0..<count {
                 let height = max(bodyHeightForRow, metrics.minimumRowHeight)
+                let segments = k < lines.count ? lines[k].segments : []
                 visuals.append(ExportRowVisual(
                     rowIndex: index,
-                    textRange: k < exprRanges.count ? exprRanges[k]
-                        : NSRange(location: (row.text as NSString).length, length: 0),
+                    textSegments: segments,
                     answerRange: k < answerRanges.count ? answerRanges[k] : nil,
                     height: height,
-                    isContinuation: k > 0))
+                    isContinuation: k > 0,
+                    textWidth: k < lines.count ? lines[k].width : 0))
             }
             visualsByRow.append(visuals)
         }
@@ -321,16 +600,87 @@ public enum ExportLayoutEngine {
                                     contentTop: contentTop)
     }
 
+    struct WrappedLine: Equatable {
+        let segments: [ExportSegment]
+        let width: Double
+    }
+
+    /// Greedy atom wrapping. Atoms are separated by one measured space;
+    /// every produced line's measured width is <= the column except for
+    /// a single grapheme wider than the column itself.
+    static func wrapAtoms(_ atoms: [ExportAtom], maxWidth: Double,
+                          spaceWidth: Double) -> [WrappedLine] {
+        guard !atoms.isEmpty else { return [] }
+        var lines: [WrappedLine] = []
+        var current: [ExportAtom] = []
+        var currentWidth = 0.0
+        func emit() {
+            guard !current.isEmpty else { return }
+            var segments: [ExportSegment] = []
+            var width = 0.0
+            for (i, atom) in current.enumerated() {
+                if i > 0 {
+                    segments.append(ExportSegment(
+                        sourceRange: NSRange(location: NSNotFound, length: 0),
+                        text: " ", isJoiningSpace: true))
+                    width += spaceWidth
+                }
+                segments.append(contentsOf: atom.segments)
+                width += atom.width
+            }
+            lines.append(WrappedLine(segments: segments, width: width))
+            current = []
+            currentWidth = 0
+        }
+        for atom in atoms {
+            if !current.isEmpty, currentWidth + spaceWidth + atom.width > maxWidth {
+                emit()
+            }
+            if current.isEmpty {
+                current = [atom]
+                currentWidth = atom.width
+            } else {
+                current.append(atom)
+                currentWidth += spaceWidth + atom.width
+            }
+        }
+        emit()
+        return lines
+    }
+
     /// Visual-line height for a row (heading rows use the heading
     /// metric; every other row the expression metric; answers can only
     /// grow it through wrapping, never shrink it).
     static func rowLineHeight(_ row: ExportRow,
                               metrics: ExportLayoutMetrics) -> Double {
         switch row.kind {
-        case .heading: return metrics.headingLineHeight
+        case .heading: return max(metrics.headingLineHeight, metrics.tokenLineHeight)
         case .blank: return metrics.expressionLineHeight
         case .expression, .comment, .total:
-            return max(metrics.expressionLineHeight, metrics.answerLineHeight)
+            return max(max(metrics.expressionLineHeight, metrics.answerLineHeight),
+                       metrics.tokenLineHeight)
         }
+    }
+
+    /// The FULL resolved text of one row (token labels substituted for
+    /// their markers) — the reconstruction invariant used by tests and
+    /// the renderer's no-replacement-glyph contract.
+    public static func resolvedText(row: ExportRow) -> String {
+        var out = ""
+        let ns = row.text as NSString
+        let tokensByOffset = Dictionary(uniqueKeysWithValues:
+            row.tokens.enumerated().map { ($0.element.offset, $0.offset) })
+        var p = 0
+        while p < ns.length {
+            if ns.character(at: p) == answerTokenMarkerUTF16,
+               let tokenIndex = tokensByOffset[p] {
+                out += row.tokens[tokenIndex].label
+                p += 1
+            } else {
+                out += ns.substring(with: NSRange(location: p, length: 1))
+                p += 1
+            }
+        }
+        return out
     }
 }

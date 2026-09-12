@@ -73,6 +73,14 @@ explains why — a blank or corrupt PDF is never produced.
 - Inline answer tokens are drawn as the same capsule labels the editor shows
   (each U+FFFC maps to its live `TokenResolution`; a broken token shows its
   remembered `Line N`). No replacement-character glyph is ever written.
+- Width is guaranteed, not clipped: the layout and the renderer consume the
+  SAME resolved inline text, so a token's label **and its capsule padding**
+  are reserved while wrapping, and neither column can spill into the other or
+  past a margin. A label longer than its column fragments between extended
+  grapheme clusters (each fragment keeps its capsule), and a long unbreakable
+  word (an identifier, URL or numeric string) hard-breaks the same way —
+  surrogate pairs and composed sequences are never split. A defensive cell
+  clip can only ever hide a single grapheme wider than its whole column.
 - Rows stay intact when they fit; only a single row taller than the page body
   is fragmented safely. Page breaks are deterministic.
 - The PDF carries the sheet title as its document title and **Numlex** as
