@@ -68,8 +68,13 @@ units, `moneyMarkerColor` for currency markers, `baseText` for operators) on
 Dark automatically. The notebook, sidebar and TextKit are never created behind
 the screen.
 
-The transient drawing is BATCHED: the ten calculation rows are drawn by a
-single `Canvas` from one finite progress scalar (per-run stagger, result
+The transient drawing is BATCHED and ANIMATABLE: each renderer
+(`CalculationBloomCanvas`, `SilverSplashCanvas`) carries every progress scalar
+in its `animatableData`, so SwiftUI interpolates the renderer itself on each
+display frame. A `Canvas` that merely captures parent state is NOT animated —
+it only redraws at sparse state snapshots, which reads as stepping — so the
+conformance is part of the contract, not an implementation detail. The ten
+calculation rows are drawn by a single `Canvas` from one finite progress scalar (per-run stagger, result
 emphasis and the two-batch convergence are all computed inside that one pass),
 and the 14 rays, 8 droplets and the wave share one further `Canvas` driven by a
 burst scalar and a fade scalar. Both Canvases retire as soon as their pass is
@@ -93,12 +98,15 @@ The splash then settles into the calm final lockup, in this order:
    frame — 152 pt on the 800×600 canvas — on one restrained 0.55 s ease that
    overlaps the fading tail of the splash (the single splash pulse and the
    expansion are multiplied, never added, so they cannot fight);
-2. the official slogan **Think freely. We’ll do the math.** fades in with a
-   ~10 pt rise over 0.5 s, in a frame reserved from the very first layout so it
-   can never reflow the icon or the button. It is one line of native rounded
-   type at 27 pt in `Design.baseText` — the semibold first clause and the
-   medium second clause share one baseline — and it is deliberately not
-   localized, never hit-testable, and announced once as a heading;
+2. the official slogan **Think freely. We’ll do the math.** fades in as ONE
+   composited two-line lockup (a 9 pt rise over 0.5 s) in a frame reserved from
+   the very first layout, so it can never reflow the icon or the button. Line 1
+   is native rounded bold ("Think ") followed by a serif italic ("freely.") at
+   33 pt; line 2 is a quieter rounded clause ("We’ll do the ", the secondary
+   label tone) answered by a compact monospaced "math." at 26 pt in the icon
+   neutral. It is strictly monochrome — no palette hue, no colour, no underline
+   or swoosh — deliberately not localized, never hit-testable, and announced
+   once as a heading with the exact phrase;
 3. the localized **Get Started** button then fades in below the slogan and
    takes focus only once it is visible.
 

@@ -226,7 +226,10 @@ droplets). The splash settles into a compact final lockup: the icon grows from
 its streaming footprint to a large 152 pt frame, the official slogan
 *Think freely. We’ll do the math.* fades in beneath it in the same neutral tone,
 and a single monochrome **Get Started** button — silver on Dark, graphite on
-Light, matching the icon rather than the accent colour — appears last. The whole
+Light, matching the icon rather than the accent colour — appears last. The
+slogan itself is a two-line monochrome lockup (a rounded clause answered by an
+italic serif, then a quieter rounded line answered by a compact monospaced
+one), revealed as one calm block. The whole
 sequence runs once for roughly two and a half seconds and stops; with **Reduce
 Motion** the large icon, slogan and button are simply there, immediately usable,
 with no staged animation at all.
@@ -293,7 +296,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,109 shared cases, runnable two ways:
+The engine suite covers 1,111 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

@@ -290,6 +290,14 @@ struct NumlexApp: App {
         // the curtain is what preserves the caret and selection, where a
         // fresh model focus request would reset the caret to position 0.
         replayRestoreResponder = Self.liveEditorResponder()
+        // Protect the document: the editor keeps its captured reference and
+        // its exact state, but stops owning the keyboard while the overlay
+        // plays, so nothing can be typed into an invisible document. This
+        // does not change the selection, typing attributes, scroll origin or
+        // marked text — the view is merely resigned.
+        if let textView = replayRestoreResponder, let window = textView.window {
+            window.makeFirstResponder(nil)
+        }
         replayContentReady = false
         replayCurtainLifted = false
         replaySession = UUID()

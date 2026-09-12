@@ -68,10 +68,22 @@ struct WelcomeView: View {
                 Color(nsColor: Design.editorBackground)
 
                 if fieldActive {
-                    calculationField(scale: scale)
+                    CalculationBloomCanvas(stream: streamProgress,
+                                           emphasis: emphasisProgress,
+                                           converge: convergeProgress,
+                                           scale: scale,
+                                           iconOffset: Self.iconCanvasOffset.height)
                 }
                 if splashActive {
-                    splash(scale: scale)
+                    // The footprint travels with the icon's growth, so the
+                    // burst never jumps at the expansion edge.
+                    SilverSplashCanvas(
+                        burst: burstProgress,
+                        fade: fadeProgress,
+                        footprint: Self.preFinishIconScale
+                            + (1 - Self.preFinishIconScale) * fadeProgress,
+                        scale: scale,
+                        iconOffset: Self.iconCanvasOffset.height)
                 }
                 icon(scale: scale)
                 slogan(scale: scale)
@@ -104,18 +116,24 @@ struct WelcomeView: View {
     /// both derive from it), revealed last, never before the splash.
     static let sloganPhrase = "Think freely. We\u{2019}ll do the math."
 
-    /// The slogan's anchor, between the icon and the button.
-    static let sloganCanvasOffset = CGSize(width: 0, height: 96)
+    /// The slogan's anchor, between the icon and the button (the taller
+    /// two-line lockup sits a touch lower, and the button follows).
+    static let sloganCanvasOffset = CGSize(width: 0, height: 104)
 
-    /// ~27 pt on the 800x600 canvas (the brief asks for 25-30).
-    static let sloganFontSize: CGFloat = 27
+    /// The two-line lockup: line 1 (rounded + serif italic) 31-34 pt,
+    /// line 2 (rounded + monospaced) 24-28 pt.
+    static let sloganLineOneSize: CGFloat = 33
+    static let sloganLineTwoSize: CGFloat = 26
+    /// The gap between the two lines (2-5 pt).
+    static let sloganLineSpacing: CGFloat = 4
 
-    /// The slogan's reserved width: it is laid out from the first pass, so
+    /// The slogan's reserved frame: it is laid out from the first pass, so
     /// revealing it can never reflow the icon or the button.
     static let sloganReservedWidth: CGFloat = 620
+    static let sloganReservedHeight: CGFloat = 82
 
     /// The button's anchor, below the slogan.
-    static let buttonCanvasOffsetY: CGFloat = 183
+    static let buttonCanvasOffsetY: CGFloat = 198
 
     /// Canvas offset (from the canvas centre) scaled to the live window.
     /// The composition is expressed purely as OFFSETS inside the flexible
@@ -187,122 +205,8 @@ struct WelcomeView: View {
     /// measured dominant cost. Now a single draw pass per frame produces the
     /// same picture from three finite scalars:
     ///
-    ///  * `streamProgress` reveals the runs with the row + token stagger
-    ///    (a cheap horizontal wipe and fade, computed inside the drawing),
-    ///  * `emphasisProgress` brightens the result runs once,
-    ///  * `convergeProgress` gathers the rows into the icon in two batches.
-    private func calculationField(scale: CGFloat) -> some View {
-        Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-            let centre = CGPoint(x: size.width / 2, y: size.height / 2)
-            let iconCentre = CGPoint(x: centre.x,
-                                     y: centre.y + Self.iconCanvasOffset.height * scale)
-            for (index, expression) in Self.calculations.enumerated() {
-                let converge = Self.convergeAmount(convergeProgress, expression)
-                let opacity = (1 - converge)
-                guard opacity > 0.012 else { continue }
-                let anchor = Self.anchor(for: expression)
-                let base = CGPoint(x: centre.x + anchor.x * scale,
-                                   y: centre.y + anchor.y * scale)
-                let position = CGPoint(
-                    x: base.x + (iconCentre.x - base.x) * converge * 0.55,
-                    y: base.y + (iconCentre.y - base.y) * converge * 0.45)
-                let rowScale = scale * (1 - 0.5 * converge)
-                Self.drawRow(expression, index: index,
-                             at: position, canvasScale: rowScale,
-                             stream: streamProgress,
-                             emphasis: emphasisProgress,
-                             opacity: opacity, in: &context)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    /// The transient field's one font size (16 pt, rounded, monospaced
-    /// digits) — the same appearance the per-token `Text` views had.
-    static let fieldFontSize: CGFloat = 16
-
-    /// Per-run stagger for the streaming reveal.
-    private static let tokenStagger: Double = 0.055
-    private static let rowStagger: Double = 0.038
-    /// The reveal window each run takes (of the normalised row progress).
-    private static let revealWindow: Double = 0.55
-
-    /// Draws one expression centered on `at`, run by run, from the same
-    /// palette roles the old per-token `Text` views used (numbers,
-    /// variables, units, money markers, operators), with the per-run
-    /// stagger and the result emphasis computed INSIDE this single pass.
-    private static func drawRow(_ expression: BloomExpression, index: Int,
-                                at centre: CGPoint, canvasScale: CGFloat,
-                                stream: Double, emphasis: Double,
-                                opacity: Double,
-                                in context: inout GraphicsContext) {
-        var runs: [(text: GraphicsContext.ResolvedText, width: CGFloat,
-                    isResult: Bool, delay: Double)] = []
-        var total: CGFloat = 0
-        for (tokenIndex, token) in expression.tokens.enumerated() {
-            let styled = Text(token.text)
-                .font(.system(size: fieldFontSize, weight: token.weight, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(Color(nsColor: token.color))
-            let resolved = context.resolve(styled)
-            let width = resolved.measure(in: CGSize(width: 1e6, height: 1e6)).width
-            runs.append((resolved, width, expression.resultIndices.contains(tokenIndex),
-                         Double(tokenIndex) * tokenStagger))
-            total += width
-        }
-        guard total > 0 else { return }
-        let rowStart = Double(index) * rowStagger
-        let rowReveal = clamp01((stream - rowStart) / revealWindow)
-        guard rowReveal > 0 else { return }
-        let totalScaled = total * canvasScale
-        var x = centre.x - totalScaled / 2
-        for run in runs {
-            let width = run.width * canvasScale
-            let tokenReveal = clamp01((rowReveal - run.delay) / max(0.2, 1 - run.delay))
-            let alpha = opacity * tokenReveal
-            if alpha > 0.012 {
-                let rise = (1 - tokenReveal) * 5 * canvasScale
-                let wipe = (1 - tokenReveal) * -6 * canvasScale
-                var ctx = context
-                ctx.opacity = alpha
-                if run.isResult, emphasis > 0.01 {
-                    // Result emphasis: a cheap 6% scale + brightness pass,
-                    // never a blur (the old per-row blur shadow measured
-                    // free but was still an extra compositing layer).
-                    let scale = canvasScale * (1 + 0.06 * emphasis)
-                    var local = ctx
-                    local.opacity = alpha * (1 + 0.20 * emphasis)
-                    local.translateBy(x: x + width / 2 + wipe, y: centre.y + rise)
-                    local.scaleBy(x: scale, y: scale)
-                    local.draw(run.text, at: .zero)
-                } else {
-                    ctx.draw(run.text, at: CGPoint(x: x + width / 2 + wipe,
-                                                   y: centre.y + rise))
-                }
-            }
-            x += width
-        }
-    }
-
-    fileprivate static func clamp01(_ value: Double) -> Double {
-        min(max(value, 0), 1)
-    }
-
-    /// Two tight batches (left column, then right column) with a small
-    /// per-row stagger inside each — the same rhythm the per-row views had,
-    /// now expressed as a delay inside the single batched pass.
-    private static func batchDelay(_ expression: BloomExpression) -> Double {
-        let columnBase: Double = expression.column == .left ? 0 : 0.09
-        return columnBase + Double(expression.slot) * 0.025
-    }
-
-    /// A per-row convergence amount for the batched field.
-    static func convergeAmount(_ progress: Double, _ expression: BloomExpression) -> Double {
-        let delay = batchDelay(expression)
-        let span = max(0.35, 1 - delay)
-        return clamp01((progress - delay * 0.35) / span)
-    }
+    /// The transient field is drawn by `CalculationBloomCanvas`, the burst by
+    /// `SilverSplashCanvas` (both `Animatable`, see WelcomeRenderers.swift).
 
     // MARK: - Silver splash (Task 2)
 
@@ -311,121 +215,8 @@ struct WelcomeView: View {
     private var silver: Color { Color(nsColor: Design.baseText) }
     private var silverSoft: Color { Color(nsColor: .secondaryLabelColor) }
 
-    /// 14 deterministic rays: varied length and delay, fixed values only.
-    private static let rays: [(angle: Double, length: CGFloat, delay: Double, width: CGFloat)] = [
-        (8, 96, 0.00, 2.5), (32, 72, 0.02, 1.5), (56, 88, 0.04, 2.0),
-        (80, 64, 0.03, 1.5), (104, 92, 0.05, 2.5), (128, 70, 0.01, 1.5),
-        (152, 86, 0.04, 2.0), (176, 66, 0.02, 1.5), (200, 94, 0.05, 2.5),
-        (224, 74, 0.03, 1.5), (248, 84, 0.01, 2.0), (272, 62, 0.04, 1.5),
-        (296, 90, 0.02, 2.5), (320, 76, 0.05, 1.5),
-    ]
-
-    /// 8 droplets placed on a fixed deterministic ring.
-    private static let droplets: [(angle: Double, radius: CGFloat, size: CGFloat, delay: Double)] = [
-        (20, 100, 3.5, 0.02), (66, 116, 2.5, 0.05), (112, 96, 3.0, 0.03),
-        (158, 112, 2.0, 0.06), (204, 102, 3.5, 0.04), (250, 118, 2.5, 0.02),
-        (296, 98, 3.0, 0.05), (342, 114, 2.0, 0.03),
-    ]
-
-    /// Rays start just outside the icon: 79 pt is the FINAL icon's half-size
-    /// (76) plus a hair, and the whole splash is drawn at the icon's own
-    /// pre-finish scale while the calculations are streaming, so the rays
-    /// emerge from behind the icon at BOTH sizes instead of floating
-    /// disconnected from the small one or being swallowed by the large one.
-    private static let rayOriginRadius: CGFloat = 79
-
-    /// ONE Canvas draws the whole silver splash — 14 rays, 8 droplets and
-    /// the expanding wave — from two finite scalars (`burstProgress`,
-    /// `fadeProgress`), so there are no per-ray/per-drop animation
-    /// transactions or layers. Geometry comes from the same deterministic
-    /// arrays as before; the varied lengths and delays are derived inside
-    /// the drawing.
-    private func splash(scale: CGFloat) -> some View {
-        Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-            // The burst is centred on the ICON anchor, not the window
-            // centre (the icon sits above the middle of the canvas).
-            let centre = CGPoint(x: size.width / 2,
-                                 y: size.height / 2 + Self.iconCanvasOffset.height * scale)
-            Self.drawWave(&context, centre: centre, scale: scale,
-                          footprint: Self.splashFootprint(iconExpanded),
-                          burst: burstProgress, fade: fadeProgress)
-            Self.drawRays(&context, centre: centre, scale: scale,
-                          footprint: Self.splashFootprint(iconExpanded),
-                          burst: burstProgress, fade: fadeProgress)
-            Self.drawDroplets(&context, centre: centre, scale: scale,
-                              footprint: Self.splashFootprint(iconExpanded),
-                              burst: burstProgress, fade: fadeProgress)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
     /// The splash follows the icon's own footprint: the streaming size while
     /// the calculations are visible, full size once the icon has grown.
-    static func splashFootprint(_ expanded: Bool) -> CGFloat {
-        expanded ? 1 : preFinishIconScale
-    }
-
-    static func eased(_ value: Double) -> Double {
-        clamp01(value)
-    }
-
-    private static func drawWave(_ context: inout GraphicsContext, centre: CGPoint,
-                                 scale: CGFloat, footprint: CGFloat,
-                                 burst: Double, fade: Double) {
-        let wave = clamp01(burst * 1.15)
-        guard wave > 0, fade < 1 else { return }
-        let radius = 93 * (0.55 + wave * 1.4) * footprint * scale
-        let alpha = min(1, wave * 2) * (1 - wave * 0.55) * (1 - fade)
-        let rect = CGRect(x: centre.x - radius, y: centre.y - radius,
-                          width: radius * 2, height: radius * 2)
-        context.stroke(Path(ellipseIn: rect),
-                       with: .color(Color(nsColor: .secondaryLabelColor).opacity(0.45 * alpha)),
-                       lineWidth: 1.5 * scale)
-    }
-
-    private static func drawRays(_ context: inout GraphicsContext, centre: CGPoint,
-                                 scale: CGFloat, footprint: CGFloat,
-                                 burst: Double, fade: Double) {
-        guard fade < 1 else { return }
-        let colour = Color(nsColor: Design.baseText)
-        for ray in rays {
-            let local = clamp01((burst - ray.delay * 2.2) / 0.7)
-            guard local > 0.01 else { continue }
-            let angle = ray.angle * .pi / 180
-            let originRadius = rayOriginRadius * footprint * scale
-            let origin = CGPoint(x: centre.x + cos(angle) * originRadius,
-                                 y: centre.y + sin(angle) * originRadius)
-            let length = ray.length * (0.35 + 0.65 * local) * footprint * scale
-            let end = CGPoint(x: origin.x + cos(angle) * length,
-                              y: origin.y + sin(angle) * length)
-            var path = Path()
-            path.move(to: origin)
-            path.addLine(to: end)
-            context.stroke(path,
-                           with: .color(colour.opacity(0.75 * local * (1 - fade))),
-                           style: StrokeStyle(lineWidth: ray.width * scale, lineCap: .round))
-        }
-    }
-
-    private static func drawDroplets(_ context: inout GraphicsContext, centre: CGPoint,
-                                     scale: CGFloat, footprint: CGFloat,
-                                     burst: Double, fade: Double) {
-        guard fade < 1 else { return }
-        let colour = Color(nsColor: Design.baseText)
-        for drop in droplets {
-            let local = clamp01((burst - 0.06 - drop.delay * 2.0) / 0.7)
-            guard local > 0.01 else { continue }
-            let angle = drop.angle * .pi / 180
-            let radius = drop.radius * footprint * scale * (0.35 + 0.65 * local)
-            let side = drop.size * scale
-            let rect = CGRect(x: centre.x + cos(angle) * radius - side / 2,
-                              y: centre.y + sin(angle) * radius - side / 2,
-                              width: side, height: side)
-            context.fill(Path(ellipseIn: rect),
-                         with: .color(colour.opacity(0.9 * local * (1 - fade))))
-        }
-    }
 
     private func icon(scale: CGFloat) -> some View {
         Group {
@@ -475,34 +266,50 @@ struct WelcomeView: View {
     /// two clauses sharing a baseline; it is never hit-testable but is
     /// announced once as a heading with the exact official wording.
     private func slogan(scale: CGFloat) -> some View {
-        sloganText
-            .font(.system(size: Self.sloganFontSize, weight: .medium, design: .rounded))
-            .foregroundStyle(Color(nsColor: Design.baseText))
-            .lineLimit(1)
-            .minimumScaleFactor(0.62)
-            .multilineTextAlignment(.center)
-            .frame(width: Self.sloganReservedWidth, height: Self.sloganFontSize * 1.5)
-            .opacity(sloganRevealed ? 1 : 0)
-            .offset(y: Self.sloganCanvasOffset.height * scale
-                      + (sloganRevealed ? 0 : 10))
-            .scaleEffect(scale, anchor: .center)
-            .allowsHitTesting(false)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(Self.sloganPhrase))
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityHidden(!sloganRevealed)
-            .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50),
-                       value: sloganRevealed)
+        VStack(spacing: Self.sloganLineSpacing) {
+            sloganLineOne
+            sloganLineTwo
+        }
+        .multilineTextAlignment(.center)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .frame(width: Self.sloganReservedWidth, height: Self.sloganReservedHeight)
+        // The WHOLE lockup moves as one composited view: a single opacity +
+        // rise, never per-glyph or per-run animation.
+        .opacity(sloganRevealed ? 1 : 0)
+        .offset(y: Self.sloganCanvasOffset.height * scale
+                  + (sloganRevealed ? 0 : 9))
+        .scaleEffect(scale, anchor: .center)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Self.sloganPhrase))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityHidden(!sloganRevealed)
+        .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50), value: sloganRevealed)
     }
 
-    /// One Text run split at the first sentence, so both clauses keep one
-    /// baseline. Both halves come from `sloganPhrase` alone.
-    private var sloganText: Text {
-        let phrase = Self.sloganPhrase
-        guard let stop = phrase.range(of: ". ") else { return Text(phrase) }
-        let lead = String(phrase[phrase.startIndex...stop.lowerBound])
-        let tail = String(phrase[stop.upperBound...])
-        return Text(lead).fontWeight(.semibold) + Text(" " + tail)
+    /// Line 1 — native rounded ("Think ") followed by an elegant serif
+    /// italic ("freely."). Monochrome: the icon family's own neutral.
+    private var sloganLineOne: Text {
+        Text("Think ")
+            .font(.system(size: Self.sloganLineOneSize, weight: .bold, design: .rounded))
+            .foregroundStyle(Color(nsColor: Design.baseText))
+        + Text("freely.")
+            .font(.system(size: Self.sloganLineOneSize, weight: .semibold, design: .serif))
+            .italic()
+            .foregroundStyle(Color(nsColor: Design.baseText))
+    }
+
+    /// Line 2 — a quieter rounded clause ("We’ll do the ") answered by a
+    /// compact monospaced ("math."). Still monochrome: the quiet clause uses
+    /// the secondary label tone, the key word the bright icon neutral.
+    private var sloganLineTwo: Text {
+        Text("We’ll do the ")
+            .font(.system(size: Self.sloganLineTwoSize, weight: .medium, design: .rounded))
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        + Text("math.")
+            .font(.system(size: Self.sloganLineTwoSize, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color(nsColor: Design.baseText))
     }
 
     /// A single silver sheen pass across the icon (icon-masked).
@@ -535,7 +342,7 @@ struct WelcomeView: View {
             .animation(.easeOut(duration: 0.40), value: buttonRevealed)
     }
 
-    // MARK: - One-shot choreography (~2.5 s total)
+    // MARK: - One-shot choreography (~2.8 s total)
 
     private func bloom() async {
         if reduceMotion {
@@ -582,26 +389,27 @@ struct WelcomeView: View {
         // the large final frame (152 pt) on one restrained ease. This
         // overlaps the fading tail of the splash.
         withAnimation(.easeOut(duration: 0.55)) { iconExpanded = true }
+        // The field has drawn nothing since the convergence finished: retire
+        // it on this quiet turn, before any later animation starts.
+        await Task.yield()
+        fieldActive = false
         // 1.74–2.24 the slogan fades in with a short rise, in its reserved
         // frame: nothing else moves.
         try? await Task.sleep(nanoseconds: 100_000_000)
         if Task.isCancelled { return }
         withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50)) { sloganRevealed = true }
-        // 2.04–2.44 the button fades/rises BELOW the slogan, and only once
-        // it is visible does the keyboard focus arrive (2.16).
+        // 2.04–2.44 the button fades/rises BELOW the slogan; the keyboard
+        // focus arrives only after that fade has fully settled (2.48).
         try? await Task.sleep(nanoseconds: 300_000_000)
         if Task.isCancelled { return }
         withAnimation(.easeOut(duration: 0.40)) { buttonRevealed = true }
-        // Both transient passes are invisible by now (rows converged,
-        // splash faded): drop the Canvases for good so the settled scene
-        // carries no animation state at all.
-        // The two transient Canvases have drawn their final (empty) frame:
-        // retire them and hand the keyboard over on the NEXT run-loop turn,
-        // after the visible sequence has finished, so neither the layer-tree
-        // change nor the focus change can land inside the animation.
-        try? await Task.sleep(nanoseconds: 120_000_000)
+        // The focus handoff happens only AFTER the button's opacity/rise has
+        // fully settled (0.40 s fade + slack): acquiring focus can cost a
+        // frame, and that cost must never land inside a visible animation.
+        try? await Task.sleep(nanoseconds: 440_000_000)
         if Task.isCancelled { return }
-        fieldActive = false
+        // Every visible animation has settled: now the (already blank) splash
+        // canvas can leave the hierarchy and the keyboard can be handed over.
         splashActive = false
         buttonFocused = true
     }

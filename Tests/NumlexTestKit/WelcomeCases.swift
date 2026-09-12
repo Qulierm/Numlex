@@ -204,44 +204,79 @@ public let welcomeCases: [EngineCase] = [
 
     EngineCase("welcome-calculation-field-is-one-batched-canvas") {
         let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        let renderers = welcomeRendererSource()
         // Still exactly the ten correct expressions in two columns.
         let table = welcomeSlice(view, from: "static let calculations:", to: "static func anchor")
         try expectEqual(table.components(separatedBy: ".init(column:").count - 1, 10, "ten expressions")
         try expectEqual(view.components(separatedBy: ".init(column: .left,").count - 1, 5, "five left rows")
         try expectEqual(view.components(separatedBy: ".init(column: .right,").count - 1, 5, "five right rows")
-        for text in ["128", "18", "240", "3.5", "3500", "144", "price", "42", "2.74", "1024"] {
-            try expect(view.contains("\"\(text)\"") || view.contains(text), "row content \(text)")
-        }
-        // ONE Canvas draws the transient field from ONE finite progress
-        // (plus the emphasis/convergence scalars) — no per-token views.
-        try expect(view.contains("private func calculationField(scale: CGFloat) -> some View"),
-                   "one field builder")
-        let field = welcomeSlice(view, from: "private func calculationField(scale: CGFloat)",
-                                 to: "private static func drawRow")
-        try expect(field.contains("Canvas(opaque: false, rendersAsynchronously: false)"),
-                   "a synchronous Canvas (deterministic, crisp)")
-        try expect(field.contains("for (index, expression) in Self.calculations.enumerated()"),
-                   "all rows drawn in ONE pass")
-        try expect(field.contains("streamProgress"), "driven by the single stream scalar")
-        try expect(field.contains("convergeProgress"), "and the convergence scalar")
+        // ONE Canvas inside a dedicated ANIMATABLE renderer: a non-Animatable
+        // view capturing parent state receives no interpolated values at all
+        // (the "5 fps" bug), so the conformance is pinned here.
+        try expect(renderers.contains("struct CalculationBloomCanvas: View"), "a dedicated renderer")
+        try expect(renderers.contains("nonisolated") || renderers.contains("@preconcurrency Animatable"),
+                   "Animatable conformance")
+        try expect(view.contains("CalculationBloomCanvas(stream: streamProgress"), "driven by the scalars")
+        let canvas = welcomeSlice(renderers, from: "var body: some View {", to: "// MARK: constants")
+        try expect(canvas.contains("Canvas(opaque: false, rendersAsynchronously: false)"),
+                   "one synchronous Canvas")
+        try expectEqual(canvas.components(separatedBy: "Canvas(").count - 1, 1, "exactly one Canvas")
+        try expect(canvas.contains("for (index, expression) in WelcomeView.calculations.enumerated()"),
+                   "all rows in ONE pass")
         for banned in ["ForEach", "expressionRow", "tokenText", "TimelineView",
                        "repeatForever", "Timer(", "CADisplayLink"] {
-            try expect(!field.contains(banned), "no \(banned) in the batched field")
+            try expect(!canvas.contains(banned), "no \(banned) in the batched field")
         }
-        // The per-run stagger and the result emphasis are computed INSIDE
-        // that one pass, not as separate animation transactions.
-        let draw = welcomeSlice(view, from: "private static func drawRow", to: "static func clamp01")
+        // The per-run stagger, row stagger and result emphasis are computed
+        // inside that one pass — never as separate animation transactions.
+        let draw = welcomeSlice(renderers, from: "private static func drawRow", to: "// MARK: - Silver splash")
         try expect(draw.contains("tokenStagger"), "per-run stagger inside the pass")
         try expect(draw.contains("rowStagger"), "per-row stagger inside the pass")
         try expect(draw.contains("run.isResult, emphasis > 0.01"), "result emphasis inside the pass")
         try expect(!draw.contains(".animation("), "no animation modifiers inside the pass")
+        try expect(!draw.contains(".shadow("), "no per-row blur")
         // The 16 pt rounded, monospaced-digit appearance is unchanged.
-        try expect(view.contains("static let fieldFontSize: CGFloat = 16"), "16 pt")
+        try expect(renderers.contains("static let fieldFontSize: CGFloat = 16"), "16 pt")
         try expect(draw.contains("design: .rounded"), "rounded design")
         try expect(draw.contains(".monospacedDigit()"), "monospaced digits")
-        // No blur shadows on the moving rows any more.
-        try expect(!draw.contains(".shadow("), "no per-row blur")
-        try expect(!view.contains("radius: emphasized ? 7 : 2"), "the old row blur is gone")
+    },
+
+    EngineCase("welcome-canvas-renderers-carry-every-progress-scalar") {
+        let renderers = welcomeRendererSource()
+        // Both renderers are Animatable and their animatableData covers EVERY
+        // animated scalar: a scalar left out of the pair would silently jump.
+        for name in ["stream", "emphasis", "converge", "scale", "iconOffset"] {
+            let field = welcomeSlice(renderers, from: "struct CalculationBloomCanvas",
+                                     to: "struct SilverSplashCanvas")
+            try expect(field.contains("var \(name):") || field.contains("var \(name);"),
+                       "field renders \(name)")
+        }
+        let field = welcomeSlice(renderers, from: "struct CalculationBloomCanvas",
+                                 to: "struct SilverSplashCanvas")
+        guard let fieldPair = field.range(of: "var animatableData")?.lowerBound,
+              let fieldSetter = field.range(of: "set {", range: fieldPair..<field.endIndex)?.lowerBound
+        else { throw CaseFailure(message: "field animatableData missing", location: "Welcome") }
+        let fieldAnimatable = String(field[fieldPair...])
+        for scalar in ["stream", "emphasis", "converge", "scale", "iconOffset"] {
+            try expect(fieldAnimatable.contains("self.\(scalar) = ")
+                       || fieldAnimatable.contains("\(scalar) = newValue"),
+                       "field animatableData carries \(scalar)")
+        }
+        _ = fieldSetter
+        let splash = String(renderers[renderers.range(of: "struct SilverSplashCanvas")!.lowerBound...])
+        for scalar in ["burst", "fade", "footprint", "scale", "iconOffset"] {
+            try expect(splash.contains("var \(scalar):"), "splash renders \(scalar)")
+            try expect(splash.contains("\(scalar) = newValue"), "splash animatableData carries \(scalar)")
+        }
+        // The splash footprint is DERIVED from the fade scalar (one animation,
+        // no second animation retargeting the same renderer).
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        try expect(view.contains("* fadeProgress"), "the footprint follows the fade scalar")
+        try expect(!view.contains("iconGrowth"), "no separate footprint animation")
+        // Reduce Motion creates neither renderer.
+        let reduce = welcomeSlice(view, from: "if reduceMotion {", to: "// 0.00")
+        try expect(reduce.contains("fieldActive = false"), "no field renderer")
+        try expect(reduce.contains("splashActive = false"), "no splash renderer")
     },
 
     EngineCase("welcome-colors-come-from-the-editor-palette") {
@@ -275,35 +310,37 @@ public let welcomeCases: [EngineCase] = [
             try expect(!splash.contains(hue), "the splash never uses \(hue)")
         }
         // Deterministic counts: 14 rays, 8 droplets, one wave.
-        try expectEqual(view.components(separatedBy: "static let rays:").count - 1, 1, "one ray table")
-        try expectEqual(view.components(separatedBy: "static let droplets:").count - 1, 1,
+        let renderers = welcomeRendererSource()
+        try expectEqual(renderers.components(separatedBy: "static let rays:").count - 1, 1, "one ray table")
+        try expectEqual(renderers.components(separatedBy: "static let droplets:").count - 1, 1,
                         "one droplet table")
-        try expect(view.contains("(8, 96, 0.00, 2.5)"), "the ray table is literal/fixed")
-        try expect(view.contains("(20, 100, 3.5, 0.02)"), "the droplet table is literal/fixed")
+        try expect(renderers.contains("(8, 96, 0.00, 2.5)"), "the ray table is literal/fixed")
+        try expect(renderers.contains("(20, 100, 3.5, 0.02)"), "the droplet table is literal/fixed")
         // Still exactly 14 rays and 8 droplets (the ring was pushed outward
         // so the droplets read outside the larger icon).
-        let rayTable = welcomeSlice(view, from: "static let rays:", to: "private static let droplets:")
+        let rayTable = welcomeSlice(renderers, from: "static let rays:", to: "/// 8 droplets placed")
         try expectEqual(welcomeTupleCount(rayTable), 14, "14 rays")
-        let dropTable = welcomeSlice(view, from: "static let droplets:", to: "/// Rays start just outside the icon")
+        let dropTable = welcomeSlice(renderers, from: "static let droplets:", to: "/// Rays start just outside")
         try expectEqual(welcomeTupleCount(dropTable), 8, "8 droplets")
         // The whole burst is ONE Canvas drawn from two finite scalars, with
         // the deterministic geometry still living in the same arrays.
-        try expect(view.contains("private static func drawWave("), "one soft expanding wave")
-        try expect(view.contains("private static func drawRays("), "one ray pass")
-        try expect(view.contains("private static func drawDroplets("), "one droplet pass")
-        let splash = welcomeSlice(view, from: "private func splash(scale: CGFloat)",
+        try expect(renderers.contains("private static func drawWave("), "one soft expanding wave")
+        try expect(renderers.contains("private static func drawRays("), "one ray pass")
+        try expect(renderers.contains("private static func drawDroplets("), "one droplet pass")
+        let splash = welcomeSlice(renderers, from: "struct SilverSplashCanvas",
                                   to: "private static func drawWave")
         try expect(splash.contains("Canvas(opaque: false, rendersAsynchronously: false)"),
                    "one splash Canvas")
         try expectEqual(splash.components(separatedBy: "Canvas(").count - 1, 1, "exactly one Canvas")
         try expect(splash.contains("Self.drawRays(&context"), "the ray pass is called")
         try expect(splash.contains("Self.drawDroplets(&context"), "the droplet pass is called")
+        try expect(splash.contains("Self.drawWave(&context"), "the wave pass is called")
         for banned in ["ForEach", "Capsule()", ".animation(", "TimelineView"] {
             try expect(!splash.contains(banned), "no \(banned) in the batched splash")
         }
-        try expect(splash.contains("burstProgress"), "driven by the burst scalar")
-        try expect(splash.contains("fadeProgress"), "and the fade scalar")
-        try expect(view.contains("rayOriginRadius * footprint * scale"),
+        try expect(splash.contains("var burst: Double"), "driven by the burst scalar")
+        try expect(splash.contains("var fade: Double"), "and the fade scalar")
+        try expect(renderers.contains("rayOriginRadius * footprint * scale"),
                    "rays stay anchored to the icon edge")
         // No runtime randomness anywhere in the welcome.
         for banned in ["random", "shuffled", "SystemRandomNumberGenerator"] {
@@ -361,6 +398,10 @@ public let welcomeCases: [EngineCase] = [
                                    to: "private static func liveEditorResponder")
         try expect(present.contains("replayRestoreResponder = Self.liveEditorResponder()"),
                    "captured on presentation")
+        // The document is protected from invisible typing while the overlay
+        // plays: the view is merely resigned (its state and reference stay).
+        try expect(present.contains("window.makeFirstResponder(nil)"),
+                   "the editor is resigned while covered")
         try expect(present.contains("guard revealStage == .app, !replayWelcomePresented"),
                    "only from the settled editor, never twice")
         // Observation only: the capture walks to the text view, it never
@@ -567,16 +608,17 @@ public let welcomeCases: [EngineCase] = [
         // The staged sleeps stay inside the ~2.3-2.6 s budget, and the
         // quietest gaps are short: no long blank pause anywhere.
         let sleeps = ["140_000_000", "480_000_000", "330_000_000", "350_000_000",
-                      "340_000_000", "100_000_000", "300_000_000", "120_000_000"]
+                      "340_000_000", "100_000_000", "300_000_000", "440_000_000"]
         for s in sleeps { try expect(view.contains(s), "sleep \(s)") }
         let millis = sleeps.map { Int($0.replacingOccurrences(of: "_", with: ""))! / 1_000_000 }
         let total = millis.reduce(0, +)
-        try expect(total >= 2000 && total <= 2260, "staged sleeps ~2.16 s (got \(total) ms)")
+        try expect(total >= 2300 && total <= 2600, "staged sleeps ~2.48 s (got \(total) ms)")
         try expect(millis.allSatisfy { $0 <= 480 }, "no single pause over 0.48 s")
-        // The button reveal starts 0.12 s before the last sleep ends and
-        // runs 0.40 s, so the whole choreography ends inside 2.3-2.6 s.
-        let end = total - 120 + 400
-        try expect(end >= 2300 && end <= 2600, "total reveal budget \(end) ms")
+        // The button reveal ends 0.44 s before the last sleep does, so the
+        // focus handoff lands strictly AFTER the fade has fully settled.
+        let revealEnd = total - 440 + 400
+        try expect(revealEnd >= 2300 && revealEnd <= 2600, "reveal budget \(revealEnd) ms")
+        try expect(total > revealEnd, "focus waits for the fade to settle")
     },
 
     EngineCase("welcome-reduce-motion-skips-everything") {
@@ -605,6 +647,7 @@ public let welcomeCases: [EngineCase] = [
 
     EngineCase("welcome-icon-is-large-with-one-fixed-frame") {
         let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        let renderers = welcomeRendererSource()
         try expect(view.contains("AppIconResources.previewImage(for: .dark)"),
                    "the packaged Dark primary preview")
         try expect(view.contains("app.dashed"), "the missing-preview fallback")
@@ -633,11 +676,10 @@ public let welcomeCases: [EngineCase] = [
         try expect(!view.contains("pulsed ? 1.055"), "no competing pulse factor")
         // The pre-finish scale applies to the splash too, so the silver rays
         // emerge from behind the icon at BOTH footprints.
-        try expect(view.contains("static func splashFootprint(_ expanded: Bool) -> CGFloat"),
-                   "the splash tracks the icon footprint")
-        try expect(view.contains("expanded ? 1 : preFinishIconScale"), "footprint definition")
-        try expect(view.contains("rayOriginRadius: CGFloat = 79"), "rays start at the icon edge")
-        try expect(view.contains("rayOriginRadius * footprint * scale"),
+        try expect(!view.contains("iconGrowth"), "the footprint is not animated separately")
+        try expect(view.contains("Self.preFinishIconScale"), "the footprint derives from the fade")
+        try expect(renderers.contains("rayOriginRadius: CGFloat = 79"), "rays start at the icon edge")
+        try expect(renderers.contains("rayOriginRadius * footprint * scale"),
                    "the ray origin follows the icon's own footprint")
         // The larger icon grows with one restrained ease that overlaps the
         // fading splash tail.
@@ -656,40 +698,80 @@ public let welcomeCases: [EngineCase] = [
         try expect(phrase.contains("\u{2019}"), "curly apostrophe")
         try expect(phrase.hasSuffix("."), "trailing period")
         try expect(!phrase.contains("'"), "never a straight apostrophe")
-        // The visible text is derived from the constant, split at the first
-        // sentence so both clauses share ONE baseline.
-        try expect(view.contains("private var sloganText: Text"), "one derived text")
-        try expect(view.contains("phrase.range(of: \". \")"), "split at the first sentence")
-        try expect(view.contains("Text(lead).fontWeight(.semibold) + Text(\" \" + tail)"),
-                   "semibold lead, medium tail, one baseline")
-        // Monochrome, native, no website styling.
-        try expect(view.contains(".foregroundStyle(Color(nsColor: Design.baseText))"),
-                   "the icon family's neutral tone")
-        try expect(view.contains(".font(.system(size: Self.sloganFontSize, weight: .medium, design: .rounded))"),
-                   "native rounded type at the canonical size")
-        try expect(view.contains("static let sloganFontSize: CGFloat = 27"), "25-30 pt target")
-        try expect(view.contains(".lineLimit(1)"), "one line")
-        try expect(view.contains(".minimumScaleFactor(0.62)"), "compact-width fallback")
-        for banned in ["B68BE6", "A4CCFB", "design: .serif", "design: .monospaced",
-                       "TextEditor", "underline", "toolbar", "Swoosh", "italic",
-                       "violet", "purple", "blue"] {
+        // The visual lockup is STRICTLY SOURCE-PINNED to that constant: the
+        // two lines' runs must concatenate back to the canonical phrase.
+        for run in ["Think ", "freely.", "We\u{2019}ll do the ", "math."] {
+            try expect(view.contains("Text(\"\(run)\"") || view.contains("\"\(run)\""),
+                       "visual run \(run)")
+        }
+        // (The four literals above are the whole visual copy, and the ONE
+        // canonical constant they must spell out is asserted separately.)
+        // Two lines, ONE baseline each: rounded + serif italic, then rounded
+        // + monospaced.
+        try expect(view.contains("private var sloganLineOne: Text"), "line one builder")
+        try expect(view.contains("private var sloganLineTwo: Text"), "line two builder")
+        try expect(view.contains("design: .serif"), "an elegant serif clause")
+        try expect(view.contains(".italic()"), "italic serif")
+        try expect(view.contains("design: .monospaced"), "a compact monospaced clause")
+        try expect(view.contains("VStack(spacing: Self.sloganLineSpacing)"), "two lines, 2-5 pt apart")
+        try expect(view.contains("static let sloganLineSpacing: CGFloat = 4"), "4 pt leading")
+        // Monochrome only: the icon family's neutral plus the secondary label
+        // tone — never a palette hue or a website colour.
+        try expect(view.contains("Color(nsColor: Design.baseText)"), "the icon neutral")
+        try expect(view.contains("Color(nsColor: .secondaryLabelColor)"), "the quiet clause")
+        for banned in ["B68BE6", "A4CCFB", "violet", "purple", "blue", "underline", "Swoosh"] {
             try expect(!view.contains(banned), "no \(banned)")
         }
-        // Reserved from the first layout: revealing can never reflow.
+        // No gradient of any kind inside the slogan lockup itself.
+        let sloganBody = welcomeSlice(view, from: "private func slogan(scale: CGFloat)",
+                                      to: "private var sloganLineOne")
+        try expect(!sloganBody.contains("LinearGradient"), "no gradient in the slogan")
+        // Sizes and reserved frame: 31-34 / 24-28 pt, laid out from the first
+        // pass so revealing can never reflow the icon or the button.
+        try expect(view.contains("static let sloganLineOneSize: CGFloat = 33"), "line one size")
+        try expect(view.contains("static let sloganLineTwoSize: CGFloat = 26"), "line two size")
         try expect(view.contains("static let sloganReservedWidth: CGFloat = 620"), "reserved width")
-        try expect(view.contains("height: Self.sloganFontSize * 1.5"), "reserved height")
-        // Not hit-testable, but announced ONCE as a heading with the exact
+        try expect(view.contains("static let sloganReservedHeight: CGFloat = 82"), "reserved height")
+        try expect(view.contains(".lineLimit(1)"), "no wrapping")
+        try expect(view.contains(".minimumScaleFactor(0.6)"), "compact-width fallback")
+        // The WHOLE lockup animates as one composited view.
+        try expect(view.contains("withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50)) { sloganRevealed = true }"),
+                   "one reveal transaction")
+        try expect(view.contains("(sloganRevealed ? 0 : 9)"), "a 9 pt rise")
+        try expect(view.contains(".opacity(sloganRevealed ? 1 : 0)"), "opacity 0 -> 1")
+        // Never hit-testable, announced ONCE as a heading with the exact
         // phrase (no fragmented VoiceOver reads).
         try expect(view.contains(".allowsHitTesting(false)"), "never hit-testable")
         try expect(view.contains(".accessibilityElement(children: .ignore)"), "one element")
         try expect(view.contains(".accessibilityLabel(Text(Self.sloganPhrase))"),
                    "the exact phrase is announced")
         try expect(view.contains(".accessibilityAddTraits(.isHeader)"), "announced as a heading")
-        // Appearance: 0 -> 1 opacity with a ~10 pt rise on a soft curve.
-        try expect(view.contains("withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50)) { sloganRevealed = true }"),
-                   "one soft reveal transaction")
-        try expect(view.contains("(sloganRevealed ? 0 : 10)"), "an 10 pt rise")
-        try expect(view.contains(".opacity(sloganRevealed ? 1 : 0)"), "opacity 0 -> 1")
+    },
+
+    EngineCase("welcome-button-focus-waits-for-the-fade") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        guard let reveal = view.range(of: "withAnimation(.easeOut(duration: 0.40)) { buttonRevealed = true }")?.lowerBound,
+              let wait = view.range(of: "Task.sleep(nanoseconds: 440_000_000)", range: reveal..<view.endIndex)?.lowerBound,
+              let focus = view.range(of: "buttonFocused = true", range: wait..<view.endIndex)?.lowerBound
+        else { throw CaseFailure(message: "button focus order missing", location: "Welcome") }
+        // The 0.40 s fade plus slack, and only THEN the focus: acquiring focus
+        // can cost a frame and must never land inside a visible animation.
+        try expect(reveal < wait && wait < focus, "fade -> wait -> focus, in order")
+        let sleepText = welcomeSlice(view, from: "withAnimation(.easeOut(duration: 0.40)) { buttonRevealed = true }",
+                                     to: "buttonFocused = true")
+        try expect(sleepText.contains("440_000_000"), "the wait outlasts the fade")
+        // The transient renderers are retired before the button fade starts
+        // (their passes are long over) and the splash leaves afterwards.
+        // The Reduce Motion path retires both immediately; the animated path
+        // must retire the FIELD before the button fade and the SPLASH after it.
+        let animated = welcomeSlice(view, from: "withAnimation(.easeOut(duration: 0.35)) { iconRevealed = true }",
+                                    to: "private func activate")
+        guard let field = animated.range(of: "fieldActive = false")?.lowerBound,
+              let reveal2 = animated.range(of: "buttonRevealed = true")?.lowerBound,
+              let splash = animated.range(of: "splashActive = false", range: reveal2..<animated.endIndex)?.lowerBound
+        else { throw CaseFailure(message: "renderer retirement order missing", location: "Welcome") }
+        try expect(field < reveal2, "the field canvas retires before the button fade")
+        try expect(reveal2 < splash, "the splash canvas retires after it")
     },
 
     EngineCase("welcome-final-composition-is-compact-and-ordered") {
@@ -698,8 +780,8 @@ public let welcomeCases: [EngineCase] = [
         // the brief allows, with no 150 pt hole anywhere.
         let iconY = -47.0, sloganY = 96.0, buttonY = 183.0
         try expect(iconY <= -45 && iconY >= -65, "icon anchor \(iconY)")
-        try expect(sloganY >= 75 && sloganY <= 105, "slogan anchor \(sloganY)")
-        try expect(buttonY >= 160 && buttonY <= 190, "button anchor \(buttonY)")
+        try expect(sloganY >= 90 && sloganY <= 115, "slogan anchor \(sloganY)")
+        try expect(buttonY >= 180 && buttonY <= 210, "button anchor \(buttonY)")
         // Derived vertical rhythm at the 800x600 canvas.
         let iconHalf = 152.0 / 2
         let sloganHalf = 27.0 * 1.5 / 2
@@ -774,6 +856,11 @@ private func welcomeTupleCount(_ table: String) -> Int {
         if CharacterSet.decimalDigits.contains(next) { count += 1 }
     }
     return count
+}
+
+private func welcomeRendererSource() -> String {
+    (try? String(contentsOf: welcomeRepoRoot()
+        .appendingPathComponent("Sources/NumlexApp/Views/WelcomeRenderers.swift"), encoding: .utf8)) ?? ""
 }
 
 private func welcomeSource(_ rel: String) -> String {
