@@ -134,6 +134,23 @@ if [ ! -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
 fi
 cp "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
+# The NumlexCore SwiftPM resource bundle carries the offline timezone
+# catalog. It is REQUIRED: a missing bundle (or a missing data file) fails the
+# build instead of shipping an app whose timezone lookups silently fail.
+CORE_BUNDLE="$(find "$ROOT/.build" -maxdepth 3 -name "Numlex_NumlexCore.bundle" -type d 2>/dev/null | head -1)"
+if [ -z "$CORE_BUNDLE" ] || [ ! -d "$CORE_BUNDLE" ]; then
+  echo "Missing NumlexCore resource bundle (.build/.../Numlex_NumlexCore.bundle)"
+  exit 1
+fi
+for required in NumlexTimezones/iana-zones.tsv NumlexTimezones/cities.tsv NumlexTimezones/countries.tsv NumlexTimezones/airports.tsv NumlexTimezones/sources.json; do
+  if [ ! -f "$CORE_BUNDLE/$required" ]; then
+    echo "Missing timezone resource: $required"
+    exit 1
+  fi
+done
+rm -rf "$RESOURCES_DIR/Numlex_NumlexCore.bundle"
+cp -R "$CORE_BUNDLE" "$RESOURCES_DIR/Numlex_NumlexCore.bundle"
+
 # ---------------------------------------------------------------------------
 # Alternate app icon (user-selectable Light) + the two Settings preview
 # tiles. Byte-exact copies of the committed sources; the build FAILS CLOSED on

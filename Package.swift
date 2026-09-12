@@ -38,7 +38,10 @@ let package = Package(
     targets: [
         .target(
             name: "NumlexCore",
-            path: "Sources/NumlexCore"
+            path: "Sources/NumlexCore",
+            resources: [
+                .copy("Resources/NumlexTimezones")
+            ]
         ),
         .executableTarget(
             name: "NumlexApp",

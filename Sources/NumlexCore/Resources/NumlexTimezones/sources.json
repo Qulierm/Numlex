@@ -1,0 +1,52 @@
+{
+  "counts": {
+    "airports": 28298,
+    "aliases": 252,
+    "cities": 6276,
+    "countries": 163,
+    "zones": 312
+  },
+  "generator": "Scripts/generate-timezone-data.py",
+  "ianaVersion": "2026d",
+  "minPopulation": 100000,
+  "resources": {
+    "airports.tsv": {
+      "sha256": "f6dcec6f0aa3c655c9d9030fdce27f22908ec546213b510390acc5ee1950b2fe"
+    },
+    "cities.tsv": {
+      "sha256": "b4c4c5af5e2b0e1d915320e978b93184976520e179be96e93a678144243bdf6b"
+    },
+    "countries.tsv": {
+      "sha256": "6f0211201e6bfb3d5747fb601dc18ecc70378cbcaba45b8ca552ddfc66088825"
+    },
+    "iana-zones.tsv": {
+      "sha256": "ae356c5f54c8a0d6d26185dfa2760b7fa388bf0ca6bd2e4bc434235d60b66eaa"
+    }
+  },
+  "sources": {
+    "airports.csv": {
+      "attribution": "airportsdata, https://github.com/mborsetti/airportsdata",
+      "license": "MIT",
+      "sha256": "516c57d9d999f7a3be28ca649d2badbe3b972f07e57dc6173ab973b72d51cf52",
+      "url": "https://raw.githubusercontent.com/mborsetti/airportsdata/main/airportsdata/airports.csv"
+    },
+    "backward": {
+      "attribution": "IANA Time Zone Database (tzdata), https://www.iana.org/time-zones",
+      "license": "Public domain (IANA tz database)",
+      "sha256": "b8296b9ef1ece72d813878132c0f17e2c52b26af6004eeb9c37d049b64cd9401",
+      "url": "https://data.iana.org/time-zones/data/backward"
+    },
+    "cities15000.zip": {
+      "attribution": "GeoNames, https://www.geonames.org (cities15000)",
+      "license": "CC BY 4.0",
+      "sha256": "4f6fd2209a5660fed2989fccc8842947e3107ff595c14efc35ab281bba0ee467",
+      "url": "https://download.geonames.org/export/dump/cities15000.zip"
+    },
+    "zone1970.tab": {
+      "attribution": "IANA Time Zone Database (tzdata), https://www.iana.org/time-zones",
+      "license": "Public domain (IANA tz database)",
+      "sha256": "cf7a21adf7153794a684c03e499e882ee119f828ad77a579ed99db26ceeae87b",
+      "url": "https://data.iana.org/time-zones/data/zone1970.tab"
+    }
+  }
+}

@@ -1,0 +1,312 @@
+Africa/Abidjan	+0519-00402	Africa/Accra,Africa/Bamako,Africa/Banjul,Africa/Conakry,Africa/Dakar,Africa/Freetown,Africa/Lome,Africa/Nouakchott,Africa/Ouagadougou,Africa/Timbuktu,Atlantic/Reykjavik,Atlantic/St_Helena,Iceland
+Africa/Algiers	+3647+00303	
+Africa/Bissau	+1151-01535	
+Africa/Cairo	+3003+03115	Egypt
+Africa/Casablanca	+3339-00735	
+Africa/Ceuta	+3553-00519	
+Africa/El_Aaiun	+2709-01312	
+Africa/Johannesburg	-2615+02800	Africa/Maseru,Africa/Mbabane
+Africa/Juba	+0451+03137	
+Africa/Khartoum	+1536+03232	
+Africa/Lagos	+0627+00324	Africa/Bangui,Africa/Brazzaville,Africa/Douala,Africa/Kinshasa,Africa/Libreville,Africa/Luanda,Africa/Malabo,Africa/Niamey,Africa/Porto-Novo
+Africa/Maputo	-2558+03235	Africa/Blantyre,Africa/Bujumbura,Africa/Gaborone,Africa/Harare,Africa/Kigali,Africa/Lubumbashi,Africa/Lusaka
+Africa/Monrovia	+0618-01047	
+Africa/Nairobi	-0117+03649	Africa/Addis_Ababa,Africa/Asmara,Africa/Asmera,Africa/Dar_es_Salaam,Africa/Djibouti,Africa/Kampala,Africa/Mogadishu,Indian/Antananarivo,Indian/Comoro,Indian/Mayotte
+Africa/Ndjamena	+1207+01503	
+Africa/Sao_Tome	+0020+00644	
+Africa/Tripoli	+3254+01311	Libya
+Africa/Tunis	+3648+01011	
+Africa/Windhoek	-2234+01706	
+America/Adak	+515248-1763929	America/Atka,US/Aleutian
+America/Anchorage	+611305-1495401	US/Alaska
+America/Araguaina	-0712-04812	
+America/Argentina/Buenos_Aires	-3436-05827	America/Buenos_Aires
+America/Argentina/Catamarca	-2828-06547	America/Argentina/ComodRivadavia,America/Catamarca
+America/Argentina/Cordoba	-3124-06411	America/Cordoba,America/Rosario
+America/Argentina/Jujuy	-2411-06518	America/Jujuy
+America/Argentina/La_Rioja	-2926-06651	
+America/Argentina/Mendoza	-3253-06849	America/Mendoza
+America/Argentina/Rio_Gallegos	-5138-06913	
+America/Argentina/Salta	-2447-06525	
+America/Argentina/San_Juan	-3132-06831	
+America/Argentina/San_Luis	-3319-06621	
+America/Argentina/Tucuman	-2649-06513	
+America/Argentina/Ushuaia	-5448-06818	
+America/Asuncion	-2516-05740	
+America/Bahia	-1259-03831	
+America/Bahia_Banderas	+2048-10515	
+America/Barbados	+1306-05937	
+America/Belem	-0127-04829	
+America/Belize	+1730-08812	
+America/Boa_Vista	+0249-06040	
+America/Bogota	+0436-07405	
+America/Boise	+433649-1161209	
+America/Cambridge_Bay	+690650-1050310	
+America/Campo_Grande	-2027-05437	
+America/Cancun	+2105-08646	
+America/Caracas	+1030-06656	
+America/Cayenne	+0456-05220	
+America/Chicago	+415100-0873900	US/Central
+America/Chihuahua	+2838-10605	
+America/Ciudad_Juarez	+3144-10629	
+America/Costa_Rica	+0956-08405	
+America/Coyhaique	-4534-07204	
+America/Cuiaba	-1535-05605	
+America/Danmarkshavn	+7646-01840	
+America/Dawson	+6404-13925	
+America/Dawson_Creek	+5546-12014	
+America/Denver	+394421-1045903	America/Shiprock,Navajo,US/Mountain
+America/Detroit	+421953-0830245	US/Michigan
+America/Edmonton	+5333-11328	America/Yellowknife,Canada/Mountain
+America/Eirunepe	-0640-06952	
+America/El_Salvador	+1342-08912	
+America/Fort_Nelson	+5848-12242	
+America/Fortaleza	-0343-03830	
+America/Glace_Bay	+4612-05957	
+America/Goose_Bay	+5320-06025	
+America/Grand_Turk	+2128-07108	
+America/Guatemala	+1438-09031	
+America/Guayaquil	-0210-07950	
+America/Guyana	+0648-05810	
+America/Halifax	+4439-06336	Canada/Atlantic
+America/Havana	+2308-08222	Cuba
+America/Hermosillo	+2904-11058	
+America/Indiana/Indianapolis	+394606-0860929	America/Fort_Wayne,America/Indianapolis,US/East-Indiana
+America/Indiana/Knox	+411745-0863730	America/Knox_IN,US/Indiana-Starke
+America/Indiana/Marengo	+382232-0862041	
+America/Indiana/Petersburg	+382931-0871643	
+America/Indiana/Tell_City	+375711-0864541	
+America/Indiana/Vevay	+384452-0850402	
+America/Indiana/Vincennes	+384038-0873143	
+America/Indiana/Winamac	+410305-0863611	
+America/Inuvik	+682059-1334300	
+America/Iqaluit	+6344-06828	America/Pangnirtung
+America/Jamaica	+175805-0764736	Jamaica
+America/Juneau	+581807-1342511	
+America/Kentucky/Louisville	+381515-0854534	America/Louisville
+America/Kentucky/Monticello	+364947-0845057	
+America/La_Paz	-1630-06809	
+America/Lima	-1203-07703	
+America/Los_Angeles	+340308-1181434	US/Pacific
+America/Maceio	-0940-03543	
+America/Managua	+1209-08617	
+America/Manaus	-0308-06001	Brazil/West
+America/Martinique	+1436-06105	
+America/Matamoros	+2550-09730	
+America/Mazatlan	+2313-10625	Mexico/BajaSur
+America/Menominee	+450628-0873651	
+America/Merida	+2058-08937	
+America/Metlakatla	+550737-1313435	
+America/Mexico_City	+1924-09909	Mexico/General
+America/Miquelon	+4703-05620	
+America/Moncton	+4606-06447	
+America/Monterrey	+2540-10019	
+America/Montevideo	-345433-0561245	
+America/New_York	+404251-0740023	US/Eastern
+America/Nome	+643004-1652423	
+America/Noronha	-0351-03225	Brazil/DeNoronha
+America/North_Dakota/Beulah	+471551-1014640	
+America/North_Dakota/Center	+470659-1011757	
+America/North_Dakota/New_Salem	+465042-1012439	
+America/Nuuk	+6411-05144	America/Godthab
+America/Ojinaga	+2934-10425	
+America/Panama	+0858-07932	America/Atikokan,America/Cayman,America/Coral_Harbour,EST
+America/Paramaribo	+0550-05510	
+America/Phoenix	+332654-1120424	America/Creston,MST,US/Arizona
+America/Port-au-Prince	+1832-07220	
+America/Porto_Velho	-0846-06354	
+America/Puerto_Rico	+182806-0660622	America/Anguilla,America/Antigua,America/Aruba,America/Blanc-Sablon,America/Curacao,America/Dominica,America/Grenada,America/Guadeloupe,America/Kralendijk,America/Lower_Princes,America/Marigot,America/Montserrat,America/Port_of_Spain,America/St_Barthelemy,America/St_Kitts,America/St_Lucia,America/St_Thomas,America/St_Vincent,America/Tortola,America/Virgin
+America/Punta_Arenas	-5309-07055	
+America/Rankin_Inlet	+624900-0920459	
+America/Recife	-0803-03454	
+America/Regina	+5024-10439	Canada/Saskatchewan
+America/Resolute	+744144-0944945	
+America/Rio_Branco	-0958-06748	America/Porto_Acre,Brazil/Acre
+America/Santarem	-0226-05452	
+America/Santiago	-3327-07040	Chile/Continental
+America/Santo_Domingo	+1828-06954	
+America/Sao_Paulo	-2332-04637	Brazil/East
+America/Scoresbysund	+7029-02158	
+America/Sitka	+571035-1351807	
+America/St_Johns	+4734-05243	Canada/Newfoundland
+America/Swift_Current	+5017-10750	
+America/Tegucigalpa	+1406-08713	
+America/Thule	+7634-06847	
+America/Tijuana	+3232-11701	America/Ensenada,America/Santa_Isabel,Mexico/BajaNorte
+America/Toronto	+4339-07923	America/Montreal,America/Nassau,America/Nipigon,America/Thunder_Bay,Canada/Eastern
+America/Vancouver	+4916-12307	Canada/Pacific
+America/Whitehorse	+6043-13503	Canada/Yukon
+America/Winnipeg	+4953-09709	America/Rainy_River,Canada/Central
+America/Yakutat	+593249-1394338	
+Antarctica/Casey	-6617+11031	
+Antarctica/Davis	-6835+07758	
+Antarctica/Macquarie	-5430+15857	
+Antarctica/Mawson	-6736+06253	
+Antarctica/Palmer	-6448-06406	
+Antarctica/Rothera	-6734-06808	
+Antarctica/Troll	-720041+0023206	
+Antarctica/Vostok	-7824+10654	
+Asia/Almaty	+4315+07657	
+Asia/Amman	+3157+03556	
+Asia/Anadyr	+6445+17729	
+Asia/Aqtau	+4431+05016	
+Asia/Aqtobe	+5017+05710	
+Asia/Ashgabat	+3757+05823	Asia/Ashkhabad
+Asia/Atyrau	+4707+05156	
+Asia/Baghdad	+3321+04425	
+Asia/Baku	+4023+04951	
+Asia/Bangkok	+1345+10031	Asia/Phnom_Penh,Asia/Vientiane,Indian/Christmas
+Asia/Barnaul	+5322+08345	
+Asia/Beirut	+3353+03530	
+Asia/Bishkek	+4254+07436	
+Asia/Chita	+5203+11328	
+Asia/Colombo	+0656+07951	
+Asia/Damascus	+3330+03618	
+Asia/Dhaka	+2343+09025	Asia/Dacca
+Asia/Dili	-0833+12535	
+Asia/Dubai	+2518+05518	Asia/Muscat,Indian/Mahe,Indian/Reunion
+Asia/Dushanbe	+3835+06848	
+Asia/Famagusta	+3507+03357	
+Asia/Gaza	+3130+03428	
+Asia/Hebron	+313200+0350542	
+Asia/Ho_Chi_Minh	+1045+10640	Asia/Saigon
+Asia/Hong_Kong	+2217+11409	Hongkong
+Asia/Hovd	+4801+09139	
+Asia/Irkutsk	+5216+10420	
+Asia/Jakarta	-0610+10648	
+Asia/Jayapura	-0232+14042	
+Asia/Jerusalem	+314650+0351326	Asia/Tel_Aviv,Israel
+Asia/Kabul	+3431+06912	
+Asia/Kamchatka	+5301+15839	
+Asia/Karachi	+2452+06703	
+Asia/Kathmandu	+2743+08519	Asia/Katmandu
+Asia/Khandyga	+623923+1353314	
+Asia/Kolkata	+2232+08822	Asia/Calcutta
+Asia/Krasnoyarsk	+5601+09250	
+Asia/Kuching	+0133+11020	Asia/Brunei
+Asia/Macau	+221150+1133230	Asia/Macao
+Asia/Magadan	+5934+15048	
+Asia/Makassar	-0507+11924	Asia/Ujung_Pandang
+Asia/Manila	+143512+1205804	
+Asia/Nicosia	+3510+03322	Europe/Nicosia
+Asia/Novokuznetsk	+5345+08707	
+Asia/Novosibirsk	+5502+08255	
+Asia/Omsk	+5500+07324	
+Asia/Oral	+5113+05121	
+Asia/Pontianak	-0002+10920	
+Asia/Pyongyang	+3901+12545	
+Asia/Qatar	+2517+05132	Asia/Bahrain
+Asia/Qostanay	+5312+06337	
+Asia/Qyzylorda	+4448+06528	
+Asia/Riyadh	+2438+04643	Antarctica/Syowa,Asia/Aden,Asia/Kuwait
+Asia/Sakhalin	+4658+14242	
+Asia/Samarkand	+3940+06648	
+Asia/Seoul	+3733+12658	ROK
+Asia/Shanghai	+3114+12128	Asia/Chongqing,Asia/Chungking,Asia/Harbin,PRC
+Asia/Singapore	+0117+10351	Asia/Kuala_Lumpur,Singapore
+Asia/Srednekolymsk	+6728+15343	
+Asia/Taipei	+2503+12130	ROC
+Asia/Tashkent	+4120+06918	
+Asia/Tbilisi	+4143+04449	
+Asia/Tehran	+3540+05126	Iran
+Asia/Thimphu	+2728+08939	Asia/Thimbu
+Asia/Tokyo	+353916+1394441	Japan
+Asia/Tomsk	+5630+08458	
+Asia/Ulaanbaatar	+4755+10653	Asia/Choibalsan,Asia/Ulan_Bator
+Asia/Urumqi	+4348+08735	Asia/Kashgar
+Asia/Ust-Nera	+643337+1431336	
+Asia/Vladivostok	+4310+13156	
+Asia/Yakutsk	+6200+12940	
+Asia/Yangon	+1647+09610	Asia/Rangoon,Indian/Cocos
+Asia/Yekaterinburg	+5651+06036	
+Asia/Yerevan	+4011+04430	
+Atlantic/Azores	+3744-02540	
+Atlantic/Bermuda	+3217-06446	
+Atlantic/Canary	+2806-01524	
+Atlantic/Cape_Verde	+1455-02331	
+Atlantic/Faroe	+6201-00646	Atlantic/Faeroe
+Atlantic/Madeira	+3238-01654	
+Atlantic/South_Georgia	-5416-03632	
+Atlantic/Stanley	-5142-05751	
+Australia/Adelaide	-3455+13835	Australia/South
+Australia/Brisbane	-2728+15302	Australia/Queensland
+Australia/Broken_Hill	-3157+14127	Australia/Yancowinna
+Australia/Darwin	-1228+13050	Australia/North
+Australia/Eucla	-3143+12852	
+Australia/Hobart	-4253+14719	Australia/Currie,Australia/Tasmania
+Australia/Lindeman	-2016+14900	
+Australia/Lord_Howe	-3133+15905	Australia/LHI
+Australia/Melbourne	-3749+14458	Australia/Victoria
+Australia/Perth	-3157+11551	Australia/West
+Australia/Sydney	-3352+15113	Australia/ACT,Australia/Canberra,Australia/NSW
+Europe/Andorra	+4230+00131	
+Europe/Astrakhan	+4621+04803	
+Europe/Athens	+3758+02343	EET
+Europe/Belgrade	+4450+02030	Europe/Ljubljana,Europe/Podgorica,Europe/Sarajevo,Europe/Skopje,Europe/Zagreb
+Europe/Berlin	+5230+01322	Arctic/Longyearbyen,Atlantic/Jan_Mayen,Europe/Copenhagen,Europe/Oslo,Europe/Stockholm
+Europe/Brussels	+5050+00420	CET,Europe/Amsterdam,Europe/Luxembourg,MET
+Europe/Bucharest	+4426+02606	
+Europe/Budapest	+4730+01905	
+Europe/Chisinau	+4700+02850	Europe/Tiraspol
+Europe/Dublin	+5320-00615	Eire
+Europe/Gibraltar	+3608-00521	
+Europe/Helsinki	+6010+02458	Europe/Mariehamn
+Europe/Istanbul	+4101+02858	Asia/Istanbul,Turkey
+Europe/Kaliningrad	+5443+02030	
+Europe/Kirov	+5836+04939	
+Europe/Kyiv	+5026+03031	Europe/Kiev,Europe/Uzhgorod,Europe/Zaporozhye
+Europe/Lisbon	+3843-00908	Portugal,WET
+Europe/London	+513030-0000731	Europe/Belfast,Europe/Guernsey,Europe/Isle_of_Man,Europe/Jersey,GB,GB-Eire
+Europe/Madrid	+4024-00341	
+Europe/Malta	+3554+01431	
+Europe/Minsk	+5354+02734	
+Europe/Moscow	+554521+0373704	W-SU
+Europe/Paris	+4852+00220	Europe/Monaco
+Europe/Prague	+5005+01426	Europe/Bratislava
+Europe/Riga	+5657+02406	
+Europe/Rome	+4154+01229	Europe/San_Marino,Europe/Vatican
+Europe/Samara	+5312+05009	
+Europe/Saratov	+5134+04602	
+Europe/Simferopol	+4457+03406	
+Europe/Sofia	+4241+02319	
+Europe/Tallinn	+5925+02445	
+Europe/Tirane	+4120+01950	
+Europe/Ulyanovsk	+5420+04824	
+Europe/Vienna	+4813+01620	
+Europe/Vilnius	+5441+02519	
+Europe/Volgograd	+4844+04425	
+Europe/Warsaw	+5215+02100	Poland
+Europe/Zurich	+4723+00832	Europe/Busingen,Europe/Vaduz
+Indian/Chagos	-0720+07225	
+Indian/Maldives	+0410+07330	Indian/Kerguelen
+Indian/Mauritius	-2010+05730	
+Pacific/Apia	-1350-17144	
+Pacific/Auckland	-3652+17446	Antarctica/McMurdo,Antarctica/South_Pole,NZ
+Pacific/Bougainville	-0613+15534	
+Pacific/Chatham	-4357-17633	NZ-CHAT
+Pacific/Easter	-2709-10926	Chile/EasterIsland
+Pacific/Efate	-1740+16825	
+Pacific/Fakaofo	-0922-17114	
+Pacific/Fiji	-1808+17825	
+Pacific/Galapagos	-0054-08936	
+Pacific/Gambier	-2308-13457	
+Pacific/Guadalcanal	-0932+16012	Pacific/Pohnpei,Pacific/Ponape
+Pacific/Guam	+1328+14445	Pacific/Saipan
+Pacific/Honolulu	+211825-1575130	HST,Pacific/Johnston,US/Hawaii
+Pacific/Kanton	-0247-17143	Pacific/Enderbury
+Pacific/Kiritimati	+0152-15720	
+Pacific/Kosrae	+0519+16259	
+Pacific/Kwajalein	+0905+16720	Kwajalein
+Pacific/Marquesas	-0900-13930	
+Pacific/Nauru	-0031+16655	
+Pacific/Niue	-1901-16955	
+Pacific/Norfolk	-2903+16758	
+Pacific/Noumea	-2216+16627	
+Pacific/Pago_Pago	-1416-17042	Pacific/Midway,Pacific/Samoa,US/Samoa
+Pacific/Palau	+0720+13429	
+Pacific/Pitcairn	-2504-13005	
+Pacific/Port_Moresby	-0930+14710	Antarctica/DumontDUrville,Pacific/Chuuk,Pacific/Truk,Pacific/Yap
+Pacific/Rarotonga	-2114-15946	
+Pacific/Tahiti	-1732-14934	
+Pacific/Tarawa	+0125+17300	Pacific/Funafuti,Pacific/Majuro,Pacific/Wake,Pacific/Wallis
+Pacific/Tongatapu	-210800-1751200	
