@@ -464,6 +464,52 @@ private struct GeneralSettingsPage: View {
         )
     }
 
+    /// Preset selection seeds name/rate through the ONE model API.
+    private var taxPresetBinding: Binding<String> {
+        Binding(
+            get: { model.settings.tax.preset },
+            set: { model.selectTaxPreset($0) }
+        )
+    }
+
+    private var taxNameBinding: Binding<String> {
+        Binding(
+            get: { model.settings.tax.name },
+            set: { model.updateTaxName($0) }
+        )
+    }
+
+    /// The rate field: empty = unconfigured (nil); a valid finite
+    /// 0...<100 value persists; invalid text leaves the stored value
+    /// untouched (the field snaps back on the next render).
+    private var taxRateBinding: Binding<String> {
+        Binding(
+            get: {
+                guard let rate = model.settings.tax.ratePercent else { return "" }
+                return formatDisplayValue(rate, decimalPlaces: 4,
+                                          context: model.numberContext)
+            },
+            set: { text in
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                    .replacingOccurrences(of: "%", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { model.updateTaxRate(nil); return }
+                var numeric = trimmed
+                if model.numberContext.decimalComma {
+                    if !model.numberContext.groupingSeparator.isEmpty {
+                        numeric = numeric.replacingOccurrences(
+                            of: model.numberContext.groupingSeparator, with: "")
+                    }
+                    numeric = numeric.replacingOccurrences(of: ",", with: ".")
+                } else {
+                    numeric = numeric.replacingOccurrences(of: ",", with: "")
+                }
+                guard let value = Double(numeric) else { return }
+                model.updateTaxRate(value)
+            }
+        )
+    }
+
     var body: some View {
         let language = self.language
         return SettingsDetailPage(destination: .general, language: language) {
@@ -515,6 +561,56 @@ private struct GeneralSettingsPage: View {
                         language: language,
                         onSelect: { model.setAppIcon($0) }
                     )
+                }
+            }
+
+            SettingsGroup(title: L10n.t("tax.group", language: language)) {
+                SettingsRow(
+                    title: L10n.t("tax.preset", language: language),
+                    detail: L10n.t("tax.presetCap", language: language),
+                    symbol: "globe.badge.chevron.backward"
+                ) {
+                    Picker("", selection: taxPresetBinding) {
+                        Text(L10n.t("tax.preset.custom", language: language)).tag("")
+                        ForEach(TaxPresets.all, id: \.region) { preset in
+                            Text("\(preset.region) — \(preset.name) \(formatDisplayValue(preset.ratePercent, decimalPlaces: 4, context: model.numberContext))%")
+                                .tag(preset.region)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("tax.preset", language: language))
+                }
+                SettingsRow(
+                    title: L10n.t("tax.name", language: language),
+                    detail: L10n.t("tax.nameCap", language: language),
+                    symbol: "tag",
+                    divider: true
+                ) {
+                    TextField("", text: taxNameBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                        .frame(width: 150)
+                        .accessibilityLabel(L10n.t("tax.name", language: language))
+                }
+                SettingsRow(
+                    title: L10n.t("tax.rate", language: language),
+                    detail: L10n.t("tax.rateCap", language: language),
+                    symbol: "percent",
+                    divider: true
+                ) {
+                    HStack(spacing: 5) {
+                        TextField("", text: taxRateBinding)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13))
+                            .frame(width: 70)
+                            .multilineTextAlignment(.trailing)
+                            .accessibilityLabel(L10n.t("tax.rate", language: language))
+                        Text("%")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 

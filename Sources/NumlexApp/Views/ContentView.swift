@@ -138,6 +138,7 @@ struct ContentView: View {
             constants: settings.customConstants,
             numberContext: model.numberContext,
             unitContext: model.unitContext,
+            financial: model.financialContext,
             onPreviousAnswerTrigger: { key, caret in
                 model.insertPreviousAnswer(key: key, at: caret)
             },
@@ -231,7 +232,8 @@ struct ContentView: View {
                         geo: geoContext,
                         context: model.numberContext,
                         unitContext: model.unitContext,
-                        preferences: settings.temporal
+                        preferences: settings.temporal,
+                        financial: model.financialContext
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's
@@ -279,7 +281,8 @@ struct ContentView: View {
                         geo: geoContext,
                         context: model.numberContext,
                         unitContext: model.unitContext,
-                        preferences: settings.temporal
+                        preferences: settings.temporal,
+                        financial: model.financialContext
                     ).lines
                 }()
                 // r77b: per-line result state for the answer-appearance

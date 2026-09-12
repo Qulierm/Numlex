@@ -65,7 +65,8 @@ public enum SyntaxClassifier {
                              decimalPlaces: Int,
                              constants: [UserConstant] = [],
                              context: NumberFormatContext = .legacy,
-                             unitContext: UnitContext = .builtIns) -> [[SyntaxSpan]] {
+                             unitContext: UnitContext = .builtIns,
+                             financial: FinancialContext = .defaults) -> [[SyntaxSpan]] {
         var result: [[SyntaxSpan]] = []
         // ONE shared typed environment for the whole document — the same
         // flow `evaluateSheet` and the answer column use, so declared
@@ -124,7 +125,8 @@ public enum SyntaxClassifier {
             let evaluation = evalLineTyped(line, env: &env,
                                            rates: rates, decimalPlaces: decimalPlaces,
                                            now: Date(), calendar: Calendar.current,
-                                           unitContext: unitContext)
+                                           unitContext: unitContext,
+                                           financial: financial)
             let isNatural = lineIsNatural(line, env: env)
             var isMath = false
             let spans: [SyntaxSpan]

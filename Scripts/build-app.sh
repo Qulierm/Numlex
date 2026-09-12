@@ -142,7 +142,7 @@ if [ -z "$CORE_BUNDLE" ] || [ ! -d "$CORE_BUNDLE" ]; then
   echo "Missing NumlexCore resource bundle (.build/.../Numlex_NumlexCore.bundle)"
   exit 1
 fi
-for required in NumlexTimezones/iana-zones.tsv NumlexTimezones/cities.tsv NumlexTimezones/countries.tsv NumlexTimezones/airports.tsv NumlexTimezones/sources.json NumlexHolidays/holidays.tsv NumlexHolidays/sources.json; do
+for required in NumlexTimezones/iana-zones.tsv NumlexTimezones/cities.tsv NumlexTimezones/countries.tsv NumlexTimezones/airports.tsv NumlexTimezones/sources.json NumlexHolidays/holidays.tsv NumlexHolidays/sources.json NumlexIncomeTax/income-tax.json NumlexIncomeTax/sources.json NumlexCPI/cpi-u.json NumlexCPI/sources.json; do
   if [ ! -f "$CORE_BUNDLE/$required" ]; then
     echo "Missing offline resource: $required"
     exit 1

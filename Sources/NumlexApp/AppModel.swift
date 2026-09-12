@@ -88,6 +88,14 @@ final class AppModel {
                              constants: settings.customConstants).context
     }
 
+    /// Package 2: the ONE immutable financial context for this pass —
+    /// the app-global tax configuration plus the bundled offline
+    /// catalogs. Derived from the observable settings, never global
+    /// mutable state.
+    var financialContext: FinancialContext {
+        FinancialContext.app(tax: settings.tax)
+    }
+
     /// The Numbers tab's pending region change, awaiting the
     /// reinterpretation confirmation: `nil` means no dialog is up. The
     /// examples are the first changed lines (source -> old -> new) of
@@ -129,14 +137,16 @@ final class AppModel {
                                         constants: settings.customConstants,
                                         context: old,
                                         unitContext: unitContext,
-                                        preferences: settings.temporal)
+                                        preferences: settings.temporal,
+                                        financial: financialContext)
             let rowsNew = evaluateSheet(sheet.content, variables: &newVars,
                                         rates: rates,
                                         decimalPlaces: max(settings.decimalPlaces, 10),
                                         constants: settings.customConstants,
                                         context: new,
                                         unitContext: unitContext,
-                                        preferences: settings.temporal)
+                                        preferences: settings.temporal,
+                                        financial: financialContext)
             let lines = sheet.content.components(separatedBy: "\n")
             for row in rowsOld where rowsNew.indices.contains(row.sourceLineIndex) {
                 let other = rowsNew[row.sourceLineIndex]
@@ -958,6 +968,46 @@ final class AppModel {
     func deleteUnitRow(id: UUID) {
         guard settings.customUnits.contains(where: { $0.id == id }) else { return }
         settings.customUnits.removeAll { $0.id == id }
+        persist()
+    }
+
+    // MARK: Tax configuration (Package 2)
+
+    /// Preset selection seeds the tax name and rate once (US seeds the
+    /// name only — it has no automatic national rate). Manual edits
+    /// afterwards stay user-owned. One settings write, one persist; no
+    /// sheet/editor state is touched.
+    func selectTaxPreset(_ region: String) {
+        if let preset = TaxPresets.preset(for: region) {
+            settings.tax.preset = preset.region
+            settings.tax.name = TaxPreferences.sanitizedName(preset.name)
+            settings.tax.ratePercent = preset.region.uppercased() == "US"
+                ? nil
+                : TaxPreferences.sanitizedRate(preset.ratePercent)
+        } else {
+            settings.tax.preset = ""
+        }
+        persist()
+    }
+
+    func updateTaxName(_ name: String) {
+        let sanitized = TaxPreferences.sanitizedName(name)
+        guard sanitized != settings.tax.name else { return }
+        settings.tax.name = sanitized
+        persist()
+    }
+
+    /// nil clears the rate (the lane then fails with the actionable
+    /// message); values outside the finite 0...<100 domain are ignored.
+    func updateTaxRate(_ ratePercent: Double?) {
+        if let ratePercent {
+            guard let sanitized = TaxPreferences.sanitizedRate(ratePercent) else { return }
+            guard settings.tax.ratePercent != sanitized else { return }
+            settings.tax.ratePercent = sanitized
+        } else {
+            guard settings.tax.ratePercent != nil else { return }
+            settings.tax.ratePercent = nil
+        }
         persist()
     }
 

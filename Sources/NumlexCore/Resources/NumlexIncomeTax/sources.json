@@ -1,0 +1,13 @@
+{
+  "attribution": "National tax schedules compiled by Numlex from the official sources listed per country (factual data).",
+  "generator": "Scripts/generate-income-tax-data.py",
+  "license": "Factual public data; the compiled dataset is CC0.",
+  "resources": {
+    "income-tax.json": {
+      "sha256": "d4f1e7b8a3f5cdb1e0b5895955754c66539e34f80111e69dc3d7b65be8f8a3ba"
+    }
+  },
+  "snapshotDate": "2026-09-12",
+  "taxYearNote": "Dataset released 2026; each table carries the latest fully published national schedule at the snapshot date.",
+  "version": "income-tax-2026.1"
+}

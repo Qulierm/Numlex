@@ -206,6 +206,24 @@ one home.
 | Appearance | Auto / Light / Dark | Applies to the whole app immediately (one persisted settings write). **Auto** follows the macOS appearance live: the process appearance is released to the system (`NSApp.appearance = nil`, no SwiftUI scheme override), so window chrome, native menus, Liquid Glass surfaces, the answer palettes and the TextKit editor repaint when macOS switches Light ↔ Dark. **Light** and **Dark** pin the app and ignore system changes. **Fresh installs default to Auto** (the app follows macOS from the first launch); an explicit Light/Dark/Auto choice is stored exactly and survives relaunches, and a **legacy store whose `appearance` key is missing or malformed still decodes to Light**, so existing installs never change appearance on upgrade. |
 | Application icon | Dark / Light | The **Dock and App Switcher** icon only. Dark (the fresh default) is the signed bundle icon — the modern Liquid Glass `Assets.car` primary; Light is the alternate icon shipped inside the app. Switching applies immediately and is remembered across launches, and it is color/image only: it never changes the Finder icon of the installed bundle, the code signature, the window geometry, the caret/selection or any document. Mirrors: the app never writes a Finder icon (`NSWorkspace.setIcon` is not used), so update trust and permissions stay intact. Implementation: both choices come from the SAME modern Liquid Glass catalog compiled into the app (`Assets.car` carries the `AppIcon` and alternate `AppIconLight` iconstacks), so Light and Dark share one rendition ladder and one 128 pt logical size. Dark is applied deterministically through the named `AppIcon` asset (`NSImage(named:)`); the Light ICNS shipped in the resources is used only by development builds without `Assets.car` and is normalized to the same logical size in memory. The launch capture happens before any persisted choice is applied, so a persisted Light can never be mistaken for the bundle default and Dark always restores the real primary icon. |
 
+### Tax
+
+The app-global sales-tax configuration for the financial tax phrases (it is
+stored in the settings and never exported to `.nlx`). The controls live in a
+localized **Tax** group on the General page; there is no eighth navigation tile.
+
+| Control | Values | Notes |
+| --- | --- | --- |
+| Preset region | Custom + the bundled presets | Seeds the tax name and rate once at selection time (AU GST 10, GB VAT 20, DE VAT 19, NL VAT 21, and more; version `tax-presets-2026.1`). The United States has no automatic national rate — selecting it seeds the name only and requires a manual rate. Manual edits afterwards stay user-owned. |
+| Tax name | free text (bounded) | Accepted case-insensitively by the tax phrases: `sales tax`, `VAT` and `GST` are always registered, plus this name. Default `Sales Tax`. |
+| Tax rate | percent, 0…<100 | Used by `+ VAT`, `VAT on …`, `pre-tax price of …` and `gross price of …`. Empty = automatic tax disabled; those phrases then fail with the exact actionable `set sales tax in Settings → Tax`. |
+
+Every change persists once, live-reevaluates the sheets and never touches a
+sheet's content, line IDs, references, the editor's TextKit identity, caret,
+selection, marked text or scroll. See the syntax reference for the exact
+formulas (`$300 + VAT`, `$345 - VAT`, `VAT on $300`, `pre-tax price of $345`,
+`gross price of $300`, `$300 including VAT`).
+
 ### Notebook
 
 | Control | Default | Behaviour |

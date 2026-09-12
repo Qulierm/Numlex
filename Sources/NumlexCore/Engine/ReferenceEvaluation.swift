@@ -76,13 +76,15 @@ public func resolveSheet(
     geo: GeoContext = .empty,
     context: NumberFormatContext = .legacy,
     unitContext: UnitContext = .builtIns,
-    preferences: TemporalPreferences = .defaults
+    preferences: TemporalPreferences = .defaults,
+    financial: FinancialContext = .defaults
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
                  constants: constants, weather: weather, geo: geo, context: context,
-                 unitContext: unitContext, preferences: preferences)
+                 unitContext: unitContext, preferences: preferences,
+                 financial: financial)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -103,7 +105,8 @@ public func resolveSheet(
     geo: GeoContext = .empty,
     context: NumberFormatContext = .legacy,
     unitContext: UnitContext = .builtIns,
-    preferences: TemporalPreferences = .defaults
+    preferences: TemporalPreferences = .defaults,
+    financial: FinancialContext = .defaults
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -157,7 +160,8 @@ public func resolveSheet(
                                     now: now, calendar: calendar, weather: weather,
                                     geo: geo,
                                     context: context, unitContext: unitContext,
-                                    preferences: preferences) {
+                                    preferences: preferences,
+                                    financial: financial) {
             return eval
         }
         return .skip
@@ -330,6 +334,48 @@ public func resolveSheet(
                 quantities[k].map { (pos, $0) }
             }
         )
+
+        // Package 2: financial phrases with token money operands
+        // (`<token> after 3 years at 7%`, `<token> invested <token2>
+        // returned`). The resolver maps a marker-only operand to its
+        // resolved money quantity by exact UTF-16 position; the lane
+        // itself owns the phrase grammar and formulas.
+        if markerPos.count <= 2 {
+            let leading = (line as NSString).range(of: "^[ \\t]*",
+                                                   options: .regularExpression).length
+            let trimmedLine = (line as NSString).substring(from: leading)
+                .trimmingCharacters(in: .whitespaces)
+            let tokenResolver: FinancialPhraseLane.MoneyResolver = { text, offset in
+                let absolute = offset + leading
+                if let k = markerPos.firstIndex(of: absolute) {
+                    guard let q = quantities[k] else { return .none }
+                    if let unit = q.unit, isCurrencyCode(unit) {
+                        return .money(value: q.v, code: unit)
+                    }
+                    return .malformed
+                }
+                switch NaturalCalculation.moneyOutcome(text, env: env,
+                                                       context: context, rates: rates) {
+                case .money(let v, let c): return .money(value: v, code: c)
+                case .ratesUnavailable: return .ratesUnavailable
+                case .malformed: return .malformed
+                case .none: return .none
+                }
+            }
+            switch FinancialPhraseLane.tryLine(trimmedLine, env: env, rates: rates,
+                                               context: context,
+                                               unitContext: unitContext,
+                                               financial: financial,
+                                               decimalPlaces: decimalPlaces,
+                                               resolver: tokenResolver) {
+            case .result(let result):
+                return result
+            case .error(let message):
+                return .error(message: message)
+            case .notMine:
+                break
+            }
+        }
 
         // r83: a percentage phrase with a marker standing in an
         // operand (`TOKEN is what % of 200`, `15% of TOKEN`,

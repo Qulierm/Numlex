@@ -41,7 +41,9 @@ let package = Package(
             path: "Sources/NumlexCore",
             resources: [
                 .copy("Resources/NumlexTimezones"),
-                .copy("Resources/NumlexHolidays")
+                .copy("Resources/NumlexHolidays"),
+                .copy("Resources/NumlexIncomeTax"),
+                .copy("Resources/NumlexCPI")
             ]
         ),
         .executableTarget(

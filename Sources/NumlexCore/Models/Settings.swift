@@ -191,6 +191,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// is NOT bumped: a missing key, a malformed block or a wrong JSON type
     /// falls back to the defaults.
     public var temporal: TemporalPreferences
+    /// Package 2: the app-global sales-tax configuration. Additive and
+    /// failure-proof exactly like `temporal`: a missing key, a malformed
+    /// block or a wrong JSON type falls back to the defaults, the payload
+    /// version is NOT bumped and nothing here enters `.nlx`.
+    public var tax: TaxPreferences
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -207,7 +212,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults) {
         self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
@@ -225,6 +230,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.customUnits = customUnits
         self.presentation = presentation
         self.appIcon = appIcon
+        self.tax = tax
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -284,6 +290,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // Temporal: additive, key-by-key and failure-proof — a missing key
         // (legacy store) or a malformed block cannot lose the store.
         temporal = (try? c.decodeIfPresent(TemporalPreferences.self, forKey: .temporal)) ?? .defaults
+        // Package 2 tax: the same additive, failure-proof contract.
+        tax = (try? c.decodeIfPresent(TaxPreferences.self, forKey: .tax)) ?? .defaults
     }
 
     public var fontSize: Double {

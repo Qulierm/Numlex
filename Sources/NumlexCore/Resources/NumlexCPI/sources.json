@@ -1,0 +1,33 @@
+{
+  "annualCoverage": [
+    1913,
+    2025
+  ],
+  "attribution": "U.S. Bureau of Labor Statistics, CPI-U All Items (public domain)",
+  "generator": "Scripts/generate-cpi-data.py",
+  "license": "Public domain (U.S. Government work)",
+  "provisional": {
+    "latestMonth": 8,
+    "latestValue": 334.98,
+    "months": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "year": 2026,
+    "ytdAverage": 331.655
+  },
+  "resources": {
+    "cpi-u.json": {
+      "sha256": "dd017152a5897c5a5985ba9c5584c554413b7a9bbcde88d0f7edc186e122f208"
+    }
+  },
+  "series": "CUUR0000SA0",
+  "snapshotDate": "2026-09-12",
+  "version": "cpi-u-2026.1"
+}

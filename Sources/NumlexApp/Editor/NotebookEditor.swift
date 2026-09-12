@@ -52,6 +52,10 @@ struct NotebookEditor: NSViewRepresentable {
     /// units) — the syntax classifier resolves custom unit names
     /// through it exactly as evaluation does.
     var unitContext: UnitContext = .builtIns
+    /// Package 2: the immutable financial context (tax + catalogs) the
+    /// syntax classifier evaluates with, so financial phrase lines paint
+    /// the same way they evaluate.
+    var financial: FinancialContext = .defaults
     var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// Editor scroll offset, top-down points in editor-content coordinates
     /// (0 = top of the document).
@@ -165,6 +169,7 @@ struct NotebookEditor: NSViewRepresentable {
             onTokenHoverChanged: onTokenHoverChanged,
             numberContext: numberContext,
             unitContext: unitContext,
+            financial: financial,
             lineHighlightFills: lineHighlightFills,
             editorLineIDs: editorLineIDs,
             onHighlightLines: onHighlightLines,
@@ -258,6 +263,9 @@ final class NotebookEditorCoordinator: NSObject {
     /// r33: global constants for the highlight pipeline (cheap struct
     /// copy; a settings edit changes this and re-highlights in place).
     private var constants: [UserConstant] = []
+    /// Package 2: the immutable financial context for the highlight
+    /// pipeline (same value evaluation uses).
+    private var financial: FinancialContext = .defaults
     private var onPreviousAnswerTrigger: ((Character, Int) -> Bool)?
     /// The exact UTF-16 map of the format pass applied by the LAST
     /// `applyAutoFormat` call (attached to the edit that follows it).
@@ -650,6 +658,7 @@ final class NotebookEditorCoordinator: NSObject {
                 onTokenHoverChanged: ((UUID?) -> Void)?,
                 numberContext: NumberFormatContext = .legacy,
                 unitContext: UnitContext = .builtIns,
+                financial: FinancialContext = .defaults,
                 lineHighlightFills: [UUID: HighlightColor] = [:],
                 editorLineIDs: [UUID] = [],
                 onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)? = nil,
@@ -665,6 +674,7 @@ final class NotebookEditorCoordinator: NSObject {
         self.sheetID = sheetID
         self.numberContext = numberContext
         self.unitContext = unitContext
+        self.financial = financial
         self.inputPrefs = inputPrefs
         self.onPreviousAnswerTrigger = onPreviousAnswerTrigger
         // r87: highlight state — a change repaints fills in place
@@ -721,6 +731,7 @@ final class NotebookEditorCoordinator: NSObject {
         // already reflects the new gutter state (no stale-indent pass).
         if lineNumbers != self.lineNumbers { self.lineNumbers = lineNumbers; needsRelayout = true }
         if rates != self.rates { self.rates = rates; needsRelayout = true }
+        if financial != self.financial { self.financial = financial; needsRelayout = true }
         if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; needsRelayout = true }
         if styling != self.styling {
             // Only the font DESIGN moves glyph metrics; role colors and
@@ -1148,7 +1159,8 @@ final class NotebookEditorCoordinator: NSObject {
         let spans = SyntaxClassifier.spans(for: text, rates: rates,
                                            decimalPlaces: decimalPlaces,
                                            constants: constants,
-                                           unitContext: unitContext)
+                                           unitContext: unitContext,
+                                           financial: financial)
 
         let font = palette.editorFont(size: fontSize)
         let base: [NSAttributedString.Key: Any] = [
