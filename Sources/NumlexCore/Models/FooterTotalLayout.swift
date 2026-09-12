@@ -21,9 +21,16 @@ public enum FooterTotalLayout {
     public static let innerPadding: CGFloat = 12
     /// The gap between the label and the value.
     public static let labelGap: CGFloat = 8
-    /// A little air so the label disappears BEFORE it can collide or the
-    /// value would be squeezed into truncation (subpixel rounding included).
-    public static let safetyReserve: CGFloat = 2
+    /// The comfort reserve: the label disappears well BEFORE it can collide
+    /// with, or visually crowd, the value. Subpixel rounding is only the
+    /// floor — a label that leaves a sliver of air still reads as cramped, so
+    /// the reserve is a real design measure (22 pt) rather than a collision
+    /// epsilon. Measured default cases: `Total` ≈ 26.5 pt and `1335152.55`
+    /// ≈ 105.5 pt; 26.5 + 8 + 105.5 = 140 leaves only 20 pt inside the 160 pt
+    /// content width, which still LOOKS overlapped, so that value must go
+    /// compact, while short values such as `1.500` (≈ 64 pt total) keep the
+    /// label.
+    public static let comfortReserve: CGFloat = 22
 
     /// Full bubble width inside the panel (184 pt).
     public static var bubbleWidth: CGFloat { panelWidth - 2 * outerInset }
@@ -66,10 +73,10 @@ public enum FooterTotalLayout {
         let fullBubble = max(0, min(container - 2 * outerInset, bubbleWidth))
         let fullContent = max(0, fullBubble - 2 * innerPadding)
 
-        // Expanded requires the label, its gap, the value AND the safety
-        // reserve inside the full content width (so the switch happens one
-        // step early instead of exactly at overlap).
-        let needed = label + (label > 0 ? labelGap : 0) + value + safetyReserve
+        // Expanded requires the label, its gap, the value AND the comfort
+        // reserve inside the full content width, so the label only stays while
+        // it has real air around it (never merely "no literal collision").
+        let needed = label + (label > 0 ? labelGap : 0) + value + comfortReserve
         let showsLabel = valueIsKnown && label > 0 && needed <= fullContent
 
         if showsLabel {

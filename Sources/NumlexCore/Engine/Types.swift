@@ -82,6 +82,10 @@ public enum NumericKind: Equatable, Sendable {
     case fraction
     /// A multiplier factor: raw 1.5 renders and copies as `1.5x`.
     case multiplier
+    /// A natural compound duration (`1 h 30 min`). The value and the
+    /// unit stay ordinary quantity data — this kind only selects the
+    /// natural decomposition for the visible answer and its copy.
+    case duration
 }
 
 /// r83: one reduced rational. The reduction is DETERMINISTIC: the

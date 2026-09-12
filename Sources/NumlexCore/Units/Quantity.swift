@@ -126,10 +126,16 @@ public struct Quantity: Equatable, Sendable {
     public var value: Double
     /// The display unit (scale + label + identity).
     public var display: UnitExpr
+    /// Presentation ONLY (never persisted, never persisted schema): a
+    /// duration-marked quantity renders as a natural compound. The value,
+    /// the display unit and every algebra rule are untouched by it.
+    public var presentation: QuantityPresentation
 
-    public init(value: Double, display: UnitExpr) {
+    public init(value: Double, display: UnitExpr,
+                presentation: QuantityPresentation = .standard) {
         self.value = value
         self.display = display
+        self.presentation = presentation
     }
 
     // Identity projections (cached off `display`).

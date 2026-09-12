@@ -611,7 +611,9 @@ func evalLineTyped(_ line: String,
                                           now: now, calendar: calendar) {
             return .number(value: roundResult(q.value,
                                               decimalPlaces: max(decimalPlaces, 10)),
-                           unit: q.display.label, kind: .plain, fraction: nil)
+                           unit: q.display.label,
+                           kind: q.presentation == .duration ? .duration : .plain,
+                           fraction: nil)
         }
         return .error(message: "Invalid expression")
     }
@@ -661,7 +663,9 @@ func evalLineTyped(_ line: String,
             env.set(display: a.name, qty: .quantity(q))
             return .number(value: roundResult(q.value,
                                               decimalPlaces: max(decimalPlaces, 10)),
-                           unit: q.display.label, kind: .plain, fraction: nil)
+                           unit: q.display.label,
+                           kind: q.presentation == .duration ? .duration : .plain,
+                           fraction: nil)
         case .intValue(let v, let radix):
             // r85: an exact integer right-hand side records the
             // full Int64 with its presentation radix.

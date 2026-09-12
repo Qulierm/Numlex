@@ -93,6 +93,16 @@ enum MixedUnitScanner {
             }
             // --- number (optionally followed by a spaced unit) ---
             if c.isNumber || c == "." || c == "," {
+                // A compound duration literal (`1 h 45 min`, `1h45min`) is
+                // scanned as ONE quantity BEFORE the ordinary number/unit
+                // path, so it groups as a single primary ahead of the
+                // multiplicative precedence.
+                if let (token, afterLiteral) = Self.scanDurationLiteral(
+                        line, from: i, context: context, unitContext: unitContext) {
+                    out.append(token)
+                    i = afterLiteral
+                    continue
+                }
                 guard let (value, afterNum) =
                         Self.scanNumber(line, from: i, context: context)
                 else { return nil }
@@ -282,6 +292,128 @@ enum MixedUnitScanner {
         return out
     }
 
+    // MARK: value names
+
+    /// The longest run of consecutive `.word` tokens starting at `index`
+    /// (joined by single spaces) that names a QUANTITY-valued env entry.
+    /// Returns the name and the number of word tokens it spans.
+    static func joinedValueName(tokens: [MToken], at index: Int,
+                                env: TypedEnv) -> (String, Int)? {
+        var best: (String, Int)?
+        var name = ""
+        var count = 0
+        var i = index
+        while i < tokens.count, count < 4 {
+            guard case .word(let w, range: _) = tokens[i] else { break }
+            if ["to", "in", "as", "per", "for", "at", "ppi"].contains(w.lowercased()) { break }
+            name = name.isEmpty ? w : name + " " + w
+            count += 1
+            i += 1
+            guard let entry = env.entry(display: name) else { continue }
+            if case .quantity = entry.qty { best = (name, count) }
+        }
+        return best
+    }
+
+    /// True when the token is a word naming a quantity-valued env entry
+    /// (single word or the first word of a multiword name).
+    static func isValueWord(_ t: MToken, env: TypedEnv) -> Bool {
+        guard case .word(let w, range: _) = t else { return false }
+        if let entry = env.entry(display: w), case .quantity = entry.qty { return true }
+        return false
+    }
+
+    // MARK: duration literals
+
+    /// The unit expression for one duration component in the ACTIVE unit
+    /// context, but only when it really is the catalog's fixed unit (a
+    /// custom unit that merely shares a name/factor must not turn implicit
+    /// adjacency on).
+    static func durationUnitExpr(_ component: DurationComponent,
+                                 unitContext: UnitContext) -> UnitExpr? {
+        guard let u = unitContext.resolveLabel(component.label) else { return nil }
+        guard u.vector == DimensionVector(t: 1), u.isLinear else { return nil }
+        guard abs(u.toBase - component.seconds) <= max(component.seconds * 1e-9, 1e-12) else {
+            return nil
+        }
+        return u
+    }
+
+    /// Scans a duration literal starting at a number: one or more ADJACENT
+    /// fixed duration components, either spaced (`1 h 45 min`) or safely
+    /// glued (`1h45min`, `45min`, `500ms`).
+    ///
+    /// Returns nil unless the literal is genuinely a duration form:
+    /// - two or more components (spaced or glued), or
+    /// - one GLUED component (`45min`, `1h`, `500ms`).
+    ///
+    /// A single SPACED component (`1 h`, `90 min`) is deliberately left to
+    /// the ordinary path, so every pre-existing time input keeps its old
+    /// presentation. Components are summed whatever their order, and the
+    /// largest component becomes the display unit; the marker is set to
+    /// `.duration` so the row renders as a natural compound.
+    static func scanDurationLiteral(_ line: String, from start: String.Index,
+                                    context: NumberFormatContext,
+                                    unitContext: UnitContext)
+        -> (MToken, String.Index)? {
+        var i = start
+        var values: [Double] = []
+        var order: [DurationComponent] = []
+        var gluedUsed = false
+        var consumed = start
+        while i < line.endIndex, line[i].isNumber || line[i] == "." || line[i] == "," {
+            guard let (value, afterNum) = scanNumber(line, from: i, context: context),
+                  value.isFinite else { break }
+            var matched: DurationComponent?
+            var end = afterNum
+            if afterNum < line.endIndex, isUnitWordStart(line[afterNum], context: context) {
+                if let (component, gluedEnd) = DurationUnits.gluedMatch(line, from: afterNum) {
+                    matched = component
+                    end = gluedEnd
+                    gluedUsed = true
+                }
+            }
+            if matched == nil, afterNum < line.endIndex, line[afterNum] == " " {
+                let w = line.index(after: afterNum)
+                if w < line.endIndex, isUnitWordStart(line[w], context: context) {
+                    let (word, wordEnd) = scanWord(line, from: w)
+                    if let component = DurationUnits.aliases[word.lowercased()] {
+                        matched = component
+                        end = wordEnd
+                    }
+                }
+            }
+            guard let component = matched,
+                  durationUnitExpr(component, unitContext: unitContext) != nil else { break }
+            values.append(value)
+            order.append(component)
+            consumed = end
+            i = end
+            var j = i
+            while j < line.endIndex, line[j] == " " || line[j] == "\t" {
+                j = line.index(after: j)
+            }
+            if j < line.endIndex, line[j].isNumber || line[j] == "." || line[j] == "," {
+                i = j
+            } else {
+                break
+            }
+        }
+        guard !values.isEmpty, values.count >= 2 || gluedUsed else { return nil }
+        var totalSeconds = 0.0
+        for (value, component) in zip(values, order) {
+            totalSeconds += value * component.seconds
+            guard totalSeconds.isFinite else { return nil }
+        }
+        guard let display = order.max(by: { $0.seconds < $1.seconds }),
+              let unit = durationUnitExpr(display, unitContext: unitContext) else { return nil }
+        let displayValue = totalSeconds / display.seconds
+        guard displayValue.isFinite else { return nil }
+        let quantity = Quantity(value: displayValue, display: unit,
+                                presentation: .duration)
+        return (.quantity(quantity, range: range(of: line, start, consumed)), consumed)
+    }
+
     /// `Double(text)` with the regional fallbacks (a lone `.` is an
     /// invalid number, not zero).
     private static func parseDouble(_ text: String) -> Double? {
@@ -442,7 +574,14 @@ enum MixedUnitParser {
         guard let q = p.parseExpression() else { return nil }
         guard p.atEnd else { return nil }
         guard let target = target else { return q }
-        return try? q.converted(to: target, rates: rates).get()
+        // An EXPLICIT conversion target resets the presentation: `1 h 30 min
+        // to min` is a single-unit conversion (90 min), never a natural
+        // compound, and `in hours` stays `1.5 h`.
+        guard var converted = try? q.converted(to: target, rates: rates).get() else {
+            return nil
+        }
+        converted.presentation = .standard
+        return converted
     }
 
     /// The parse state.
@@ -465,10 +604,19 @@ enum MixedUnitParser {
         func peek() -> MToken? { atEnd ? nil : tokens[pos] }
         func skip() { if !atEnd { pos += 1 } }
         func expectOp(_ ops: Set<String>) -> Bool {
-            guard let tok = peek(), case .op(let o, range: _) = tok, ops.contains(o)
-            else { return false }
-            self.skip()
-            return true
+            guard let tok = peek() else { return false }
+            switch tok {
+            case .op(let o, range: _) where ops.contains(o):
+                self.skip()
+                return true
+            case .paren(let p, range: _) where ops.contains(p):
+                // The scanner emits parentheses as `.paren`, so a closing
+                // `)` is a legitimate terminator for expectOp.
+                self.skip()
+                return true
+            default:
+                return false
+            }
         }
 
         // MARK: levels
@@ -580,7 +728,17 @@ enum MixedUnitParser {
                     // stages; a mixed expression never parses them.
                     return nil
                 }
-                q = MixedUnitParser.quantity(for: w, env: env)
+                // A MULTIWORD assigned value (`focus time`) is joined from
+                // consecutive word tokens first, longest match winning, so a
+                // duration-typed variable participates in the algebra.
+                if let (name, count) = MixedUnitScanner.joinedValueName(
+                        tokens: tokens, at: pos - 1, env: env),
+                   let joined = MixedUnitParser.quantity(for: name, env: env) {
+                    for _ in 1..<count { self.skip() }
+                    q = joined
+                } else {
+                    q = MixedUnitParser.quantity(for: w, env: env)
+                }
             case .op, .percent:
                 return nil
             }
@@ -589,20 +747,49 @@ enum MixedUnitParser {
 
         // MARK: algebra wrappers
 
+        /// The duration presentation marker PROPAGATES through the algebra
+        /// but only while the result really is a fixed time duration: a
+        /// result that is not exactly T^1 in a fixed duration unit (a rate
+        /// `90 km / 3 h`, an area, a dimensionless ratio, a calendar
+        /// average) is presented the ordinary way, so a duration operand can
+        /// never leak natural presentation into another dimension.
+        func withPresentation(_ q: Quantity, _ operands: Quantity...) -> Quantity {
+            var out = q
+            let isFixedTime = out.signature == DurationPresentation.timeSignature
+                && DurationUnits.isFixed(out.display.label)
+            guard isFixedTime else {
+                // Not a duration at all (a rate, an area, a ratio, a
+                // calendar average): the ordinary presentation, always.
+                out.presentation = .standard
+                return out
+            }
+            // A duration-marked operand propagates, and so does ordinary
+            // TIME arithmetic between real time quantities: once a time
+            // value takes part in a time operation the result is a natural
+            // duration. A lone `1 h` / `90 min` (no operation) stays exactly
+            // as it always was.
+            let anyTime = operands.contains {
+                $0.signature == DurationPresentation.timeSignature
+            }
+            let anyMarked = operands.contains { $0.presentation == .duration }
+            out.presentation = (anyTime || anyMarked) ? .duration : .standard
+            return out
+        }
+
         func tryAdd(_ a: Quantity, _ b: Quantity, negative: Bool) -> Quantity? {
             let r = negative ? a.subtracted(b) : a.added(b)
             guard case .success(let q) = r else { return nil }
-            return q
+            return withPresentation(q, a, b)
         }
         func tryMul(_ a: Quantity, _ b: Quantity, divide: Bool) -> Quantity? {
             let r = divide ? a.divided(b) : a.multiplied(b)
             guard case .success(let q) = r else { return nil }
-            return q
+            return withPresentation(q, a, b)
         }
         func tryPower(_ a: Quantity, _ n: Int) -> Quantity? {
             let r = a.powered(n)
             guard case .success(let q) = r else { return nil }
-            return q
+            return withPresentation(q, a)
         }
     }
 }
@@ -639,9 +826,27 @@ enum MixedUnitLine {
                                                      env: env) else { return false }
         var hasQuantity = false
         var hasOperator = false
+        var durationLiteral = false
+        var durationWithTarget = false
         let bodyNS = body as NSString
         for (idx, t) in tokens.enumerated() {
-            if case .quantity = t { hasQuantity = true }
+            if case .quantity(let q, range: _) = t {
+                hasQuantity = true
+                if q.presentation == .duration {
+                    durationLiteral = true
+                    // A duration compound carries its own conversion
+                    // semantics, so a `to|in|as` target is ours too (the
+                    // legacy lane cannot parse compound duration literals).
+                    if target != nil { durationWithTarget = true }
+                }
+            }
+            // An operand may come from a VARIABLE holding a quantity
+            // (`x = 2 h 30 min` then `x × 2`, `focus time + 15 min`).
+            if hasQuantity == false,
+               (MixedUnitScanner.isValueWord(t, env: env)
+                || MixedUnitScanner.joinedValueName(tokens: tokens, at: idx, env: env) != nil) {
+                hasQuantity = true
+            }
             if case .word(let w, range: _) = t, w == "per" {
                 hasOperator = true
             }
@@ -676,8 +881,19 @@ enum MixedUnitLine {
         // expressions: `1 km/h/s to m/s²`, `1 bbl/d to L/s`,
         // `10 km/L to US mpg`).
         if !hasOperator {
-            if target != nil { return false }
+            if target != nil { return durationWithTarget }
             if tokens.count == 1 { return true }
+            // A parenthesized DURATION literal `(1 h 15 min)` is ours: the
+            // compound form has no legacy meaning (a parenthesized ordinary
+            // quantity keeps going to the legacy lane, as before).
+            if tokens.count == 3,
+               case .paren(let open, range: _) = tokens[0], open == "(",
+               case .quantity(let q, range: _) = tokens[1],
+               case .paren(let close, range: _) = tokens[2], close == ")",
+               case .quantity = tokens[1],
+               q.presentation == .duration {
+                return true
+            }
             // `<quantity> ( word )` — the qualifier form.
             if tokens.count == 4,
                case .quantity = tokens[0],

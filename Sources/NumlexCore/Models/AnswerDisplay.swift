@@ -150,6 +150,18 @@ public enum AnswerDisplay {
             let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
                                        context: context.withoutCompactNotation)
             return "\(s)x"
+        case .duration:
+            // The ONE natural decomposition, shared with Copy and tokens.
+            if let natural = DurationPresentation.naturalText(value: value, unit: unit,
+                                                              kind: kind,
+                                                              decimalPlaces: decimalPlaces,
+                                                              context: context) {
+                return natural
+            }
+            let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
+                                       context: context.withoutCompactNotation)
+            if let u = unit { return "\(s) \(u)" }
+            return s
         }
     }
 
@@ -179,6 +191,12 @@ public enum AnswerDisplay {
                 return NumberPresentation.formatMoney(v, code: u,
                                                        notation: eff,
                                                        prefs: prefs, context: context)
+            }
+            if kind == .duration {
+                // Duration presentation is semantic, not a notation: the
+                // copy is byte-identical to the visible row.
+                return formatKinded(v, unit: unit, kind: kind, fraction: fraction,
+                                    decimalPlaces: decimalPlaces, context: context)
             }
             // r87: automatic keeps the ONE shared kinded presentation
             // (percent × 100 + `%`, the exact rational verbatim,
@@ -214,7 +232,7 @@ public enum AnswerDisplay {
                 s = NumberPresentation.format(v, category: .plain,
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext) + "x"
-            case .plain, .fraction:
+            case .plain, .fraction, .duration:
                 let exact = (v.truncatingRemainder(dividingBy: 1) == 0
                              && abs(v) <= 9.007199254740992e15) ? Int64(v) : nil
                 s = NumberPresentation.format(v, int64: exact,
@@ -255,6 +273,15 @@ public enum AnswerDisplay {
         case .variable(_, let v, let kind, let fraction):
             // r83: an assigned value keeps its semantic kind on display
             // (`x = 10% + 20%` shows `30%`).
+            if kind == .duration {
+                // A duration-typed variable carries its presentation marker
+                // through assignment; the unit lives on the ENV entry, so
+                // the row is shown from the stored quantity (the view path
+                // passes the unit) — with no unit here, fall back to the
+                // plain shape.
+                return formatKinded(v, unit: nil, kind: .plain, fraction: fraction,
+                                    decimalPlaces: decimalPlaces, context: context)
+            }
             let copyContext: NumberFormatContext =
                 eff == .automatic ? context.withoutCompactNotation : context
             if eff == .automatic {
@@ -281,7 +308,7 @@ public enum AnswerDisplay {
                 s = NumberPresentation.format(v, category: .plain,
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext) + "x"
-            case .plain, .fraction:
+            case .plain, .fraction, .duration:
                 s = NumberPresentation.format(v, category: .plain,
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext)
@@ -323,6 +350,11 @@ public enum AnswerDisplay {
         case .number(let v, let unit, let kind, _):
             if let u = unit, isCurrencyCode(u) {
                 return formatMoney(v, code: u, context: context)
+            }
+            if kind == .duration {
+                return formatKinded(v, unit: unit, kind: kind,
+                                    fraction: nil, decimalPlaces: decimalPlaces,
+                                    context: context)
             }
             if kind == .plain {
                 // The R73 exception: a unitless plain row DISPLAYS in
@@ -370,12 +402,18 @@ public enum AnswerDisplay {
             switch kind {
             case .fraction:
                 return nil  // the exact reduced rational stays verbatim
+            case .duration:
+                // A natural duration has component semantics; no notation,
+                // no fraction, no compact/scientific form.
+                return nil
             case .plain, .percent, .multiplier:
                 return NotationOptions(allowsFraction: kind == .plain)
             }
         case .variable(_, _, let kind, _):
             switch kind {
             case .fraction:
+                return nil
+            case .duration:
                 return nil
             case .plain, .percent, .multiplier:
                 return NotationOptions(allowsFraction: kind == .plain)
@@ -433,12 +471,18 @@ public enum AnswerDisplay {
                 // r83: a fraction is Copy/Delete only — a reduced
                 // rational has no decimals to choose.
                 return Menu(showsActions: true, showsRounding: false)
+            case .duration:
+                // A natural duration has component semantics, not a decimal
+                // count: Copy Answer and Delete Line only.
+                return Menu(showsActions: true, showsRounding: false)
             }
         case .variable(_, _, let kind, _):
             switch kind {
             case .plain, .percent, .multiplier:
                 return Menu(showsActions: true, showsRounding: true)
             case .fraction:
+                return Menu(showsActions: true, showsRounding: false)
+            case .duration:
                 return Menu(showsActions: true, showsRounding: false)
             }
         case .boolean:

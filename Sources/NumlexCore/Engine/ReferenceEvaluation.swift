@@ -792,6 +792,7 @@ func shapeForTokenKind(_ kind: NumericKind) -> OperandShape {
     case .percent: return .percent
     case .multiplier: return .multiplier
     case .fraction: return .fraction
+    case .duration: return .plain
     case .plain: return .plain
     }
 }

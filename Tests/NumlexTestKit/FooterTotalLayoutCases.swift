@@ -1,5 +1,12 @@
+import AppKit
 import Foundation
 import NumlexCore
+
+/// AppKit-measured width with the same pixel-safe rounding the view uses.
+func footerMeasuredWidth(_ text: String, font: NSFont) -> CGFloat {
+    let width = (text as NSString).size(withAttributes: [.font: font]).width
+    return ceil(width) + 0.5
+}
 
 /// The adaptive bottom-Total bar: the footer shows the localized label while
 /// the label + gap + value fit the full content width, and collapses to a
@@ -9,6 +16,24 @@ import NumlexCore
 /// the view), so these cases exercise the pure geometry contract: exact fit,
 /// the safety reserve, a one-point overflow, the long-value cap, short
 /// compact widths, hostile input and the trailing-edge/width invariants.
+private func footerTotalSource(_ relative: String) throws -> String {
+    var url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    for _ in 0..<6 {
+        let candidate = url.appendingPathComponent(relative)
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return try String(contentsOf: candidate, encoding: .utf8)
+        }
+        url.deleteLastPathComponent()
+    }
+    throw CaseFailure(message: "source not found: \(relative)", location: "FooterTotal")
+}
+
+private func footerSlice(_ source: String, from: String, to: String) -> String {
+    guard let start = source.range(of: from)?.lowerBound,
+          let end = source.range(of: to)?.lowerBound, start < end else { return "" }
+    return String(source[start..<end])
+}
+
 public let footerTotalLayoutCases: [EngineCase] = [
 
     EngineCase("total-bar-geometry-constants-match-the-panel") {
@@ -20,9 +45,46 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expectEqual(FooterTotalLayout.contentWidth, 160, "full content 160")
     },
 
+    EngineCase("total-bar-rendered-screenshot-case-goes-compact") {
+        // The reported regression: with the REAL AppKit metrics the label is
+        // 26.5 pt and this value measures ~105.5-124.5 pt at the default
+        // sizes, so the pair leaves only ~20-33 pt of air inside the 160 pt
+        // content width — inside the raw width, but visibly cramped. The
+        // comfort reserve must send exactly this case compact.
+        let label = footerMeasuredWidth("Total", font: NSFont.systemFont(ofSize: 11))
+        for pointSize in [20.0, 17.0] {
+            let value = footerMeasuredWidth("1335152.55",
+                                            font: NSFont.monospacedSystemFont(ofSize: pointSize, weight: .regular))
+            let raw = label + FooterTotalLayout.labelGap + value
+            try expect(raw <= FooterTotalLayout.contentWidth,
+                       "\(pointSize) pt: the pair is INSIDE the raw content width (no literal collision)")
+            let r = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
+                                             labelWidth: label, valueWidth: value)
+            try expect(!r.showsLabel, "\(pointSize) pt: the cramped pair collapses to the value alone")
+            try expectEqual(r.bubbleWidth, min(value + 24, FooterTotalLayout.bubbleWidth),
+                            "\(pointSize) pt: a narrow right-aligned bubble around the value")
+            try expect(r.bubbleWidth < FooterTotalLayout.bubbleWidth, "\(pointSize) pt: narrower than full")
+        }
+        // A SMALLER editor font legitimately leaves real air: at 16 pt the
+        // same value is ~99.5 pt, so the pair still has 26 pt of comfort and
+        // keeps the label. The switch is about measured comfort, not size.
+        let smallValue = footerMeasuredWidth("1335152.55",
+                                             font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular))
+        try expect(FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
+                                            labelWidth: label, valueWidth: smallValue).showsLabel,
+                   "a comfortable small-font value keeps the label")
+        // The short value keeps the label: 1.500 is ~62.5 pt at 20 pt.
+        let shortValue = footerMeasuredWidth("1.500",
+                                             font: NSFont.monospacedSystemFont(ofSize: 20, weight: .regular))
+        let short = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
+                                             labelWidth: label, valueWidth: shortValue)
+        try expect(short.showsLabel, "short Total keeps its label")
+        try expectEqual(short.bubbleWidth, FooterTotalLayout.bubbleWidth, "and the full bubble")
+    },
+
     EngineCase("total-bar-shows-the-label-while-it-fits") {
         // label + gap + value + reserve exactly inside 160 -> expanded.
-        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.safetyReserve
+        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.comfortReserve
         let value = FooterTotalLayout.contentWidth - label - gap - reserve
         let exact = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: value)
         try expect(exact.showsLabel, "exact fit keeps the label")
@@ -34,7 +96,7 @@ public let footerTotalLayoutCases: [EngineCase] = [
     },
 
     EngineCase("total-bar-collapses-at-the-safety-reserve") {
-        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.safetyReserve
+        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.comfortReserve
         let boundary = FooterTotalLayout.contentWidth - label - gap - reserve
         // The reserve is what makes the switch happen BEFORE overlap: a value
         // one point past the boundary loses the label.
@@ -112,6 +174,28 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expectEqual(noLabel.bubbleWidth, 64, "value-only bubble")
     },
 
+    EngineCase("total-bar-comfort-reserve-is-a-design-measure") {
+        try expectEqual(FooterTotalLayout.comfortReserve, 22, "the comfort reserve is 22 pt")
+        let source = try footerTotalSource("Sources/NumlexCore/Models/FooterTotalLayout.swift")
+        try expect(source.contains("public static let comfortReserve: CGFloat = 22"),
+                   "one named comfort constant")
+        try expect(!source.contains("safetyReserve"), "the collision-epsilon name is gone")
+        try expect(source.contains("let needed = label + (label > 0 ? labelGap : 0) + value + comfortReserve"),
+                   "the decision uses the comfort reserve")
+        // The VIEW must keep measuring real AppKit text: pixel-safe rounding,
+        // the localized label font and the editor font, never a row/character
+        // count.
+        let view = try footerTotalSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        try expect(view.contains("ceil(width) + 0.5"), "pixel-safe measured width")
+        try expect(view.contains("NSFont.systemFont(ofSize: 11)"), "measured localized label font")
+        try expect(view.contains("palette.editorFont(size: fontSize)"), "measured editor font")
+        try expect(!view.contains("count >"), "no character-count heuristic")
+        let compact = footerSlice(view, from: "HStack(spacing: 0) {", to: "private func totalValue")
+        try expect(!compact.isEmpty, "the compact branch exists")
+        try expect(!compact.contains("Spacer"), "compact keeps no spacer claim")
+        try expect(!compact.contains("totalLabel"), "compact keeps no label view")
+    },
+
     EngineCase("total-bar-compact-loses-no-width-to-the-label-gap") {
         // THE defect this case exists for: a value that fits the compact
         // content width must be shown IN FULL. The collapsed mode may not
@@ -121,7 +205,7 @@ public let footerTotalLayoutCases: [EngineCase] = [
         let value: CGFloat = 130     // < 160, but label + gap + value collapses
         let r = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: value)
         try expect(!r.showsLabel, "the label cannot fit beside this value")
-        try expect(label + FooterTotalLayout.labelGap + value + FooterTotalLayout.safetyReserve
+        try expect(label + FooterTotalLayout.labelGap + value + FooterTotalLayout.comfortReserve
                    > FooterTotalLayout.contentWidth, "and the raw pair really is over the line")
         try expectEqual(r.contentWidth, value, "the value keeps its FULL width")
         try expectEqual(r.bubbleWidth, value + 24, "bubble = value + 2 * innerPadding")
@@ -129,8 +213,9 @@ public let footerTotalLayoutCases: [EngineCase] = [
                    "no label gap is subtracted (the old 8 pt loss)")
         // The decision is about FIT, not about the value's own size: the same
         // value keeps the label when the label itself is narrower.
-        let smallLabel = FooterTotalLayout.layout(containerWidth: 200, labelWidth: 18, valueWidth: value)
-        try expect(smallLabel.showsLabel, "a narrow label keeps the expanded mode")
+        let smallLabel = FooterTotalLayout.layout(containerWidth: 200, labelWidth: 18, valueWidth: 100)
+        try expect(smallLabel.showsLabel,
+                   "a narrow label with a comfortable value keeps the expanded mode")
         // And a value that fits the FULL width never loses a gap's worth of
         // room in either mode: compact content = the value, expanded content
         // covers label + gap + value.

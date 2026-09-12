@@ -234,10 +234,11 @@ extension UnitCatalog {
             ["n", "µ", "m"])
         lin("millisecond", .T, 1e-3, "ms",
             ["ms", "millisecond", "milliseconds"], [])
-        lin("minute", .T, 60, "min", ["min", "minute", "minutes"], [])
+        lin("minute", .T, 60, "min", ["min", "mins", "minute", "minutes"], [])
         lin("hour", .T, 3600, "h", ["h", "hour", "hours", "hr", "hrs"], [])
         lin("day", .T, 86_400, "day", ["day", "days"], [])
-        lin("week", .T, 604_800, "week", ["week", "weeks", "wk"], [])
+        lin("week", .T, 604_800, "week",
+            ["week", "weeks", "wk", "wks"], [])
         lin("fortnight", .T, 1_209_600, "fortnight",
             ["fortnight", "fortnights", "fn"], [])
         lin("julian-year", .T, 31_557_600, "jyear",
