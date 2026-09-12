@@ -112,6 +112,33 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expectEqual(noLabel.bubbleWidth, 64, "value-only bubble")
     },
 
+    EngineCase("total-bar-compact-loses-no-width-to-the-label-gap") {
+        // THE defect this case exists for: a value that fits the compact
+        // content width must be shown IN FULL. The collapsed mode may not
+        // reserve the label's gap (or a spacer's claim), or the value would
+        // be truncated 8 pt early.
+        let label: CGFloat = 42      // a realistic localized "Total" label
+        let value: CGFloat = 130     // < 160, but label + gap + value collapses
+        let r = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: value)
+        try expect(!r.showsLabel, "the label cannot fit beside this value")
+        try expect(label + FooterTotalLayout.labelGap + value + FooterTotalLayout.safetyReserve
+                   > FooterTotalLayout.contentWidth, "and the raw pair really is over the line")
+        try expectEqual(r.contentWidth, value, "the value keeps its FULL width")
+        try expectEqual(r.bubbleWidth, value + 24, "bubble = value + 2 * innerPadding")
+        try expect(r.contentWidth > value - FooterTotalLayout.labelGap,
+                   "no label gap is subtracted (the old 8 pt loss)")
+        // The decision is about FIT, not about the value's own size: the same
+        // value keeps the label when the label itself is narrower.
+        let smallLabel = FooterTotalLayout.layout(containerWidth: 200, labelWidth: 18, valueWidth: value)
+        try expect(smallLabel.showsLabel, "a narrow label keeps the expanded mode")
+        // And a value that fits the FULL width never loses a gap's worth of
+        // room in either mode: compact content = the value, expanded content
+        // covers label + gap + value.
+        let small = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: 60)
+        try expectEqual(small.contentWidth, FooterTotalLayout.contentWidth,
+                        "expanded keeps the full content width")
+    },
+
     EngineCase("total-bar-view-contract") {
         let view = (try? String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -126,10 +153,34 @@ public let footerTotalLayoutCases: [EngineCase] = [
                    "the value is measured in the palette editor font")
         try expect(view.contains("ceil(width) + 0.5"), "pixel-safe rounding")
         try expect(view.contains("FooterTotalLayout.layout(containerWidth:"), "the helper decides")
-        // Compact mode removes the label view itself — no hidden label, no
-        // gap and no Spacer claim.
-        try expect(view.contains("if layout.showsLabel {"), "the label is conditional")
-        try expect(view.contains("HStack(spacing: FooterTotalLayout.labelGap)"), "the gap is owned by the bar")
+        // The two modes are SEPARATE branches sharing ONE value helper, so
+        // the compact branch cannot inherit the label's gap or spacer claim.
+        func slice(_ text: String, from: String, to: String) -> String {
+            guard let a = text.range(of: from)?.lowerBound,
+                  let b = text.range(of: to, range: a..<text.endIndex)?.lowerBound else { return "" }
+            return String(text[a..<b])
+        }
+        let bar = slice(view, from: "private func footerBarContent", to: "private func totalValue")
+        let expanded = slice(bar, from: "if layout.showsLabel {", to: "} else {")
+        let compact = slice(bar, from: "} else {", to: "\n    }")
+        try expect(expanded.contains("HStack(spacing: FooterTotalLayout.labelGap)"),
+                   "expanded owns the label gap")
+        try expect(expanded.contains("Spacer(minLength: 0)"),
+                   "expanded owns the trailing spacer claim")
+        try expect(compact.contains("HStack(spacing: 0)"),
+                   "compact has ZERO inter-child spacing")
+        try expect(!compact.contains("Spacer"), "compact has no spacer claim")
+        try expect(!compact.contains("labelGap"), "compact never mentions the label gap")
+        try expect(!compact.contains("totalLabel"), "compact has no label view at all")
+        try expect(compact.contains("frame(width: layout.contentWidth, alignment: .trailing)"),
+                   "compact content is trailing-aligned")
+        try expect(expanded.contains("frame(width: layout.contentWidth, alignment: .leading)"),
+                   "expanded stays leading")
+        // One value definition, shared by both branches.
+        try expectEqual(view.components(separatedBy: "totalValue(value)").count - 1, 2,
+                        "both branches use the ONE value helper")
+        try expect(view.contains("private func totalValue(_ value: String) -> some View"),
+                   "the shared helper exists")
         try expect(!view.contains("opacity(layout.showsLabel"), "never a hidden label")
         // Geometry invariants: the trailing edge is fixed by an explicit
         // trailing-aligned slot, and the outer inset is unchanged.
@@ -138,14 +189,15 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(view.contains(".padding(FooterTotalLayout.outerInset)"), "unchanged outer inset")
         try expect(view.contains(".padding(.vertical, 8)"), "unchanged vertical padding")
         try expect(view.contains("RoundedRectangle(cornerRadius: 9"), "unchanged glass radius")
-        try expect(view.contains(".frame(width: layout.contentWidth, alignment: .leading)"),
-                   "content width from the helper")
+
         // The value path is untouched: same font, same colour, same format.
-        try expect(view.contains("Text(s.value)"), "the same formatted value")
+        try expect(view.contains("totalValue(value)"), "the same shared value helper")
+        try expect(view.contains("private func totalValue(_ value: String) -> some View"),
+                   "one value definition")
         try expect(view.contains(".font(palette.swiftUIFont(fontSize))"), "same value font")
         try expect(view.contains("Color(nsColor: Design.baseText)"), "same value colour")
         try expect(view.contains(".lineLimit(1)"), "one line")
-        try expect(view.contains(".id(s.value)"), "text-only crossfade identity")
+        try expect(view.contains(".id(value)"), "text-only crossfade identity")
         // ONE accessibility announcement carrying label + value in both modes.
         try expect(view.contains(".accessibilityElement(children: .ignore)"), "one element")
         try expect(view.contains("footerAccessibilityLabel(value: s.value,"), "one label builder")

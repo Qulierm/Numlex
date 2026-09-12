@@ -373,6 +373,49 @@ struct AnswerColumnView: View {
         )
     }
 
+    /// The footer's content: in expanded mode the localized label, its gap
+    /// and the value; in COMPACT mode the value ALONE — no label, no gap and
+    /// no spacer claim, so the value gets its full measured width instead of
+    /// losing the label gap to truncation.
+    @ViewBuilder
+    private func footerBarContent(value: String, layout: FooterTotalLayout.Result) -> some View {
+        if layout.showsLabel {
+            HStack(spacing: FooterTotalLayout.labelGap) {
+                Text(totalLabel)
+                    .font(Design.labelSmall)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                totalValue(value)
+            }
+            .frame(width: layout.contentWidth, alignment: .leading)
+        } else {
+            HStack(spacing: 0) {
+                totalValue(value)
+            }
+            .frame(width: layout.contentWidth, alignment: .trailing)
+        }
+    }
+
+    /// The Total's displayed value — one definition shared by both modes so
+    /// the font, colour, line limit and the text-only crossfade identity can
+    /// never drift between them.
+    private func totalValue(_ value: String) -> some View {
+        Text(value)
+            .font(palette.swiftUIFont(fontSize))
+            .foregroundStyle(Color(nsColor: Design.baseText))
+            .lineLimit(1)
+            // r77: the Total value gets the same short crossfade as changed
+            // answers — text identity only; the bar never moves or resizes.
+            .id(value)
+            .transition(.opacity)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: Motion.answerChange),
+                value: value
+            )
+    }
+
     /// Pixel-safe width of one string in a given font (ceil + a hair so
     /// subpixel rounding can never make the label overlap the value).
     private static func measuredWidth(_ text: String, font: NSFont) -> CGFloat {
@@ -613,48 +656,22 @@ struct AnswerColumnView: View {
                 let layout = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
                                                       labelWidth: metrics.label,
                                                       valueWidth: metrics.value)
-                HStack(spacing: FooterTotalLayout.labelGap) {
-                    // The label is REMOVED (not just faded) in compact mode:
-                    // no hidden view, no gap and no Spacer claim of its own.
-                    if layout.showsLabel {
-                        Text(totalLabel)
-                            .font(Design.labelSmall)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    Spacer(minLength: 0)
-                    Text(s.value)
-                        .font(palette.swiftUIFont(fontSize))
-                        .foregroundStyle(Color(nsColor: Design.baseText))
-                        .lineLimit(1)
-                        // r77: the Total value gets the same short
-                        // crossfade as changed answers — text identity
-                        // only; the bar never moves or resizes.
-                        .id(s.value)
-                        .transition(.opacity)
-                        .animation(
-                            reduceMotion ? nil
-                                : .easeInOut(duration: Motion.answerChange),
-                            value: s.value
-                        )
-                }
-                .frame(width: layout.contentWidth, alignment: .leading)
-                .padding(.horizontal, FooterTotalLayout.innerPadding)
-                .padding(.vertical, 8)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                // The bubble shrinks from its LEADING edge: the trailing edge
-                // stays put inside the panel's inset slot, and the reserved
-                // vertical space is untouched in both modes.
-                .frame(width: FooterTotalLayout.bubbleWidth, alignment: .trailing)
-                .padding(FooterTotalLayout.outerInset)
-                // ONE announcement, in both modes: the localized label and
-                // the exact displayed value, never duplicated children.
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
-                                                                  unit: s.unit)))
-                // Mode changes must not animate the bubble's geometry.
-                .transaction { if !reduceMotion { $0.animation = nil } }
+                footerBarContent(value: s.value, layout: layout)
+                    .padding(.horizontal, FooterTotalLayout.innerPadding)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    // The bubble shrinks from its LEADING edge: the trailing
+                    // edge stays put inside the panel's inset slot, and the
+                    // reserved vertical space is untouched in both modes.
+                    .frame(width: FooterTotalLayout.bubbleWidth, alignment: .trailing)
+                    .padding(FooterTotalLayout.outerInset)
+                    // ONE announcement, in both modes: the localized label and
+                    // the exact displayed value, never duplicated children.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
+                                                                      unit: s.unit)))
+                    // Mode changes must not animate the bubble's geometry.
+                    .transaction { if !reduceMotion { $0.animation = nil } }
             }
         }
         .frame(width: 200)
