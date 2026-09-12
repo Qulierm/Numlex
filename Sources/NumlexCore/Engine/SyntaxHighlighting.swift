@@ -179,6 +179,9 @@ public enum SyntaxClassifier {
                 // dedicated base palette lands.
                 isMath = true
                 spans = expressionSpans(line, variables: env.scalarDict(), context: context)
+            case .clock, .laptime:
+                isMath = true
+                spans = expressionSpans(line, variables: env.scalarDict(), context: context)
             case .location, .dms:
                 // r85: geo/DMS rows take the geo palette (task-7
                 // placeholder: specifier words + place spans).

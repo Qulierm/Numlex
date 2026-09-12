@@ -103,6 +103,10 @@ struct AnswerColumnView: View {
         switch result {
         case .number, .variable, .variableInt, .integer, .money, .boolean, .location:
             return true
+        case .clock, .laptime:
+            // Task 2: a clock/laptime value is deliberately NOT tokenizable
+            // as a number — no outline.
+            return false
         case .dms:
             // r85: DMS answers are not token sources — no outline.
             return false
@@ -711,6 +715,19 @@ struct AnswerColumnView: View {
             switch row {
             case .blank, .skip, .title(_):
                 Color.clear
+            case .clock(let h, let m, let sec, let hasSeconds, let dayOffset):
+                Text(AnswerDisplay.clockText(hour: h, minute: m, second: sec,
+                                             hasSeconds: hasSeconds,
+                                             dayOffset: dayOffset,
+                                             context: numberContext))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .laptime(let seconds):
+                Text(AnswerDisplay.laptimeText(seconds))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
             case .number(let v, let unit, let kind, let fraction):
                 numberView(v: v, unit: unit, kind: kind, fraction: fraction,
                            line: line, places: places)
@@ -769,6 +786,19 @@ struct AnswerColumnView: View {
                 let s = kindedString(v: v, unit: nil, kind: kind, fraction: fraction,
                                       eff: eff, places: places)
                 Text(s)
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .clock(let h, let m, let sec, let hasSeconds, let dayOffset):
+                Text(AnswerDisplay.clockText(hour: h, minute: m, second: sec,
+                                             hasSeconds: hasSeconds,
+                                             dayOffset: dayOffset,
+                                             context: numberContext))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .laptime(let seconds):
+                Text(AnswerDisplay.laptimeText(seconds))
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)

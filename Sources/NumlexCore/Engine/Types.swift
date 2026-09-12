@@ -270,6 +270,14 @@ public enum LineResult: Equatable, Sendable {
     /// `Line <line>` label. Dependent expressions instead yield a generic
     /// hidden error — never a stale snapshot.
     case brokenToken(line: Int)
+    /// A wall-clock value (an instant of day). `dayOffset` counts whole
+    /// calendar days relative to the captured `now` (0 = today) for the
+    /// Yesterday/Today/Tomorrow qualification. Never numeric, never in a
+    /// total, never tokenizable as a number.
+    case clock(hour: Int, minute: Int, second: Int, hasSeconds: Bool, dayOffset: Int)
+    /// An elapsed/laptime value in seconds, presented as `HH:MM:SS` (with
+    /// fractional seconds when present). Non-numeric, excluded from totals.
+    case laptime(seconds: Double)
     case error(message: String)
 }
 

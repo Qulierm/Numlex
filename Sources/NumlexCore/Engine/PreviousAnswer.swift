@@ -88,6 +88,7 @@ public enum PreviousAnswerPlan {
         case .integer: return true
         case .money(let v, _): return v.isFinite
         case .boolean: return false
+        case .clock, .laptime: return false
         case .location, .dms: return false
         case .blank, .skip, .title, .date, .brokenToken, .error: return false
         }

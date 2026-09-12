@@ -126,6 +126,23 @@ public enum AnswerDisplay {
     /// - percent: the numeric component ratio × 100 with `%` glued;
     /// - fraction: the reduced rational verbatim (`1/5`);
     /// - multiplier: the factor with `x` glued (`1.5x`).
+    /// A clock value's text (the ONE presentation used by the visible row,
+    /// the clipboard and the tokens).
+    public static func clockText(hour: Int, minute: Int, second: Int,
+                                 hasSeconds: Bool, dayOffset: Int,
+                                 context: NumberFormatContext) -> String {
+        let style = ClockStyle.forContext(context)
+        let calendar = Calendar(identifier: .gregorian)
+        let temporal = TemporalContext(now: Date(), calendar: calendar,
+                                       timeZone: .current, clockStyle: style)
+        return temporal.clockText(hour: hour, minute: minute, second: second,
+                                  hasSeconds: hasSeconds, dayOffset: dayOffset)
+    }
+
+    public static func laptimeText(_ seconds: Double) -> String {
+        TemporalContext.laptimeText(seconds: seconds)
+    }
+
     public static func formatKinded(_ value: Double, unit: String?,
                                     kind: NumericKind, fraction: Rational?,
                                     decimalPlaces: Int,
@@ -186,6 +203,14 @@ public enum AnswerDisplay {
         switch result {
         case .blank, .skip, .title:
             return nil
+        case .clock(let h, let m, let sec, let hasSeconds, let dayOffset):
+            // One presentation for the visible row, the clipboard and the
+            // tokens; the clock style comes from the number context.
+            return clockText(hour: h, minute: m, second: sec,
+                             hasSeconds: hasSeconds, dayOffset: dayOffset,
+                             context: context)
+        case .laptime(let seconds):
+            return laptimeText(seconds)
         case .number(let v, let unit, let kind, let fraction):
             if let u = unit, isCurrencyCode(u) {
                 return NumberPresentation.formatMoney(v, code: u,
@@ -390,6 +415,9 @@ public enum AnswerDisplay {
 
     public static func notationOptions(for result: LineResult) -> NotationOptions? {
         switch result {
+        case .clock, .laptime:
+            // A temporal value has no number notation to choose.
+            return nil
         case .blank, .skip, .title, .brokenToken, .date, .location, .dms, .error:
             return nil
         case .boolean:
@@ -450,6 +478,10 @@ public enum AnswerDisplay {
         switch result {
         case .blank, .skip, .title:
             return nil
+        case .clock, .laptime:
+            // Copy Answer and Delete Line only: a clock has no decimals to
+            // round and no notation to choose.
+            return Menu(showsActions: true, showsRounding: false)
         case .error(let msg):
             // r55: weather-unavailable rows offer no menu at all (no
             // Copy, no rounding) — quiet and secondary by design.

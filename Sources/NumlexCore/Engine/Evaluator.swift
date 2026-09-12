@@ -536,6 +536,17 @@ func evalLineTyped(_ line: String,
        env.isConstant(display: lhs) {
         return .error(message: "Cannot assign to constant")
     }
+    // Task 2: the strict clock/laptime lane owns clock-shaped lines before
+    // the integer/mixed/date lanes (a clock is never a ratio, a date or a
+    // unit expression).
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                context: context)
+        if let clock = ClockLane.tryLine(line, context: context, temporal: temporal,
+                                         unitContext: unitContext) {
+            return clock
+        }
+    }
     // r85: the exact integer lane — radix literals (`0x1F`, `0b101`,
     // `0o17`), base converters (`256 as hex`, `0x9F31 to decimal`,
     // `bin(99)`), bitwise operations (`& | xor << >>`, contextual

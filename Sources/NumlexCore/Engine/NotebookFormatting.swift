@@ -89,6 +89,9 @@ public enum NotebookFormatting {
                                           now: Date(), calendar: Calendar.current,
                                           context: context) {
                 switch result {
+                case .clock, .laptime:
+                    // Temporal values have no canonical re-spelling.
+                    out.append(line)
                 case .number(_, .none, _, _), .variable, .boolean, .error:
                     out.append(canonicalMathText(line))
                 case .integer, .variableInt:
@@ -150,6 +153,8 @@ public enum NotebookFormatting {
                              context: context) {
         case .number(_, let unit, _, _):
             return unit == nil
+        case .clock, .laptime:
+            return true
         case .variable, .variableInt, .integer, .boolean, .error:
             return true
         case .location, .dms:

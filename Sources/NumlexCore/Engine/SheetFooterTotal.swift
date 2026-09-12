@@ -61,6 +61,9 @@ public enum SheetFooterTotal {
             return Double(v)
         case .variableInt(_, let v, _):
             return Double(v)
+        case .clock, .laptime:
+            // Temporal values are never numeric: they never enter a total.
+            return nil
         case .blank, .skip, .title, .boolean, .date, .location, .dms,
              .brokenToken, .error:
             return nil
