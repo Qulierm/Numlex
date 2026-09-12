@@ -186,6 +186,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// style, currency placement). App-global — never in `.nlx`.
     /// Defaults reproduce the pre-r87 presentation byte-for-byte.
     public var presentation: NumberPresentationPreferences
+    /// Temporal preferences (work hours, holiday region, custom timezones).
+    /// Additive and app-global — never in `.nlx`, and `StorePayload.version`
+    /// is NOT bumped: a missing key, a malformed block or a wrong JSON type
+    /// falls back to the defaults.
+    public var temporal: TemporalPreferences
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -202,7 +207,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults) {
+        self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
         self.language = language
@@ -275,6 +281,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // bumped; nothing is migrated). A present block decodes
         // key-by-key tolerantly (see NumberPresentationPreferences).
         presentation = (try? c.decodeIfPresent(NumberPresentationPreferences.self, forKey: .presentation)) ?? .defaults
+        // Temporal: additive, key-by-key and failure-proof — a missing key
+        // (legacy store) or a malformed block cannot lose the store.
+        temporal = (try? c.decodeIfPresent(TemporalPreferences.self, forKey: .temporal)) ?? .defaults
     }
 
     public var fontSize: Double {
