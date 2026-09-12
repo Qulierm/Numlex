@@ -74,13 +74,24 @@ explains why — a blank or corrupt PDF is never produced.
   (each U+FFFC maps to its live `TokenResolution`; a broken token shows its
   remembered `Line N`). No replacement-character glyph is ever written.
 - Width is guaranteed, not clipped: the layout and the renderer consume the
-  SAME resolved inline text, so a token's label **and its capsule padding**
-  are reserved while wrapping, and neither column can spill into the other or
-  past a margin. A label longer than its column fragments between extended
-  grapheme clusters (each fragment keeps its capsule), and a long unbreakable
-  word (an identifier, URL or numeric string) hard-breaks the same way —
-  surrogate pairs and composed sequences are never split. A defensive cell
-  clip can only ever hide a single grapheme wider than its whole column.
+  SAME resolved inline text with each row's EXACT faces (bold headings,
+  semibold inline-total answers), so a token's label **and its capsule
+  padding** are reserved while wrapping, and neither column can spill into
+  the other or past a margin. A label longer than its column fragments between
+  extended grapheme clusters (each fragment keeps its capsule), and a long
+  unbreakable word (an identifier, URL or numeric string) hard-breaks the same
+  way — surrogate pairs and composed sequences are never split. A defensive
+  cell clip can only ever hide a single grapheme wider than its whole column.
+- Source whitespace is preserved: leading, repeated and internal whitespace
+  runs (spaces, tabs, non-breaking and other Unicode spaces) are emitted as
+  their own atoms, one visible space per source whitespace character, and
+  lines break only between atoms — never by deleting a space. Answers wrap
+  greedily (as many words per line as fit) and only over-wide runs
+  hard-break, so `3 years 2 months` stays on one line when it fits.
+- Chrome is bounded: the sheet title truncates with an ellipsis before it can
+  touch the page label, the label stays inside the margins, and a Total wider
+  than the content area wraps the value onto its own line instead of crossing
+  a margin. The layout reserves that extra footer line.
 - Rows stay intact when they fit; only a single row taller than the page body
   is fragmented safely. Page breaks are deterministic.
 - The PDF carries the sheet title as its document title and **Numlex** as

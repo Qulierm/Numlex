@@ -153,6 +153,35 @@ public struct ExportFonts {
             plain: { ExportRenderedDocument.measure($0, font: self.expression) },
             token: { ExportRenderedDocument.measure($0, font: self.token) })
     }
+
+    /// The EXACT expression-column measurer for one row: heading rows
+    /// are measured with the bold heading face, everything else with the
+    /// body face; token labels always with the token face.
+    public func expressionMeasurer(row: ExportRow) -> ExportTextMeasurer {
+        let font = row.kind == .heading ? heading : expression
+        return ExportTextMeasurer(
+            plain: { ExportRenderedDocument.measure($0, font: font) },
+            token: { ExportRenderedDocument.measure($0, font: self.token) })
+    }
+
+    /// The EXACT answer-column measurer for one row: inline-total
+    /// answers are semibold and measured that way.
+    public func answerMeasurer(row: ExportRow) -> ExportTextMeasurer {
+        let font = row.isInlineTotal ? semiboldAnswer : answer
+        return .uniform { ExportRenderedDocument.measure($0, font: font) }
+    }
+
+    public var measurers: ExportMeasurers {
+        ExportMeasurers(expression: { self.expressionMeasurer(row: $0) },
+                        answer: { self.answerMeasurer(row: $0) })
+    }
+
+    /// Chrome widths for the footer-Total placement decision.
+    public var chromeMeasurer: ExportChromeMeasurer {
+        ExportChromeMeasurer(
+            chrome: { ExportRenderedDocument.measure($0, font: self.chrome) },
+            totalValue: { ExportRenderedDocument.measure($0, font: self.semiboldAnswer) })
+    }
 }
 
 // MARK: - The renderer
@@ -178,7 +207,8 @@ public struct ExportRenderedDocument {
         self.metrics = resolved
         self.layout = ExportLayoutEngine.layout(snapshot: snapshot,
                                                 metrics: resolved,
-                                                measurer: fonts.measurer)
+                                                measurers: fonts.measurers,
+                                                chrome: fonts.chromeMeasurer)
     }
 
     /// Single-line width of `text` in `font` (CoreText metrics).
@@ -280,14 +310,22 @@ public struct ExportRenderedDocument {
     private func drawChrome(page: ExportPage, in ctx: CGContext) {
         let size = layout.pageSize
         let top = metrics.margins.top
-        drawLine(text: snapshot.sheetTitle,
+        let contentWidth = size.width - metrics.margins.left - metrics.margins.right
+        let pageLabel = "\(page.index) / \(layout.pages.count)"
+        let pageLabelWidth = min(ExportRenderedDocument.measure(pageLabel, font: fonts.chrome),
+                                 contentWidth)
+        // The title is bounded by the page label: it truncates with an
+        // ellipsis rather than ever overprinting the label or a margin.
+        let titleWidth = max(contentWidth - pageLabelWidth - 12, 0)
+        let title = truncated(snapshot.sheetTitle, font: fonts.title,
+                              maxWidth: titleWidth)
+        drawLine(text: title,
                  font: fonts.title,
                  color: palette.baseText,
                  x: metrics.margins.left,
                  top: top,
                  in: ctx)
-        let pageLabel = "\(page.index) / \(layout.pages.count)"
-        drawLine(text: pageLabel,
+        drawLine(text: truncated(pageLabel, font: fonts.chrome, maxWidth: contentWidth),
                  font: fonts.chrome,
                  color: palette.chromeText,
                  x: size.width - metrics.margins.right,
@@ -304,19 +342,60 @@ public struct ExportRenderedDocument {
 
     private func drawTotal(_ text: String, frame: CGRect, in ctx: CGContext) {
         let label = L10n.t("total", language: snapshot.language)
-        drawLine(text: label,
-                 font: fonts.chrome,
-                 color: palette.chromeText,
-                 x: frame.minX,
-                 top: frame.minY,
-                 in: ctx)
+        let maxWidth = Double(frame.width)
         let labelWidth = ExportRenderedDocument.measure(label, font: fonts.chrome)
-        drawLine(text: text,
-                 font: fonts.semiboldAnswer,
-                 color: palette.baseText,
-                 x: frame.minX + labelWidth + 10,
-                 top: frame.minY,
-                 in: ctx)
+        if layout.totalLines >= 2 {
+            // The combined width did not fit: label on its own line,
+            // value on the next — both bounded by the content width.
+            drawLine(text: truncated(label, font: fonts.chrome, maxWidth: maxWidth),
+                     font: fonts.chrome,
+                     color: palette.chromeText,
+                     x: frame.minX,
+                     top: frame.minY,
+                     in: ctx)
+            drawLine(text: truncated(text, font: fonts.semiboldAnswer, maxWidth: maxWidth),
+                     font: fonts.semiboldAnswer,
+                     color: palette.baseText,
+                     x: frame.minX,
+                     top: frame.minY + metrics.totalLineHeight,
+                     in: ctx)
+        } else {
+            let valueMax = max(maxWidth - labelWidth - 10, 0)
+            drawLine(text: label,
+                     font: fonts.chrome,
+                     color: palette.chromeText,
+                     x: frame.minX,
+                     top: frame.minY,
+                     in: ctx)
+            drawLine(text: truncated(text, font: fonts.semiboldAnswer, maxWidth: valueMax),
+                     font: fonts.semiboldAnswer,
+                     color: palette.baseText,
+                     x: frame.minX + labelWidth + 10,
+                     top: frame.minY,
+                     in: ctx)
+        }
+    }
+
+    /// Grapheme-safe ellipsis truncation: the returned string is never
+    /// wider than `maxWidth` (a single over-wide grapheme degrades to
+    /// the ellipsis alone, still bounded).
+    private func truncated(_ text: String, font: CTFont, maxWidth: Double) -> String {
+        guard maxWidth > 0 else { return "" }
+        if ExportRenderedDocument.measure(text, font: font) <= maxWidth { return text }
+        let ellipsis = "…"
+        let characters = Array(text)
+        var low = 0
+        var high = characters.count
+        while low < high {
+            let mid = (low + high + 1) / 2
+            let candidate = String(characters.prefix(mid)) + ellipsis
+            if ExportRenderedDocument.measure(candidate, font: font) <= maxWidth {
+                low = mid
+            } else {
+                high = mid - 1
+            }
+        }
+        return low == 0 ? ellipsis : String(characters.prefix(low)) + ellipsis
     }
 
     // MARK: Row cells
@@ -371,7 +450,7 @@ public struct ExportRenderedDocument {
                 x += capsuleWidth
                 index = j
             } else {
-                let attributed = attributedPlainSegment(row: row, segment: segment)
+                let attributed = plainAttributedSegment(row: row, segment: segment)
                 x += drawAttributed(attributed, x: x,
                                     top: Double(placed.frame.minY), in: ctx)
                 index += 1
@@ -413,21 +492,19 @@ public struct ExportRenderedDocument {
 
     /// The attributed text of one plain segment: the row's base
     /// typography plus every syntax span intersecting the segment's
-    /// source range (token replacements are never re-colored).
-    private func attributedPlainSegment(row: ExportRow,
+    /// source range. `segment.text` is authoritative (it carries the
+    /// preserved/normalized whitespace the layout measured); token
+    /// replacements are never re-colored.
+    private func plainAttributedSegment(row: ExportRow,
                                         segment: ExportSegment) -> NSAttributedString {
-        let ns = row.text as NSString
-        let range = segment.sourceRange
-        let clampedLocation = min(max(range.location, 0), ns.length)
-        let clampedLength = min(max(range.length, 0), ns.length - clampedLocation)
-        let clamped = NSRange(location: clampedLocation, length: clampedLength)
-        let source = NSMutableAttributedString(
-            string: ns.substring(with: clamped),
-            attributes: baseAttributes(row: row))
-        if snapshot.options.syntaxHighlighting, row.kind != .heading {
+        let source = NSMutableAttributedString(string: segment.text,
+                                               attributes: baseAttributes(row: row))
+        if snapshot.options.syntaxHighlighting, row.kind != .heading,
+           segment.sourceRange.location != NSNotFound {
             for span in row.spans {
-                let start = max(span.range.location - clamped.location, 0)
-                let end = min(NSMaxRange(span.range) - clamped.location, source.length)
+                let start = max(span.range.location - segment.sourceRange.location, 0)
+                let end = min(NSMaxRange(span.range) - segment.sourceRange.location,
+                              source.length)
                 guard end > start else { continue }
                 source.addAttribute(
                     NSAttributedString.Key(kCTForegroundColorAttributeName as String),

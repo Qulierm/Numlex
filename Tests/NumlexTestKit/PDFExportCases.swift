@@ -2,6 +2,9 @@ import Foundation
 import CoreGraphics
 import CoreText
 import AppKit
+import PDFKit
+import ImageIO
+import UniformTypeIdentifiers
 import NumlexCore
 
 // MARK: - PDF/print export (snapshot, filters, pagination, renderer)
@@ -100,10 +103,11 @@ private func fakeMetrics(pageHeight: Double = 200) -> ExportLayoutMetrics {
 private func syntheticRow(_ text: String, answer: String? = nil,
                           tokens: [ExportToken] = [],
                           kind: ExportRowKind = .expression,
-                          sourceLine: Int = 1) -> ExportRow {
+                          sourceLine: Int = 1,
+                          isInlineTotal: Bool = false) -> ExportRow {
     ExportRow(sourceLineNumber: sourceLine, lineID: UUID(), kind: kind,
               text: text, answer: answer, spans: [], tokens: tokens,
-              highlight: nil, isInlineTotal: false)
+              highlight: nil, isInlineTotal: isInlineTotal)
 }
 
 private func syntheticSnapshot(_ rows: [ExportRow],
@@ -121,11 +125,6 @@ private func segmentWidth(_ segments: [ExportSegment],
     var width = 0.0
     var lastToken: Int? = nil
     for s in segments {
-        if s.isJoiningSpace {
-            width += measure(" ")
-            lastToken = nil
-            continue
-        }
         if let t = s.tokenIndex {
             width += measure(s.text)
             if t != lastToken { width += tokenPadding }
@@ -221,27 +220,7 @@ private func inkCount(_ data: Data) -> Int {
 /// exactly where the source gap is one space character.
 private func reconstructExpression(row: ExportRow,
                                    visuals: [ExportPlacedVisual]) -> String {
-    let ns = row.text as NSString
-    var out = ""
-    var prevEnd: Int? = nil
-    for placed in visuals {
-        for segment in placed.visual.textSegments {
-            if segment.isJoiningSpace {
-                out += " "
-                if let end = prevEnd { prevEnd = end + 1 }
-                continue
-            }
-            if segment.sourceRange.location != NSNotFound {
-                if let end = prevEnd, segment.sourceRange.location == end + 1,
-                   end < ns.length, ns.character(at: end) == 32 {
-                    out += " "
-                }
-                prevEnd = segment.sourceRange.location + segment.sourceRange.length
-            }
-            out += segment.text
-        }
-    }
-    return out
+    visuals.flatMap(\.visual.textSegments).map(\.text).joined()
 }
 
 
@@ -253,6 +232,28 @@ private func dumpExportFixture(_ document: ExportRenderedDocument, name: String)
     let dir = "/tmp/qa-out"
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     try? document.pdfData().write(to: URL(fileURLWithPath: "\(dir)/\(name).pdf"))
+    // Page-1 PNG raster of the same document.
+    let size = document.layout.pageSize
+    let w = Int(size.width), h = Int(size.height)
+    guard w > 0, h > 0, let page = document.layout.pages.first else { return }
+    let buffer = UnsafeMutableRawPointer.allocate(byteCount: w * h * 4, alignment: 4)
+    defer { buffer.deallocate() }
+    guard let ctx = CGContext(data: buffer, width: w, height: h,
+                              bitsPerComponent: 8, bytesPerRow: w * 4,
+                              space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        return
+    }
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    document.draw(page: page, in: ctx)
+    if let image = ctx.makeImage(),
+       let dest = CGImageDestinationCreateWithURL(
+           URL(fileURLWithPath: "\(dir)/\(name).png") as CFURL,
+           UTType.png.identifier as CFString, 1, nil) {
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
+    }
 }
 
 public let pdfExportCases: [EngineCase] = [
@@ -451,14 +452,21 @@ public let pdfExportCases: [EngineCase] = [
         let placed = doc.pages.flatMap(\.visuals)
         try expectEqual(placed.count, 3, "three visual fragments")
         func firstSource(_ placed: ExportPlacedVisual) -> NSRange? {
-            placed.visual.textSegments.first { !$0.isJoiningSpace }?.sourceRange
+            placed.visual.textSegments.first?.sourceRange
         }
         try expectEqual(firstSource(placed[0])?.location, 0, "first fragment start")
-        let lastEnd = placed[0].visual.textSegments.last { !$0.isJoiningSpace }
-            .map { $0.sourceRange.location + $0.sourceRange.length }
-        try expectEqual(firstSource(placed[1])?.location,
-                        lastEnd.map { $0 + 1 },
-                        "second fragment continues after the space")
+        // Every emitted segment tiles the source contiguously in order:
+        // no dropped, duplicated or reordered character survives.
+        var expectedStart = 0
+        for step in placed {
+            for segment in step.visual.textSegments {
+                try expectEqual(segment.sourceRange.location, expectedStart,
+                                "segments tile the source")
+                expectedStart += segment.sourceRange.length
+            }
+        }
+        try expectEqual(expectedStart, (long as NSString).length,
+                        "whole row covered")
     },
 
     EngineCase("export-pdf-smoke-metadata-pages-and-ink") {
@@ -662,7 +670,9 @@ public let pdfExportCases: [EngineCase] = [
         // Reconstruction: joining every segment in visual order yields
         // the resolved text exactly (no dropped/duplicated characters).
         let joined = reconstructExpression(row: row, visuals: visuals)
-        try expectEqual(joined, "value " + label + " end", "exact reconstruction")
+        try expectEqual(joined, ExportLayoutEngine.resolvedText(row: row),
+                        "exact reconstruction")
+        try expectEqual(joined, "value " + label + " end", "resolved text")
         // The token fragments together carry the label, and each
         // token-bearing fragment paid the capsule padding.
         let tokenTexts = visuals.flatMap(\.visual.textSegments)
@@ -712,18 +722,12 @@ public let pdfExportCases: [EngineCase] = [
         // Answer column hard-breaks too; ranges cover every character.
         let answer = row.answer ?? ""
         var rebuilt = ""
-        var previousEnd: Int? = nil
         for placed in visuals {
             guard let range = placed.visual.answerRange else { continue }
-            if let end = previousEnd, end + 1 == range.location {
-                let skipped = (answer as NSString).substring(with: NSRange(location: end, length: 1))
-                if skipped == " " { rebuilt += " " }
-            }
             let piece = (answer as NSString).substring(with: range)
             try expect(measure(piece) <= doc.answerWidth + 0.001,
                        "answer fragment fits")
             rebuilt += piece
-            previousEnd = range.location + range.length
         }
         try expectEqual(rebuilt, answer, "answer reconstruction")
         dumpExportFixture(ExportRenderedDocument(snapshot: snapshot, fonts: exportFonts(),
@@ -899,6 +903,261 @@ public let pdfExportCases: [EngineCase] = [
             try expect(abs(printedInk - directInk) < max(directInk / 10, 200),
                        "printed ink matches the direct renderer (\(printedInk) vs \(directInk))")
         }
+    },
+
+
+    EngineCase("export-joins-whitespace-in-drawn-output") {
+        // The words of a representative line must keep their separators
+        // in the DRAWN output, not only in the segment model.
+        let ctx = exportContext("profit = revenue - costs\n1 + 1")
+        let snapshot = try exportBuild(ctx, ExportOptions(showTotal: false))
+        let doc = ExportRenderedDocument(snapshot: snapshot,
+                                         fonts: exportFonts(size: 12),
+                                         palette: ExportPalette())
+        // PDF text extraction (when PDFKit can read the page).
+        if let pdf = PDFDocument(data: doc.pdfData()) {
+            let text = pdf.string ?? ""
+            try expect(text.contains("profit = revenue - costs"),
+                       "extracted text keeps separators (got [\(text.prefix(80))])")
+        }
+        // Raster: the row band has real white gaps between word ink.
+        guard let bitmap = renderExportBitmap(document: doc, page: 0) else {
+            throw CaseFailure(message: "bitmap render failed", location: "Export")
+        }
+        guard let placed = doc.layout.pages[0].visuals.first(where: { $0.visual.rowIndex == 0 }) else {
+            throw CaseFailure(message: "row 0 placement", location: "Export")
+        }
+        let bandMinY = max(Int(placed.frame.minY) - 2, 0)
+        let bandMaxY = min(Int(placed.frame.maxY) + 2, bitmap.height - 1)
+        var inkColumns = Set<Int>()
+        for y in bandMinY...bandMaxY {
+            for x in 0..<bitmap.width where bitmap.isInk(x, y) {
+                inkColumns.insert(x)
+            }
+        }
+        let sorted = inkColumns.sorted()
+        var gaps = 0
+        for (a, b) in zip(sorted, sorted.dropFirst()) where b - a > 2 {
+            gaps += 1
+        }
+        try expect(gaps >= 3,
+                   "word separators are drawn as white gaps (got \(gaps))")
+    },
+
+    EngineCase("export-preserves-source-whitespace-runs") {
+        // Leading, repeated, tab and non-breaking spaces survive with
+        // their count; a line can still break at whitespace atoms.
+        let text = "  a  b\tc\u{00A0}d"
+        let row = syntheticRow(text, answer: "  123  456")
+        let options = ExportOptions(lineNumbers: false, showTotal: false)
+        let snapshot = syntheticSnapshot([row], options: options)
+        let measure: (String) -> Double = { Double(($0 as NSString).length) * 7 }
+        var metrics = fakeMetrics(pageHeight: 400)
+        metrics.pageSize = CGSize(width: 120, height: 400)
+        metrics.margins = ExportInsets(top: 10, left: 10, bottom: 10, right: 10)
+        metrics.answerFraction = 0.5
+        metrics.columnGap = 10
+        metrics.gutterWidth = 0
+        let doc = ExportLayoutEngine.layout(snapshot: snapshot, metrics: metrics,
+                                            measure: measure)
+        let visuals = doc.pages.flatMap(\.visuals)
+        let joined = reconstructExpression(row: row, visuals: visuals)
+        try expectEqual(joined, ExportLayoutEngine.resolvedText(row: row),
+                        "resolved whitespace reconstruction")
+        try expectEqual(joined, "  a  b c d", "runs preserved one space per character")
+        // Segments tile the source contiguously (no dropped spaces).
+        var expected = 0
+        for step in visuals {
+            for segment in step.visual.textSegments {
+                try expectEqual(segment.sourceRange.location, expected, "tiling")
+                expected += segment.sourceRange.length
+            }
+        }
+        try expectEqual(expected, (text as NSString).length, "full coverage")
+        // Answers preserve their repeated spaces too.
+        var rebuilt = ""
+        for step in visuals {
+            guard let range = step.visual.answerRange else { continue }
+            rebuilt += ((row.answer ?? "") as NSString).substring(with: range)
+        }
+        try expectEqual(rebuilt, row.answer, "answer whitespace preserved")
+    },
+
+    EngineCase("export-answer-wraps-greedily") {
+        // Several words fit one answer line; only over-wide runs break.
+        let row = syntheticRow("x", answer: "3 years 2 months")
+        let options = ExportOptions(lineNumbers: false, showTotal: false)
+        let snapshot = syntheticSnapshot([row], options: options)
+        var metrics = fakeMetrics(pageHeight: 200)
+        metrics.pageSize = CGSize(width: 400, height: 200)
+        metrics.margins = ExportInsets(top: 10, left: 10, bottom: 10, right: 10)
+        metrics.answerFraction = 0.7
+        metrics.columnGap = 10
+        metrics.gutterWidth = 0
+        let measure: (String) -> Double = { Double(($0 as NSString).length) * 7 }
+        let doc = ExportLayoutEngine.layout(snapshot: snapshot, metrics: metrics,
+                                            measure: measure)
+        let visuals = doc.pages.flatMap(\.visuals)
+        try expectEqual(visuals.count, 1, "greedy packing keeps one line")
+        let answerWidth = doc.answerWidth
+        var rebuilt = ""
+        for step in visuals {
+            guard let range = step.visual.answerRange else { continue }
+            let piece = ((row.answer ?? "") as NSString).substring(with: range)
+            try expect(measure(piece) <= answerWidth + 0.001, "answer fits")
+            rebuilt += piece
+        }
+        try expectEqual(rebuilt, row.answer, "answer reconstruction")
+        // A genuinely over-wide no-space answer still hard-breaks.
+        let longRow = syntheticRow("x", answer: String(repeating: "m", count: 200))
+        let longSnapshot = syntheticSnapshot([longRow], options: options)
+        let longDoc = ExportLayoutEngine.layout(snapshot: longSnapshot, metrics: metrics,
+                                                measure: measure)
+        for step in longDoc.pages.flatMap(\.visuals) {
+            guard let range = step.visual.answerRange else { continue }
+            try expect(measure(((longRow.answer ?? "") as NSString)
+                    .substring(with: range)) <= doc.answerWidth + 0.001,
+                       "hard-broken answer fits")
+        }
+    },
+
+    EngineCase("export-per-row-font-measurers") {
+        // Deliberately different fake faces: the heading and semibold
+        // answer are 4x the body width. The layout must use them, or
+        // these rows would overflow their columns.
+        let body: (String) -> Double = { Double(($0 as NSString).length) * 7 }
+        let wide: (String) -> Double = { Double(($0 as NSString).length) * 28 }
+        let measurers = ExportMeasurers(
+            expression: { row in
+                row.kind == .heading
+                    ? ExportTextMeasurer(plain: wide, token: wide)
+                    : ExportTextMeasurer(plain: body, token: body)
+            },
+            answer: { row in
+                row.isInlineTotal ? .uniform(wide) : .uniform(body)
+            })
+        let heading = syntheticRow(String(repeating: "abcdefgh ", count: 8),
+                                   kind: .heading)
+        let totalRow = syntheticRow("sum", answer: String(repeating: "12345678 ", count: 8),
+                                    kind: .total, isInlineTotal: true)
+        var metrics = fakeMetrics(pageHeight: 400)
+        metrics.pageSize = CGSize(width: 300, height: 400)
+        metrics.margins = ExportInsets(top: 10, left: 10, bottom: 10, right: 10)
+        metrics.answerFraction = 0.4
+        metrics.columnGap = 10
+        metrics.gutterWidth = 0
+        let snapshot = syntheticSnapshot([heading, totalRow],
+                                         options: ExportOptions(lineNumbers: false,
+                                                                showTotal: false))
+        let doc = ExportLayoutEngine.layout(snapshot: snapshot, metrics: metrics,
+                                            measurers: measurers)
+        for step in doc.pages.flatMap(\.visuals) {
+            let row = step.visual.rowIndex == 0 ? heading : totalRow
+            let expressionMeasure = row.kind == .heading ? wide : body
+            let width = segmentWidth(step.visual.textSegments, measure: expressionMeasure,
+                                     tokenPadding: 8)
+            try expect(width <= doc.expressionWidth + 0.001,
+                       "heading measured with its own face (got \(width))")
+            if let range = step.visual.answerRange {
+                let piece = ((totalRow.answer ?? "") as NSString).substring(with: range)
+                try expect(wide(piece) <= doc.answerWidth + 0.001,
+                           "inline total answer measured semibold (got \(wide(piece)))")
+            }
+        }
+    },
+
+    EngineCase("export-chrome-bounded-and-footer-wraps") {
+        let title = String(repeating: "Very long sheet title ", count: 20)
+        let totalText = String(repeating: "1234567890", count: 30)
+        let row = syntheticRow("1 + 1", answer: "2")
+        let snapshot = ExportSnapshot(sheetTitle: title, rows: [row],
+                                      total: 2, totalText: totalText,
+                                      options: ExportOptions(showTotal: true),
+                                      lineCount: 2, language: .en)
+        let doc = ExportRenderedDocument(snapshot: snapshot,
+                                         fonts: exportFonts(size: 12),
+                                         palette: ExportPalette())
+        try expectEqual(doc.layout.totalLines, 2,
+                        "wide Total wraps to its own line")
+        guard let bitmap = renderExportBitmap(document: doc, page: 0) else {
+            throw CaseFailure(message: "bitmap render failed", location: "Export")
+        }
+        let pageW = bitmap.width
+        let pageH = bitmap.height
+        // Header: all ink inside the margins and the title never
+        // reaches the page label (a white gap separates them).
+        let headerMinY = max(Int(doc.metrics.margins.top) - 2, 0)
+        let headerMaxY = min(Int(doc.metrics.margins.top + doc.metrics.chromeLineHeight) + 4,
+                             pageH - 1)
+        var headerInk = 0
+        var titleMaxX = Int.min
+        var labelMinX = Int.max
+        for y in headerMinY...headerMaxY {
+            for x in 0..<pageW where bitmap.isInk(x, y) {
+                headerInk += 1
+                if x < pageW / 2 {
+                    titleMaxX = max(titleMaxX, x)
+                } else {
+                    labelMinX = min(labelMinX, x)
+                }
+                try expect(x >= Int(doc.metrics.margins.left) - 3,
+                           "header ink left margin")
+                try expect(x <= pageW - Int(doc.metrics.margins.right) + 3,
+                           "header ink right margin")
+            }
+        }
+        try expect(headerInk > 20, "header drawn")
+        try expect(titleMaxX < labelMinX, "title and page label never overlap")
+        // Footer: two-line Total inside its frame and the margins.
+        guard let totalFrame = doc.layout.pages[0].totalFrame else {
+            throw CaseFailure(message: "total frame", location: "Export")
+        }
+        try expectEqual(Double(totalFrame.height),
+                        doc.metrics.totalLineHeight * 2, "two-line footer reserved")
+        let footMinY = max(Int(totalFrame.minY) - 3, 0)
+        let footMaxY = min(Int(totalFrame.maxY) + 3, pageH - 1)
+        var footInk = 0
+        for y in footMinY...footMaxY {
+            for x in 0..<pageW where bitmap.isInk(x, y) {
+                footInk += 1
+                try expect(x >= Int(doc.metrics.margins.left) - 3,
+                           "footer ink left margin")
+                try expect(x <= pageW - Int(doc.metrics.margins.right) + 3,
+                           "footer ink right margin")
+            }
+        }
+        try expect(footInk > 10, "footer drawn inside its frame")
+    },
+
+    EngineCase("export-multipage-fixture-and-text-extraction") {
+        // Representative document dumped for the QA report.
+        let row1 = syntheticRow("# Q3 Planning", kind: .heading)
+        let row2 = syntheticRow("profit = revenue - costs", answer: "52,000")
+        let row3 = syntheticRow("10 kg + 2 kg", answer: "12 kg")
+        let label = "1234567.891011"
+        let row4 = syntheticRow("value \u{FFFC}", answer: label,
+                                tokens: [ExportToken(offset: 6, label: label,
+                                                     active: true)])
+        let totalRow = syntheticRow("total", answer: nil, isInlineTotal: true)
+        let long = syntheticRow(String(repeating: "w", count: 320), sourceLine: 6)
+        let snapshot = ExportSnapshot(sheetTitle: "Export Demo",
+                                      rows: [row1, row2, row3, row4, totalRow, long],
+                                      total: nil, totalText: nil,
+                                      options: ExportOptions(showTotal: false),
+                                      lineCount: 7, language: .en)
+        let doc = ExportRenderedDocument(snapshot: snapshot,
+                                         fonts: exportFonts(size: 12),
+                                         palette: ExportPalette())
+        dumpExportFixture(doc, name: "export-demo-corrected")
+        guard let pdf = PDFDocument(data: doc.pdfData()) else {
+            throw CaseFailure(message: "PDFKit could not read the export",
+                              location: "Export")
+        }
+        let text = pdf.string ?? ""
+        try expect(text.contains("profit = revenue - costs"),
+                   "extracted representative line keeps separators")
+        try expect(text.contains("10 kg + 2 kg") || text.contains("10 kg + 2 kg"),
+                   "extracted unit line")
     },
 
     EngineCase("export-localization-six-languages") {
