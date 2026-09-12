@@ -151,7 +151,14 @@ keyboard focus ring — no system accent colour. Nothing repeats, nothing ticks
 after the sequence, and only opacity/offset/scale/rotation/trim change, so the
 window never resizes.
 
-With **Reduce Motion** the whole sequence is skipped: the large icon, the slogan
+While a welcome reveal (production or replay) owns the window the NATIVE sidebar
+toggle is hidden (`NSToolbarItem.isHidden` on the item SwiftUI installs, matched
+by both its identifiers) so it cannot be clicked under the moving curtain; it
+comes back the moment the transition reaches the app, unless the saved
+"hide when collapsed" preference says it must stay hidden. Sidebar visibility,
+window width and every other toolbar item are untouched; the flag is transient
+view state and is never persisted. With **Reduce Motion** the whole sequence is
+skipped: the large icon, the slogan
 and the button are shown immediately, focused and interactive at once, with no
 staged state, splash or sleep.
 
@@ -411,3 +418,5 @@ lines without an answer — headings, comments, prose — can be highlighted too
 - Sheet-level data (per-answer overrides, line highlights, sheet content) lives
   with the sheet and its `.nlx` export.
 - Constants and custom units are app-global and are never embedded in `.nlx`.
+
+While a welcome reveal (production or replay) owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.

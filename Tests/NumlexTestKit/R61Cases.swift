@@ -106,13 +106,15 @@ public let r61Cases: [EngineCase] = [
         // keeps the native button; ON+expanded keeps it (collapse path).
         let view = try r61ReadSource(
             "Sources/NumlexApp/Views/ContentView.swift")
-        try expect(view.contains("coord.hidePreference && coord.collapsed"),
-                   "make/key paths apply preference && collapsed")
+        try expect(view.contains("static func effectiveSidebarButtonHidden(preference: Bool,"),
+                   "ONE effective rule")
+        try expect(view.contains("forced || (preference && collapsed)"),
+                   "the rule is forced OR (preference AND collapsed)")
         try expect(view.contains("coord.hidePreference = hideSidebarButtonWhenCollapsed"),
                    "update refreshes the coordinator preference")
         try expect(view.contains("coord.collapsed = columnVisibility != .all"),
                    "update refreshes the coordinator collapse state")
-        try expect(view.contains("coord.hidePreference && coord.collapsed"),
+        try expect(view.contains("coord.reapply(to: window)"),
                    "key reassertion reads latest coordinator inputs")
         try expect(!view.contains("self.hideSidebarButtonWhenCollapsed"),
                    "no stale struct capture in the observer")
@@ -159,7 +161,9 @@ public let r61Cases: [EngineCase] = [
         try expect(view.contains(
             "hideSidebarButtonWhenCollapsed: model.settings.hideSidebarButtonWhenCollapsed"),
             "call site wires the live setting")
-        let applyRange = view.range(of: "applySidebarButtonVisibility(to: w, hide: hideButton)")
+        try expect(view.contains("forceHideSidebarButton: sidebarToggleHiddenForWelcome"),
+                   "call site wires the transient welcome force flag")
+        let applyRange = view.range(of: "coord.reapply(to: w)")
         let guardRange = view.range(of: "guard coord.lastVisibility != columnVisibility else { return }")
         try expect(applyRange != nil && guardRange != nil,
                    "both hidden apply and width guard present")

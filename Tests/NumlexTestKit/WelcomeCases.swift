@@ -283,8 +283,8 @@ public let welcomeCases: [EngineCase] = [
         let sidebar = try welcomeSource("Sources/NumlexApp/Views/SidebarView.swift")
         let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
         // Exactly ONE temporary control, marked for removal.
-        try expectEqual(sidebar.components(separatedBy: "TEMPORARY QA CONTROL").count - 1, 3,
-                        "the control is marked (state + divider + row)")
+        try expectEqual(sidebar.components(separatedBy: "TEMPORARY QA CONTROL").count - 1, 2,
+                        "the control is marked (state + row)")
         try expect(sidebar.contains("remove after onboarding sign-off"), "removal is obvious")
         try expectEqual(sidebar.components(separatedBy: "Replay Welcome").count - 1, 2,
                         "one label + one accessibility label")
@@ -302,14 +302,14 @@ public let welcomeCases: [EngineCase] = [
         try expect(sidebar.contains(".buttonStyle(.plain)"), "not a competing glass surface")
         try expect(sidebar.contains(".foregroundStyle(.secondary)"), "visually quiet")
         try expect(sidebar.contains(".frame(height: 28)"), "at least a 28 pt hit row")
-        // Session-only: the row is hidden (visually, from hit testing and from
-        // accessibility) while a reveal is in flight, and never persisted.
-        try expect(sidebar.contains(".opacity(replayControlHidden ? 0 : 1)"), "opacity gate")
-        try expect(sidebar.contains(".allowsHitTesting(!replayControlHidden)"), "no hidden hits")
-        try expect(sidebar.contains(".accessibilityHidden(replayControlHidden)"), "no hidden a11y")
-        try expect(app.contains("private struct ReplayControlHiddenKey: EnvironmentKey"),
-                   "a transient environment key")
-        try expect(!app.contains("AppSettings.replayControlHidden"), "never a setting")
+        // r105: this row is NOT gated by the welcome transition — the user
+        // meant the NATIVE sidebar toggle. The row keeps its normal
+        // visibility, hover and accessibility behaviour.
+        try expect(!sidebar.contains("replayControlHidden"), "no transition gate on the row")
+        try expect(!sidebar.contains(".accessibilityHidden(replayControlHidden)"),
+                   "always reachable by assistive tech")
+        try expect(sidebar.contains(".onHover { replayHovering = $0 }"), "hover stays")
+        try expect(sidebar.contains(".help(\"Replay the welcome animation\")"), "tooltip stays")
         try expect(sidebar.contains(".help(\"Replay the welcome animation\")"), "a clear tooltip")
         try expect(sidebar.contains(".accessibilityLabel(Text(\"Replay Welcome\"))"), "a11y label")
         try expect(sidebar.contains(".accessibilityHint("), "a11y hint")
@@ -326,6 +326,60 @@ public let welcomeCases: [EngineCase] = [
                         "declared exactly once")
     },
 
+
+    EngineCase("welcome-native-sidebar-toggle-hides-during-reveal") {
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        let content = try welcomeSource("Sources/NumlexApp/Views/ContentView.swift")
+        let sidebar = try welcomeSource("Sources/NumlexApp/Views/SidebarView.swift")
+        // The transient flag is derived at the session root from the stage and
+        // the overlay, and threaded through the environment — never persisted.
+        try expect(app.contains("private var sidebarToggleHiddenForWelcome: Bool"), "one flag")
+        try expect(app.contains("revealStage != .app || replayWelcomePresented"),
+                   "true through production AND replay reveals")
+        try expect(app.contains("private struct SidebarToggleHiddenKey: EnvironmentKey"),
+                   "a transient environment key")
+        try expect(app.contains(".environment(\\.sidebarToggleHiddenForWelcome,"),
+                   "threaded through the environment")
+        for banned in ["AppSettings", "UserDefaults", "store.json"] {
+            let key = welcomeSlice(app, from: "private struct SidebarToggleHiddenKey",
+                                   to: "extension Notification.Name")
+            try expect(!key.contains(banned), "the flag never touches \(banned)")
+        }
+        // ContentView reads it and passes it into the native configurator.
+        try expect(content.contains("@Environment(\\.sidebarToggleHiddenForWelcome)"),
+                   "ContentView reads the flag")
+        try expect(content.contains("forceHideSidebarButton: sidebarToggleHiddenForWelcome"),
+                   "passed into WindowConfigurator")
+        try expect(content.contains("var forceHideSidebarButton: Bool"), "a declared input")
+        // ONE effective rule, honoured by every path.
+        try expect(content.contains("static func effectiveSidebarButtonHidden(preference: Bool,"),
+                   "one effective rule")
+        try expect(content.contains("forced || (preference && collapsed)"),
+                   "forced OR (preference AND collapsed)")
+        try expect(content.contains("func reapply(to window: NSWindow?)"), "one re-apply helper")
+        try expect(content.components(separatedBy: "coord.reapply(to:").count - 1 >= 3,
+                   "make (retries), update and the observers all re-apply")
+        // Both native identifiers, matched by `isHidden` only.
+        try expect(content.contains(".itemIdentifier == .toggleSidebar"), "classic identifier")
+        try expect(content.contains("com.apple.SwiftUI.navigationSplitView.toggleSidebar"),
+                   "SwiftUI identifier")
+        try expect(content.contains("item.isHidden != hide"), "isHidden assignment only")
+        for banned in ["toolbar.isVisible = false", ".removeItem", "insertItem"] {
+            try expect(!content.contains(banned), "never \(banned)")
+        }
+        try expect(!content.contains("isHidden = true\n"), "no unconditional hide")
+        // Bounded retries and an event observer, both torn down.
+        try expect(content.contains("for step in [8, 16, 24, 48, 96] as [UInt64]"),
+                   "bounded next-render-turn retries")
+        try expect(!content.contains("Timer("), "no poller")
+        try expect(content.contains("NSToolbar.willAddItemNotification"), "toolbar event observer")
+        try expect(content.contains("coordinator.itemObserver = nil"), "observer released")
+        try expect(content.contains("NotificationCenter.default.removeObserver(obs)"),
+                   "observer removed")
+        // The temporary replay row is NOT gated by this flag.
+        try expect(!sidebar.contains("sidebarToggleHiddenForWelcome"), "the row is untouched")
+        try expect(sidebar.contains(".help(\"Replay the welcome animation\")"), "still available")
+    },
 
     EngineCase("welcome-curtain-reveal-contract") {
         let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")

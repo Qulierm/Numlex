@@ -10,6 +10,10 @@ struct ContentView: View {
     /// authoritative effective appearance for every AppKit-backed
     /// surface (the editor especially).
     @Environment(\.colorScheme) private var colorScheme
+    /// True while a welcome reveal owns the window: the native sidebar
+    /// toggle stays hidden until the transition has finished. Transient
+    /// environment state only — nothing here is persisted.
+    @Environment(\.sidebarToggleHiddenForWelcome) private var sidebarToggleHiddenForWelcome
     /// Shared scroll offset (top-down, editor-content points). The editor's
     /// clip view is the primary surface; the answer column renders at this
     /// offset and its wheel deltas write it back, so both stay 1:1.
@@ -386,7 +390,8 @@ struct ContentView: View {
             columnVisibility: columnVisibility,
             sidebarWidth: sidebarWidth,
             reduceMotion: reduceMotion,
-            hideSidebarButtonWhenCollapsed: model.settings.hideSidebarButtonWhenCollapsed
+            hideSidebarButtonWhenCollapsed: model.settings.hideSidebarButtonWhenCollapsed,
+            forceHideSidebarButton: sidebarToggleHiddenForWelcome
         ))
         // Reset the editor-bound state when the selected SHEET ID changes,
         // not only the numeric index: deleting the selected non-last row
@@ -521,6 +526,21 @@ private struct WindowConfigurator: NSViewRepresentable {
     /// space); never removed/reinserted.
     var hideSidebarButtonWhenCollapsed: Bool
 
+    /// r105: the welcome/replay transition asks for the NATIVE sidebar
+    /// toggle to be hidden while the curtain covers or travels. It is OR-ed
+    /// with the saved collapsed preference, so the transition can only ever
+    /// HIDE the item — never force it visible against the user's setting.
+    var forceHideSidebarButton: Bool
+
+    /// ONE definition of the effective rule, used by every path (make,
+    /// update, key re-assert and the toolbar item observer).
+    @MainActor
+    static func effectiveSidebarButtonHidden(preference: Bool,
+                                             collapsed: Bool,
+                                             forced: Bool) -> Bool {
+        forced || (preference && collapsed)
+    }
+
     /// r59: the exact FRAME floor enforcing the 260 pt CONTENT minimum.
     /// `frameRect(forContentRect:)` is the AppKit style-based
     /// content→frame conversion, so the titlebar/toolbar contribution
@@ -548,6 +568,20 @@ private struct WindowConfigurator: NSViewRepresentable {
         /// outlives any single representable struct value).
         var hidePreference = false
         var collapsed = false
+        /// r105: latest welcome/replay force flag, kept for the key and
+        /// toolbar-item re-assertion paths.
+        var forcedHide = false
+        /// Observes toolbar item installation so a late-installed button is
+        /// hidden immediately instead of flashing. Removed in dismantle.
+        var itemObserver: NSObjectProtocol?
+
+        @MainActor
+        func reapply(to window: NSWindow?) {
+            guard let window else { return }
+            let hide = WindowConfigurator.effectiveSidebarButtonHidden(
+                preference: hidePreference, collapsed: collapsed, forced: forcedHide)
+            applySidebarButtonVisibility(to: window, hide: hide)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -557,6 +591,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         context.coordinator.lastVisibility = columnVisibility
         context.coordinator.hidePreference = hideSidebarButtonWhenCollapsed
         context.coordinator.collapsed = columnVisibility != .all
+        context.coordinator.forcedHide = forceHideSidebarButton
         Task { @MainActor in
             guard let window = view.window else { return }
             window.minSize = Self.minFrameSize(for: window, sidebarVisible: true)
@@ -566,9 +601,15 @@ private struct WindowConfigurator: NSViewRepresentable {
             // next-run-loop retry; every key reassertion below
             // re-applies idempotently. No polling, no timer.
             let coord = context.coordinator
-            applySidebarButtonVisibility(to: window, hide: coord.hidePreference && coord.collapsed)
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            applySidebarButtonVisibility(to: window, hide: coord.hidePreference && coord.collapsed)
+            // Apply now, then over the NEXT RENDER TURNS — the toolbar is
+            // installed asynchronously, and the curtain can start lifting
+            // ~24 ms after this mount, so a single late retry would let the
+            // toggle flash. Bounded (five steps), event-driven, no poller.
+            coord.reapply(to: window)
+            for step in [8, 16, 24, 48, 96] as [UInt64] {
+                try? await Task.sleep(nanoseconds: step * 1_000_000)
+                coord.reapply(to: window)
+            }
             // SwiftUI re-asserts the default chrome during later layout and
             // activation passes; hold the override. The token is removed in
             // dismantleNSView so no observer outlives the representable.
@@ -580,7 +621,19 @@ private struct WindowConfigurator: NSViewRepresentable {
                     // r61: re-assert the toggle visibility — the toolbar
                     // can be rebuilt on activation, which would drop the
                     // hidden flag. Coordinator holds the LATEST inputs.
-                    applySidebarButtonVisibility(to: window, hide: coord.hidePreference && coord.collapsed)
+                    coord.reapply(to: window)
+                }
+            }
+            // A toolbar rebuilt later (item added after our retries) is
+            // caught here instead of flashing: the notification's object is
+            // the toolbar, so only OUR window's toolbar triggers a re-apply.
+            context.coordinator.itemObserver = NotificationCenter.default.addObserver(
+                forName: NSToolbar.willAddItemNotification, object: nil, queue: .main
+            ) { note in
+                guard let toolbar = note.object as? NSToolbar else { return }
+                Task { @MainActor in
+                    guard toolbar === view.window?.toolbar else { return }
+                    coord.reapply(to: view.window)
                 }
             }
         }
@@ -595,10 +648,10 @@ private struct WindowConfigurator: NSViewRepresentable {
         // coordinator keeps the latest inputs for key reassertion.
         coord.hidePreference = hideSidebarButtonWhenCollapsed
         coord.collapsed = columnVisibility != .all
-        let hideButton = coord.hidePreference && coord.collapsed
+        coord.forcedHide = forceHideSidebarButton
         if let window = nsView.window {
             let w = window
-            Task { @MainActor in applySidebarButtonVisibility(to: w, hide: hideButton) }
+            Task { @MainActor in coord.reapply(to: w) }
         }
         guard coord.lastVisibility != columnVisibility else { return }
         let nowVisible = columnVisibility == .all
@@ -635,6 +688,10 @@ private struct WindowConfigurator: NSViewRepresentable {
     func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         if let obs = coordinator.chromeObserver {
             NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = coordinator.itemObserver {
+            NotificationCenter.default.removeObserver(obs)
+            coordinator.itemObserver = nil
         }
     }
 }

@@ -227,12 +227,10 @@ struct NumlexApp: App {
     /// Stable structural identity for the production welcome.
     static let productionWelcomeID = "production-welcome"
 
-    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
-    /// True while a welcome reveal (production or replay) is on screen, so
-    /// the temporary replay control can hide itself underneath the moving
-    /// curtain. Transient view state only: never persisted, never in the
-    /// model, settings, store, marker or export.
-    private var replayControlHidden: Bool {
+    /// True while a welcome reveal (production or replay) owns the window:
+    /// the native sidebar toggle stays hidden until the transition has
+    /// finished. Transient view state only — never persisted anywhere.
+    private var sidebarToggleHiddenForWelcome: Bool {
         revealStage != .app || replayWelcomePresented
     }
 
@@ -267,7 +265,7 @@ struct NumlexApp: App {
         .onReceive(NotificationCenter.default.publisher(for: .replayWelcome)) { _ in
             presentReplayWelcome()
         }
-        .environment(\.replayControlHidden, replayControlHidden)
+        .environment(\.sidebarToggleHiddenForWelcome, sidebarToggleHiddenForWelcome)
     }
 
     /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
@@ -610,18 +608,19 @@ struct CurtainPanel<Content: View>: View, @preconcurrency Animatable {
     }
 }
 
-/// TEMPORARY QA CONTROL — remove after onboarding sign-off.
-/// Transient view-environment flag: the temporary replay control hides
-/// itself while a welcome reveal is in flight. It is deliberately NOT part
-/// of AppModel, the store, settings, UserDefaults or the marker.
-private struct ReplayControlHiddenKey: EnvironmentKey {
+/// Transient view-environment flag: TRUE while a welcome reveal (production
+/// or replay) owns the window, so the NATIVE sidebar toggle can be hidden
+/// while the curtain covers or travels. It is deliberately NOT part of
+/// AppModel, settings, the store, UserDefaults, the marker or any export —
+/// it exists only for the lifetime of the transition.
+private struct SidebarToggleHiddenKey: EnvironmentKey {
     static let defaultValue = false
 }
 
 extension EnvironmentValues {
-    var replayControlHidden: Bool {
-        get { self[ReplayControlHiddenKey.self] }
-        set { self[ReplayControlHiddenKey.self] = newValue }
+    var sidebarToggleHiddenForWelcome: Bool {
+        get { self[SidebarToggleHiddenKey.self] }
+        set { self[SidebarToggleHiddenKey.self] = newValue }
     }
 }
 
