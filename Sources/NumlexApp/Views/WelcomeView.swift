@@ -100,7 +100,9 @@ struct WelcomeView: View {
 
     /// The icon's FINAL frame (logical pt on the 800x600 canvas). It is the
     /// frame from the very first layout pass; only the visual scale changes.
-    static let finalIconSize: CGFloat = 152
+    static let finalIconSize: CGFloat = 176
+    /// The icon's rounded corner, kept proportional to the final frame.
+    static let iconCornerRadius: CGFloat = 34
 
     /// While the calculations stream, the icon renders at the old ~110 pt
     /// footprint (110 / 152 of the final frame) and grows to full size once
@@ -121,22 +123,22 @@ struct WelcomeView: View {
 
     /// The slogan's anchor, between the icon and the button (the taller
     /// two-line lockup sits a touch lower, and the button follows).
-    static let sloganCanvasOffset = CGSize(width: 0, height: 104)
+    static let sloganCanvasOffset = CGSize(width: 0, height: 112)
 
     /// The two-line lockup: line 1 (rounded + serif italic) 31-34 pt,
     /// line 2 (rounded + monospaced) 24-28 pt.
-    static let sloganLineOneSize: CGFloat = 33
-    static let sloganLineTwoSize: CGFloat = 26
+    static let sloganLineOneSize: CGFloat = 38
+    static let sloganLineTwoSize: CGFloat = 30
     /// The gap between the two lines (2-5 pt).
     static let sloganLineSpacing: CGFloat = 4
 
     /// The slogan's reserved frame: it is laid out from the first pass, so
     /// revealing it can never reflow the icon or the button.
-    static let sloganReservedWidth: CGFloat = 620
-    static let sloganReservedHeight: CGFloat = 82
+    static let sloganReservedWidth: CGFloat = 680
+    static let sloganReservedHeight: CGFloat = 94
 
     /// The button's anchor, below the slogan.
-    static let buttonCanvasOffsetY: CGFloat = 198
+    static let buttonCanvasOffsetY: CGFloat = 218
 
     /// Canvas offset (from the canvas centre) scaled to the live window.
     /// The composition is expressed purely as OFFSETS inside the flexible
@@ -241,7 +243,7 @@ struct WelcomeView: View {
         // resizes, and nothing around it can be pushed.
         .frame(width: Self.finalIconSize, height: Self.finalIconSize)
         .overlay(sheen)
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Self.iconCornerRadius, style: .continuous))
         // No shadow here: an animated halo forces a fresh offscreen blur
         // every frame and measurably cost cadence (p95 16 -> 39 ms), so the
         // depth comes from the tilt, the scale and the burst's own glow.
@@ -297,11 +299,11 @@ struct WelcomeView: View {
         .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50), value: sloganRevealed)
     }
 
-    /// Line 1 — native rounded ("Think ") followed by an elegant serif
-    /// italic ("freely."). Monochrome: the icon family's own neutral.
+    /// Line 1 — standard SF proportional ("Think ") followed by an elegant
+    /// serif italic ("freely."). Monochrome: the icon family's own neutral.
     private var sloganLineOne: Text {
         Text("Think ")
-            .font(.system(size: Self.sloganLineOneSize, weight: .bold, design: .rounded))
+            .font(.system(size: Self.sloganLineOneSize, weight: .bold, design: .default))
             .foregroundStyle(Color(nsColor: Design.baseText))
         + Text("freely.")
             .font(.system(size: Self.sloganLineOneSize, weight: .semibold, design: .serif))

@@ -39,12 +39,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// r98: the curtain timing, in one place (shared by the animation and the
 /// completion task so they can never disagree).
 enum RevealTiming {
-    /// The curtain's upward travel (soft acceleration, no overshoot).
-    static let duration: Double = 0.75
-    static let animation: Animation = .timingCurve(0.55, 0, 0.3, 1, duration: duration)
-    /// The completion wait is the travel duration plus one frame of slack,
-    /// so the removal happens strictly after the panel has cleared.
-    static let travelNanoseconds: UInt64 = 800_000_000
+    /// The curtain's upward travel: a deliberate, smooth 0.90 s ease with no
+    /// bounce and no overshoot of the final (fully cleared) position.
+    static let duration: Double = 0.90
+    static let animation: Animation = .timingCurve(0.42, 0.0, 0.20, 1.0, duration: duration)
+    /// The slide uses the same curve in production and replay.
+    static var curtainAnimation: Animation { animation }
+    /// The panel travels past the clipped content height by this much, so no
+    /// bottom or titlebar sliver can survive the slide.
+    static let overscan: CGFloat = 80
+    /// One committed render turn before the slide starts (a mounted underlay
+    /// must exist on screen first, or the editor would appear mid-travel).
+    static let mountCommitNanoseconds: UInt64 = 24_000_000
+    /// The completion wait is the travel duration plus one frame of slack, so
+    /// the removal happens strictly after the panel has cleared.
+    static let travelNanoseconds: UInt64 = 950_000_000
 }
 
 @main
@@ -67,7 +76,7 @@ struct NumlexApp: App {
     /// IDENTITY through the whole reveal (it is never re-created), and this
     /// offset — animated inside an explicit `withAnimation` — moves it fully
     /// out of the clipped content bounds. The NSWindow is never touched.
-    @State private var curtainLifted = false
+    @State private var curtainRequested = false
     /// The pending curtain completion (cancelled when the window closes).
     @State private var curtainTask: Task<Void, Never>?
 
@@ -83,7 +92,7 @@ struct NumlexApp: App {
     @State private var replayWelcomePresented = false
     /// Drives the replay panel's upward travel (same stable-offset contract
     /// as the production curtain).
-    @State private var replayCurtainLifted = false
+    @State private var replayLiftRequested = false
     /// Re-identified on every presentation, so each replay mounts a BRAND
     /// NEW WelcomeView whose staged @State restarts from its initial values.
     @State private var replaySession = UUID()
@@ -157,12 +166,14 @@ struct NumlexApp: App {
         curtainTask?.cancel()
         revealStage = .revealing
         curtainTask = Task { @MainActor in
-            // 2) Let that insertion commit in its own frame, so the slide
-            //    below animates an ALREADY-PRESENT view (its identity is
-            //    stable throughout) instead of a newly inserted branch.
-            await Task.yield()
+            // 2) Let the mounted editor COMMIT and be drawn: a bounded async
+            //    delay is a real render turn, where a bare Task.yield only
+            //    advances the run loop. The welcome stays fully opaque and
+            //    stationary for this beat, so the slide always reveals a
+            //    finished editor rather than a half-drawn one.
+            try? await Task.sleep(nanoseconds: RevealTiming.mountCommitNanoseconds)
             guard !Task.isCancelled, revealStage == .revealing else { return }
-            withAnimation(RevealTiming.animation) { curtainLifted = true }
+            curtainRequested = true
             // 3) Once the panel is fully out of the content bounds, drop it
             //    definitively and hand the keyboard focus to the editor.
             try? await Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)
@@ -201,35 +212,28 @@ struct NumlexApp: App {
     /// contract below is shared by every stage.
     @ViewBuilder
     private var launchRoot: some View {
-        switch revealStage {
-        case .welcome:
-            WelcomeView(language: model.settings.language,
-                        onGetStarted: beginReveal)
-        case .revealing:
-            // ONE stable ZStack for the whole reveal: the editor mounts
-            // beneath and the welcome panel keeps its identity while the
-            // `curtainLifted` offset slides it fully out of the clipped
-            // content bounds. No transition is attached to a branch, so the
-            // slide cannot depend on insertion timing.
-            GeometryReader { geo in
-                ZStack {
-                    ContentView(model: model)
-                        // The editor may render underneath but must not take
-                        // pointer events until the curtain has settled.
-                        .allowsHitTesting(false)
-                    WelcomeView(language: model.settings.language,
-                                onGetStarted: {})
-                        .offset(y: curtainLifted ? -geo.size.height : 0)
-                        .shadow(color: .black.opacity(curtainLifted ? 0 : 0.28),
-                                radius: 10, y: 4)
-                        .zIndex(1)
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipped()
-            }
-        case .app:
-            ContentView(model: model)
-        }
+        // ONE stable container for every launch stage (see LaunchContainer):
+        // the production WelcomeView lives in a single branch with an
+        // explicit stable id, so moving from `.welcome` to `.revealing`
+        // neither re-creates it nor restarts its bloom, and the curtain's
+        // progress is view-owned so SwiftUI really interpolates the slide.
+        LaunchContainer(stage: revealStage,
+                        language: model.settings.language,
+                        content: { AnyView(ContentView(model: model)) },
+                        onGetStarted: beginReveal,
+                        revealRequested: curtainRequested)
+    }
+
+    /// Stable structural identity for the production welcome.
+    static let productionWelcomeID = "production-welcome"
+
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    /// True while a welcome reveal (production or replay) is on screen, so
+    /// the temporary replay control can hide itself underneath the moving
+    /// curtain. Transient view state only: never persisted, never in the
+    /// model, settings, store, marker or export.
+    private var replayControlHidden: Bool {
+        revealStage != .app || replayWelcomePresented
     }
 
     /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
@@ -252,31 +256,18 @@ struct NumlexApp: App {
                 // layout or identity can change.
                 .opacity(replayWelcomePresented && !replayContentReady ? 0 : 1)
             if replayWelcomePresented {
-                GeometryReader { geo in
-                    WelcomeView(language: model.settings.language,
-                                onGetStarted: finishReplay)
-                        // A fresh identity per presentation restarts the whole
-                        // staged animation from its initial frame.
-                        .id(replaySession)
-                        .offset(y: replayCurtainLifted ? -geo.size.height : 0)
-                        .shadow(color: .black.opacity(replayCurtainLifted ? 0 : 0.28),
-                                radius: 10, y: 4)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .zIndex(1)
-                }
-                .clipped()
-                // The overlay is a NESTED sibling, so the WelcomeView's own
-                // `.ignoresSafeArea()` cannot reach the window edges by
-                // itself: without this the editor stayed visible in the
-                // titlebar strip. Expanding the overlay container gives the
-                // replay exactly the same full-window coverage the
-                // production stages get as the root content.
-                .ignoresSafeArea()
+                ReplayOverlay(language: model.settings.language,
+                              onGetStarted: finishReplay,
+                              liftRequested: replayLiftRequested)
+                    // A fresh identity per presentation restarts the whole
+                    // staged animation from its initial frame.
+                    .id(replaySession)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .replayWelcome)) { _ in
             presentReplayWelcome()
         }
+        .environment(\.replayControlHidden, replayControlHidden)
     }
 
     /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
@@ -299,7 +290,7 @@ struct NumlexApp: App {
             window.makeFirstResponder(nil)
         }
         replayContentReady = false
-        replayCurtainLifted = false
+        replayLiftRequested = false
         replaySession = UUID()
         replayWelcomePresented = true
     }
@@ -336,21 +327,22 @@ struct NumlexApp: App {
         if reduceMotion {
             replayContentReady = true
             replayWelcomePresented = false
-            replayCurtainLifted = false
+            replayLiftRequested = false
             restoreReplayResponder()
             return
         }
         replayTask = Task { @MainActor in
-            // The editor becomes visible BEFORE the panel starts lifting, so
-            // the reveal shows the real interface from its first frame.
+            // The editor becomes visible BEFORE the panel starts lifting, and
+            // a bounded delay gives it a real committed frame, so the reveal
+            // always shows the finished interface from its first frame.
             replayContentReady = true
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: RevealTiming.mountCommitNanoseconds)
             guard !Task.isCancelled, replayWelcomePresented else { return }
-            withAnimation(RevealTiming.animation) { replayCurtainLifted = true }
+            replayLiftRequested = true
             try? await Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)
             guard !Task.isCancelled else { return }
             replayWelcomePresented = false
-            replayCurtainLifted = false
+            replayLiftRequested = false
             restoreReplayResponder()
         }
     }
@@ -519,6 +511,118 @@ struct NumlexApp: App {
 final class HighlightCommandPayload {
     let color: HighlightColor?
     init(color: HighlightColor?) { self.color = color }
+}
+
+/// The production launch container. The curtain's progress lives in THIS
+/// view's own state, because a state mutation inside `withAnimation` only
+/// produces an interpolated transaction for view-owned state — an App-level
+/// flag jumped straight to its target.
+struct LaunchContainer: View {
+    let stage: NumlexApp.RevealStage
+    let language: AppLanguage
+    let content: () -> AnyView
+    let onGetStarted: () -> Void
+    /// Flipped by the app when the reveal begins.
+    let revealRequested: Bool
+
+    @State private var progress: Double = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if stage != .welcome {
+                    content()
+                        .allowsHitTesting(stage == .app)
+                }
+                if stage != .app {
+                    CurtainPanel(progress: progress,
+                                 travel: geo.size.height + RevealTiming.overscan,
+                                 shadowOpacity: progress > 0.001 ? 0 : 0.28,
+                                 content: WelcomeView(language: language, onGetStarted: onGetStarted))
+                        .id(NumlexApp.productionWelcomeID)
+                        .zIndex(1)
+                        .allowsHitTesting(stage == .welcome)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+        }
+        .onChange(of: revealRequested) { _, requested in
+            withAnimation(requested ? RevealTiming.curtainAnimation : nil) {
+                progress = requested ? 1 : 0
+            }
+        }
+    }
+}
+
+/// The replay overlay, same contract: the overlay owns its own animated
+/// progress and lifts when the app asks it to.
+struct ReplayOverlay: View {
+    let language: AppLanguage
+    let onGetStarted: () -> Void
+    let liftRequested: Bool
+
+    @State private var progress: Double = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            CurtainPanel(progress: progress,
+                         travel: geo.size.height + RevealTiming.overscan,
+                         shadowOpacity: progress > 0.001 ? 0 : 0.28,
+                         content: WelcomeView(language: language, onGetStarted: onGetStarted))
+                .frame(width: geo.size.width, height: geo.size.height)
+                .zIndex(1)
+        }
+        .clipped()
+        .ignoresSafeArea()
+        .onChange(of: liftRequested) { _, requested in
+            withAnimation(requested ? RevealTiming.curtainAnimation : nil) {
+                progress = requested ? 1 : 0
+            }
+        }
+    }
+}
+
+/// The moving welcome panel. `progress` is an interpolated scalar (0 = fully
+/// covering, 1 = fully retired), so the slide is produced by SwiftUI's
+/// Animatable machinery on every display frame — the same guarantee the
+/// welcome canvases use. A plain `.offset(y: lifted ? -travel : 0)` on a
+/// state flag measurably JUMPED instead of travelling.
+struct CurtainPanel<Content: View>: View, @preconcurrency Animatable {
+    var progress: Double
+    var travel: CGFloat
+    var shadowOpacity: Double
+    var content: Content
+
+    var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, Double>> {
+        get { AnimatablePair(progress, AnimatablePair(travel, shadowOpacity)) }
+        set {
+            progress = newValue.first
+            travel = newValue.second.first
+            shadowOpacity = newValue.second.second
+        }
+    }
+
+    var body: some View {
+        content
+            .offset(y: -travel * CGFloat(progress))
+            .shadow(color: .black.opacity(shadowOpacity), radius: 10, y: 4)
+    }
+}
+
+/// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+/// Transient view-environment flag: the temporary replay control hides
+/// itself while a welcome reveal is in flight. It is deliberately NOT part
+/// of AppModel, the store, settings, UserDefaults or the marker.
+private struct ReplayControlHiddenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var replayControlHidden: Bool {
+        get { self[ReplayControlHiddenKey.self] }
+        set { self[ReplayControlHiddenKey.self] = newValue }
+    }
 }
 
 extension Notification.Name {

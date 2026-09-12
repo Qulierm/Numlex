@@ -158,12 +158,16 @@ staged state, splash or sleep.
 Pressing Get Started records a versioned completion marker (`welcome-v1`) in the
 app's data directory — the same directory as `store.json`, and the one
 `--data-dir` redirects — and then performs the reveal in three explicit steps:
-the notebook mounts BENEATH the still-covering welcome (not animated), the next
-runloop turn starts an animated vertical OFFSET that slides the welcome panel
-fully up out of the clipped content bounds over 0.75 s on a soft acceleration
-curve (a restrained shadow rides the panel's bottom edge for depth), and once
+the notebook mounts BENEATH the still-covering welcome, a bounded render turn lets
+it commit (not animated), and then an animated vertical OFFSET that slides the welcome panel
+fully up out of the clipped content bounds over 0.90 s on a smooth ease, with
+80 pt of overscan so no sliver survives (a restrained shadow rides the panel's bottom edge for depth), and once
 the travel time has elapsed the welcome is dropped for good and the editor takes
-focus. The panel keeps its identity throughout — the slide is never a transition
+focus. The slide itself is an INTERPOLATED scalar inside an `Animatable` curtain panel
+whose progress lives in the container view's own state — a plain state-flag
+offset measurably jumped instead of travelling, because SwiftUI only
+interpolates a transaction for view-owned state. The panel keeps its identity
+throughout — the slide is never a transition
 attached to a newly inserted branch — and the actual NSWindow, its titlebar,
 traffic lights and screen frame are never touched, moved or animated. Pointer
 events are blocked while the panel is moving, and focus is requested only after

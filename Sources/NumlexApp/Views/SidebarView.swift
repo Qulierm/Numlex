@@ -102,6 +102,11 @@ struct SidebarView: View {
     @State private var hoverExitGeneration: [String: Int] = [:]
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
+    /// True while a welcome reveal is in flight: the replay row hides
+    /// (visually, from hit testing and from accessibility) underneath the
+    /// moving curtain and reappears only once the transition has finished.
+    @Environment(\.replayControlHidden) private var replayControlHidden
 
     private var language: AppLanguage { model.settings.language }
 
@@ -236,8 +241,14 @@ struct SidebarView: View {
             // Sits BELOW the pinned tabs (a sibling row, so it can never
             // cover them) and stays quiet: secondary text on a hairline
             // hover fill rather than another glass surface.
+            // The divider and the row share ONE visibility gate. Geometry is
+            // RESERVED while hidden (opacity, never removal) so the exposed
+            // part of the slide can never reflow the sheet list, and no
+            // implicit animation is attached — the change is instantaneous.
             Divider()
                 .padding(.horizontal, 4)
+                .opacity(replayControlHidden ? 0 : 1)
+                .accessibilityHidden(replayControlHidden)
 
             Button {
                 NotificationCenter.default.post(name: .replayWelcome, object: nil)
@@ -260,6 +271,9 @@ struct SidebarView: View {
                 )
             }
             .buttonStyle(.plain)
+            .opacity(replayControlHidden ? 0 : 1)
+            .allowsHitTesting(!replayControlHidden)
+            .accessibilityHidden(replayControlHidden)
             .onHover { replayHovering = $0 }
             .help("Replay the welcome animation")
             .accessibilityLabel(Text("Replay Welcome"))
