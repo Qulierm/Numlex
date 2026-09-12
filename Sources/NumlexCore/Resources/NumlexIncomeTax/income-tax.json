@@ -11,31 +11,31 @@
       "brackets": [
         {
           "rate": 0.0,
-          "upTo": 15000
+          "upTo": 16100
         },
         {
           "rate": 0.1,
-          "upTo": 26925
+          "upTo": 28500
         },
         {
           "rate": 0.12,
-          "upTo": 63475
+          "upTo": 66500
         },
         {
           "rate": 0.22,
-          "upTo": 118350
+          "upTo": 121800
         },
         {
           "rate": 0.24,
-          "upTo": 212300
+          "upTo": 217875
         },
         {
           "rate": 0.32,
-          "upTo": 265525
+          "upTo": 272325
         },
         {
           "rate": 0.35,
-          "upTo": 641350
+          "upTo": 656700
         },
         {
           "rate": 0.37,
@@ -44,12 +44,13 @@
       ],
       "country": "US",
       "currency": "USD",
-      "note": "Single filer; the 2025 standard deduction ($15,000) is folded into the brackets as a 0% slice, with the statutory 10/12/22/24/32/35/37% brackets shifted accordingly. State taxes excluded.",
+      "note": "Single filer, tax year 2026: 10/12/22/24/32/35/37% brackets (12,400/50,400/105,700/201,775/256,225/640,600) with the $16,100 standard deduction folded in as a 0% slice. State taxes excluded.",
       "source": {
-        "title": "IRS Rev. Proc. 2024-40 — 2025 tax brackets (single filer)",
-        "url": "https://www.irs.gov/pub/irs-drop/rp-24-40.pdf"
+        "title": "IRS — IRS releases tax inflation adjustments for tax year 2026 (single filer)",
+        "url": "https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2026-including-amendments-from-the-one-big-beautiful-bill"
       },
-      "taxYear": 2025
+      "taxPeriod": "2026",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -78,12 +79,13 @@
       ],
       "country": "GB",
       "currency": "GBP",
-      "note": "England/Wales/Northern Ireland rates; personal allowance as a 0% bracket, no taper modelled.",
+      "note": "England/Wales/Northern Ireland rates for 2026/27; personal allowance £12,570 as a 0% bracket, no taper modelled.",
       "source": {
-        "title": "GOV.UK — Income Tax rates and Personal Allowances (2025/26)",
+        "title": "GOV.UK — Income Tax rates and Personal Allowances (current tax year 6 April 2026 to 5 April 2027)",
         "url": "https://www.gov.uk/income-tax-rates"
       },
-      "taxYear": 2025
+      "taxPeriod": "2026/27",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -94,15 +96,15 @@
       "brackets": [
         {
           "rate": 0.0,
-          "upTo": 12096
+          "upTo": 12348
         },
         {
           "rate": 0.14,
-          "upTo": 17443
+          "upTo": 17799
         },
         {
           "rate": 0.24,
-          "upTo": 68480
+          "upTo": 69878
         },
         {
           "rate": 0.42,
@@ -115,12 +117,13 @@
       ],
       "country": "DE",
       "currency": "EUR",
-      "note": "Approximation: the progressive 14–42% zones are represented by flat 14%/24% steps; solidarity surcharge and social contributions excluded. Single individual.",
+      "note": "Approximation: Grundfreibetrag 12,348 € as a 0% slice; the progressive 14–24% and 24–42% zones are represented by flat 14%/24% steps, then the statutory 42%/45% bands. Solidarity surcharge and social contributions excluded.",
       "source": {
-        "title": "Bundesministerium der Finanzen — Einkommensteuertarif 2025",
-        "url": "https://www.bundesfinanzministerium.de/Web/DE/Themen/Steuern/Steuerarten/Einkommensteuer/einkommensteuer.html"
+        "title": "EStG §32a (gesetze-im-internet.de) — Tarif ab dem Veranlagungszeitraum 2026",
+        "url": "https://www.gesetze-im-internet.de/estg/__32a.html"
       },
-      "taxYear": 2025
+      "taxPeriod": "2026",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -130,19 +133,19 @@
       "brackets": [
         {
           "rate": 0.0,
-          "upTo": 11497
+          "upTo": 11600
         },
         {
           "rate": 0.11,
-          "upTo": 29315
+          "upTo": 29579
         },
         {
           "rate": 0.3,
-          "upTo": 83823
+          "upTo": 84577
         },
         {
           "rate": 0.41,
-          "upTo": 177106
+          "upTo": 181917
         },
         {
           "rate": 0.45,
@@ -153,10 +156,41 @@
       "currency": "EUR",
       "note": "Single share (1 part); the 10% professional allowance is not modelled. Social levies excluded.",
       "source": {
-        "title": "impots.gouv.fr — Barème de l'impôt sur le revenu 2025",
-        "url": "https://www.impots.gouv.fr/particulier/questions/comment-calculer-mon-impot-sur-le-revenu"
+        "title": "Service-Public (Direction de l'information légale et administrative) — barème 2026 applicable aux revenus de 2025",
+        "url": "https://www.service-public.fr/particuliers/vosdroits/F1419"
       },
-      "taxYear": 2025
+      "taxPeriod": "2026 (income 2025)",
+      "taxYear": 2026
+    },
+    {
+      "aliases": [
+        "NL",
+        "Netherlands",
+        "Holland"
+      ],
+      "brackets": [
+        {
+          "rate": 0.3575,
+          "upTo": 38883
+        },
+        {
+          "rate": 0.3756,
+          "upTo": 78426
+        },
+        {
+          "rate": 0.495,
+          "upTo": null
+        }
+      ],
+      "country": "NL",
+      "currency": "EUR",
+      "note": "Box-1 rates for 2026 before heffingskortingen (which are excluded).",
+      "source": {
+        "title": "Belastingdienst — Tarieven box 1, 2026",
+        "url": "https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/prive/inkomstenbelasting/heffingskortingen_boxen_tarieven/boxen_en_tarieven/box_1/box_1"
+      },
+      "taxPeriod": "2026",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -187,11 +221,12 @@
       ],
       "country": "AU",
       "currency": "AUD",
-      "note": "Resident rates; Medicare levy and offsets excluded.",
+      "note": "BLOCKER: the 2026–27 resident schedule could not be retrieved from the ATO at the snapshot; this is the verified 2025–26 schedule, NOT relabelled. Medicare levy and offsets excluded.",
       "source": {
-        "title": "ATO — Resident tax rates 2024–25",
+        "title": "ATO — Resident tax rates 2025–26 (latest schedule retrieved)",
         "url": "https://www.ato.gov.au/tax-rates-and-codes/tax-rates-australian-residents"
       },
+      "taxPeriod": "2025-26",
       "taxYear": 2025
     },
     {
@@ -227,40 +262,12 @@
       ],
       "country": "CA",
       "currency": "CAD",
-      "note": "Federal rates; the basic personal amount ($16,129) is folded into the brackets as a 0% slice. Provincial taxes excluded.",
+      "note": "BLOCKER: canada.ca was unreachable from the generation network, so the 2026 federal schedule is unverified; this is the verified 2025 schedule, NOT relabelled. Provincial taxes excluded.",
       "source": {
-        "title": "Canada Revenue Agency — 2025 federal income tax rates",
+        "title": "Canada Revenue Agency — 2025 federal income tax rates (latest retrieved)",
         "url": "https://www.canada.ca/en/revenue-agency/services/tax/individuals/frequently-asked-questions-individuals/canadian-income-tax-rates-individuals-current-previous-years.html"
       },
-      "taxYear": 2025
-    },
-    {
-      "aliases": [
-        "NL",
-        "Netherlands",
-        "Holland"
-      ],
-      "brackets": [
-        {
-          "rate": 0.3582,
-          "upTo": 38441
-        },
-        {
-          "rate": 0.3707,
-          "upTo": 76817
-        },
-        {
-          "rate": 0.495,
-          "upTo": null
-        }
-      ],
-      "country": "NL",
-      "currency": "EUR",
-      "note": "Box-1 rates before heffingskortingen (which are excluded).",
-      "source": {
-        "title": "Belastingdienst — Tarieven inkomstenbelasting 2025",
-        "url": "https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/prive/inkomstenbelasting/heffingskortingen_boxen_tarieven/boxen_en_tarieven/box_1/box_1"
-      },
+      "taxPeriod": "2025",
       "taxYear": 2025
     },
     {
@@ -300,12 +307,13 @@
       ],
       "country": "IN",
       "currency": "INR",
-      "note": "New regime resident slabs; Section 87A rebate, surcharge and cess excluded; the standard deduction is not modelled.",
+      "note": "BLOCKER: no official FY 2026-27 (AY 2027-28) schedule was found at the snapshot; this is the verified AY 2026-27 schedule, NOT relabelled. Section 87A rebate, surcharge and cess excluded.",
       "source": {
-        "title": "Income Tax Department — New regime slab rates, FY 2025-26",
+        "title": "Income Tax Department — New regime slabs for AY 2026-27 (latest official schedule found)",
         "url": "https://www.incometax.gov.in/iec/foportal/help/individual/return-applicable-1"
       },
-      "taxYear": 2025
+      "taxPeriod": "AY 2026-27 (FY 2025-26)",
+      "taxYear": 0
     },
     {
       "aliases": [
@@ -337,12 +345,13 @@
       ],
       "country": "RU",
       "currency": "RUB",
-      "note": "Resident progressive NDFL rates; social contributions and investment deductions excluded.",
+      "note": "Progressive NDFL rates enacted from 2025 and applicable in 2026 per the consulted official source; thresholds not indexed there. Social contributions and investment deductions excluded.",
       "source": {
-        "title": "ФНС России — прогрессивные ставки НДФЛ с 2025 года",
-        "url": "https://www.nalog.gov.ru/rn77/news/activities_fts/14935962/"
+        "title": "ФНС России — прогрессивные ставки НДФЛ (действуют с 2025 года, применяются в 2026)",
+        "url": "https://www.nalog.gov.ru/rn77/taxation/taxes/ndfl/"
       },
-      "taxYear": 2025
+      "taxPeriod": "2026",
+      "taxYear": 2026
     },
     {
       "aliases": [
@@ -385,16 +394,17 @@
       ],
       "country": "JP",
       "currency": "JPY",
-      "note": "National rates; the basic deduction (¥480,000) is folded into the brackets as a 0% slice. Local inhabitant tax excluded.",
+      "note": "National rates current for 2026; the statutory basic deduction (¥480,000) is folded in as a 0% slice. The 2026 reform's salary-income measures and the local inhabitant tax (10%) are not modelled.",
       "source": {
-        "title": "National Tax Agency — Income tax rates (national, 2025)",
+        "title": "National Tax Agency — No.2260 Income tax rates (current as of 1 April 2026)",
         "url": "https://www.nta.go.jp/taxes/shiraberu/taxanswer/shotoku/2260.htm"
       },
-      "taxYear": 2025
+      "taxPeriod": "2026",
+      "taxYear": 2026
     }
   ],
   "license": "Factual public data; the compiled dataset is CC0.",
-  "model": "Progressive national brackets for a single individual, including the basic zero-rate allowance/standard deduction. Excludes state/province/local taxes, most credits and deductions, and social contributions.",
+  "model": "Progressive national brackets for a single individual, including the basic zero-rate allowance/standard deduction folded in. Excludes state/province/local taxes, most credits and deductions, and social contributions.",
   "snapshotDate": "2026-09-12",
-  "version": "income-tax-2026.1"
+  "version": "income-tax-2026.2"
 }

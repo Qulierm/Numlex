@@ -1,0 +1,158 @@
+{
+  "attribution": "Standard national VAT/GST/consumption-tax rates compiled by Numlex from official government sources (factual data).",
+  "license": "Factual public data; the compiled dataset is CC0.",
+  "presets": [
+    {
+      "name": "GST",
+      "note": "Australia GST, 10%",
+      "ratePercent": 10.0,
+      "region": "AU"
+    },
+    {
+      "name": "VAT",
+      "note": "United Kingdom VAT, 20%",
+      "ratePercent": 20.0,
+      "region": "GB"
+    },
+    {
+      "name": "VAT",
+      "note": "Germany VAT (Mehrwertsteuer), 19%",
+      "ratePercent": 19.0,
+      "region": "DE"
+    },
+    {
+      "name": "VAT",
+      "note": "Netherlands VAT (BTW), 21%",
+      "ratePercent": 21.0,
+      "region": "NL"
+    },
+    {
+      "name": "VAT",
+      "note": "France TVA, 20%",
+      "ratePercent": 20.0,
+      "region": "FR"
+    },
+    {
+      "name": "VAT",
+      "note": "Italy IVA, 22%",
+      "ratePercent": 22.0,
+      "region": "IT"
+    },
+    {
+      "name": "VAT",
+      "note": "Spain IVA, 21%",
+      "ratePercent": 21.0,
+      "region": "ES"
+    },
+    {
+      "name": "VAT",
+      "note": "Ireland VAT, 23%",
+      "ratePercent": 23.0,
+      "region": "IE"
+    },
+    {
+      "name": "VAT",
+      "note": "Austria VAT (USt), 20%",
+      "ratePercent": 20.0,
+      "region": "AT"
+    },
+    {
+      "name": "VAT",
+      "note": "Belgium VAT (TVA/BTW), 21%",
+      "ratePercent": 21.0,
+      "region": "BE"
+    },
+    {
+      "name": "VAT",
+      "note": "Poland VAT (PTU), 23%",
+      "ratePercent": 23.0,
+      "region": "PL"
+    },
+    {
+      "name": "VAT",
+      "note": "Portugal IVA, 23%",
+      "ratePercent": 23.0,
+      "region": "PT"
+    },
+    {
+      "name": "VAT",
+      "note": "Sweden VAT (moms), 25%",
+      "ratePercent": 25.0,
+      "region": "SE"
+    },
+    {
+      "name": "VAT",
+      "note": "Denmark VAT (moms), 25%",
+      "ratePercent": 25.0,
+      "region": "DK"
+    },
+    {
+      "name": "VAT",
+      "note": "Norway VAT (mva), 25%",
+      "ratePercent": 25.0,
+      "region": "NO"
+    },
+    {
+      "name": "VAT",
+      "note": "Finland VAT (ALV), 25.5% (2024 standard rate)",
+      "ratePercent": 25.5,
+      "region": "FI"
+    },
+    {
+      "name": "VAT",
+      "note": "Switzerland VAT (MWST), 8.1% (2024 standard rate)",
+      "ratePercent": 8.1,
+      "region": "CH"
+    },
+    {
+      "name": "GST",
+      "note": "New Zealand GST, 15%",
+      "ratePercent": 15.0,
+      "region": "NZ"
+    },
+    {
+      "name": "GST",
+      "note": "Singapore GST, 9% (2024)",
+      "ratePercent": 9.0,
+      "region": "SG"
+    },
+    {
+      "name": "Consumption Tax",
+      "note": "Japan consumption tax, 10% standard",
+      "ratePercent": 10.0,
+      "region": "JP"
+    },
+    {
+      "name": "GST",
+      "note": "Canada federal GST, 5% (provincial taxes excluded)",
+      "ratePercent": 5.0,
+      "region": "CA"
+    },
+    {
+      "name": "GST",
+      "note": "India GST standard rate, 18%",
+      "ratePercent": 18.0,
+      "region": "IN"
+    },
+    {
+      "name": "VAT",
+      "note": "South Africa VAT, 15%",
+      "ratePercent": 15.0,
+      "region": "ZA"
+    },
+    {
+      "name": "VAT",
+      "note": "Mexico IVA, 16%",
+      "ratePercent": 16.0,
+      "region": "MX"
+    },
+    {
+      "name": "Sales Tax",
+      "note": "United States: no national rate — enter your local rate manually",
+      "ratePercent": null,
+      "region": "US"
+    }
+  ],
+  "snapshotDate": "2026-09-12",
+  "version": "tax-presets-2026.1"
+}

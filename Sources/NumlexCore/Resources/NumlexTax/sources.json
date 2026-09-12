@@ -1,0 +1,12 @@
+{
+  "attribution": "Standard national VAT/GST/consumption-tax rates compiled by Numlex from official government sources (factual data).",
+  "generator": "Scripts/generate-tax-presets.py",
+  "license": "Factual public data; the compiled dataset is CC0.",
+  "resources": {
+    "tax-presets.json": {
+      "sha256": "454c91428fbeb2c3dfaec72ff4409d53134d646ac8d338e2f87eae8e13c21c93"
+    }
+  },
+  "snapshotDate": "2026-09-12",
+  "version": "tax-presets-2026.1"
+}

@@ -43,7 +43,8 @@ let package = Package(
                 .copy("Resources/NumlexTimezones"),
                 .copy("Resources/NumlexHolidays"),
                 .copy("Resources/NumlexIncomeTax"),
-                .copy("Resources/NumlexCPI")
+                .copy("Resources/NumlexCPI"),
+                .copy("Resources/NumlexTax")
             ]
         ),
         .executableTarget(

@@ -64,14 +64,17 @@ public struct TaxPreferences: Codable, Equatable, Sendable {
 }
 
 /// One bundled sales-tax preset: a region key with its official standard
-/// national rate and display name. US deliberately has NO automatic rate.
+/// national rate and display name. `ratePercent` is nil for a
+/// manual-entry region (the United States has no automatic national
+/// rate). Loaded from the versioned `NumlexTax` resource by
+/// `TaxPresetCatalog`.
 public struct TaxPreset: Equatable, Sendable {
     public let region: String
     public let name: String
-    public let ratePercent: Double
+    public let ratePercent: Double?
     public let note: String
 
-    public init(region: String, name: String, ratePercent: Double, note: String) {
+    public init(region: String, name: String, ratePercent: Double?, note: String) {
         self.region = region
         self.name = name
         self.ratePercent = ratePercent
@@ -79,67 +82,19 @@ public struct TaxPreset: Equatable, Sendable {
     }
 }
 
-/// The versioned bundled preset table (standard national VAT/GST/consumption
-/// rates; regional/US state rates are out of scope by design — the US row
-/// requires a manual rate).
+/// The thin API over the bundled resource catalog. There is no
+/// hard-coded rate table in Swift: a missing/unverifiable resource
+/// yields an EMPTY preset list and the phrases keep working with the
+/// user's manual configuration.
 public enum TaxPresets {
-    public static let version = "tax-presets-2026.1"
+    public static var catalog: TaxPresetCatalog? { TaxPresetCatalog.shared }
 
-    public static let all: [TaxPreset] = [
-        TaxPreset(region: "AU", name: "GST", ratePercent: 10,
-                  note: "Australia GST, 10%"),
-        TaxPreset(region: "GB", name: "VAT", ratePercent: 20,
-                  note: "United Kingdom VAT, 20%"),
-        TaxPreset(region: "DE", name: "VAT", ratePercent: 19,
-                  note: "Germany VAT (Mehrwertsteuer), 19%"),
-        TaxPreset(region: "NL", name: "VAT", ratePercent: 21,
-                  note: "Netherlands VAT (BTW), 21%"),
-        TaxPreset(region: "FR", name: "VAT", ratePercent: 20,
-                  note: "France TVA, 20%"),
-        TaxPreset(region: "IT", name: "VAT", ratePercent: 22,
-                  note: "Italy IVA, 22%"),
-        TaxPreset(region: "ES", name: "VAT", ratePercent: 21,
-                  note: "Spain IVA, 21%"),
-        TaxPreset(region: "IE", name: "VAT", ratePercent: 23,
-                  note: "Ireland VAT, 23%"),
-        TaxPreset(region: "AT", name: "VAT", ratePercent: 20,
-                  note: "Austria VAT (USt), 20%"),
-        TaxPreset(region: "BE", name: "VAT", ratePercent: 21,
-                  note: "Belgium VAT (TVA/BTW), 21%"),
-        TaxPreset(region: "PL", name: "VAT", ratePercent: 23,
-                  note: "Poland VAT (PTU), 23%"),
-        TaxPreset(region: "PT", name: "VAT", ratePercent: 23,
-                  note: "Portugal IVA, 23%"),
-        TaxPreset(region: "SE", name: "VAT", ratePercent: 25,
-                  note: "Sweden VAT (moms), 25%"),
-        TaxPreset(region: "DK", name: "VAT", ratePercent: 25,
-                  note: "Denmark VAT (moms), 25%"),
-        TaxPreset(region: "NO", name: "VAT", ratePercent: 25,
-                  note: "Norway VAT (mva), 25%"),
-        TaxPreset(region: "FI", name: "VAT", ratePercent: 25.5,
-                  note: "Finland VAT (ALV), 25.5% (2024 standard rate)"),
-        TaxPreset(region: "CH", name: "VAT", ratePercent: 8.1,
-                  note: "Switzerland VAT (MWST), 8.1% (2024 standard rate)"),
-        TaxPreset(region: "NZ", name: "GST", ratePercent: 15,
-                  note: "New Zealand GST, 15%"),
-        TaxPreset(region: "SG", name: "GST", ratePercent: 9,
-                  note: "Singapore GST, 9% (2024)"),
-        TaxPreset(region: "JP", name: "Consumption Tax", ratePercent: 10,
-                  note: "Japan consumption tax, 10% standard"),
-        TaxPreset(region: "CA", name: "GST", ratePercent: 5,
-                  note: "Canada federal GST, 5% (provincial taxes excluded)"),
-        TaxPreset(region: "IN", name: "GST", ratePercent: 18,
-                  note: "India GST standard rate, 18%"),
-        TaxPreset(region: "ZA", name: "VAT", ratePercent: 15,
-                  note: "South Africa VAT, 15%"),
-        TaxPreset(region: "MX", name: "VAT", ratePercent: 16,
-                  note: "Mexico IVA, 16%"),
-        TaxPreset(region: "US", name: "Sales Tax", ratePercent: 0,
-                  note: "United States: no national rate — enter your local rate manually"),
-    ]
+    public static var version: String { catalog?.version ?? "unavailable" }
+
+    public static var all: [TaxPreset] { catalog?.presets ?? [] }
 
     public static func preset(for region: String) -> TaxPreset? {
-        all.first { $0.region.caseInsensitiveCompare(region) == .orderedSame }
+        catalog?.preset(for: region)
     }
 }
 

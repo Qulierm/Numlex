@@ -321,12 +321,42 @@ public let financeCases: [EngineCase] = [
         for banned in ["tax", "Tax", "vat", "VAT", "salesTax"] {
             try expect(!json.contains(banned), "export has no \(banned)")
         }
-        // Preset table integrity: documented minimums.
+        // Preset table integrity: documented minimums loaded from the
+        // HASH-VERIFIED bundled resource (no Swift-side rate table).
+        guard let catalog = TaxPresetCatalog.shared else {
+            throw CaseFailure(message: "tax preset catalog loads", location: "Finance")
+        }
+        try expectEqual(catalog.version, "tax-presets-2026.1", "preset dataset version")
+        try expectEqual(catalog.presets.count, 25, "25 bundled presets")
         try expectEqual(TaxPresets.preset(for: "AU")?.ratePercent, 10, "AU GST 10")
         try expectEqual(TaxPresets.preset(for: "GB")?.ratePercent, 20, "UK VAT 20")
         try expectEqual(TaxPresets.preset(for: "DE")?.ratePercent, 19, "DE VAT 19")
         try expectEqual(TaxPresets.preset(for: "NL")?.ratePercent, 21, "NL VAT 21")
-        try expectEqual(TaxPresets.preset(for: "US")?.ratePercent, 0, "US has no automatic rate")
+        try expect(TaxPresets.preset(for: "US")?.ratePercent == nil,
+                   "US has NO automatic rate (nil, not 0)")
+        var regions = Set<String>()
+        for preset in catalog.presets {
+            try expect(regions.insert(preset.region).inserted,
+                       "unique region \(preset.region)")
+            try expect(!preset.name.isEmpty, "\(preset.region) name")
+            try expect(!preset.note.isEmpty, "\(preset.region) note")
+            if let rate = preset.ratePercent {
+                try expect(rate.isFinite && rate >= 0 && rate < 100,
+                           "\(preset.region) rate domain")
+            }
+        }
+        // US preset selected: rate stays UNSET until the user enters one.
+        let usUnset = FinancialContext(tax: TaxPreferences(preset: "US", name: "Sales Tax",
+                                                           ratePercent: nil))
+        guard case .error(let usMessage)? = finEval("$300 + sales tax", tax: usUnset) else {
+            throw CaseFailure(message: "US preset without rate errors", location: "Finance")
+        }
+        try expectEqual(usMessage, "set sales tax in Settings → Tax",
+                        "US unset rate message")
+        // A manual 0% is allowed and DISTINCT from unset.
+        let usZero = FinancialContext(tax: TaxPreferences(preset: "US", name: "Sales Tax",
+                                                          ratePercent: 0))
+        try expectFin("$300 + sales tax", "$300.00", tax: usZero)
         for lang in AppLanguage.allCases {
             for key in ["tax.group", "tax.preset", "tax.preset.custom", "tax.name",
                         "tax.rate", "tax.rateCap"] {
@@ -344,25 +374,25 @@ public let financeCases: [EngineCase] = [
                                          cpi: nil)
         // US 2025 single: $75,000 -> standard deduction folded; tax =
         // 11925*0.10 + 36550*0.12 + 26525*0.22 = 8114.00.
-        try expectFin("income tax on $75,000 in US", "$8,114.00", tax: financial)
-        try expectFin("income after tax on $75,000 in US", "$66,886.00", tax: financial)
-        try expectFin("tax rate on $75,000 in US", "10.8186666667%", tax: financial)
+        try expectFin("income tax on $75,000 in US", "$7,670.00", tax: financial)
+        try expectFin("income after tax on $75,000 in US", "$67,330.00", tax: financial)
+        try expectFin("tax rate on $75,000 in US", "10.2266666667%", tax: financial)
         // Case-insensitive aliases.
-        try expectFin("income tax on $75,000 in usa", "$8,114.00", tax: financial)
-        try expectFin("income tax on $75,000 in United States", "$8,114.00", tax: financial)
+        try expectFin("income tax on $75,000 in usa", "$7,670.00", tax: financial)
+        try expectFin("income tax on $75,000 in United States", "$7,670.00", tax: financial)
         // Zero is deterministic.
         try expectFin("income tax on $0 in US", "$0.00", tax: financial)
         try expectFin("tax rate on $0 in US", "0%", tax: financial)
         // Other catalogs (local currency inputs).
         try expectFin("income tax on £50,270 in UK", "£7,540.00", tax: financial)
-        try expectFin("income tax on €50,000 in DE", "€8,562.26", tax: financial)
+        try expectFin("income tax on €50,000 in DE", "€8,491.38", tax: financial)
         try expectFin("income tax on ₹1,000,000 in IN", "₹40,000.00", tax: financial)
         try expectFin("income tax on ¥5,000,000 in JP", "¥476,500", tax: financial)
         try expectFin("income tax on A$100,000 in AU", "A$20,788.00", tax: financial)
         try expectFin("income tax on CA$100,000 in CA", "CA$14,037.93", tax: financial)
         try expectFin("income tax on ₽3,000,000 in RU", "₽402,000.00", tax: financial)
-        try expectFin("income tax on €50,000 in FR", "€8,165.48", tax: financial)
-        try expectFin("income tax on €50,000 in NL", "€18,054.49", tax: financial)
+        try expectFin("income tax on €50,000 in FR", "€8,103.99", tax: financial)
+        try expectFin("income tax on €50,000 in NL", "€18,076.22", tax: financial)
         // Unknown country is the exact message.
         guard case .error(let message)? = finEval("income tax on $75,000 in Atlantis",
                                                   tax: financial) else {
@@ -396,12 +426,12 @@ public let financeCases: [EngineCase] = [
             throw CaseFailure(message: "cross-currency income tax", location: "Finance")
         }
         try expectEqual(code, "EUR", "result returns to the input code")
-        try expectClose(value, 8292.60, 1e-6, "cross-currency tax value")
+        try expectClose(value, 7893.00, 1e-6, "cross-currency tax value")
         guard let text = AnswerDisplay.displayText(for: row, decimalPlaces: 10,
                                                    context: .legacy) else {
             throw CaseFailure(message: "cross-currency display", location: "Finance")
         }
-        try expectEqual(text, "€8,292.60", "cross-currency display")
+        try expectEqual(text, "€7,893.00", "cross-currency display")
         // A missing pair is `Rates unavailable`.
         let emptyRates = Rates(base: "USD", rates: ["USD": 1])
         let missingResult = evalLine("income tax on €72,000 in US", variables: &v,
@@ -418,20 +448,20 @@ public let financeCases: [EngineCase] = [
               case .number(let effective, _, let kind, _) = rateRow else {
             throw CaseFailure(message: "effective tax rate", location: "Finance")
         }
-        try expectClose(effective, 0.115175, 1e-9, "effective rate value")
+        try expectClose(effective, 0.109625, 1e-9, "effective rate value")
         try expectEqual(kind, .percent, "effective rate kind")
         guard let rateText = AnswerDisplay.displayText(for: rateRow, decimalPlaces: 10,
                                                        context: .legacy) else {
             throw CaseFailure(message: "effective rate display", location: "Finance")
         }
-        try expectEqual(rateText, "11.5175%", "effective rate display")
+        try expectEqual(rateText, "10.9625%", "effective rate display")
     },
 
     EngineCase("finance-income-tax-catalog-integrity") {
         guard let catalog = IncomeTaxCatalog.shared else {
             throw CaseFailure(message: "income-tax catalog loads", location: "Finance")
         }
-        try expectEqual(catalog.version, "income-tax-2026.1", "dataset version")
+        try expectEqual(catalog.version, "income-tax-2026.2", "dataset version")
         try expectEqual(catalog.tables.count, 10, "exactly ten tables")
         let expected = ["US", "GB", "AU", "CA", "DE", "FR", "NL", "IN", "RU", "JP"]
         for country in expected {
@@ -440,7 +470,7 @@ public let financeCases: [EngineCase] = [
             }
             try expect(!table.aliases.isEmpty, "\(country) aliases")
             try expect(!table.currency.isEmpty, "\(country) currency")
-            try expect((2024...2026).contains(table.taxYear), "\(country) tax year")
+            try expect(!table.taxPeriod.isEmpty, "\(country) tax period")
             try expect(!table.sourceTitle.isEmpty, "\(country) source title")
             try expect(table.sourceURL.hasPrefix("https://"), "\(country) source URL")
             try expect(!table.note.isEmpty, "\(country) model note")
@@ -457,6 +487,29 @@ public let financeCases: [EngineCase] = [
                 previous = upTo
             }
             try expect(table.brackets.last?.upTo == nil, "\(country) open-ended top")
+        }
+        // Honest periods per table (verified 2026 applicability or the
+        // TRUE earlier period when a 2026 schedule could not be
+        // substantiated — never relabelled).
+        let periods: [String: String] = [
+            "US": "2026", "GB": "2026/27", "DE": "2026",
+            "FR": "2026 (income 2025)", "NL": "2026", "JP": "2026",
+            "RU": "2026", "AU": "2025-26", "CA": "2025",
+            "IN": "AY 2026-27 (FY 2025-26)",
+        ]
+        for (country, period) in periods {
+            try expectEqual(catalog.table(for: country)?.taxPeriod, period,
+                            "\(country) honest tax period")
+        }
+        // The three unverified-for-2026 tables carry an explicit
+        // blocker note; the verified seven do not.
+        for country in ["AU", "CA", "IN"] {
+            try expect(catalog.table(for: country)?.note.contains("BLOCKER") == true,
+                       "\(country) blocker note")
+        }
+        for country in ["US", "GB", "DE", "FR", "NL", "JP", "RU"] {
+            try expect(catalog.table(for: country)?.note.contains("BLOCKER") != true,
+                       "\(country) verified for 2026")
         }
     },
 
@@ -581,9 +634,20 @@ public let financeCases: [EngineCase] = [
         try expectEqual(cpi.version, "cpi-u-2026.1", "dataset version")
         try expectEqual(cpi.series, "CUUR0000SA0", "BLS series")
         try expectEqual(cpi.basePeriod, "1982-84=100", "base period")
-        try expect(cpi.annual.count == 106, "1913-2025 annual coverage")
+        // Continuous 1913...2025 coverage: exactly 113 annual points.
+        try expectEqual(cpi.annual.count, 113, "113 continuous annual points")
+        var expectedYears: Set<Int> = []
+        for year in 1913...2025 { expectedYears.insert(year) }
+        try expectEqual(Set(cpi.annual.keys), expectedYears,
+                        "every integer year 1913...2025 exists")
         try expectEqual(cpi.annual[1913], 9.9, "1913 annual average")
+        try expectEqual(cpi.annual[2013], 232.957, "2013 annual average (was missing)")
+        try expectEqual(cpi.annual[2019], 255.657, "2019 annual average (was missing)")
         try expectEqual(cpi.annual[2025], 321.943, "2025 annual average")
+        // Explicit 2013/2019 queries resolve through the phrase lane.
+        let financial = FinancialContext(tax: .defaults, incomeTaxTables: nil, cpi: cpi)
+        try expectFin("what is $1,000 from 2013", "$1,423.67", tax: financial)
+        try expectFin("what is $1,000 from 2019", "$1,297.27", tax: financial)
         try expectEqual(cpi.latestAnnualYear, 2025, "latest annual year")
         try expectEqual(cpi.latestSnapshotYear, 2026, "provisional snapshot year")
         try expectEqual(cpi.latestSnapshotIndex, 331.655, "provisional YTD snapshot index")
@@ -646,7 +710,7 @@ public let financeCases: [EngineCase] = [
                                  decimalPlaces: 10, financial: financial)
         try expectEqual(rows.count, 6, "one row per line")
         try expectClose(SheetFooterTotal.aggregate(rows) ?? 0,
-                        1225.043 + 2 + 165.7289 + 345 + 8114 + 2537.529, 0.05,
+                        1225.043 + 2 + 165.7289 + 345 + 7670 + 2537.529, 0.05,
                         "footer sums the canonical values once")
         // Previous-answer eligibility: money and percent/multiplier
         // outcomes are answerable; the effective-rate kind rides along.
@@ -674,5 +738,40 @@ public let financeCases: [EngineCase] = [
                               location: "Finance")
         }
         try expectEqual(tokenError, "Invalid reference", "stale token message")
+    },
+
+    EngineCase("finance-investment-exact-user-acceptance") {
+        // The user's exact acceptance corpus. Both figures are directly
+        // formula-derived (no discrepancy).
+        guard let cagr = finEval("annual return on $1,000 invested $2,500 returned after 7 years"),
+              case .number(let rawCAGR, _, let cagrKind, _) = cagr else {
+            throw CaseFailure(message: "exact CAGR evaluates", location: "Finance")
+        }
+        try expectClose(rawCAGR, 0.13985228104759662, 1e-15,
+                        "raw CAGR (2.5)^(1/7)-1 kept unrounded")
+        try expectEqual(cagrKind, .percent, "CAGR percent kind")
+        guard let cagrTwo = AnswerDisplay.displayText(for: cagr, decimalPlaces: 2,
+                                                      context: .legacy) else {
+            throw CaseFailure(message: "exact CAGR display", location: "Finance")
+        }
+        try expectEqual(cagrTwo, "13.99%", "acceptance presentation at 2 dp")
+        // The default 10 dp row truthfully shows the full stored value.
+        guard let cagrTen = AnswerDisplay.displayText(for: cagr, decimalPlaces: 10,
+                                                      context: .legacy) else {
+            throw CaseFailure(message: "exact CAGR 10dp", location: "Finance")
+        }
+        try expectEqual(cagrTen, "13.9852281048%", "10 dp presentation")
+        // Present value: 1000 / 1.1^20.
+        guard let pv = finEval("present value of $1,000 after 20 years at 10%"),
+              case .money(let rawPV, let pvCode) = pv else {
+            throw CaseFailure(message: "exact PV evaluates", location: "Finance")
+        }
+        try expectEqual(pvCode, "USD", "PV currency")
+        try expectClose(rawPV, 148.64362802414345, 1e-12, "raw PV unrounded")
+        guard let pvText = AnswerDisplay.displayText(for: pv, decimalPlaces: 10,
+                                                     context: .legacy) else {
+            throw CaseFailure(message: "exact PV display", location: "Finance")
+        }
+        try expectEqual(pvText, "$148.64", "acceptance PV")
     },
 ]

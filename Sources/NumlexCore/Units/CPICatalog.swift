@@ -112,6 +112,15 @@ public struct CPICatalog: Sendable, Equatable {
             annualTable[year] = value
         }
         guard !annualTable.isEmpty else { throw LoadError.malformed("annual") }
+        // CONTINUOUS coverage contract: every integer year from 1913
+        // through the latest complete year must exist (a gap would make
+        // min/max coverage claims false).
+        let firstYear = 1913
+        guard let lastYear = annualTable.keys.max(),
+              Set(annualTable.keys) == Set(firstYear...lastYear),
+              manifest["annualCoverage"] as? [Int] == [firstYear, lastYear] else {
+            throw LoadError.malformed("annualCoverage")
+        }
         annual = annualTable
         provisional = decoded.provisional.map { p in
             Provisional(year: p.year, months: p.months,

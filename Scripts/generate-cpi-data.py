@@ -69,7 +69,10 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     annual = {}
     monthly_2026 = {}
-    windows = [(y, min(y + 9, 2026)) for y in list(range(1913, 2013, 10)) + [2020]]
+    # Continuous coverage 1913..2026: 10-year windows plus one bridge run
+    # for 2013-2022 (the old 2020-only window left 2013-2019 uncovered).
+    windows = [(y, min(y + 9, 2026))
+               for y in list(range(1913, 2013, 10)) + [2013, 2020]]
     for start, end in windows:
         for item in fetch(start, end):
             if item["value"] in ("-", "", None):
@@ -83,6 +86,12 @@ def main():
         time.sleep(0.5)
 
     latest_annual_year = max(annual)
+    # The committed coverage must be CONTINUOUS: every integer year from
+    # 1913 through the latest complete year. A gap is a generator error.
+    expected_years = set(range(1913, latest_annual_year + 1))
+    if set(annual) != expected_years:
+        missing = sorted(expected_years - set(annual))
+        raise SystemExit(f"annual coverage gap(s): {missing}")
     provisional = None
     if monthly_2026:
         months = sorted(monthly_2026)
@@ -133,6 +142,7 @@ def main():
         "snapshotDate": SNAPSHOT,
         "series": SERIES,
         "annualCoverage": [min(annual), latest_annual_year],
+        "annualYears": sorted(annual),
         "provisional": (None if provisional is None else {
             "year": provisional["year"],
             "months": provisional["months"],

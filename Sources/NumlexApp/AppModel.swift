@@ -981,9 +981,9 @@ final class AppModel {
         if let preset = TaxPresets.preset(for: region) {
             settings.tax.preset = preset.region
             settings.tax.name = TaxPreferences.sanitizedName(preset.name)
-            settings.tax.ratePercent = preset.region.uppercased() == "US"
-                ? nil
-                : TaxPreferences.sanitizedRate(preset.ratePercent)
+            // A manual preset carries NO automatic rate (US); selecting
+            // it leaves the rate unset until the user enters one.
+            settings.tax.ratePercent = TaxPreferences.sanitizedRate(preset.ratePercent)
         } else {
             settings.tax.preset = ""
         }

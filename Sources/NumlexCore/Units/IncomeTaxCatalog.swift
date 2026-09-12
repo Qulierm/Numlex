@@ -36,10 +36,28 @@ public struct IncomeTaxCatalog: Sendable, Equatable {
         public let aliases: [String]
         public let currency: String
         public let taxYear: Int
+        /// The honest fiscal period (`2026`, `2026/27`, `2026 (income
+        /// 2025)`, `AY 2026-27 (FY 2025-26)`, ...) — an Int cannot
+        /// always describe applicability.
+        public let taxPeriod: String
         public let brackets: [Bracket]
         public let sourceTitle: String
         public let sourceURL: String
         public let note: String
+
+        public init(country: String, aliases: [String], currency: String,
+                    taxYear: Int, taxPeriod: String, brackets: [Bracket],
+                    sourceTitle: String, sourceURL: String, note: String) {
+            self.country = country
+            self.aliases = aliases
+            self.currency = currency
+            self.taxYear = taxYear
+            self.taxPeriod = taxPeriod
+            self.brackets = brackets
+            self.sourceTitle = sourceTitle
+            self.sourceURL = sourceURL
+            self.note = note
+        }
 
         /// Pure progressive calculation: every bracket taxes its own
         /// slice of the taxable amount. Deterministic, no rounding.
@@ -127,6 +145,7 @@ public struct IncomeTaxCatalog: Sendable, Equatable {
                   aliases: entry.aliases,
                   currency: entry.currency.uppercased(),
                   taxYear: entry.taxYear,
+                  taxPeriod: entry.taxPeriod ?? String(entry.taxYear),
                   brackets: entry.brackets.map { Bracket(upTo: $0.upTo, rate: $0.rate) },
                   sourceTitle: entry.source.title,
                   sourceURL: entry.source.url,
@@ -173,6 +192,7 @@ public struct IncomeTaxCatalog: Sendable, Equatable {
             let aliases: [String]
             let currency: String
             let taxYear: Int
+            let taxPeriod: String?
             let brackets: [BracketEntry]
             let source: Source
             let note: String

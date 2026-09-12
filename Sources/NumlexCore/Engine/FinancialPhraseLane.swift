@@ -70,7 +70,7 @@ enum FinancialPhraseLane {
         // heads so `interest on` never collides with a tax name.
         if let loan = loanShape(trimmed, resolve: resolve, context: context) { return loan }
         if let investment = investmentShape(trimmed, resolve: resolve,
-                                            context: context) { return investment }
+                                            context: context, rates: rates) { return investment }
         if let tax = TaxPhraseLane.tryLine(trimmed, env: env, rates: rates,
                                            context: context, financial: financial,
                                            decimalPlaces: decimalPlaces,
@@ -115,7 +115,8 @@ enum FinancialPhraseLane {
     // MARK: investment shapes (Task 1)
 
     private static func investmentShape(_ line: String, resolve: MoneyResolver,
-                                        context: NumberFormatContext) -> Outcome? {
+                                        context: NumberFormatContext,
+                                        rates: Rates) -> Outcome? {
         let lower = line.lowercased()
 
         // `interest on <money> <tail>` / `present value of <money> <tail>`.
@@ -150,11 +151,11 @@ enum FinancialPhraseLane {
             let headLength = "annual return on ".count
             let body = String(line.dropFirst(headLength))
             return cagrShape(body, offsetBase: headLength, resolve: resolve,
-                             context: context)
+                             context: context, rates: rates)
         }
 
         // `<money> invested <money2> returned` (ROI).
-        if let roi = roiShape(line, resolve: resolve) { return roi }
+        if let roi = roiShape(line, resolve: resolve, rates: rates) { return roi }
 
         // `<money> after|for <tail>` (future value).
         if let split = splitAtTail(line) {
@@ -180,8 +181,12 @@ enum FinancialPhraseLane {
 
     private enum InvestmentKind { case interest, presentValue }
 
-    /// `<money> invested <money2> returned` -> ROI multiplier.
-    private static func roiShape(_ line: String, resolve: MoneyResolver) -> Outcome? {
+    /// `<money> invested <money2> returned` -> ROI multiplier. A
+    /// different returned currency converts through the existing Rates
+    /// table into the ANCHOR (invested) currency; a missing pair is
+    /// `Rates unavailable`.
+    private static func roiShape(_ line: String, resolve: MoneyResolver,
+                                 rates: Rates) -> Outcome? {
         guard let investedRange = line.range(of: " invested ", options: .caseInsensitive),
               let returnedRange = line.range(of: " returned", options: .caseInsensitive),
               investedRange.upperBound <= returnedRange.lowerBound else { return nil }
@@ -208,11 +213,21 @@ enum FinancialPhraseLane {
             }
             return nil
         }
-        guard p > 0, code == fCode else {
-            if code != fCode { return .error("Rates unavailable") }
+        guard p > 0 else { return .error("Invalid financial expression") }
+        let returnedInInvested: Double
+        if code == fCode {
+            returnedInInvested = f
+        } else {
+            guard let rate = rates.rate(from: fCode, to: code),
+                  rate.isFinite, rate > 0 else {
+                return .error("Rates unavailable")
+            }
+            returnedInInvested = f * rate
+        }
+        guard returnedInInvested.isFinite else {
             return .error("Invalid financial expression")
         }
-        let roi = (f - p) / p
+        let roi = (returnedInInvested - p) / p
         guard roi.isFinite else { return .error("Invalid financial expression") }
         return .result(.number(value: roi, unit: nil, kind: .multiplier, fraction: nil))
     }
@@ -220,7 +235,8 @@ enum FinancialPhraseLane {
     /// `annual return on <money> invested <money2> returned after N years`.
     private static func cagrShape(_ body: String, offsetBase: Int,
                                   resolve: MoneyResolver,
-                                  context: NumberFormatContext) -> Outcome {
+                                  context: NumberFormatContext,
+                                  rates: Rates) -> Outcome {
         guard let investedRange = body.range(of: " invested ", options: .caseInsensitive),
               let returnedRange = body.range(of: " returned", options: .caseInsensitive),
               investedRange.upperBound <= returnedRange.lowerBound else {
@@ -243,8 +259,18 @@ enum FinancialPhraseLane {
             if case .ratesUnavailable = rightResolution { return .error("Rates unavailable") }
             return .error("Invalid financial expression")
         }
-        guard p > 0, f > 0, code == fCode else {
-            if code != fCode { return .error("Rates unavailable") }
+        guard p > 0, f > 0 else { return .error("Invalid financial expression") }
+        let returnedInInvested: Double
+        if code == fCode {
+            returnedInInvested = f
+        } else {
+            guard let rate = rates.rate(from: fCode, to: code),
+                  rate.isFinite, rate > 0 else {
+                return .error("Rates unavailable")
+            }
+            returnedInInvested = f * rate
+        }
+        guard returnedInInvested.isFinite, returnedInInvested > 0 else {
             return .error("Invalid financial expression")
         }
         // `after N years` tail.
@@ -255,7 +281,7 @@ enum FinancialPhraseLane {
         guard let years = parseYearCount(yearsText, context: context) else {
             return .error("Invalid financial expression")
         }
-        let ratio = f / p
+        let ratio = returnedInInvested / p
         let cagr = pow(ratio, 1.0 / years) - 1
         guard cagr.isFinite, ratio > 0 else { return .error("Invalid financial expression") }
         return .result(.number(value: cagr, unit: nil, kind: .percent, fraction: nil))

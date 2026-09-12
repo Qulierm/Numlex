@@ -573,7 +573,11 @@ private struct GeneralSettingsPage: View {
                     Picker("", selection: taxPresetBinding) {
                         Text(L10n.t("tax.preset.custom", language: language)).tag("")
                         ForEach(TaxPresets.all, id: \.region) { preset in
-                            Text("\(preset.region) — \(preset.name) \(formatDisplayValue(preset.ratePercent, decimalPlaces: 4, context: model.numberContext))%")
+                            // A manual-entry preset (US) has NO automatic
+                            // rate and renders without a percentage.
+                            Text(preset.ratePercent.map {
+                                "\(preset.region) — \(preset.name) \(formatDisplayValue($0, decimalPlaces: 4, context: model.numberContext))%"
+                            } ?? "\(preset.region) — \(preset.name)")
                                 .tag(preset.region)
                         }
                     }

@@ -4,10 +4,38 @@
   "license": "Factual public data; the compiled dataset is CC0.",
   "resources": {
     "income-tax.json": {
-      "sha256": "d4f1e7b8a3f5cdb1e0b5895955754c66539e34f80111e69dc3d7b65be8f8a3ba"
+      "sha256": "a0ea63af40c75d75e8118a8098288dc9ebe8b44b5aa45941a5f046ff3f0ea26c"
     }
   },
   "snapshotDate": "2026-09-12",
-  "taxYearNote": "Dataset released 2026; each table carries the latest fully published national schedule at the snapshot date.",
-  "version": "income-tax-2026.1"
+  "taxPeriods": {
+    "AU": "2025-26",
+    "CA": "2025",
+    "DE": "2026",
+    "FR": "2026 (income 2025)",
+    "GB": "2026/27",
+    "IN": "AY 2026-27 (FY 2025-26)",
+    "JP": "2026",
+    "NL": "2026",
+    "RU": "2026",
+    "US": "2026"
+  },
+  "unverifiedFor2026": [
+    {
+      "country": "AU",
+      "reason": "the 2026–27 resident schedule could not be retrieved from the ATO at the snapshot; this is the verified 2025–26 schedule, NOT relabelled. Medicare levy and offsets excluded.",
+      "taxPeriod": "2025-26"
+    },
+    {
+      "country": "CA",
+      "reason": "canada.ca was unreachable from the generation network, so the 2026 federal schedule is unverified; this is the verified 2025 schedule, NOT relabelled. Provincial taxes excluded.",
+      "taxPeriod": "2025"
+    },
+    {
+      "country": "IN",
+      "reason": "no official FY 2026-27 (AY 2027-28) schedule was found at the snapshot; this is the verified AY 2026-27 schedule, NOT relabelled. Section 87A rebate, surcharge and cess excluded.",
+      "taxPeriod": "AY 2026-27 (FY 2025-26)"
+    }
+  ],
+  "version": "income-tax-2026.2"
 }
