@@ -65,8 +65,8 @@ Every run resolves through the app's own editor tokens (`Design.numberColor` for
 numerals, `variableColor` for the variable, `conversionColor` for units and time
 units, `moneyMarkerColor` for currency markers, `baseText` for operators) on
 `Design.editorBackground`, so the field matches the notebook in Auto, Light and
-Dark automatically. There is no slogan and no marketing copy, and the notebook,
-sidebar and TextKit are never created behind the screen.
+Dark automatically. The notebook, sidebar and TextKit are never created behind
+the screen.
 
 The choreography is one deterministic one-shot sequence of roughly two seconds:
 the icon fades in, the rows stream in with a per-row and per-token stagger, the
@@ -74,17 +74,41 @@ result runs brighten once, the rows gather into the icon in two tight batches,
 and the icon answers with a **monochrome silver splash** — fourteen fine radial
 rays with fixed varied lengths, a soft expanding wave and eight droplets, all
 drawn from `Design.baseText` / the neutral label tones (never the palette hues),
-plus one icon-masked silver sheen. The localized **Get Started** button then
-fades in and takes focus. The button is monochrome too: its fill is the icon
+plus one icon-masked silver sheen. The rays are anchored to the icon's own edge
+at both footprints, so they emerge from behind it instead of floating loose or
+being swallowed.
+
+The splash then settles into the calm final lockup, in this order:
+
+1. the icon grows from its streaming footprint (~110 pt) to its large final
+   frame — 152 pt on the 800×600 canvas — on one restrained 0.55 s ease that
+   overlaps the fading tail of the splash (the single splash pulse and the
+   expansion are multiplied, never added, so they cannot fight);
+2. the official slogan **Think freely. We’ll do the math.** fades in with a
+   ~10 pt rise over 0.5 s, in a frame reserved from the very first layout so it
+   can never reflow the icon or the button. It is one line of native rounded
+   type at 27 pt in `Design.baseText` — the semibold first clause and the
+   medium second clause share one baseline — and it is deliberately not
+   localized, never hit-testable, and announced once as a heading;
+3. the localized **Get Started** button then fades in below the slogan and
+   takes focus only once it is visible.
+
+The final scene is the large icon, the slogan and the monochrome button as one
+compact vertical composition (measured gaps at 800×600: 177 pt above the icon,
+58 pt icon→slogan, 52 pt slogan→button, 97 pt below the button) — the old
+~163 pt hole between a small icon and the button is gone and the total
+whitespace is about 15 % smaller. The layout never grows into extra whitespace:
+the anchors are fixed canvas coordinates, so a larger window scales the whole
+composition instead of spreading it out. The button is monochrome too: its fill is the icon
 family's dominant tone (near-white silver in Dark, graphite in Light) with the
 opposite tone as the label, a 1 pt rim, a restrained shadow and an explicit
 keyboard focus ring — no system accent colour. Nothing repeats, nothing ticks
 after the sequence, and only opacity/offset/scale/rotation/trim change, so the
 window never resizes.
 
-With **Reduce Motion** the whole sequence is skipped: the icon and the button are
-shown immediately, focused and interactive at once, with no staged state,
-splash or sleep.
+With **Reduce Motion** the whole sequence is skipped: the large icon, the slogan
+and the button are shown immediately, focused and interactive at once, with no
+staged state, splash or sleep.
 
 Pressing Get Started records a versioned completion marker (`welcome-v1`) in the
 app's data directory — the same directory as `store.json`, and the one

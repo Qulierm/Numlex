@@ -222,11 +222,14 @@ A genuinely new install opens on a short, native **calculation bloom**: ten real
 calculations in the app's own editor palette stream into two airy columns around
 the app icon, gather into it and disappear, and the icon answers with a one-shot
 **silver splash** (fine monochrome rays, a soft expanding wave and a few
-droplets). A single monochrome **Get Started** button — silver on Dark, graphite
-on Light, matching the icon rather than the accent colour — then appears. The
-whole sequence runs once for roughly two seconds and stops; with **Reduce
-Motion** the icon and button are simply there, immediately usable, with no
-staged animation at all.
+droplets). The splash settles into a compact final lockup: the icon grows from
+its streaming footprint to a large 152 pt frame, the official slogan
+*Think freely. We’ll do the math.* fades in beneath it in the same neutral tone,
+and a single monochrome **Get Started** button — silver on Dark, graphite on
+Light, matching the icon rather than the accent colour — appears last. The whole
+sequence runs once for roughly two and a half seconds and stops; with **Reduce
+Motion** the large icon, slogan and button are simply there, immediately usable,
+with no staged animation at all.
 
 Pressing Get Started records a small versioned marker (`welcome-v1`) in the
 app's data directory (separate from your settings and sheets), mounts the
@@ -290,7 +293,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,103 shared cases, runnable two ways:
+The engine suite covers 1,105 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

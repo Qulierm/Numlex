@@ -10,10 +10,13 @@ import NumlexCore
 /// localized **Get Started** button is monochrome too — silver on Dark,
 /// graphite on Light — so nothing competes with the icon.
 ///
+/// The splash then settles into the calm final lockup: a larger icon, the
+/// official slogan and the monochrome button, tightly balanced on the same
+/// neutral tones.
+///
 /// It REPLACES the main content until the user starts (nothing from the
 /// editor, sidebar or TextKit exists behind it) and keeps the native window
-/// chrome and the app's window geometry. There is no slogan and no website
-/// styling.
+/// chrome and the app's window geometry.
 struct WelcomeView: View {
     let language: AppLanguage
     /// Activation begins the reveal (marks completion + mounts the editor
@@ -34,6 +37,11 @@ struct WelcomeView: View {
     @State private var waveFaded = false
     @State private var pulsed = false
     @State private var sheenProgress: CGFloat = -1.2
+    /// Set at the splash finish: the icon grows from its ~110 pt streaming
+    /// footprint to the large final frame (scale only — never a frame or
+    /// layout change, so nothing else can reflow).
+    @State private var iconExpanded = false
+    @State private var sloganRevealed = false
     @State private var buttonRevealed = false
     @State private var activating = false
     @FocusState private var buttonFocused: Bool
@@ -56,6 +64,7 @@ struct WelcomeView: View {
                 calculationField(scale: scale)
                 splash(scale: scale)
                 icon(scale: scale)
+                slogan(scale: scale)
                 button(scale: scale)
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -64,8 +73,39 @@ struct WelcomeView: View {
         .task { await bloom() }
     }
 
-    /// The icon's anchor in canvas coordinates (34 pt above centre).
-    static let iconCanvasOffset = CGSize(width: 0, height: -34)
+    /// The icon's FINAL frame (logical pt on the 800x600 canvas). It is the
+    /// frame from the very first layout pass; only the visual scale changes.
+    static let finalIconSize: CGFloat = 152
+
+    /// While the calculations stream, the icon renders at the old ~110 pt
+    /// footprint (110 / 152 of the final frame) and grows to full size once
+    /// the silver splash settles.
+    static let preFinishIconScale: CGFloat = 110 / finalIconSize
+
+    /// One restrained pulse during the splash, combined deterministically
+    /// (never additive) with the streaming and expansion scales.
+    static let pulseScale: CGFloat = 1.04
+
+    /// The icon's anchor in canvas coordinates (47 pt above centre).
+    static let iconCanvasOffset = CGSize(width: 0, height: -47)
+
+    /// The official slogan — exact wording, curly apostrophe, trailing
+    /// period. It is the ONE canonical constant (display and accessibility
+    /// both derive from it), revealed last, never before the splash.
+    static let sloganPhrase = "Think freely. We\u{2019}ll do the math."
+
+    /// The slogan's anchor, between the icon and the button.
+    static let sloganCanvasOffset = CGSize(width: 0, height: 96)
+
+    /// ~27 pt on the 800x600 canvas (the brief asks for 25-30).
+    static let sloganFontSize: CGFloat = 27
+
+    /// The slogan's reserved width: it is laid out from the first pass, so
+    /// revealing it can never reflow the icon or the button.
+    static let sloganReservedWidth: CGFloat = 620
+
+    /// The button's anchor, below the slogan.
+    static let buttonCanvasOffsetY: CGFloat = 183
 
     /// Canvas offset (from the canvas centre) scaled to the live window.
     /// The composition is expressed purely as OFFSETS inside the flexible
@@ -212,18 +252,25 @@ struct WelcomeView: View {
 
     /// 8 droplets placed on a fixed deterministic ring.
     private static let droplets: [(angle: Double, radius: CGFloat, size: CGFloat, delay: Double)] = [
-        (20, 74, 3.5, 0.02), (66, 88, 2.5, 0.05), (112, 70, 3.0, 0.03),
-        (158, 84, 2.0, 0.06), (204, 76, 3.5, 0.04), (250, 90, 2.5, 0.02),
-        (296, 72, 3.0, 0.05), (342, 86, 2.0, 0.03),
+        (20, 100, 3.5, 0.02), (66, 116, 2.5, 0.05), (112, 96, 3.0, 0.03),
+        (158, 112, 2.0, 0.06), (204, 102, 3.5, 0.04), (250, 118, 2.5, 0.02),
+        (296, 98, 3.0, 0.05), (342, 114, 2.0, 0.03),
     ]
+
+    /// Rays start just outside the icon: 79 pt is the FINAL icon's half-size
+    /// (76) plus a hair, and the whole splash is drawn at the icon's own
+    /// pre-finish scale while the calculations are streaming, so the rays
+    /// emerge from behind the icon at BOTH sizes instead of floating
+    /// disconnected from the small one or being swallowed by the large one.
+    private static let rayOriginRadius: CGFloat = 79
 
     private func splash(scale: CGFloat) -> some View {
         ZStack {
             // Soft expanding wave.
             Circle()
                 .stroke(silverSoft.opacity(waveFaded ? 0 : 0.45), lineWidth: 1.5)
-                .frame(width: 150, height: 150)
-                .scaleEffect(waveProgress == 0 ? 0.6 : 0.6 + waveProgress * 1.5)
+                .frame(width: 186, height: 186)
+                .scaleEffect(waveProgress == 0 ? 0.55 : 0.55 + waveProgress * 1.4)
                 .opacity(waveFaded ? 0 : min(1, waveProgress * 2) * (1 - waveProgress * 0.55))
 
             // Fine radial rays.
@@ -231,7 +278,7 @@ struct WelcomeView: View {
                 Capsule()
                     .fill(silver.opacity(splashFaded ? 0 : 0.75))
                     .frame(width: ray.width, height: ray.length)
-                    .offset(y: -ray.length / 2 - 26)
+                    .offset(y: -ray.length / 2 - Self.rayOriginRadius)
                     .rotationEffect(.degrees(ray.angle))
                     .scaleEffect(splashBurst ? 1 : 0.35, anchor: .bottom)
                     .opacity(splashFaded ? 0 : 1)
@@ -252,6 +299,10 @@ struct WelcomeView: View {
                     .animation(.easeOut(duration: 0.24), value: splashFaded)
             }
         }
+        // The splash tracks the icon's own footprint: ~110 pt while the
+        // field is streaming, full size once the icon has grown.
+        .scaleEffect(iconExpanded ? 1 : Self.preFinishIconScale, anchor: .center)
+        .animation(.easeOut(duration: 0.55), value: iconExpanded)
         .scaleEffect(scale, anchor: .center)
         .offset(y: Self.iconCanvasOffset.height * scale)
         .accessibilityHidden(true)
@@ -273,10 +324,12 @@ struct WelcomeView: View {
                     )
             }
         }
-        .frame(width: 110, height: 110)
+        // ONE fixed final frame from the first layout pass: the icon never
+        // resizes, and nothing around it can be pushed.
+        .frame(width: Self.finalIconSize, height: Self.finalIconSize)
         .overlay(sheen)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .scaleEffect(iconRevealed ? (pulsed ? 1.055 : 1) : 0.88)
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .scaleEffect(iconVisualScale)
         .opacity(iconRevealed ? 1 : 0)
         .scaleEffect(scale, anchor: .center)
         .offset(y: Self.iconCanvasOffset.height * scale)
@@ -284,6 +337,53 @@ struct WelcomeView: View {
         .accessibilityLabel(Text("Numlex"))
         .animation(.easeOut(duration: 0.35), value: iconRevealed)
         .animation(.easeInOut(duration: 0.20), value: pulsed)
+        .animation(.easeOut(duration: 0.55), value: iconExpanded)
+    }
+
+    /// The icon's ONE visual scale: streaming footprint, the single splash
+    /// pulse and the final expansion multiplied together — never added, so
+    /// the pulse and the growth can never fight or overshoot.
+    private var iconVisualScale: CGFloat {
+        guard iconRevealed else { return 0.88 * Self.preFinishIconScale }
+        let base = iconExpanded ? 1 : Self.preFinishIconScale
+        return pulsed ? base * Self.pulseScale : base
+    }
+
+    // MARK: - Final slogan (Task 2)
+
+    /// The slogan is revealed LAST, after the splash has settled. It is
+    /// monochrome (the same neutral as the icon family), one line, with the
+    /// two clauses sharing a baseline; it is never hit-testable but is
+    /// announced once as a heading with the exact official wording.
+    private func slogan(scale: CGFloat) -> some View {
+        sloganText
+            .font(.system(size: Self.sloganFontSize, weight: .medium, design: .rounded))
+            .foregroundStyle(Color(nsColor: Design.baseText))
+            .lineLimit(1)
+            .minimumScaleFactor(0.62)
+            .multilineTextAlignment(.center)
+            .frame(width: Self.sloganReservedWidth, height: Self.sloganFontSize * 1.5)
+            .opacity(sloganRevealed ? 1 : 0)
+            .offset(y: Self.sloganCanvasOffset.height * scale
+                      + (sloganRevealed ? 0 : 10))
+            .scaleEffect(scale, anchor: .center)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(Self.sloganPhrase))
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityHidden(!sloganRevealed)
+            .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50),
+                       value: sloganRevealed)
+    }
+
+    /// One Text run split at the first sentence, so both clauses keep one
+    /// baseline. Both halves come from `sloganPhrase` alone.
+    private var sloganText: Text {
+        let phrase = Self.sloganPhrase
+        guard let stop = phrase.range(of: ". ") else { return Text(phrase) }
+        let lead = String(phrase[phrase.startIndex...stop.lowerBound])
+        let tail = String(phrase[stop.upperBound...])
+        return Text(lead).fontWeight(.semibold) + Text(" " + tail)
     }
 
     /// A single silver sheen pass across the icon (icon-masked).
@@ -307,21 +407,25 @@ struct WelcomeView: View {
                          enabled: !activating,
                          action: activate)
             .scaleEffect(scale, anchor: .center)
-            .offset(y: (Self.canvas.height / 2 - 96) * scale
+            .offset(y: Self.buttonCanvasOffsetY * scale
                       + (buttonRevealed ? 0 : 10))
             .opacity(buttonRevealed ? 1 : 0)
             .focused($buttonFocused)
             .allowsHitTesting(buttonRevealed && !activating)
             .accessibilityHidden(!buttonRevealed)
-            .animation(.easeOut(duration: 0.4), value: buttonRevealed)
+            .animation(.easeOut(duration: 0.40), value: buttonRevealed)
     }
 
-    // MARK: - One-shot choreography (~2.4 s total)
+    // MARK: - One-shot choreography (~2.5 s total)
 
     private func bloom() async {
         if reduceMotion {
-            // Static final state: icon + button only, nothing staged.
+            // Static final state, immediately: no stream, no splash, no
+            // sleeps and no animation — large icon + slogan + button, with
+            // the button focused.
             iconRevealed = true
+            iconExpanded = true
+            sloganRevealed = true
             buttonRevealed = true
             buttonFocused = true
             return
@@ -351,10 +455,22 @@ struct WelcomeView: View {
         if Task.isCancelled { return }
         withAnimation { splashFaded = true; waveFaded = true }
         withAnimation(.easeInOut(duration: 0.18)) { pulsed = false }
-        // 1.75–2.15 the button fades/rises and takes focus.
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        // 1.64–2.19 the icon grows from the streaming footprint (110 pt) to
+        // the large final frame (152 pt) on one restrained ease. This
+        // overlaps the fading tail of the splash.
+        withAnimation(.easeOut(duration: 0.55)) { iconExpanded = true }
+        // 1.74–2.24 the slogan fades in with a short rise, in its reserved
+        // frame: nothing else moves.
+        try? await Task.sleep(nanoseconds: 100_000_000)
         if Task.isCancelled { return }
-        withAnimation(.easeOut(duration: 0.4)) { buttonRevealed = true }
+        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.50)) { sloganRevealed = true }
+        // 2.04–2.44 the button fades/rises BELOW the slogan, and only once
+        // it is visible does the keyboard focus arrive (2.16).
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        if Task.isCancelled { return }
+        withAnimation(.easeOut(duration: 0.40)) { buttonRevealed = true }
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        if Task.isCancelled { return }
         buttonFocused = true
     }
 
