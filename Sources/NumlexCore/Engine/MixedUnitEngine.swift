@@ -331,12 +331,7 @@ enum MixedUnitScanner {
     /// adjacency on).
     static func durationUnitExpr(_ component: DurationComponent,
                                  unitContext: UnitContext) -> UnitExpr? {
-        guard let u = unitContext.resolveLabel(component.label) else { return nil }
-        guard u.vector == DimensionVector(t: 1), u.isLinear else { return nil }
-        guard abs(u.toBase - component.seconds) <= max(component.seconds * 1e-9, 1e-12) else {
-            return nil
-        }
-        return u
+        DurationLiteral.unitExpr(component, unitContext: unitContext)
     }
 
     /// Scans a duration literal starting at a number: one or more ADJACENT
@@ -367,7 +362,7 @@ enum MixedUnitScanner {
             var matched: DurationComponent?
             var end = afterNum
             if afterNum < line.endIndex, isUnitWordStart(line[afterNum], context: context) {
-                if let (component, gluedEnd) = DurationUnits.gluedMatch(line, from: afterNum) {
+                if let (component, gluedEnd) = DurationLiteral.gluedComponent(line, from: afterNum) {
                     matched = component
                     end = gluedEnd
                     gluedUsed = true
@@ -377,7 +372,7 @@ enum MixedUnitScanner {
                 let w = line.index(after: afterNum)
                 if w < line.endIndex, isUnitWordStart(line[w], context: context) {
                     let (word, wordEnd) = scanWord(line, from: w)
-                    if let component = DurationUnits.aliases[word.lowercased()] {
+                    if let component = DurationLiteral.component(forWord: word) {
                         matched = component
                         end = wordEnd
                     }
@@ -399,18 +394,13 @@ enum MixedUnitScanner {
                 break
             }
         }
-        guard !values.isEmpty, values.count >= 2 || gluedUsed else { return nil }
-        var totalSeconds = 0.0
-        for (value, component) in zip(values, order) {
-            totalSeconds += value * component.seconds
-            guard totalSeconds.isFinite else { return nil }
+        // ONE shared semantic core decides what the components mean; this
+        // scanner only walks the text.
+        let pairs = Array(zip(values, order)).map { (value: $0.0, component: $0.1) }
+        guard let quantity = DurationLiteral.quantity(pairs, glued: gluedUsed,
+                                                      unitContext: unitContext) else {
+            return nil
         }
-        guard let display = order.max(by: { $0.seconds < $1.seconds }),
-              let unit = durationUnitExpr(display, unitContext: unitContext) else { return nil }
-        let displayValue = totalSeconds / display.seconds
-        guard displayValue.isFinite else { return nil }
-        let quantity = Quantity(value: displayValue, display: unit,
-                                presentation: .duration)
         return (.quantity(quantity, range: range(of: line, start, consumed)), consumed)
     }
 

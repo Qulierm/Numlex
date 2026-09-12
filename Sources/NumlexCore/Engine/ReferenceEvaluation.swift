@@ -920,6 +920,14 @@ enum TokenExpr {
                 return PE(q: Qty(v: value, unit: code), purePercent: false)
             }
             if isDigit16(c) || c == 0x2E {
+                // A fixed-duration literal (`1 h 30 min`, `1h45min`,
+                // `500ms`) is ONE primary, scanned through the SAME shared
+                // semantic core the line scanner uses — so a compound
+                // duration works inside a reference expression and groups
+                // before multiplication.
+                if let duration = durationLiteralAhead() {
+                    return PE(q: duration, purePercent: false)
+                }
                 let n = try parseAmount()
                 var v = n
                 var pct = 0
@@ -1149,6 +1157,92 @@ enum TokenExpr {
             return n
         }
 
+        /// The fixed-duration literal starting at the current position, or
+        /// nil. Only the ITERATION over the UTF-16 text lives here; what the
+        /// components mean (whitelist, fixed-unit validation, summation,
+        /// display unit, presentation marker) comes from `DurationLiteral`.
+        func durationLiteralAhead() -> Qty? {
+            var k = i
+            var pairs: [(value: Double, component: DurationComponent)] = []
+            var glued = false
+            var consumed = k
+            while k < ns.length {
+                var text = ""
+                var hasDigits = false
+                var hasDecimal = false
+                while k < ns.length {
+                    let c = ns.character(at: k)
+                    if isDigit16(c) {
+                        text.append(Character(UnicodeScalar(c)!))
+                        hasDigits = true
+                        k += 1
+                    } else if c == 0x2E, !hasDecimal {
+                        hasDecimal = true
+                        text.append(".")
+                        k += 1
+                    } else {
+                        break
+                    }
+                }
+                guard hasDigits, let value = Double(text), value.isFinite else { break }
+                var component: DurationComponent?
+                var end = k
+                if k < ns.length, isLetter16(ns.character(at: k)) {
+                    let rest = ns.substring(from: k)
+                    if let (c, idx) = DurationLiteral.gluedComponent(rest, from: rest.startIndex) {
+                        component = c
+                        end = k + rest.distance(from: rest.startIndex, to: idx)
+                        glued = true
+                    }
+                }
+                if component == nil, k < ns.length, ns.character(at: k) == 0x20 {
+                    var w = k + 1
+                    var word = ""
+                    while w < ns.length, isLetter16(ns.character(at: w)) {
+                        word.append(Character(UnicodeScalar(ns.character(at: w))!))
+                        w += 1
+                    }
+                    if let c = DurationLiteral.component(forWord: word) {
+                        component = c
+                        end = w
+                    }
+                }
+                guard let component else { break }
+                pairs.append((value, component))
+                consumed = end
+                k = end
+                var j = k
+                while j < ns.length, ns.character(at: j) == 0x20 || ns.character(at: j) == 0x09 {
+                    j += 1
+                }
+                if j < ns.length, isDigit16(ns.character(at: j)) {
+                    k = j
+                } else {
+                    break
+                }
+            }
+            // A lone spaced component (`30 min`) is a valid OPERAND here:
+            // the reference parser has no other unit-literal support, and
+            // the duration KIND still comes from the token side.
+            guard let q = DurationLiteral.quantity(pairs, glued: glued,
+                                                   unitContext: unitContext,
+                                                   singleComponentAllowed: true) else {
+                return nil
+            }
+            i = consumed
+            return Qty(v: q.value, unit: q.display.label,
+                       kind: (glued || pairs.count >= 2) ? .duration : .plain)
+        }
+
+        /// The result kind for an operation that KEEPS a unit: a duration
+        /// stays a duration only while the unit really is a fixed duration
+        /// label (a rate or a compound unit never inherits it).
+        func keptKind(_ unit: String?, _ operands: NumericKind...) -> NumericKind {
+            guard DurationLiteral.isDurationLabel(unit),
+                  operands.contains(.duration) else { return .plain }
+            return .duration
+        }
+
         func combine(_ a: PE, _ b: PE, _ op: String) throws -> PE {
             let aq = a.q
             let bq = b.q
@@ -1206,7 +1300,11 @@ enum TokenExpr {
                 }
                 let v = (op == "+") ? aq.v + vb : aq.v - vb
                 guard v.isFinite else { throw ExprError.incompatibleUnits }
-                return PE(q: Qty(v: v, unit: ua), purePercent: false)
+                // A duration operand keeps its natural presentation through
+                // time arithmetic; any other unit stays plain.
+                return PE(q: Qty(v: v, unit: ua,
+                                 kind: keptKind(ua, aq.kind, bq.kind)),
+                          purePercent: false)
             case "*":
                 if aq.unit == nil && bq.unit == nil {
                     let v = aq.v * bq.v
@@ -1216,12 +1314,16 @@ enum TokenExpr {
                 if let ua = aq.unit, bq.unit == nil {
                     let v = aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return PE(q: Qty(v: v, unit: ua), purePercent: false)
+                    return PE(q: Qty(v: v, unit: ua,
+                                     kind: keptKind(ua, aq.kind, bq.kind)),
+                              purePercent: false)
                 }
                 if aq.unit == nil, let ub = bq.unit {
                     let v = aq.v * bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return PE(q: Qty(v: v, unit: ub), purePercent: false)
+                    return PE(q: Qty(v: v, unit: ub,
+                                     kind: keptKind(ub, aq.kind, bq.kind)),
+                              purePercent: false)
                 }
                 throw ExprError.incompatibleUnits
             case "/":
@@ -1235,7 +1337,9 @@ enum TokenExpr {
                     guard bq.v != 0 else { throw ExprError.divisionByZero }
                     let v = aq.v / bq.v
                     guard v.isFinite else { throw ExprError.incompatibleUnits }
-                    return PE(q: Qty(v: v, unit: ua), purePercent: false)
+                    return PE(q: Qty(v: v, unit: ua,
+                                     kind: keptKind(ua, aq.kind, bq.kind)),
+                              purePercent: false)
                 }
                 if aq.unit == nil, bq.unit != nil {
                     // A unitless scalar over a quantity is not a safe

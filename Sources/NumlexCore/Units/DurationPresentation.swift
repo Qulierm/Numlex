@@ -129,6 +129,83 @@ public enum DurationUnits {
     }
 }
 
+/// The SHARED semantic core of a fixed-duration literal, used by BOTH the
+/// mixed-unit line scanner and the reference-token expression parser: the
+/// whitelist lookup, the fixed-unit validation, the summation of components
+/// and the choice of display unit live here exactly once, so the two parsers
+/// can never disagree about what a duration literal means. Each parser only
+/// walks its own text representation.
+public enum DurationLiteral {
+
+    /// The component a spaced/word alias denotes (nil when the word is not a
+    /// fixed duration alias at all).
+    public static func component(forWord word: String) -> DurationComponent? {
+        DurationUnits.aliases[word.lowercased()]
+    }
+
+    /// The longest glued alias starting at a string index.
+    public static func gluedComponent(_ text: String, from index: String.Index)
+        -> (DurationComponent, String.Index)? {
+        DurationUnits.gluedMatch(text, from: index)
+    }
+
+    /// The unit expression for one component in the ACTIVE unit context, but
+    /// only when it really is the catalog's fixed unit: a custom unit that
+    /// merely shares a name or a factor must never gain implicit adjacency.
+    public static func unitExpr(_ component: DurationComponent,
+                                unitContext: UnitContext) -> UnitExpr? {
+        guard let u = unitContext.resolveLabel(component.label) else { return nil }
+        guard u.vector == DimensionVector(t: 1), u.isLinear else { return nil }
+        guard abs(u.toBase - component.seconds) <= max(component.seconds * 1e-9, 1e-12) else {
+            return nil
+        }
+        return u
+    }
+
+    /// Builds the marked duration quantity from the parsed components.
+    ///
+    /// - Parameters:
+    ///   - components: the `(value, component)` pairs in SOURCE order.
+    ///   - glued: whether any component came from a glued form (`45min`).
+    ///   - unitContext: the active unit context.
+    ///   - singleComponentAllowed: true for a parser that has no OTHER way to
+    ///     express a unit operand (the reference-expression parser), so a
+    ///     lone `30 min` is a valid operand there. The line scanner keeps
+    ///     the default, where a single SPACED component stays on the
+    ///     ordinary path (and keeps its old presentation).
+    /// - Returns: nil unless the literal is genuinely a duration form (two or
+    ///   more components, or a single GLUED one) and every component resolves
+    ///   to its real fixed catalog unit. Components are summed whatever their
+    ///   order and the LARGEST one becomes the display unit.
+    public static func quantity(_ components: [(value: Double, component: DurationComponent)],
+                                glued: Bool,
+                                unitContext: UnitContext,
+                                singleComponentAllowed: Bool = false) -> Quantity? {
+        guard !components.isEmpty,
+              components.count >= 2 || glued || singleComponentAllowed else { return nil }
+        var totalSeconds = 0.0
+        for entry in components {
+            guard entry.value.isFinite,
+                  unitExpr(entry.component, unitContext: unitContext) != nil else { return nil }
+            totalSeconds += entry.value * entry.component.seconds
+            guard totalSeconds.isFinite else { return nil }
+        }
+        guard let display = components.map({ $0.component })
+                .max(by: { $0.seconds < $1.seconds }),
+              let unit = unitExpr(display, unitContext: unitContext) else { return nil }
+        let value = totalSeconds / display.seconds
+        guard value.isFinite else { return nil }
+        return Quantity(value: value, display: unit, presentation: .duration)
+    }
+
+    /// The display label a duration token quantity carries (its display unit
+    /// label, e.g. `h`), or nil when the label is not a fixed duration unit.
+    public static func isDurationLabel(_ label: String?) -> Bool {
+        guard let label else { return false }
+        return DurationUnits.isFixed(label)
+    }
+}
+
 /// The single natural-duration formatter, shared by the visible answer, Copy
 /// Answer, Answer Tokens and assignment results, so all four can never drift.
 ///

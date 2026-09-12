@@ -766,7 +766,7 @@ struct AnswerColumnView: View {
                 // non-automatic notations re-format the numeric
                 // component, the fraction kind keeps its exact shape.
                 let eff = effectiveNotation(for: line.sourceLineIndex)
-                let s = kindedString(v: v, kind: kind, fraction: fraction,
+                let s = kindedString(v: v, unit: nil, kind: kind, fraction: fraction,
                                       eff: eff, places: places)
                 Text(s)
                     .font(palette.swiftUIFont(fontSize))
@@ -841,11 +841,21 @@ struct AnswerColumnView: View {
     /// a plain function (never the view builder): automatic keeps the
     /// shared kinded string, the fraction kind its exact reduced
     /// rational, other notations re-format the numeric component.
-    private func kindedString(v: Double, kind: NumericKind,
+    private func kindedString(v: Double, unit: String?,
+                              kind: NumericKind,
                               fraction: NumlexCore.Rational?,
                               eff: NumberNotation, places: Int) -> String {
+        // A duration is SEMANTIC: its natural decomposition never depends on
+        // the row's number notation and the display unit is always passed
+        // through — the numeric-only path must never be reachable for it.
+        if kind == .duration {
+            return AnswerDisplay.formatKinded(v, unit: unit, kind: .duration,
+                                              fraction: fraction,
+                                              decimalPlaces: places,
+                                              context: numberContext)
+        }
         if eff == .automatic {
-            return AnswerDisplay.formatKinded(v, unit: nil, kind: kind,
+            return AnswerDisplay.formatKinded(v, unit: unit, kind: kind,
                                               fraction: fraction,
                                               decimalPlaces: places,
                                               context: numberContext)
@@ -891,6 +901,16 @@ struct AnswerColumnView: View {
                 .font(palette.swiftUIFont(fontSize))
                 .foregroundStyle(Color(nsColor: Design.baseText))
                 .lineLimit(1)
+        } else if kind == .duration, let u = unit {
+            // A natural duration renders as its ONE semantic string (the
+            // same string Copy Answer puts on the clipboard), in the same
+            // typography as every other answer: no notation involvement, no
+            // decimal-only fallback and the unit is never dropped.
+            Text(kindedString(v: v, unit: u, kind: .duration,
+                              fraction: fraction, eff: eff, places: places))
+                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                .foregroundStyle(Color(nsColor: Design.baseText))
+                .lineLimit(1)
         } else if kind == .plain, let u = unit {
             // r87: the value takes the row's effective notation; the
             // unit run is untouched (same size, weight and baseline as
@@ -919,7 +939,7 @@ struct AnswerColumnView: View {
             // (`40%`, `1/5`, `1.5x`); r87: non-automatic notations
             // re-format the numeric component while the fraction kind
             // keeps its exact reduced shape.
-            let s = kindedString(v: v, kind: kind, fraction: fraction,
+            let s = kindedString(v: v, unit: unit, kind: kind, fraction: fraction,
                                     eff: eff, places: places)
             Text(s)
                 .font(palette.swiftUIFont(fontSize, weight: totalWeight))

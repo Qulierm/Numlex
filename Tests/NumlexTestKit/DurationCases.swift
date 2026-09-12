@@ -48,6 +48,18 @@ private func expectDurationError(_ line: String,
     }
 }
 
+private func durationViewSource(_ relative: String) throws -> String {
+    var url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    for _ in 0..<6 {
+        let candidate = url.appendingPathComponent(relative)
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return try String(contentsOf: candidate, encoding: .utf8)
+        }
+        url.deleteLastPathComponent()
+    }
+    throw CaseFailure(message: "source not found: \(relative)", location: "Duration")
+}
+
 private func sheetTexts(_ source: String,
                         context: NumberFormatContext = .legacy,
                         places: Int = 7) -> [String?] {
@@ -420,6 +432,186 @@ public let durationCases: [EngineCase] = [
         // token state above carries the real time unit AND the duration
         // kind, which is what any expression consumes. (The reference
         // algebra's own operand support is unchanged by this feature.)
+    },
+
+
+    EngineCase("duration-visible-row-string-is-the-semantic-string") {
+        // THE regression this case exists for: the answer ROW must show the
+        // natural duration, and the exact string the view builds is
+        // `AnswerDisplay.formatKinded(value, unit:, kind: .duration, ...)`.
+        // Pinning the triple equality proves the visible row, the clipboard
+        // and the semantic formatter can never disagree — no decimal-only
+        // fallback and no dropped unit.
+        let pinned: [(String, String)] = [
+            ("1 h 45 min + 30 min", "2 h 15 min"),
+            ("2 hr 10 min - 45 min", "1 h 25 min"),
+            ("1 day 2 h + 90 min", "1 day 3 h 30 min"),
+            ("2 min 30 sec × 3", "7 min 30 s"),
+            ("1 min 250 ms + 750 ms", "1 min 1 s"),
+            ("1h45min", "1 h 45 min"),
+            ("500ms", "500 ms"),
+            ("1 h 30 min / 3", "30 min"),
+            ("(1 h 20 min) × 2", "2 h 40 min"),
+        ]
+        var v: [String: Double] = [:]
+        for (line, expected) in pinned {
+            guard let r = durLine(line, variables: &v),
+                  case .number(let value, let unit, let kind, let fraction) = r else {
+                throw CaseFailure(message: "\(line) must be a duration number", location: "Duration")
+            }
+            try expectEqual(kind, .duration, "\(line): duration kind")
+            let row = AnswerDisplay.formatKinded(value, unit: unit, kind: kind,
+                                                 fraction: fraction, decimalPlaces: 7,
+                                                 context: .legacy)
+            let visible = AnswerDisplay.displayText(for: r, decimalPlaces: 7, context: .legacy)
+            let copy = AnswerDisplay.text(for: r, decimalPlaces: 7, context: .legacy)
+            try expectEqual(row, expected, "\(line): the VIEW's string")
+            try expectEqual(visible, expected, "\(line): the displayed row")
+            try expectEqual(copy, expected, "\(line): the clipboard")
+        }
+        // The row string ignores the number notation entirely: a non-default
+        // notation can never turn a duration into a decimal.
+        var v2: [String: Double] = [:]
+        guard let r = durLine("1 h 45 min + 30 min", variables: &v2),
+              case .number(let value, let unit, let kind, let fraction) = r else {
+            throw CaseFailure(message: "duration row", location: "Duration")
+        }
+        for notation in [NumberNotation.automatic, .decimal, .scientific,
+                         .engineering, .fraction] {
+            let row = AnswerDisplay.formatKinded(value, unit: unit, kind: kind,
+                                                 fraction: fraction, decimalPlaces: 7,
+                                                 context: .legacy)
+            try expectEqual(row, "2 h 15 min", "notation \(notation) cannot change a duration")
+            if let displayed = AnswerDisplay.displayText(for: r, decimalPlaces: 7,
+                                                         context: .legacy,
+                                                         notation: notation) {
+                try expectEqual(displayed, "2 h 15 min",
+                                "displayText with \(notation) stays semantic")
+            }
+            try expectEqual(AnswerDisplay.text(for: r, decimalPlaces: 7, context: .legacy,
+                                               notation: notation),
+                            "2 h 15 min", "copy with \(notation) stays semantic")
+        }
+    },
+
+    EngineCase("duration-assignment-row-shows-the-natural-string") {
+        // An assignment row is a `.number` carrying the real unit + the
+        // duration kind, so it renders naturally too.
+        let texts = sheetTexts("focus time = 1 h 30 min\nfocus time + 15 min")
+        try expectEqual(texts, ["1 h 30 min", "1 h 45 min"],
+                        "assignment row and later variable expression")
+        var v: [String: Double] = [:]
+        guard let assigned = durLine("focus time = 1 h 30 min", variables: &v),
+              case .number(let value, let unit, let kind, let fraction) = assigned else {
+            throw CaseFailure(message: "assignment row", location: "Duration")
+        }
+        try expectEqual(unit, "h", "the assignment keeps the real unit")
+        try expectEqual(kind, .duration, "and the duration kind")
+        try expectEqual(AnswerDisplay.formatKinded(value, unit: unit, kind: kind,
+                                                   fraction: fraction, decimalPlaces: 7,
+                                                   context: .legacy),
+                        "1 h 30 min", "the assignment row's visible string")
+        try expectEqual(AnswerDisplay.displayText(for: assigned, decimalPlaces: 7,
+                                                  context: .legacy),
+                        "1 h 30 min", "displayText agrees")
+        try expectEqual(AnswerDisplay.text(for: assigned, decimalPlaces: 7, context: .legacy),
+                        "1 h 30 min", "copy agrees")
+    },
+
+    EngineCase("duration-answer-token-expression-algebra") {
+        // A duration token stays a typed time quantity inside a reference
+        // expression, including a compound literal in the SAME expression.
+        let sid = UUID(), tid = UUID()
+        let marker = String(answerTokenMarker)
+        let source = "1 h 30 min"
+        let cases: [(String, String)] = [
+            (marker, "1 h 30 min"),
+            (marker + " + 30 min", "2 h"),
+            (marker + " - 15 min", "1 h 15 min"),
+            (marker + " / 3", "30 min"),
+            (marker + " + 1 h 30 min", "3 h"),
+        ]
+        for (expr, expected) in cases {
+            let content = source + "\n" + expr
+            let (lines, tokens) = resolveSheet(
+                content: content, lineIDs: [sid, tid],
+                references: [AnswerReference(sourceLineID: sid, labelLine: 1,
+                                             location: (source + "\n" as NSString).length)],
+                rates: Rates(), decimalPlaces: 7)
+            try expectEqual(lines.count, 2, "\(expr): two logical lines")
+            let visible = AnswerDisplay.displayText(for: lines[1].result,
+                                                    decimalPlaces: 7, context: .legacy)
+            try expectEqual(visible, expected, "\(expr): visible row")
+            try expectEqual(AnswerDisplay.text(for: lines[1].result, decimalPlaces: 7,
+                                               context: .legacy),
+                            expected, "\(expr): copy parity")
+            // The capsule keeps the natural string AND the typed duration state.
+            try expectEqual(tokens[0].state,
+                            .activeKinded(value: 1.5, unit: "h", kind: .duration,
+                                          fraction: nil, display: "1 h 30 min"),
+                            "\(expr): the capsule is unchanged")
+        }
+        // Broken / forward / circular tokens and the reference algebra's own
+        // lanes stay exactly as they were.
+        let ghost = UUID(), live = UUID()
+        let (brokenBare, _) = resolveSheet(
+            content: marker, lineIDs: [live],
+            references: [AnswerReference(sourceLineID: ghost, labelLine: 4,
+                                         location: 0)],
+            rates: Rates(), decimalPlaces: 7)
+        try expectEqual(brokenBare[0].result, .brokenToken(line: 4),
+                        "a bare broken token stays broken")
+        let (brokenExpr, _) = resolveSheet(
+            content: marker + " + 30 min", lineIDs: [live],
+            references: [AnswerReference(sourceLineID: ghost, labelLine: 4,
+                                         location: 0)],
+            rates: Rates(), decimalPlaces: 7)
+        guard case .error = brokenExpr[0].result else {
+            throw CaseFailure(message: "a broken token in an expression is a quiet error",
+                              location: "Duration")
+        }
+        // Currencies, percents and plain magnitudes are untouched by the
+        // duration lane.
+        let (money, _) = resolveSheet(
+            content: "100 usd\n" + marker + " + 50 usd", lineIDs: [UUID(), UUID()],
+            references: [AnswerReference(sourceLineID: UUID(), labelLine: 1, location: 0)],
+            rates: Rates(), decimalPlaces: 7)
+        _ = money
+        try expectDuration("5m", "5,000,000")
+        try expectDuration("5 m", "5 m")
+    },
+
+    EngineCase("duration-view-source-contract") {
+        // The VIEW must route a duration through the ONE semantic formatter
+        // with the REAL unit and must never reach the numeric-only path.
+        let view = try durationViewSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        try expect(!view.isEmpty, "the answer column source is readable")
+        try expect(view.contains("if kind == .duration {\n            return AnswerDisplay.formatKinded(v, unit: unit, kind: .duration,"),
+                   "kindedString routes .duration through the semantic formatter WITH the unit")
+        try expect(view.contains("} else if kind == .duration, let u = unit {"),
+                   "numberView has an explicit duration branch before the plain one")
+        try expect(view.contains("Text(kindedString(v: v, unit: u, kind: .duration,"),
+                   "the row renders that semantic string")
+        // No duration-reachable call may drop the unit.
+        let durationCalls = view.components(separatedBy: "kind: .duration").count - 1
+        let nilUnitCalls = view.components(separatedBy: "kindedString(v: v, unit: nil, kind: kind").count - 1
+        try expect(durationCalls > 0, "at least one duration call site exists")
+        try expect(nilUnitCalls >= 1, "the generic (non-duration) path still passes nil for unitless kinds")
+        for line in view.components(separatedBy: "\n") where line.contains("kind: .duration") {
+            try expect(!line.contains("unit: nil"),
+                       "no duration call site passes unit: nil")
+        }
+        // The duration branch ignores notation: no NumberPresentation call.
+        guard let start = view.range(of: "} else if kind == .duration, let u = unit {")?.upperBound,
+              let end = view.range(of: "} else if kind == .plain, let u = unit {")?.lowerBound,
+              start < end else {
+            throw CaseFailure(message: "duration branch not found", location: "Duration")
+        }
+        let branch = String(view[start..<end])
+        try expect(!branch.contains("NumberPresentation"),
+                   "the duration branch never consults the number notation")
+        try expect(!branch.contains("formatDisplayValue"),
+                   "and never formats the value as a plain decimal")
     },
 
     EngineCase("duration-syntax-spans-cover-the-whole-literal") {
