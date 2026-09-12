@@ -290,6 +290,11 @@ struct EngineTests {
         try `case`.body()
     }
 
+    @Test(arguments: pdfExportCases)
+    func pdfExportCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
     @Test(arguments: footerTotalCases)
     @Test(arguments: footerTotalLayoutCases)
     func footerTotalCase(`case`: EngineCase) throws {

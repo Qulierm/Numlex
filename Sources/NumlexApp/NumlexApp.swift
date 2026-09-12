@@ -410,19 +410,35 @@ struct NumlexApp: App {
             // post to ContentView's native fileImporter/fileExporter
             // (.nlx, security-scoped); Delete Sheet stays beside them.
             CommandGroup(replacing: .importExport) {
-                Button("Import Sheet…") {
+                Button(L10n.t("importSheet",
+                              language: model.settings.language)) {
                     NotificationCenter.default.post(name: .importSheet, object: nil)
                 }
                 .keyboardShortcut("i", modifiers: .command)
-                Button("Export Sheet…") {
+                Button(L10n.t("exportSheetNLX",
+                              language: model.settings.language)) {
                     NotificationCenter.default.post(name: .exportSheet, object: nil)
                 }
                 .keyboardShortcut("e", modifiers: .command)
+                Button(L10n.t("exportSheetPDF",
+                              language: model.settings.language)) {
+                    NotificationCenter.default.post(name: .exportSheetPDF, object: nil)
+                }
                 Divider()
-                Button("Delete Sheet") {
+                Button(L10n.t("deleteSheet",
+                              language: model.settings.language)) {
                     NotificationCenter.default.post(name: .deleteSheet, object: nil)
                 }
                 .keyboardShortcut("d", modifiers: .command)
+            }
+            // Standard File > Print placement (replacing the system
+            // group so exactly ONE Print… item with ⌘P ever exists).
+            CommandGroup(replacing: .printItem) {
+                Button(L10n.t("printSheet",
+                              language: model.settings.language)) {
+                    NotificationCenter.default.post(name: .printSheet, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: .command)
             }
             // r87: the ONE native Format menu — its Highlight submenu
             // targets every logical line intersecting the editor's
@@ -649,6 +665,10 @@ extension Notification.Name {
     // sidebar.
     static let importSheet = Notification.Name("numlex.importSheet")
     static let exportSheet = Notification.Name("numlex.exportSheet")
+    /// Export/print commands posted by the File-menu items and caught
+    /// by ContentView's export presentation.
+    static let exportSheetPDF = Notification.Name("numlex.exportSheetPDF")
+    static let printSheet = Notification.Name("numlex.printSheet")
     /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
     /// Posted by the temporary sidebar "Replay Welcome" button; caught by the
     /// scene root, which owns the session-only replay overlay.

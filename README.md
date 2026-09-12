@@ -66,7 +66,8 @@ functions, bases, percentages, money, units, currencies, dates, network
 queries, number presentation — see the
 [docs/SYNTAX_REFERENCE.md](docs/SYNTAX_REFERENCE.md) canonical reference (documents
 current `main`) and the [documentation index](docs/README.md) for the settings and
-appearance guide, and [docs/UPDATES.md](docs/UPDATES.md) for the secure in-app
+appearance guide, [docs/EXPORT_AND_PRINT.md](docs/EXPORT_AND_PRINT.md) for PDF
+export and printing, and [docs/UPDATES.md](docs/UPDATES.md) for the secure in-app
 update model. The published documentation lives at <https://numlex.tech/docs/>.
 
 Numlex reads ordinary notebook text — no formula syntax, no cell references. Each line
@@ -252,8 +253,10 @@ Your Light/Dark/Auto choice and app icon are never changed by any of this.
 
 Sheets persist locally in Application Support. The only network traffic is the
 background rates refresh plus Open-Meteo lookups for `weather in …` lines you
-type yourself — never GPS or location data. Import and export any sheet as a `.nlx`
-file from the File menu, and drag a sheet onto a folder tab to re-file it.
+type yourself — never GPS or location data. From the File menu, import or export
+any sheet as a `.nlx` file, export it as a PDF, or print it (⌘P) — export and
+print are offline and never touch the live editor. Drag a sheet onto a folder
+tab to re-file it. See [docs/EXPORT_AND_PRINT.md](docs/EXPORT_AND_PRINT.md).
 
 ## Download
 
@@ -320,7 +323,7 @@ Scripts/build-app.sh [debug|release]   # produces .build/Numlex.app
   arithmetic and the live reference-token resolver. Strict errors instead of silent
   coercion.
 - **Persistence** — one JSON store in `~/Library/Application Support/Numlex`; `.nlx`
-  import/export per sheet.
+  import/export per sheet, PDF export and printing from one frozen snapshot.
 - **Rates** — fetched from `open.er-api.com`, cached for one hour with an 8-second
   timeout; the last good table keeps serving when offline.
 

@@ -22,6 +22,12 @@ struct ContentView: View {
     @State private var editorBridge: NotebookEditorCoordinator?
     @State private var showImport = false
     @State private var showExport = false
+    /// Session-only export/print options and the frozen presentation.
+    @State private var exportPresentation: ExportPresentation?
+    @State private var exportOptions = ExportOptions()
+    /// Localized failure alert (PDF write errors only happen after the
+    /// user chose a destination; cancel is side-effect free).
+    @State private var exportErrorMessage: String?
     /// r37: the STABLE source line ID of the token the pointer is
     /// hovering (ephemeral UI state — never persisted). Mapped against
     /// the CURRENT sheet's lineIDs at render time, so insertions and
@@ -172,6 +178,132 @@ struct ContentView: View {
         // tint), while the text layout itself stays inset.
         .background {
             Color(nsColor: Design.editorBackground).ignoresSafeArea(edges: .vertical)
+        }
+    }
+
+    /// One frozen export/print presentation: the captured contexts,
+    /// the mode and the paper size resolved when the dialog opened.
+    struct ExportPresentation: Identifiable {
+        let id = UUID()
+        let mode: ExportDialogMode
+        let context: ExportPresentationContext
+        let paperSize: CGSize
+    }
+
+    /// Captures the selected sheet and ALL app-global evaluation and
+    /// presentation contexts at dialog presentation (one `now` for the
+    /// whole captured pass) and clamps the session options to the new
+    /// sheet. Reads only: no sheet/store/settings/editor mutation.
+    private func presentExport(_ mode: ExportDialogMode) {
+        guard let sheet = model.selectedSheet else { return }
+        let settings = model.settings
+        let context = ExportPresentationContext(
+            sheetID: sheet.id,
+            sheetTitle: sheet.title,
+            content: sheet.content,
+            lineIDs: sheet.lineIDs,
+            references: sheet.references,
+            answerDisplay: sheet.answerDisplay,
+            highlights: sheet.highlights,
+            rates: model.rates,
+            decimalPlaces: settings.decimalPlaces,
+            now: Date(),
+            calendar: Calendar.current,
+            constants: settings.customConstants,
+            weather: model.weatherContext,
+            geo: model.geoContext,
+            numberContext: model.numberContext,
+            unitContext: model.unitContext,
+            preferences: settings.temporal,
+            financial: model.financialContext,
+            presentation: settings.presentation,
+            language: settings.language)
+        exportOptions = exportOptions.clamped(toLineCount: context.lineCount)
+        exportPresentation = ExportPresentation(
+            mode: mode,
+            context: context,
+            paperSize: NSPrintInfo.shared.paperSize)
+    }
+
+    /// The ONE rendered document for the frozen presentation: same
+    /// snapshot, same fonts, same palette, same pagination for PDF and
+    /// print.
+    private func renderedDocument(for presentation: ExportPresentation) throws -> ExportRenderedDocument {
+        let snapshot = try ExportSnapshotBuilder.build(context: presentation.context,
+                                                       options: exportOptions).get()
+        let settings = model.settings
+        let fonts = ExportFontCatalog.fonts(options: exportOptions,
+                                            styling: settings.styling)
+        let palette = ExportPalette.printPalette(styling: settings.styling)
+        let metrics = fonts.metrics(pageSize: presentation.paperSize)
+        return ExportRenderedDocument(snapshot: snapshot, fonts: fonts,
+                                      palette: palette, metrics: metrics)
+    }
+
+    private static func pdfFileName(for title: String) -> String {
+        let cleaned = title
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = cleaned.isEmpty ? "Sheet" : cleaned
+        return name.hasSuffix(".pdf") ? name : name + ".pdf"
+    }
+
+    private func handleExportConfirm(_ presentation: ExportPresentation) {
+        let doc: ExportRenderedDocument
+        do {
+            doc = try renderedDocument(for: presentation)
+        } catch {
+            exportPresentation = nil
+            exportErrorMessage = L10n.t("export.emptyRange",
+                                        language: model.settings.language)
+            return
+        }
+        exportPresentation = nil
+        switch presentation.mode {
+        case .pdf:
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.pdf]
+            panel.nameFieldStringValue = Self.pdfFileName(
+                for: presentation.context.sheetTitle)
+            panel.canCreateDirectories = true
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try doc.writePDF(to: url)
+            } catch {
+                exportErrorMessage = L10n.t("export.saveError.message",
+                                            language: model.settings.language)
+            }
+        case .print:
+            // The options sheet is dismissed above; present the standard
+            // print panel on the NEXT main-run-loop turn, so the host
+            // window (never the dismissing sheet) owns the modal panel.
+            let hostWindow = NSApp.windows.first {
+                $0.isVisible && $0.title == "Numlex"
+            } ?? NSApp.mainWindow
+            DispatchQueue.main.async {
+                let info = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
+                info.paperSize = NSSize(width: doc.layout.pageSize.width,
+                                        height: doc.layout.pageSize.height)
+                info.topMargin = 0
+                info.bottomMargin = 0
+                info.leftMargin = 0
+                info.rightMargin = 0
+                info.horizontalPagination = .fit
+                info.verticalPagination = .fit
+                info.isHorizontallyCentered = false
+                info.isVerticallyCentered = false
+                let view = ExportPrintView(document: doc)
+                let operation = NSPrintOperation(view: view, printInfo: info)
+                operation.showsPrintPanel = true
+                operation.showsProgressPanel = true
+                if let hostWindow {
+                    operation.runModal(for: hostWindow, delegate: nil,
+                                       didRun: nil, contextInfo: nil)
+                } else {
+                    operation.run()
+                }
+            }
         }
     }
 
@@ -423,6 +555,31 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .newSheet)) { _ in model.newSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .importSheet)) { _ in showImport = true }
         .onReceive(NotificationCenter.default.publisher(for: .exportSheet)) { _ in showExport = true }
+        .onReceive(NotificationCenter.default.publisher(for: .exportSheetPDF)) { _ in
+            presentExport(.pdf)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .printSheet)) { _ in
+            presentExport(.print)
+        }
+        .sheet(item: $exportPresentation) { presentation in
+            ExportDialogView(
+                mode: presentation.mode,
+                context: presentation.context,
+                language: model.settings.language,
+                options: $exportOptions,
+                onCancel: { exportPresentation = nil },
+                onConfirm: { handleExportConfirm(presentation) })
+        }
+        .alert(L10n.t("export.saveError.title", language: model.settings.language),
+               isPresented: Binding(
+                   get: { exportErrorMessage != nil },
+                   set: { if !$0 { exportErrorMessage = nil } })) {
+            Button(L10n.t("export.ok", language: model.settings.language)) {
+                exportErrorMessage = nil
+            }
+        } message: {
+            Text(exportErrorMessage ?? "")
+        }
         // App-menu "Delete Sheet": consumed here (not in the sidebar), so
         // it works even when the sidebar column is collapsed. The sidebar
         // row animation is driven by the sheet-ID list change, so this and
