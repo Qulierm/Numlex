@@ -259,14 +259,17 @@ extension UnitCatalog {
 
         // MARK: Speed (base m/s)
         lin("m-per-s", .LT, 1, "m/s",
-            ["m/s", "meters per second"], ["k", "K", "M"])
+            ["m/s", "mps", "meters per second", "metres per second"],
+            ["k", "K", "M"])
         lin("km-per-h", .LT, 1.0 / 3.6, "km/h",
-            ["km/h", "kph", "kmh", "kilometers per hour", "kilometres per hour"], [])
+            ["km/h", "kmph", "kph", "kmh", "kilometers per hour",
+             "kilometres per hour"], [])
         lin("mph", .LT, 0.44704, "mph",
             ["mph", "miles per hour", "mi/h"], [])
         lin("ft-per-s", .LT, 0.3048, "ft/s",
-            ["ft/s", "feet per second"], [])
-        lin("knot", .LT, 1852.0 / 3600, "kn", ["kn", "knot", "knots"], [])
+            ["ft/s", "fps", "feet per second"], [])
+        lin("knot", .LT, 1852.0 / 3600, "kn",
+            ["kn", "kt", "kts", "knot", "knots"], [])
         // Exact SI: 299 792 458 m/s.
         lin("speed-of-light", .LT, 299_792_458, "c₀",
             ["c₀", "c0", "speed of light"], [])

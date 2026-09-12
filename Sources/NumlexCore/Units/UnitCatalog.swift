@@ -464,6 +464,20 @@ public enum UnitCatalog {
             c == " " || c == "/" || c == "*" || c == "^" || c == "(" || c == ")"
         }
 
+        /// The standalone, case-insensitive word `per` as a division
+        /// operator: the spelled equivalent of `/` inside a unit expression
+        /// (`km per hour` == `km/h`, `L per s` == `L/s`). It must be a WHOLE
+        /// word (a boundary after it), so it can never split an alias.
+        mutating func matchPerOperator() -> Bool {
+            skipSpaces()
+            guard pos < text.endIndex else { return false }
+            guard let end = text.index(pos, offsetBy: 3, limitedBy: text.endIndex),
+                  String(text[pos..<end]).lowercased() == "per" else { return false }
+            if end != text.endIndex, !isBoundary(text[end]) { return false }
+            pos = end
+            return true
+        }
+
         mutating func readAtomToken() -> String? {
             skipSpaces()
             guard pos < text.endIndex else { return nil }
@@ -495,6 +509,19 @@ public enum UnitCatalog {
                 // Family propagates from the NUMERATOR (B/s is a data
                 // rate, km/h is plain speed; J/s keeps the energy
                 // family and never silently becomes watts).
+                let label = UnitCatalog.prettyQuotient(num.unit.label, den.unit.label)
+                return ParsedExpr(unit: UnitExpr(kind: .factor(v, f), vector: v, family: n.family,
+                                                 toBase: f, label: label,
+                                                 name: "\(num.unit.name)/\(den.unit.name)"),
+                                  def: nil, text: "\(num.text)/\(den.text)")
+            }
+            // The spelled operator: `per` divides exactly like `/`.
+            if matchPerOperator() {
+                guard let den = parseExpr(depth: depth + 1) else { return nil }
+                guard let n = linearOf(num), let d = linearOf(den) else { return nil }
+                let v = n.vector / d.vector
+                let f = n.factor / d.factor
+                guard f.isFinite, f > 0 else { return nil }
                 let label = UnitCatalog.prettyQuotient(num.unit.label, den.unit.label)
                 return ParsedExpr(unit: UnitExpr(kind: .factor(v, f), vector: v, family: n.family,
                                                  toBase: f, label: label,

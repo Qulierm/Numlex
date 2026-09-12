@@ -818,6 +818,11 @@ enum MixedUnitLine {
         var hasOperator = false
         var durationLiteral = false
         var durationWithTarget = false
+        // A line whose whole body is ONE quantity-valued name (`speed to
+        // kts`) is ours whenever a target is present: the legacy conversion
+        // lane cannot resolve a variable, and an explicit target resets the
+        // presentation anyway.
+        var valueOnlySource = false
         let bodyNS = body as NSString
         for (idx, t) in tokens.enumerated() {
             if case .quantity(let q, range: _) = t {
@@ -864,6 +869,12 @@ enum MixedUnitLine {
             }
         }
         guard hasQuantity else { return false }
+        if tokens.count == 1, MixedUnitScanner.isValueWord(tokens[0], env: env) {
+            valueOnlySource = true
+        } else if let joined = MixedUnitScanner.joinedValueName(tokens: tokens, at: 0, env: env),
+                  joined.1 == tokens.count {
+            valueOnlySource = true
+        }
         // No top-level OPERATOR: a bare quantity (`10 km`) is ours; a
         // `<value unit> to|in|as <unit expression>` shape and a
         // parenthesized qualifier (`1 hp (electric)`) are owned by
@@ -871,7 +882,7 @@ enum MixedUnitLine {
         // expressions: `1 km/h/s to m/s²`, `1 bbl/d to L/s`,
         // `10 km/L to US mpg`).
         if !hasOperator {
-            if target != nil { return durationWithTarget }
+            if target != nil { return durationWithTarget || valueOnlySource }
             if tokens.count == 1 { return true }
             // A parenthesized DURATION literal `(1 h 15 min)` is ours: the
             // compound form has no legacy meaning (a parenthesized ordinary
@@ -915,19 +926,31 @@ enum MixedUnitLine {
         // keyword (compound targets like `km/h`, `m / s`, `pt (type)`
         // stay one resolved expression).
         let (body, targetText) = Self.splitTarget(line)
-        var target: UnitExpr?
-        if let t = targetText {
-            target = Self.resolveTarget(t, unitContext: unitContext)
-            // A shape-owned line with a target that does not resolve
-            // is a strict error (never a silent target drop).
-            if target == nil { return nil }
-        }
         guard let tokens = MixedUnitScanner.tokenize(body, context: context,
                                                      unitContext: unitContext,
                                                      env: env) else { return nil }
-        return MixedUnitParser.evaluate(tokens: tokens, env: env, context: context,
-                                        rates: rates, unitContext: unitContext,
-                                        target: target)
+        // The SOURCE is evaluated first: an explicit target is then chosen
+        // against the real source quantity, so a contextual shorthand can be
+        // read when (and only when) it is the compatible reading.
+        guard let source = MixedUnitParser.evaluate(tokens: tokens, env: env,
+                                                    context: context, rates: rates,
+                                                    unitContext: unitContext,
+                                                    target: nil) else { return nil }
+        guard let targetText else { return source }
+        guard let target = UnitTargetResolver.resolve(targetText, source: source,
+                                                      unitContext: unitContext,
+                                                      rates: rates) else {
+            // A shape-owned line with a target that does not resolve is a
+            // strict error (never a silent target drop).
+            return nil
+        }
+        // An EXPLICIT conversion target resets the presentation: `1 h 30 min
+        // to min` is a single-unit conversion, never a natural compound.
+        guard var converted = try? source.converted(to: target, rates: rates).get() else {
+            return nil
+        }
+        converted.presentation = .standard
+        return converted
     }
 
     /// Splits the line at its LAST space-delimited `to`/`in`/`as`

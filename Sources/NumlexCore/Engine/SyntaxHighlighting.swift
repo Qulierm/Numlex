@@ -792,6 +792,11 @@ public enum SyntaxClassifier {
                 if w == "to" || w == "in" || w == "as" {
                     // The target keyword keeps the conversion role.
                     spans.append(SyntaxSpan(role: .specifier, range: r))
+                } else if w.lowercased() == "per" {
+                    // `per` is UNIT grammar in this painter (the spelled
+                    // division inside a unit expression), so it takes the
+                    // unit role and never the arithmetic operator colour.
+                    spans.append(SyntaxSpan(role: .conversion, range: r))
                 } else if env.entry(display: w) != nil {
                     // A known name is a variable.
                     spans.append(SyntaxSpan(role: .variable, range: r))
@@ -925,17 +930,38 @@ public enum SyntaxClassifier {
     /// scanner's span may include one trailing whitespace character).
     static func unitRange(of q: Quantity, in line: String,
                           tokenRange r: NSRange) -> NSRange {
+        let ns = line as NSString
         let start = r.location
         var i = r.location + r.length
-        while i > start,
-              (line as NSString).character(at: i - 1) == 32 {
+        while i > start, ns.character(at: i - 1) == 32 {
             i -= 1
         }
-        guard i - q.display.label.count >= start,
-              !q.display.label.isEmpty else {
+        if !q.display.label.isEmpty, i - q.display.label.count >= start,
+           ns.substring(with: NSRange(location: i - q.display.label.count,
+                                      length: q.display.label.count))
+            .caseInsensitiveCompare(q.display.label) == .orderedSame {
+            return NSRange(location: i - q.display.label.count,
+                           length: q.display.label.count)
+        }
+        // The canonical label is not literally present (a natural `km per
+        // hour` literal, or a rate whose label was derived): the unit part is
+        // everything after the leading numeric run and the space that
+        // separates it, so the WHOLE natural unit span is painted.
+        var numberEnd = start
+        while numberEnd < i {
+            let c = ns.character(at: numberEnd)
+            if (0x30...0x39).contains(c) || c == 0x2E || c == 0x2C {
+                numberEnd += 1
+            } else {
+                break
+            }
+        }
+        if numberEnd < i, ns.character(at: numberEnd) == 32 {
+            numberEnd += 1
+        }
+        guard numberEnd < i else {
             return NSRange(location: r.location + r.length, length: 0)
         }
-        return NSRange(location: i - q.display.label.count,
-                       length: q.display.label.count)
+        return NSRange(location: numberEnd, length: i - numberEnd)
     }
 }

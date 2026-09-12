@@ -303,6 +303,16 @@ public func convertValue(_ value: Double,
 /// evaluator (which would silently return the leading number). Anything
 /// not matching the shape returns `nil` and keeps flowing into the
 /// assignment/expression evaluation.
+/// The explicit conversion target, resolved against the evaluated SOURCE.
+/// Ordinary unambiguous resolution wins; a documented contextual shorthand is
+/// tried only when the ordinary reading is incompatible with the source.
+private func conversionTarget(_ text: String, value: Double, from: UnitExpr,
+                              unitContext: UnitContext, rates: Rates) -> UnitExpr? {
+    let source = value.isFinite ? Quantity(value: value, display: from) : nil
+    return UnitTargetResolver.resolve(text, source: source,
+                                      unitContext: unitContext, rates: rates)
+}
+
 func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
                    context: NumberFormatContext = .legacy,
                    unitContext: UnitContext = .builtIns) -> LineResult? {
@@ -339,9 +349,15 @@ func tryConversion(_ line: String, rates: Rates, decimalPlaces: Int,
         }
         from = resolved
     }
-    guard let to = unitContext.resolveExpression(shape.toText) else {
+    // The target is chosen against the EVALUATED source quantity, so a
+    // documented contextual shorthand (`ms` for a speed source) is read only
+    // when the ordinary reading is incompatible with the source; the
+    // ordinary, unambiguous resolution still wins whenever it fits.
+    guard let targetUnit = conversionTarget(shape.toText, value: num, from: from.unit,
+                                           unitContext: unitContext, rates: rates) else {
         return .error(message: "Unknown units")
     }
+    let to = UnitCatalog.ParsedExpr(unit: targetUnit, def: nil, text: shape.toText)
     if let (v, unit) = convertValue(num, from: from.unit, to: to.unit, rates: rates) {
         // Conversion results keep full precision (up to 10 decimals) so
         // exact factors like 1 gal = 3.785411784 L survive the round.
