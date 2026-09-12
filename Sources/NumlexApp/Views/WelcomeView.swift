@@ -28,6 +28,9 @@ struct WelcomeView: View {
     // One-shot staged state. Only opacity/offset/scale/rotation/trim change;
     // every final frame exists from the first layout pass.
     @State private var iconRevealed = false
+    /// The icon's spatial entrance: 0 = turned away in shallow depth,
+    /// 1 = flat. Interpolated by SwiftUI (a plain Double, not a Bool edge).
+    @State private var iconEntry: Double = 0
     // r101: ONE finite scalar per batched pass. The calculation field and
     // the silver splash are each drawn by a single Canvas from these
     // values, so the whole transient animation costs three (field) plus
@@ -239,6 +242,12 @@ struct WelcomeView: View {
         .frame(width: Self.finalIconSize, height: Self.finalIconSize)
         .overlay(sheen)
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        // No shadow here: an animated halo forces a fresh offscreen blur
+        // every frame and measurably cost cadence (p95 16 -> 39 ms), so the
+        // depth comes from the tilt, the scale and the burst's own glow.
+        .rotation3DEffect(.degrees(6.5 * (1 - iconEntry)),
+                          axis: (x: 0.7, y: 0.5, z: 0),
+                          perspective: 0.7)
         .scaleEffect(iconVisualScale)
         .opacity(iconRevealed ? 1 : 0)
         .scaleEffect(scale, anchor: .center)
@@ -300,12 +309,16 @@ struct WelcomeView: View {
             .foregroundStyle(Color(nsColor: Design.baseText))
     }
 
-    /// Line 2 — a quieter rounded clause ("We’ll do the ") answered by a
-    /// compact monospaced ("math."). Still monochrome: the quiet clause uses
-    /// the secondary label tone, the key word the bright icon neutral.
+    /// Line 2 — a quiet clause in STANDARD SF proportional type ("We’ll do
+    /// the ") answered by a compact monospaced ("math."). Still monochrome:
+    /// the quiet clause uses the secondary label tone, the key word the
+    /// bright icon neutral.
     private var sloganLineTwo: Text {
+        // Standard SF proportional type (NOT rounded): the rounded face read
+        // as a mismatched, over-soft clause against the monospaced accent.
         Text("We’ll do the ")
-            .font(.system(size: Self.sloganLineTwoSize, weight: .medium, design: .rounded))
+            .font(.system(size: Self.sloganLineTwoSize, weight: .regular, design: .default))
+            .tracking(0.2)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
         + Text("math.")
             .font(.system(size: Self.sloganLineTwoSize, weight: .semibold, design: .monospaced))
@@ -350,6 +363,7 @@ struct WelcomeView: View {
             // sleeps and no animation — large icon + slogan + button, with
             // the button focused.
             iconRevealed = true
+            iconEntry = 1
             iconExpanded = true
             sloganRevealed = true
             buttonRevealed = true
@@ -360,8 +374,9 @@ struct WelcomeView: View {
             splashActive = false
             return
         }
-        // 0.00–0.35 icon fades/scales in.
-        withAnimation(.easeOut(duration: 0.35)) { iconRevealed = true }
+        // 0.00–0.45 the icon turns into place from a shallow depth (a small
+        // 3D settle that lands flat) while it fades and scales in.
+        withAnimation(.easeOut(duration: 0.45)) { iconRevealed = true; iconEntry = 1 }
         // 0.14–1.1 the calculations stream in (row + token stagger, all
         // derived inside the ONE field Canvas from this single scalar).
         try? await Task.sleep(nanoseconds: 140_000_000)

@@ -56,24 +56,78 @@ struct CalculationBloomCanvas: View, @preconcurrency Animatable {
             let centre = CGPoint(x: size.width / 2, y: size.height / 2)
             let iconCentre = CGPoint(x: centre.x, y: centre.y + iconOffset * scale)
             for (index, expression) in WelcomeView.calculations.enumerated() {
-                let rowConverge = Self.convergeAmount(converge, expression)
-                let opacity = 1 - rowConverge
+                // Row entry progress: the same staggered reveal the drawing
+                // uses for the per-run wipe, reused here for depth.
+                let reveal = Self.clamp01((stream - Double(index) * Self.rowStagger) / Self.revealWindow)
+                let eased = Self.smoothstep(reveal)
+                let opacity = 1 - Self.convergeAmount(converge, expression)
                 guard opacity > 0.012 else { continue }
                 let anchor = WelcomeView.anchor(for: expression)
                 let base = CGPoint(x: centre.x + anchor.x * scale,
                                    y: centre.y + anchor.y * scale)
-                let position = CGPoint(
-                    x: base.x + (iconCentre.x - base.x) * rowConverge * 0.55,
-                    y: base.y + (iconCentre.y - base.y) * rowConverge * 0.45)
-                let rowScale = scale * (1 - 0.5 * rowConverge)
+                // DEPTH 1: rows enter from a shallow plane — they start a few
+                // percent smaller and a little further out (lateral + slot
+                // parallax), then settle exactly on their grid anchors.
+                let depth = Self.slotDepthScale(expression)
+                let entryScale = 0.87 + 0.13 * eased
+                let lateral = Self.lateralParallax(expression) * CGFloat(1 - eased) * scale
+                let vertical = Self.slotParallaxY(expression) * CGFloat(1 - eased) * scale
+                let start = CGPoint(x: base.x + lateral, y: base.y + vertical)
+                // DEPTH 2: convergence follows a modest QUADRATIC ARC toward
+                // the icon instead of a straight line: a perpendicular bow
+                // whose sign alternates by slot/column, bounded to 18 pt.
+                let travel = Self.convergeAmount(converge, expression)
+                let toIcon = CGPoint(x: iconCentre.x - start.x, y: iconCentre.y - start.y)
+                let length = max(1, sqrt(toIcon.x * toIcon.x + toIcon.y * toIcon.y))
+                let perpendicular = CGPoint(x: -toIcon.y / length, y: toIcon.x / length)
+                let arc = Self.arcAmplitude(expression) * CGFloat(sin(.pi * travel)) * scale
+                let position = CGPoint(x: start.x + toIcon.x * 0.55 * CGFloat(travel) + perpendicular.x * arc,
+                                       y: start.y + toIcon.y * 0.45 * CGFloat(travel) + perpendicular.y * arc)
+                let rowScale = scale * depth * entryScale * (1 - 0.5 * CGFloat(travel))
                 Self.drawRow(expression, index: index,
                              at: position, canvasScale: rowScale,
+                             reveal: reveal,
                              stream: stream, emphasis: emphasis,
                              opacity: opacity, in: &context)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    // MARK: depth geometry (pure, deterministic, testable)
+
+    /// Outer slots sit a hair further away, the central rows a hair closer.
+    static func slotDepthScale(_ expression: BloomExpression) -> CGFloat {
+        let distance = CGFloat(abs(expression.slot - 2)) / 2      // 0 central ... 1 outer
+        return 1.02 - 0.06 * distance                              // 1.02 ... 0.96
+    }
+
+    /// Lateral entry parallax: 12-24 pt further out at the start, by column
+    /// and slot, easing to zero on the row's own anchor.
+    static func lateralParallax(_ expression: BloomExpression) -> CGFloat {
+        let outward: CGFloat = expression.column == .left ? -1 : 1
+        return outward * (12 + 4 * CGFloat(expression.slot % 3))
+    }
+
+    /// A small slot-dependent vertical parallax so neighbouring rows occupy
+    /// slightly different planes (never more than 6 pt).
+    static func slotParallaxY(_ expression: BloomExpression) -> CGFloat {
+        CGFloat(expression.slot - 2) * 3
+    }
+
+    /// The perpendicular bow of the convergence path, alternating by slot
+    /// and column, bounded to 18 pt.
+    static func arcAmplitude(_ expression: BloomExpression) -> CGFloat {
+        let parity = (expression.slot + (expression.column == .left ? 0 : 1)) % 2
+        let magnitude: CGFloat = 14 + 4 * CGFloat(expression.slot % 2)
+        return parity == 0 ? magnitude : -magnitude
+    }
+
+    /// Natural acceleration/deceleration without any extra animation.
+    static func smoothstep(_ value: Double) -> Double {
+        let t = clamp01(value)
+        return t * t * (3 - 2 * t)
     }
 
     // MARK: constants
@@ -110,7 +164,7 @@ struct CalculationBloomCanvas: View, @preconcurrency Animatable {
     /// result emphasis computed INSIDE this single pass.
     private static func drawRow(_ expression: BloomExpression, index: Int,
                                 at centre: CGPoint, canvasScale: CGFloat,
-                                stream: Double, emphasis: Double,
+                                reveal: Double, stream: Double, emphasis: Double,
                                 opacity: Double,
                                 in context: inout GraphicsContext) {
         var runs: [(text: GraphicsContext.ResolvedText, width: CGFloat,
@@ -128,9 +182,10 @@ struct CalculationBloomCanvas: View, @preconcurrency Animatable {
             total += width
         }
         guard total > 0 else { return }
-        let rowStart = Double(index) * rowStagger
-        let rowReveal = clamp01((stream - rowStart) / revealWindow)
+        let rowReveal = clamp01(reveal)
         guard rowReveal > 0 else { return }
+        _ = index
+        _ = stream
         let totalScaled = total * canvasScale
         var x = centre.x - totalScaled / 2
         for run in runs {
@@ -217,6 +272,8 @@ struct SilverSplashCanvas: View, @preconcurrency Animatable {
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
             let centre = CGPoint(x: size.width / 2, y: size.height / 2 + iconOffset * scale)
+            Self.drawGlow(&context, centre: centre, scale: scale,
+                          footprint: footprint, burst: burst, fade: fade)
             Self.drawWave(&context, centre: centre, scale: scale,
                           footprint: footprint, burst: burst, fade: fade)
             Self.drawRays(&context, centre: centre, scale: scale,
@@ -230,54 +287,71 @@ struct SilverSplashCanvas: View, @preconcurrency Animatable {
 
     static func clamp01(_ value: Double) -> Double { min(max(value, 0), 1) }
 
+    /// Two concentric waves: a near one that springs out first and a far one
+    /// that follows slightly later and dimmer — depth without extra view
+    /// nodes, drawn inside the same pass.
     private static func drawWave(_ context: inout GraphicsContext, centre: CGPoint,
                                  scale: CGFloat, footprint: CGFloat,
                                  burst: Double, fade: Double) {
-        let wave = clamp01(burst * 1.15)
-        guard wave > 0, fade < 1 else { return }
-        let radius = 93 * (0.55 + wave * 1.4) * footprint * scale
-        let alpha = min(1, wave * 2) * (1 - wave * 0.55) * (1 - fade)
-        let rect = CGRect(x: centre.x - radius, y: centre.y - radius,
-                          width: radius * 2, height: radius * 2)
-        context.stroke(Path(ellipseIn: rect),
-                       with: .color(Color(nsColor: .secondaryLabelColor).opacity(0.45 * alpha)),
-                       lineWidth: 1.5 * scale)
+        guard fade < 1 else { return }
+        for layer in waveLayers {
+            let wave = clamp01(burst * 1.15 - Double(layer.delay))
+            guard wave > 0 else { continue }
+            let radius = 93 * (0.55 + wave * 1.4) * footprint * scale * layer.radiusScale
+            let alpha = min(1, wave * 2) * (1 - wave * 0.55) * (1 - fade) * layer.opacity
+            let rect = CGRect(x: centre.x - radius, y: centre.y - radius,
+                              width: radius * 2, height: radius * 2)
+            context.stroke(Path(ellipseIn: rect),
+                           with: .color(Color(nsColor: .secondaryLabelColor).opacity(0.45 * alpha)),
+                           lineWidth: layer.lineWidth * scale)
+        }
     }
 
+    /// Two concentric wave layers (near, then far).
+    static let waveLayers: [(delay: Double, radiusScale: CGFloat, opacity: Double, lineWidth: CGFloat)] = [
+        (0.00, 1.00, 1.00, 1.5),
+        (0.14, 0.74, 0.55, 1.0),
+    ]
+
+    /// The burst's rays, split into near and far layers.
     private static func drawRays(_ context: inout GraphicsContext, centre: CGPoint,
                                  scale: CGFloat, footprint: CGFloat,
                                  burst: Double, fade: Double) {
         guard fade < 1 else { return }
         let colour = Color(nsColor: Design.baseText)
-        for ray in rays {
-            let local = clamp01((burst - ray.delay * 2.2) / 0.7)
+        for (index, ray) in rays.enumerated() {
+            let layer = rayLayer(index)
+            let local = clamp01((burst - ray.delay * 2.2 - layer.delay) / 0.7)
             guard local > 0.01 else { continue }
             let angle = ray.angle * .pi / 180
             let originRadius = rayOriginRadius * footprint * scale
             let origin = CGPoint(x: centre.x + cos(angle) * originRadius,
                                  y: centre.y + sin(angle) * originRadius)
-            let length = ray.length * (0.35 + 0.65 * local) * footprint * scale
+            let length = ray.length * layer.length * (0.35 + 0.65 * local) * footprint * scale
             let end = CGPoint(x: origin.x + cos(angle) * length,
                               y: origin.y + sin(angle) * length)
             var path = Path()
             path.move(to: origin)
             path.addLine(to: end)
             context.stroke(path,
-                           with: .color(colour.opacity(0.75 * local * (1 - fade))),
-                           style: StrokeStyle(lineWidth: ray.width * scale, lineCap: .round))
+                           with: .color(colour.opacity(layer.opacity * local * (1 - fade))),
+                           style: StrokeStyle(lineWidth: ray.width * layer.width * scale,
+                                              lineCap: .round))
         }
     }
 
+    /// The burst's droplets, travelling on two rings.
     private static func drawDroplets(_ context: inout GraphicsContext, centre: CGPoint,
                                      scale: CGFloat, footprint: CGFloat,
                                      burst: Double, fade: Double) {
         guard fade < 1 else { return }
         let colour = Color(nsColor: Design.baseText)
-        for drop in droplets {
-            let local = clamp01((burst - 0.06 - drop.delay * 2.0) / 0.7)
+        for (index, drop) in droplets.enumerated() {
+            let layer = dropletLayer(index)
+            let local = clamp01((burst - 0.06 - drop.delay * 2.0 - layer.delay) / 0.7)
             guard local > 0.01 else { continue }
             let angle = drop.angle * .pi / 180
-            let radius = drop.radius * footprint * scale * (0.35 + 0.65 * local)
+            let radius = drop.radius * layer.radius * footprint * scale * (0.35 + 0.65 * local)
             let side = drop.size * scale
             let rect = CGRect(x: centre.x + cos(angle) * radius - side / 2,
                               y: centre.y + sin(angle) * radius - side / 2,
@@ -286,4 +360,38 @@ struct SilverSplashCanvas: View, @preconcurrency Animatable {
                          with: .color(colour.opacity(0.9 * local * (1 - fade))))
         }
     }
+
+    /// A soft central radial glow that doubles as the burst's inner depth.
+    /// Drawn inside the Canvas and fading fully with the splash.
+    private static func drawGlow(_ context: inout GraphicsContext, centre: CGPoint,
+                                 scale: CGFloat, footprint: CGFloat,
+                                 burst: Double, fade: Double) {
+        let glow = clamp01(burst * 1.6)
+        guard glow > 0, fade < 1 else { return }
+        let radius = 120 * footprint * scale
+        let alpha = 0.22 * glow * (1 - fade)
+        let shading = GraphicsContext.Shading.radialGradient(
+            Gradient(colors: [Color(nsColor: Design.baseText).opacity(alpha), .clear]),
+            center: centre, startRadius: 0, endRadius: radius)
+        context.fill(Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius,
+                                            width: radius * 2, height: radius * 2)),
+                     with: shading)
+    }
+
+    /// Rays split into a NEAR group (longer, thicker, earlier, brighter) and a
+    /// FAR group (shorter, thinner, later, dimmer) so the burst reads as a
+    /// small volumetric space rather than a flat star.
+    static func rayLayer(_ index: Int) -> (length: CGFloat, width: CGFloat,
+                                           delay: Double, opacity: Double) {
+        index % 2 == 0
+            ? (1.12, 1.25, 0.00, 0.85)   // near
+            : (0.84, 0.80, 0.12, 0.62)   // far
+    }
+
+    /// Droplets travel on TWO rings (near and far) at different delays.
+    static func dropletLayer(_ index: Int) -> (radius: CGFloat, delay: Double) {
+        index % 2 == 0 ? (1.00, 0.00) : (0.82, 0.10)
+    }
+
+
 }

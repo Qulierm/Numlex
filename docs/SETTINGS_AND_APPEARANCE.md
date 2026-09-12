@@ -68,7 +68,7 @@ units, `moneyMarkerColor` for currency markers, `baseText` for operators) on
 Dark automatically. The notebook, sidebar and TextKit are never created behind
 the screen.
 
-The transient drawing is BATCHED and ANIMATABLE: each renderer
+The transient drawing is BATCHED, ANIMATABLE and subtly SPATIAL: each renderer
 (`CalculationBloomCanvas`, `SilverSplashCanvas`) carries every progress scalar
 in its `animatableData`, so SwiftUI interpolates the renderer itself on each
 display frame. A `Canvas` that merely captures parent state is NOT animated —
@@ -98,13 +98,41 @@ The splash then settles into the calm final lockup, in this order:
    frame — 152 pt on the 800×600 canvas — on one restrained 0.55 s ease that
    overlaps the fading tail of the splash (the single splash pulse and the
    expansion are multiplied, never added, so they cannot fight);
+   The rows are also given a shallow sense of depth, all of it pure
+   `GraphicsContext` math on the same scalars: each row enters a few percent
+   smaller and 12-24 pt further out (with a small slot-dependent vertical
+   offset), the outer slots settle a hair further away than the central ones
+   (0.96 to 1.02), and the convergence travels a modest perpendicular bow of
+   up to 18 pt rather than a straight line — eased with a smoothstep so the
+   motion accelerates and decelerates naturally. The burst is layered the same
+   way: two concentric waves (near then far), near/far ray groups with
+   different lengths, widths, opacities and delays, droplets on two rings, and
+   one soft central radial glow — still exactly 14 rays, 8 droplets and one
+   Canvas, all monochrome. The icon turns into place with a single 6.5° 3D
+   settle that lands flat (no halo shadow: an animated blur measurably cost
+   cadence for no visible gain).
+
+   The rows carry a shallow sense of DEPTH, all of it pure `GraphicsContext`
+   math on the same scalars: each row enters a few percent smaller and 12-24 pt
+   further out (plus a small slot-dependent vertical offset), the outer slots
+   settle a hair further away than the central ones (0.96 to 1.02), and the
+   convergence travels a modest perpendicular bow of up to 18 pt rather than a
+   straight line, eased with a smoothstep so the motion accelerates and
+   decelerates naturally. The burst is layered the same way: two concentric
+   waves (near then far), near/far ray groups with different lengths, widths,
+   opacities and delays, droplets on two rings, and one soft central radial
+   glow — still exactly 14 rays, 8 droplets and one Canvas, all monochrome.
+   The icon turns into place with a single 6.5° 3D settle that lands flat; an
+   animated halo shadow was measured and removed because the per-frame blur
+   cost cadence for no visible gain.
+
 2. the official slogan **Think freely. We’ll do the math.** fades in as ONE
    composited two-line lockup (a 9 pt rise over 0.5 s) in a frame reserved from
    the very first layout, so it can never reflow the icon or the button. Line 1
    is native rounded bold ("Think ") followed by a serif italic ("freely.") at
-   33 pt; line 2 is a quieter rounded clause ("We’ll do the ", the secondary
-   label tone) answered by a compact monospaced "math." at 26 pt in the icon
-   neutral. It is strictly monochrome — no palette hue, no colour, no underline
+   33 pt; line 2 is a quiet clause in standard SF proportional type ("We’ll do
+   the ", the secondary label tone — never the rounded face) answered by a
+   compact monospaced "math." at 26 pt in the icon neutral. It is strictly monochrome — no palette hue, no colour, no underline
    or swoosh — deliberately not localized, never hit-testable, and announced
    once as a heading with the exact phrase;
 3. the localized **Get Started** button then fades in below the slogan and

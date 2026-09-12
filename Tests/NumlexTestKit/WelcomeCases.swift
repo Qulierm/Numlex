@@ -231,7 +231,7 @@ public let welcomeCases: [EngineCase] = [
         // inside that one pass — never as separate animation transactions.
         let draw = welcomeSlice(renderers, from: "private static func drawRow", to: "// MARK: - Silver splash")
         try expect(draw.contains("tokenStagger"), "per-run stagger inside the pass")
-        try expect(draw.contains("rowStagger"), "per-row stagger inside the pass")
+        try expect(renderers.contains("Double(index) * Self.rowStagger"), "per-row stagger")
         try expect(draw.contains("run.isResult, emphasis > 0.01"), "result emphasis inside the pass")
         try expect(!draw.contains(".animation("), "no animation modifiers inside the pass")
         try expect(!draw.contains(".shadow("), "no per-row blur")
@@ -711,6 +711,14 @@ public let welcomeCases: [EngineCase] = [
         try expect(view.contains("private var sloganLineOne: Text"), "line one builder")
         try expect(view.contains("private var sloganLineTwo: Text"), "line two builder")
         try expect(view.contains("design: .serif"), "an elegant serif clause")
+        // Line 2's first clause is STANDARD SF proportional type — the
+        // rounded face read as a mismatched, over-soft clause.
+        let lineTwo = welcomeSlice(view, from: "private var sloganLineTwo: Text", to: "/// A single silver sheen")
+        try expect(lineTwo.contains("design: .default"), "standard SF for the quiet clause")
+        try expect(!lineTwo.contains("design: .rounded"), "never rounded there")
+        try expect(lineTwo.contains("design: .monospaced"), "the monospaced accent stays")
+        try expect(lineTwo.contains("weight: .semibold"), "a bold monospaced accent")
+        try expect(view.contains("design: .rounded"), "line 1 keeps its rounded lead")
         try expect(view.contains(".italic()"), "italic serif")
         try expect(view.contains("design: .monospaced"), "a compact monospaced clause")
         try expect(view.contains("VStack(spacing: Self.sloganLineSpacing)"), "two lines, 2-5 pt apart")
@@ -748,6 +756,70 @@ public let welcomeCases: [EngineCase] = [
         try expect(view.contains(".accessibilityAddTraits(.isHeader)"), "announced as a heading")
     },
 
+    EngineCase("welcome-calculation-depth-is-deterministic-and-bounded") {
+        let renderers = welcomeRendererSource()
+        let body = welcomeSlice(renderers, from: "var body: some View {", to: "// MARK: depth geometry")
+        // Depth is pure GraphicsContext math on the same scalars: no extra
+        // views, no randomness, no timers.
+        for banned in ["random", "ForEach", "TimelineView", "Timer(", ".blur("] {
+            try expect(!renderers.contains(banned), "no \(banned) in the renderers")
+        }
+        try expect(body.contains("Self.slotDepthScale(expression)"), "per-slot depth scale")
+        try expect(body.contains("Self.lateralParallax(expression)"), "lateral entry parallax")
+        try expect(body.contains("Self.slotParallaxY(expression)"), "slot vertical parallax")
+        try expect(body.contains("Self.smoothstep(reveal)"), "eased entry")
+        try expect(body.contains("sin(.pi * travel)"), "a curved convergence path")
+        // Bounds: entry scale 0.87-1.0, slot depth 0.96-1.02, lateral
+        // 12-24 pt, vertical <= 6 pt, arc <= 18 pt.
+        try expect(body.contains("0.87 + 0.13 * eased"), "entry scale range")
+        try expect(renderers.contains("return 1.02 - 0.06 * distance"), "slot depth range")
+        try expect(renderers.contains("outward * (12 + 4 * CGFloat(expression.slot % 3))"),
+                   "lateral parallax range")
+        try expect(renderers.contains("CGFloat(expression.slot - 2) * 3"), "vertical parallax range")
+        try expect(renderers.contains("14 + 4 * CGFloat(expression.slot % 2)"), "arc amplitude range")
+        // Deterministic: the same expression always yields the same numbers.
+        try expect(renderers.contains("static func slotDepthScale("), "a pure depth function")
+        try expect(renderers.contains("static func arcAmplitude("), "a pure arc function")
+    },
+
+    EngineCase("welcome-splash-depth-is-layered-within-one-canvas") {
+        let renderers = welcomeRendererSource()
+        let splash = welcomeSlice(renderers, from: "struct SilverSplashCanvas", to: "private static func drawWave")
+        // Still ONE Canvas, and the layers are data, not views.
+        try expectEqual(splash.components(separatedBy: "Canvas(").count - 1, 1, "exactly one Canvas")
+        try expect(renderers.contains("static let waveLayers"), "two concentric waves")
+        try expect(renderers.contains("(0.14, 0.74, 0.55, 1.0)"), "the far wave is delayed/dimmer")
+        try expect(renderers.contains("static func rayLayer("), "near/far ray groups")
+        try expect(renderers.contains("static func dropletLayer("), "two droplet rings")
+        try expect(renderers.contains("drawGlow("), "one central radial glow")
+        try expect(renderers.contains("Shading.radialGradient"), "drawn inside the Canvas")
+        // The layered depth rides the SAME animatable scalars.
+        try expect(splash.contains("var burst: Double") && splash.contains("var fade: Double"),
+                   "depth derived from the burst/fade scalars")
+        // Still exactly 14 rays and 8 droplets.
+        let rayTable = welcomeSlice(renderers, from: "static let rays:", to: "/// 8 droplets placed")
+        try expectEqual(welcomeTupleCount(rayTable), 14, "14 rays")
+        let dropTable = welcomeSlice(renderers, from: "static let droplets:", to: "/// Rays start just outside")
+        try expectEqual(welcomeTupleCount(dropTable), 8, "8 droplets")
+    },
+
+    EngineCase("welcome-icon-tilts-into-place-without-a-shadow") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        // One 3D settle on the ONE icon view, interpolated by a Double.
+        try expect(view.contains("@State private var iconEntry: Double = 0"), "a progress, not a Bool")
+        try expect(view.contains(".rotation3DEffect(.degrees(6.5 * (1 - iconEntry))"), "5-8 degree tilt")
+        try expect(view.contains("perspective: 0.7"), "a restrained perspective")
+        try expect(view.contains("withAnimation(.easeOut(duration: 0.45)) { iconRevealed = true; iconEntry = 1 }"),
+                   "one finite settle")
+        // The animated halo was removed: it cost cadence for no visible gain.
+        try expect(!view.contains(".shadow(color: .black.opacity(Double(0.18"),
+                   "no animated halo")
+        try expect(!view.contains("iconEntry = iconEntry"), "no continuous animation")
+        // Reduce Motion still lands flat, with no tilt.
+        let reduce = welcomeSlice(view, from: "if reduceMotion {", to: "// 0.00")
+        try expect(reduce.contains("iconEntry = 1"), "flat under Reduce Motion")
+    },
+
     EngineCase("welcome-button-focus-waits-for-the-fade") {
         let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
         guard let reveal = view.range(of: "withAnimation(.easeOut(duration: 0.40)) { buttonRevealed = true }")?.lowerBound,
@@ -764,7 +836,7 @@ public let welcomeCases: [EngineCase] = [
         // (their passes are long over) and the splash leaves afterwards.
         // The Reduce Motion path retires both immediately; the animated path
         // must retire the FIELD before the button fade and the SPLASH after it.
-        let animated = welcomeSlice(view, from: "withAnimation(.easeOut(duration: 0.35)) { iconRevealed = true }",
+        let animated = welcomeSlice(view, from: "withAnimation(.easeOut(duration: 0.45)) { iconRevealed = true; iconEntry = 1 }",
                                     to: "private func activate")
         guard let field = animated.range(of: "fieldActive = false")?.lowerBound,
               let reveal2 = animated.range(of: "buttonRevealed = true")?.lowerBound,
