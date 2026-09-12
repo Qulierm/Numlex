@@ -113,6 +113,10 @@ public struct TemporalContext: Equatable, Sendable {
     public let preferences: TemporalPreferences
     /// The sheet language (day qualification words).
     public let language: AppLanguage
+    /// The active number context's ISO region code (`US`, `DE`, ...), used
+    /// by the automatic holiday-region resolution. Nil when the locale
+    /// carries no region.
+    public let localeRegion: String?
     /// A finite hard bound for any temporal arithmetic (years).
     public static let maxYearSpan = 5000
 
@@ -121,13 +125,15 @@ public struct TemporalContext: Equatable, Sendable {
                 timeZone: TimeZone,
                 clockStyle: ClockStyle,
                 language: AppLanguage = .en,
-                preferences: TemporalPreferences = .defaults) {
+                preferences: TemporalPreferences = .defaults,
+                localeRegion: String? = nil) {
         self.now = now
         self.calendar = calendar
         self.timeZone = timeZone
         self.clockStyle = clockStyle
         self.language = language
         self.preferences = preferences
+        self.localeRegion = localeRegion
     }
 
     /// The default context for a number context and a captured date.
@@ -140,7 +146,8 @@ public struct TemporalContext: Equatable, Sendable {
         TemporalContext(now: now, calendar: calendar, timeZone: timeZone,
                         clockStyle: ClockStyle.forContext(context),
                         language: language,
-                        preferences: preferences)
+                        preferences: preferences,
+                        localeRegion: context.locale.region?.identifier.uppercased())
     }
 
     /// Today's component triple in the captured calendar/zone.

@@ -62,12 +62,28 @@ enum TimezoneLane {
         let text = raw.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return nil }
         let key = TimezoneCatalog.normalizedName(text)
-        // A validated user alias (app-global, never in `.nlx`).
-        for custom in preferences.customTimeZones where custom.isValid {
-            if TimezoneCatalog.normalizedName(custom.name) == key {
-                return catalog.canonicalZone(custom.identifier) ?? custom.identifier
+        // A validated user alias (app-global, never in `.nlx`) wins over
+        // other custom aliases — but never over the BUNDLED sources: a
+        // name the built-in catalog already answers (city, country,
+        // IATA/ICAO, IANA id/alias, fixed abbreviation, GMT/UTC syntax)
+        // keeps its bundled meaning, so a stale persisted row can never
+        // steal it.
+        if builtInZone(text, catalog: catalog) == nil {
+            for custom in preferences.customTimeZones where custom.isValid {
+                if TimezoneCatalog.normalizedName(custom.name) == key {
+                    return catalog.canonicalZone(custom.identifier) ?? custom.identifier
+                }
             }
         }
+        return builtInZone(text, catalog: catalog)
+    }
+
+    /// The BUNDLED resolution sources only (no custom aliases): fixed
+    /// abbreviations and GMT offsets, IANA id/alias, city (with an explicit
+    /// `City, CC` disambiguation), country name, country code, IATA/ICAO.
+    static func builtInZone(_ raw: String, catalog: TimezoneCatalog) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
         // Fixed abbreviations and GMT offsets first: they are not IANA ids.
         if let fixed = fixedOffsetZone(text) { return fixed }
         // IANA id / alias.

@@ -240,7 +240,6 @@ enum ClockLane {
             .trimmingCharacters(in: .whitespaces)
         let target = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
         guard target.caseInsensitiveCompare("laptime") == .orderedSame
-                || target.caseInsensitiveCompare("timespan") == .orderedSame
                 || target.caseInsensitiveCompare("elapsed") == .orderedSame else { return nil }
         if let clock = parseClockOperand(body) {
             let day = clock.hour * 3600 + clock.minute * 60 + clock.second

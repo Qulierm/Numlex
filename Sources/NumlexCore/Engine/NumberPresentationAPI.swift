@@ -83,9 +83,12 @@ public enum NumberPresentation {
                                       prefs: NumberPresentationPreferences,
                                       context: NumberFormatContext) -> String {
         switch notation {
-        case .automatic:
+        case .automatic, .timespan:
             // Byte-for-byte the pre-r87 shared formatter (compact
-            // toggle, >=1e16 scientific, grouping, trimming).
+            // toggle, >=1e16 scientific, grouping, trimming). The
+            // Timespan notation applies only through the time-quantity
+            // path in `AnswerDisplay`; a bare number falls back here,
+            // deterministically and never blank.
             return formatDisplayValue(value, decimalPlaces: precision,
                                       context: context)
         case .decimal:
@@ -125,7 +128,8 @@ public enum NumberPresentation {
                             prefs: NumberPresentationPreferences,
                             context: NumberFormatContext) -> String {
         switch notation {
-        case .automatic:
+        case .automatic, .timespan:
+            // Timespan never applies to an exact integer row.
             return IntLiteral.formatDecimal(v, context: context)
         case .decimal:
             // Exact digits, localized grouping, no fractional part
@@ -425,7 +429,7 @@ public enum NumberPresentation {
                                  context: context, currencySymbol: symbol)
         }
         switch notation {
-        case .automatic, .decimal:
+        case .automatic, .decimal, .timespan:
             let body = moneyBody(value, digits: CurrencyPresentation.minorDigits(for: upper),
                                   context: context)
             return moneyPlacement(value, code: upper, symbol: symbol,

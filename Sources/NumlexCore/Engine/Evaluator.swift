@@ -509,7 +509,8 @@ func evalLineTyped(_ line: String,
                    weather: WeatherContext = .empty,
                    geo: GeoContext = .empty,
                    context: NumberFormatContext = .legacy,
-                   unitContext: UnitContext = .builtIns) -> LineResult? {
+                   unitContext: UnitContext = .builtIns,
+                   preferences: TemporalPreferences = .defaults) -> LineResult? {
     // r55: weather detection runs FIRST so `weather in London` can
     // never be misclassified as conversion or prose — but ONLY the
     // strict grammar activates it, the environment is never mutated,
@@ -541,8 +542,71 @@ func evalLineTyped(_ line: String,
     // clock, a date or a geo query).
     if !BooleanLogic.hasAssignment(line) {
         let temporal = TemporalContext.standard(now: now, calendar: calendar,
-                                                context: context)
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
         switch TimezoneLane.tryLine(line, context: context, temporal: temporal) {
+        case .result(let result):
+            return result
+        case .error(let message):
+            return .error(message: message)
+        case .notMine:
+            break
+        }
+    }
+    // temporal Task 3: the explicit `as timespan` suffix (independent of
+    // the global/per-line notation) runs before the clock lane, which now
+    // handles only `as laptime`/`as elapsed`.
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
+        if let span = TimespanLane.tryLine(line, context: context, temporal: temporal,
+                                           unitContext: unitContext) {
+            return span
+        }
+    }
+    // temporal Task 4: the strict timecode lane owns timecode/frame-shaped
+    // lines before the clock and mixed-unit lanes (inside it `fps` means
+    // frames per second; outside it the speed alias stays ft/s).
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
+        switch TimecodeLane.tryLine(line, context: context, temporal: temporal,
+                                    unitContext: unitContext) {
+        case .result(let result):
+            return result
+        case .error(let message):
+            return .error(message: message)
+        case .notMine:
+            break
+        }
+    }
+    // temporal Task 6: the special-date lane owns `days until <holiday>`
+    // before the ordinary date fallback.
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
+        if let special = SpecialDateLane.tryLine(line, context: context, temporal: temporal,
+                                                 unitContext: unitContext) {
+            return special
+        }
+    }
+    // temporal Task 5: the work-calendar lane owns workday/work-hour-shaped
+    // lines before the clock/date/unit lanes (its dated shapes consult the
+    // bundled holiday profiles and fail strictly for unsupported regions).
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
+        switch WorkCalendarLane.tryLine(line, context: context, temporal: temporal,
+                                        unitContext: unitContext) {
         case .result(let result):
             return result
         case .error(let message):
@@ -556,10 +620,29 @@ func evalLineTyped(_ line: String,
     // unit expression).
     if !BooleanLogic.hasAssignment(line) {
         let temporal = TemporalContext.standard(now: now, calendar: calendar,
-                                                context: context)
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
         if let clock = ClockLane.tryLine(line, context: context, temporal: temporal,
                                          unitContext: unitContext) {
             return clock
+        }
+    }
+    // temporal Task 2: the strict timestamp/ISO lane owns timestamp-shaped
+    // lines before the generic unit conversion and the ordinary date
+    // fallback (no loose word stripping).
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                timeZone: calendar.timeZone,
+                                                context: context,
+                                                preferences: preferences)
+        switch TimestampLane.tryLine(line, context: context, temporal: temporal) {
+        case .result(let result):
+            return result
+        case .error(let message):
+            return .error(message: message)
+        case .notMine:
+            break
         }
     }
     // r85: the exact integer lane — radix literals (`0x1F`, `0b101`,
@@ -772,12 +855,12 @@ func evalLineTyped(_ line: String,
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
              now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
-             geo: geo, context: context, unitContext: unitContext)
+             geo: geo, context: context, unitContext: unitContext, preferences: preferences)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
@@ -792,13 +875,15 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
                      constants: [UserConstant] = [], weather: WeatherContext = .empty,
                      geo: GeoContext = .empty,
                      context: NumberFormatContext = .legacy,
-                     unitContext: UnitContext = .builtIns) -> LineResult? {
+                     unitContext: UnitContext = .builtIns,
+                     preferences: TemporalPreferences = .defaults) -> LineResult? {
     var env = TypedEnv(seed: variables)
     env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
                                now: now, calendar: calendar, weather: weather, geo: geo,
-                               context: context, unitContext: unitContext)
+                               context: context, unitContext: unitContext,
+                               preferences: preferences)
     if result != nil {
         for (k, v) in env.scalarDict() { variables[k] = v }
     }
@@ -816,10 +901,10 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
                   now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
-                  geo: geo, context: context, unitContext: unitContext)
+                  geo: geo, context: context, unitContext: unitContext, preferences: preferences)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -831,7 +916,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                           constants: [UserConstant] = [], weather: WeatherContext = .empty,
                           geo: GeoContext = .empty,
                           context: NumberFormatContext = .legacy,
-                          unitContext: UnitContext = .builtIns) -> [SheetLine] {
+                          unitContext: UnitContext = .builtIns,
+                          preferences: TemporalPreferences = .defaults) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
@@ -859,7 +945,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                                            decimalPlaces: decimalPlaces,
                                            now: now, calendar: calendar, weather: weather,
                                            geo: geo,
-                                           context: context, unitContext: unitContext) {
+                                           context: context, unitContext: unitContext,
+                                           preferences: preferences) {
             result = eval
         } else {
             result = .skip

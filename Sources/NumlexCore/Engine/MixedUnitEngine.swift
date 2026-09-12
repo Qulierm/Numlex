@@ -362,7 +362,8 @@ enum MixedUnitScanner {
             var matched: DurationComponent?
             var end = afterNum
             if afterNum < line.endIndex, isUnitWordStart(line[afterNum], context: context) {
-                if let (component, gluedEnd) = DurationLiteral.gluedComponent(line, from: afterNum) {
+                if let (component, gluedEnd) = DurationLiteral.chainGluedComponent(
+                    line, from: afterNum, chainHasComponent: !order.isEmpty) {
                     matched = component
                     end = gluedEnd
                     gluedUsed = true

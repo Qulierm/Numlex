@@ -230,7 +230,8 @@ struct ContentView: View {
                         weather: weatherContext,
                         geo: geoContext,
                         context: model.numberContext,
-                        unitContext: model.unitContext
+                        unitContext: model.unitContext,
+                        preferences: settings.temporal
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's
@@ -277,7 +278,8 @@ struct ContentView: View {
                         weather: weatherContext,
                         geo: geoContext,
                         context: model.numberContext,
-                        unitContext: model.unitContext
+                        unitContext: model.unitContext,
+                        preferences: settings.temporal
                     ).lines
                 }()
                 // r77b: per-line result state for the answer-appearance

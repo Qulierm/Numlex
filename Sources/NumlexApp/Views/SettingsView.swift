@@ -49,6 +49,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     case general
     case editing
     case numbers
+    case datesTimes
     case constantsUnits
     case styling
     case about
@@ -60,12 +61,13 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     var titleKey: String { "settings.\(rawValue)" }
 
     /// The CONCISE localized label shown UNDER the tile icon. It equals
-    /// the page title wherever that already fits the tile; Constants,
-    /// Styling and About carry dedicated short keys because the full
-    /// titles ("Constants & Units", Russian "Оформление", Italian
+    /// the page title wherever that already fits the tile; Dates,
+    /// Constants, Styling and About carry dedicated short keys because
+    /// the full titles ("Dates & Times", Russian "Оформление", Italian
     /// "Informazioni") are too wide for a compact tile.
     var navigationLabelKey: String {
         switch self {
+        case .datesTimes: return "settings.datesTimesShort"
         case .constantsUnits: return "settings.constantsUnitsShort"
         case .styling: return "settings.stylingShort"
         case .about: return "settings.aboutShort"
@@ -79,6 +81,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
         case .general: return "gearshape"
         case .editing: return "pencil.tip"
         case .numbers: return "number"
+        case .datesTimes: return "calendar"
         case .constantsUnits: return "function"
         case .styling: return "paintbrush"
         case .about: return "info.circle"
@@ -229,6 +232,7 @@ struct SettingsView: View {
         case .general: GeneralSettingsPage(model: model)
         case .editing: EditingSettingsPage(model: model)
         case .numbers: NumbersSettingsPage(model: model)
+        case .datesTimes: DatesTimesSettingsPage(model: model)
         case .constantsUnits: ConstantsUnitsSettingsPage(model: model)
         case .styling: StylingSettingsPage(model: model)
         case .about: AboutSettingsPage(model: model)
@@ -1197,6 +1201,280 @@ private struct ConstantsUnitsSettingsPage: View {
                                           context: model.numberContext)
             return q.display.label.isEmpty ? base : base + " " + q.display.label
         }
+    }
+}
+
+// MARK: - Dates & Times tab (temporal Task 1)
+
+/// The seventh Settings destination: the app-global temporal preferences.
+/// Task 1 owns the custom-timezone editor; the work-calendar rows
+/// (holiday region, hours per workday) live below it and are added by
+/// the work-calendar task through the SAME persisted block. Nothing on
+/// this page is sheet metadata: the values never enter `.nlx`, and every
+/// edit persists ONCE through the model's mutation API so the observable
+/// settings write live-reevaluates the sheets without touching any
+/// editor identity, caret or selection.
+private struct DatesTimesSettingsPage: View {
+    @Bindable var model: AppModel
+    @FocusState private var focusedZone: UUID?
+
+    private var language: AppLanguage { model.settings.language }
+
+    private var zones: [CustomTimeZone] { model.settings.temporal.customTimeZones }
+    private var states: [CustomTimeZoneState] { CustomTimeZoneEditor.states(zones) }
+
+    var body: some View {
+        let language = self.language
+        return SettingsDetailPage(destination: .datesTimes, language: language) {
+            SettingsGroup(title: L10n.t("datesTimes.work", language: language)) {
+                SettingsRow(
+                    title: L10n.t("holidayRegion.label", language: language),
+                    detail: L10n.t("holidayRegion.cap", language: language)
+                ) {
+                    Picker("", selection: holidayRegionBinding) {
+                        Text(L10n.t("holidayRegion.automatic", language: language))
+                            .tag(TemporalPreferences.automaticHolidayRegion)
+                        ForEach(holidayRegions, id: \.self) { code in
+                            Text(regionLabel(code, language: language)).tag(code)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("holidayRegion.label", language: language))
+                }
+                SettingsRow(
+                    title: L10n.t("hoursPerWorkday.label", language: language),
+                    detail: L10n.t("hoursPerWorkday.cap", language: language),
+                    divider: true
+                ) {
+                    HStack(spacing: 8) {
+                        Text(formatDisplayValue(model.settings.temporal.hoursPerWorkday,
+                                                decimalPlaces: 2,
+                                                context: model.numberContext))
+                            .font(.system(size: 13))
+                            .frame(minWidth: 28, alignment: .trailing)
+                        Stepper("",
+                                value: hoursPerWorkdayBinding,
+                                in: 1...24,
+                                step: 0.5)
+                            .labelsHidden()
+                            .accessibilityLabel(L10n.t("hoursPerWorkday.label",
+                                                       language: language))
+                    }
+                }
+            }
+            SettingsGroup(title: L10n.t("timezones.group", language: language)) {
+                if zones.isEmpty {
+                    SettingsEmptyState(
+                        systemImage: "globe",
+                        title: L10n.t("timezones.emptyTitle", language: language),
+                        caption: L10n.t("timezones.emptyCap", language: language),
+                        actionTitle: L10n.t("timezones.add", language: language),
+                        onAction: {
+                            if let id = model.addCustomTimeZone() { focusedZone = id }
+                        })
+                } else {
+                    Text(L10n.t("timezones.intro", language: language))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                        .padding(.top, 6)
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(spacing: 8) {
+                            Text(L10n.t("timezones.name", language: language))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 132, alignment: .leading)
+                            Text(L10n.t("timezones.identifier", language: language))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+
+                        Divider()
+
+                        ScrollView {
+                            LazyVStack(spacing: 6) {
+                                ForEach(zones) { zone in
+                                    timezoneRow(zone)
+                                }
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+
+                    HStack(spacing: 10) {
+                        Button {
+                            if let id = model.addCustomTimeZone() { focusedZone = id }
+                        } label: {
+                            Label(L10n.t("timezones.add", language: language),
+                                  systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(zones.count >= TemporalPreferences.maxCustomTimeZones)
+                        Spacer()
+                        Text("\(zones.count) / \(TemporalPreferences.maxCustomTimeZones)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The bundled holiday regions (sorted ISO codes) plus Automatic.
+    private var holidayRegions: [String] {
+        HolidayCatalog.shared?.countries ?? []
+    }
+
+    private func regionLabel(_ code: String, language: AppLanguage) -> String {
+        let localized = Locale(identifier: "en_US").localizedString(forRegionCode: code) ?? code
+        return "\(code) — \(localized)"
+    }
+
+    /// The holiday-region write path: one settings write, one persist.
+    private var holidayRegionBinding: Binding<String> {
+        Binding(
+            get: { model.settings.temporal.holidayRegion },
+            set: { model.settings.temporal.holidayRegion =
+                    $0.isEmpty ? TemporalPreferences.automaticHolidayRegion : $0
+                   model.persist() }
+        )
+    }
+
+    /// Hours per workday: clamped to the 1...24 contract on every write.
+    private var hoursPerWorkdayBinding: Binding<Double> {
+        Binding(
+            get: { model.settings.temporal.hoursPerWorkday },
+            set: { model.settings.temporal.hoursPerWorkday =
+                    TemporalPreferences.clampedHours($0)
+                   model.persist() }
+        )
+    }
+
+    /// One custom-timezone row: the alias, the IANA identifier, the live
+    /// validation status and the borderless destructive trash. Enter in
+    /// the identifier adds the next row when under the cap (the same
+    /// focus handoff the constants/units tables use); every keystroke
+    /// persists once through the mutation API so the lane sees it live.
+    @ViewBuilder
+    private func timezoneRow(_ zone: CustomTimeZone) -> some View {
+        let language = self.language
+        let state = CustomTimeZoneEditor.state(name: zone.name,
+                                               identifier: zone.identifier,
+                                               zones: zones, excluding: zone.id)
+        HStack(spacing: 8) {
+            TextField(L10n.t("timezones.name", language: language),
+                      text: nameBinding(zone))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .frame(width: 132)
+                .focused($focusedZone, equals: zone.id)
+                .accessibilityLabel(L10n.t("timezones.name", language: language))
+            TextField(L10n.t("timezones.identifier", language: language),
+                      text: identifierBinding(zone))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .accessibilityLabel(L10n.t("timezones.identifier", language: language))
+                .onSubmit {
+                    if zones.count < TemporalPreferences.maxCustomTimeZones {
+                        if let id = model.addCustomTimeZone(after: zone.id) {
+                            focusedZone = id
+                        }
+                    }
+                }
+            timezoneStatusView(state)
+            Button {
+                model.deleteCustomTimeZone(id: zone.id)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help(L10n.t("timezones.delete", language: language))
+            .accessibilityLabel(L10n.t("timezones.delete", language: language))
+        }
+    }
+
+    /// The live status: a green check plus the resolved zone for active
+    /// rows, a red warning plus the localized reason otherwise; a fresh
+    /// both-empty row stays quiet like the other editors.
+    @ViewBuilder
+    private func timezoneStatusView(_ state: CustomTimeZoneState) -> some View {
+        let language = self.language
+        HStack(spacing: 5) {
+            switch state {
+            case .active:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                Text(L10n.t("timezones.status.active", language: language))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            case .empty:
+                EmptyView()
+            case .incomplete, .invalidName, .duplicate, .builtInCollision, .unknownZone:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                Text(timezoneStatusText(state))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+        }
+        .frame(minWidth: 0)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(timezoneStatusText(state))
+    }
+
+    private func timezoneStatusText(_ state: CustomTimeZoneState) -> String {
+        let language = self.language
+        switch state {
+        case .active: return L10n.t("timezones.status.active", language: language)
+        case .empty: return ""
+        case .incomplete: return L10n.t("timezones.status.incomplete", language: language)
+        case .invalidName: return L10n.t("timezones.status.invalidName", language: language)
+        case .duplicate: return L10n.t("timezones.status.duplicate", language: language)
+        case .builtInCollision: return L10n.t("timezones.status.builtInCollision", language: language)
+        case .unknownZone: return L10n.t("timezones.status.unknownZone", language: language)
+        }
+    }
+
+    /// The name field writes through the ONE mutation API (bounded +
+    /// persisted once per edit).
+    private func nameBinding(_ zone: CustomTimeZone) -> Binding<String> {
+        Binding(
+            get: {
+                model.settings.temporal.customTimeZones
+                    .first(where: { $0.id == zone.id })?.name ?? zone.name
+            },
+            set: { model.updateCustomTimeZone(id: zone.id, name: $0,
+                                              identifier: zone.identifier) }
+        )
+    }
+
+    private func identifierBinding(_ zone: CustomTimeZone) -> Binding<String> {
+        Binding(
+            get: {
+                model.settings.temporal.customTimeZones
+                    .first(where: { $0.id == zone.id })?.identifier ?? zone.identifier
+            },
+            set: { model.updateCustomTimeZone(id: zone.id, name: zone.name,
+                                              identifier: $0) }
+        )
     }
 }
 

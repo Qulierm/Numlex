@@ -85,6 +85,9 @@ public enum DateArithmetic {
         var yearExplicit = false
         var start: (y: Int, m: Int, d: Int)?
         var rest = 0
+        // A named special date followed by ordinary prose is NOT
+        // date-shaped: `christmas plans` stays prose, never an error.
+        var namedDate = false
 
         let first = tokens[0].lowercased()
         if first == "today" || first == "tomorrow" || first == "yesterday" {
@@ -97,6 +100,29 @@ public enum DateArithmetic {
                      calendar.component(.month, from: shifted),
                      calendar.component(.day, from: shifted))
             rest = 1
+        } else if first == "easter" || first == "christmas" || first == "xmas" {
+            namedDate = true
+            // temporal Task 6: named special dates. An optional explicit
+            // 4-digit year follows (`Easter 2027`, `Christmas 2026`); a
+            // bare name uses the captured current year.
+            var idx = 1
+            if first == "christmas", idx < tokens.count,
+               tokens[idx].lowercased() == "day" {
+                idx += 1
+            }
+            var y = calendar.component(.year, from: now)
+            if idx < tokens.count, let explicit = Int(tokens[idx]), tokens[idx].count == 4 {
+                y = explicit
+                yearExplicit = true
+                idx += 1
+            }
+            if first == "easter" {
+                guard let e = SpecialDateCatalog.easter(year: y) else { return .malformed }
+                start = (y, e.month, e.day)
+            } else {
+                start = (y, 12, 25)
+            }
+            rest = idx
         } else if let m = monthIndex[first], tokens.count >= 2,
                   let d = Int(tokens[1].hasSuffix(",") ? String(tokens[1].dropLast()) : tokens[1]) {
             // `May 5` / `May 5, 2026`
@@ -133,18 +159,29 @@ public enum DateArithmetic {
         }
         guard let s = start else { return .malformed }
 
-        // --- Parse the optional duration --------------------------------
-        var delta: (unit: String, n: Int)?
+        // --- Parse the optional duration compound -----------------------
+        // ONE leading sign followed by one or more `<number> <unit>` pairs:
+        // `May 5 + 43 days`, `March 12 + 3 weeks 2 days`,
+        // `May 10 - 1 week 3 days`.
+        var deltas: [(unit: String, n: Int)] = []
         if rest < tokens.count {
-            guard tokens.count == rest + 3 else { return .malformed }
             let signToken = tokens[rest]
-            guard signToken == "+" || signToken == "-" else { return .malformed }
-            let numToken = tokens[rest + 1].replacingOccurrences(of: ",", with: "")
-            guard let n = Int(numToken), numToken.count <= 7 else { return .malformed }
-            guard let unit = durationWords[tokens[rest + 2].lowercased()] else {
-                return .malformed
+            guard signToken == "+" || signToken == "-" else {
+                return namedDate ? .none : .malformed
             }
-            delta = (unit, signToken == "-" ? -n : n)
+            let sign = signToken == "-" ? -1 : 1
+            var idx = rest + 1
+            while idx < tokens.count {
+                guard idx + 1 < tokens.count else { return .malformed }
+                let numToken = tokens[idx].replacingOccurrences(of: ",", with: "")
+                guard let n = Int(numToken), numToken.count <= 7 else { return .malformed }
+                guard let unit = durationWords[tokens[idx + 1].lowercased()] else {
+                    return .malformed
+                }
+                deltas.append((unit, sign * n))
+                idx += 2
+            }
+            guard !deltas.isEmpty else { return .malformed }
         }
 
         // --- Validate the real date --------------------------------------
@@ -157,7 +194,7 @@ public enum DateArithmetic {
         )) else { return .malformed }
 
         var resultDate = anchor
-        if let (unit, n) = delta {
+        for (unit, n) in deltas {
             guard abs(n) <= maxDuration else { return .malformed }
             let comp: Calendar.Component
             switch unit {
@@ -168,7 +205,7 @@ public enum DateArithmetic {
             default: return .malformed
             }
             let value = (unit == "week") ? n * 7 : n
-            guard let shifted = calendar.date(byAdding: comp, value: value, to: anchor) else {
+            guard let shifted = calendar.date(byAdding: comp, value: value, to: resultDate) else {
                 return .malformed
             }
             resultDate = shifted

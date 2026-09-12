@@ -5,7 +5,7 @@ current `main` branch. It is written for authors of the published
 documentation: every claim here is pinned by the Swift source and the
 canonical engine tests. Released builds may lag behind `main`.
 
-Settings are organized into **six categories**, selected from a compact row of
+Settings are organized into **seven categories**, selected from a compact row of
 **icon-over-label tiles across the top of the window**; each page is one readable
 column of grouped rows with native switches, pickers and sliders. Nothing here is cloud-synced; every preference is
 stored on your Mac.
@@ -15,11 +15,12 @@ stored on your Mac.
 | **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon (all three are rows of the Interface group), and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
 | **Editing** | pencil tip | Operator helpers and automatic insertions — everything that rewrites text as you type |
 | **Numbers** | number | Regional number format, paste conversion, how answers are displayed and copied, the answer notation (including the custom pattern field) |
+| **Dates & Times** | calendar | The work calendar (holiday region, hours per workday) and custom timezone aliases — app-global, never in `.nlx` |
 | **Constants & Units** | function | Global constants and custom units (one segmented surface) |
 | **Styling** | paintbrush | Typography, answer column, syntax colors, live preview |
 | **About** | info circle | The app icon and version, plus Check for Updates and the automatic-check schedule (never part of `.nlx`) |
 
-The navigation is a compact, centered row of **six icon-over-label tiles** directly
+The navigation is a compact, centered row of **seven icon-over-label tiles** directly
 below the compact native titlebar (no section title is repeated above it — the active
 tile's visible label names the page, and no page title appears in the scrolling
 detail either). Each tile is
@@ -32,7 +33,7 @@ content, and hover is a weaker neutral wash that never moves the layout. The sel
 tile is the only one with the `.isSelected` accessibility trait; every tile also
 carries a localized tooltip and accessibility label with its FULL page title. The
 arrow keys move the selection across the row and the focus cue stays on the selected
-tile. Categories, in order: General, Editing, Numbers, Constants, Styling, About.
+tile. Categories, in order: General, Editing, Numbers, Dates, Constants, Styling, About.
 Tiles use a concise visible label where the full page title would be too wide
 ("Constants" for Constants & Units, Russian "Стиль" for Styling, Italian "Info" for
 Informazioni); the full page title always appears in the tooltip and the
@@ -285,6 +286,32 @@ fixed. The full pattern grammar is documented with the syntax reference (see
 
 Switching the *display* mode never changes a value, an answer token's payload,
 a dependency or a total — only how the value is rendered and copied.
+
+## Dates & Times
+
+The seventh category owns the app-global temporal preferences, split into two
+groups.
+
+**Work calendar** — a Holiday region picker (Automatic = the active number
+context's system region, plus the 25 supported ISO country profiles) and an
+Hours per workday stepper (finite, clamped to 1...24, default 8). Workdays are
+Monday–Friday minus the region's public holidays; an unsupported region or an
+out-of-coverage year makes a dated workday query fail strictly instead of
+silently ignoring holidays. The bundled holiday profiles are reproducibly
+generated offline (25 countries, 2019–2035) and hash-verified at load.
+
+**Custom timezones** — up to 100 rows, each a stable UUID with a user alias
+and an IANA identifier. Every row reports a live validation state: empty,
+incomplete, invalid name, duplicate, reserved by a built-in place, unknown
+timezone, or active. Aliases are matched case/whitespace-insensitively and can
+never steal a bundled city/country/IATA/ICAO/IANA id or a GMT/UTC/fixed
+abbreviation. Only active rows reach the timezone lane (`time in <alias>`);
+the whole block is app-global and never exported to `.nlx`.
+
+Every change writes through the model's one custom-timezone mutation API (or a
+single settings write for the work-calendar rows) and persists once. No
+temporal preference ever touches a sheet, its content, line IDs, references,
+the editor's TextKit identity, caret, selection, marked text or scroll.
 
 ## Constants
 

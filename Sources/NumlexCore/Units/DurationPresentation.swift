@@ -137,6 +137,109 @@ public enum DurationUnits {
 /// walks its own text representation.
 public enum DurationLiteral {
 
+    /// The contextual glued component of a PROVEN duration chain: the
+    /// long alias table first (`ms`, `min`, `hr`, ...), then the single
+    /// letters `m` (minute) and `s` (second). The single letters are
+    /// accepted ONLY when the chain already carries an unambiguous
+    /// component, so standalone `5m` remains 5,000,000, `5 m` remains
+    /// metres and standalone `10s` is unchanged.
+    public static func chainGluedComponent(_ text: String, from index: String.Index,
+                                           chainHasComponent: Bool)
+        -> (DurationComponent, String.Index)? {
+        if let hit = gluedComponent(text, from: index) { return hit }
+        guard chainHasComponent, index < text.endIndex else { return nil }
+        let c = text[index]
+        let next = text.index(after: index)
+        // A following letter means a longer word (`5mX`), which is not ours.
+        guard next == text.endIndex || !text[next].isLetter else { return nil }
+        if c == "m" { return (.minute, next) }
+        if c == "s" { return (.second, next) }
+        return nil
+    }
+
+    /// A WHOLE-text time chain (`3h 5m 10s`, `1 h 45 min`, `1.5 yr`),
+    /// fully consumed. The shared typed parser behind the explicit `as
+    /// timespan` suffix. Returns the total seconds and whether any
+    /// component was glued.
+    public static func parseChain(_ raw: String, unitContext: UnitContext)
+        -> (seconds: Double, glued: Bool)? {
+        var text = raw.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, text.count <= 80 else { return nil }
+        var sign = 1.0
+        if text.hasPrefix("-") {
+            sign = -1
+            text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+        } else if text.hasPrefix("+") {
+            text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+        }
+        guard !text.isEmpty else { return nil }
+        var i = text.startIndex
+        var seconds = 0.0
+        var any = false
+        var glued = false
+        while i < text.endIndex {
+            while i < text.endIndex, text[i] == " " { i = text.index(after: i) }
+            guard i < text.endIndex, text[i].isNumber || text[i] == "." else { return nil }
+            var numText = ""
+            while i < text.endIndex, text[i].isNumber || text[i] == "." {
+                numText.append(text[i])
+                i = text.index(after: i)
+            }
+            guard !numText.isEmpty, numText != ".",
+                  let value = Double(numText), value.isFinite else { return nil }
+            var unitSeconds: Double?
+            var end = i
+            if i < text.endIndex, text[i].isLetter {
+                // The contextual single letters m/s need a proven chain;
+                // `5m` stays 5,000,000 and standalone `10s` stays rejected.
+                if let (c, gluedEnd) = chainGluedComponent(text, from: i,
+                                                           chainHasComponent: any) {
+                    unitSeconds = c.seconds
+                    end = gluedEnd
+                    glued = true
+                } else {
+                    var word = ""
+                    var wordEnd = i
+                    while wordEnd < text.endIndex, text[wordEnd].isLetter {
+                        word.append(text[wordEnd])
+                        wordEnd = text.index(after: wordEnd)
+                    }
+                    // A glued unit word must be at least two letters
+                    // (`yr`, `mo`, `sec`), never a bare `s`/`m`.
+                    if word.count >= 2, let parsed = UnitCatalog.resolveExpression(word),
+                       parsed.unit.vector == DimensionVector(t: 1),
+                       parsed.unit.isLinear {
+                        unitSeconds = parsed.unit.toBase
+                        end = wordEnd
+                        glued = true
+                    }
+                }
+            }
+            if unitSeconds == nil {
+                while i < text.endIndex, text[i] == " " { i = text.index(after: i) }
+                var word = ""
+                var wordEnd = i
+                while wordEnd < text.endIndex, text[wordEnd].isLetter {
+                    word.append(text[wordEnd])
+                    wordEnd = text.index(after: wordEnd)
+                }
+                if let parsed = UnitCatalog.resolveExpression(word),
+                   parsed.unit.vector == DimensionVector(t: 1),
+                   parsed.unit.isLinear {
+                    unitSeconds = parsed.unit.toBase
+                    end = wordEnd
+                }
+            }
+            guard let secondsPerUnit = unitSeconds else { return nil }
+            seconds += value * secondsPerUnit
+            guard seconds.isFinite else { return nil }
+            any = true
+            i = end
+        }
+        guard any else { return nil }
+        return (sign * seconds, glued)
+    }
+
     /// The component a spaced/word alias denotes (nil when the word is not a
     /// fixed duration alias at all).
     public static func component(forWord word: String) -> DurationComponent? {

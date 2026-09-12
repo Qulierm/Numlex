@@ -89,7 +89,7 @@ public enum NotebookFormatting {
                                           now: Date(), calendar: Calendar.current,
                                           context: context) {
                 switch result {
-                case .clock, .laptime:
+                case .clock, .laptime, .dateTime, .timestamp, .timecode, .frameCount:
                     // Temporal values have no canonical re-spelling.
                     out.append(line)
                 case .number(_, .none, _, _), .variable, .boolean, .error:
@@ -159,8 +159,9 @@ public enum NotebookFormatting {
             return true
         case .location, .dms:
             return false
-        case .money, .date, .blank, .skip, .title, .brokenToken, .none:
-            // Money/date lines keep their exact typed form.
+        case .money, .date, .dateTime, .timestamp, .timecode, .frameCount,
+             .blank, .skip, .title, .brokenToken, .none:
+            // Money/date/temporal lines keep their exact typed form.
             return false
         }
     }

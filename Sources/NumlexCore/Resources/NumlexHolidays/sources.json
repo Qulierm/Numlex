@@ -1,0 +1,42 @@
+{
+  "attribution": "National public-holiday rule tables compiled by Numlex from public government calendars (national holidays only; regional/state observances excluded).",
+  "countries": {
+    "AT": 221,
+    "AU": 119,
+    "BE": 170,
+    "BR": 153,
+    "CA": 153,
+    "CH": 68,
+    "CN": 187,
+    "DE": 153,
+    "ES": 170,
+    "FR": 187,
+    "GB": 136,
+    "IE": 153,
+    "IN": 51,
+    "IT": 187,
+    "JP": 272,
+    "KR": 136,
+    "MX": 119,
+    "NL": 136,
+    "NZ": 170,
+    "PL": 187,
+    "PT": 204,
+    "RU": 238,
+    "SE": 187,
+    "US": 185,
+    "ZA": 204
+  },
+  "generator": "Scripts/generate-holiday-data.py",
+  "license": "Public-domain rule tables; the generated data set is provided under CC0.",
+  "resources": {
+    "holidays.tsv": {
+      "sha256": "845646c20a93b6969dfd75b032aec6aa6a20d1fc171bbd957882015f074b5eff"
+    }
+  },
+  "version": "2026.1",
+  "yearRange": [
+    2019,
+    2035
+  ]
+}

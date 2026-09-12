@@ -86,6 +86,19 @@ public enum NumericKind: Equatable, Sendable {
     /// unit stay ordinary quantity data — this kind only selects the
     /// natural decomposition for the visible answer and its copy.
     case duration
+    /// temporal Task 3: an EXPLICIT `as timespan` duration. Like
+    /// `.duration`, the value and unit stay ordinary quantity data, but
+    /// the presentation is the timespan formatter (average yr/mo,
+    /// pluralized full words for hour-or-larger roots) independent of
+    /// the global notation. Selecting the global/per-line Timespan
+    /// NOTATION on a time quantity produces the same text without
+    /// changing the kind.
+    case timespan
+    /// temporal Task 4: seconds produced by the video-timecode lane
+    /// (`15.6k frames / 24 fps` -> `650 s`). Renders as an ordinary
+    /// single-unit quantity, but — like every timecode result — it is
+    /// EXCLUDED from both totals and the numeric previous-answer chain.
+    case timecodeSeconds
 }
 
 /// r83: one reduced rational. The reduction is DETERMINISTIC: the
@@ -278,6 +291,30 @@ public enum LineResult: Equatable, Sendable {
     /// An elapsed/laptime value in seconds, presented as `HH:MM:SS` (with
     /// fractional seconds when present). Non-numeric, excluded from totals.
     case laptime(seconds: Double)
+    /// temporal Task 2: a calendar date-time — typed wall components plus
+    /// the UTC offset that produced them. `iso` selects the canonical
+    /// `yyyy-MM-dd'T'HH:mm:ssXXX` rendering; otherwise the row renders in
+    /// Numlex's regional date-time presentation (regional 12/24 h clock
+    /// style, English month-day ordering). Never numeric: excluded from
+    /// InlineTotal/FooterTotal and from the numeric previous-answer chain.
+    case dateTime(year: Int, month: Int, day: Int, hour: Int, minute: Int,
+                  second: Int, hasSeconds: Bool, utcOffsetSeconds: Int, iso: Bool)
+    /// temporal Task 2: an epoch-seconds value (Unix seconds since
+    /// 1970-01-01T00:00:00Z; finite fractional values allowed). Renders
+    /// and copies as a locale-formatted number; like every temporal
+    /// shape it is excluded from both totals and the previous-answer
+    /// chain.
+    case timestamp(seconds: Double)
+    /// temporal Task 4: a video timecode — a checked non-negative Int64
+    /// total-frame count plus the positive frame rate (1...1000) it is
+    /// measured at. Renders/copies `HH:MM:SS:FF` with zero-padded fields
+    /// (the frame field is at least two digits); never numeric, never in
+    /// a total, never an answer-token operand.
+    case timecode(frames: Int64, fps: Int)
+    /// temporal Task 4: a whole frame count (`43,440 frames`). Renders
+    /// and copies with the regional grouping and the canonical `frames`
+    /// label; never numeric, never in a total, never a token operand.
+    case frameCount(frames: Int64)
     case error(message: String)
 }
 

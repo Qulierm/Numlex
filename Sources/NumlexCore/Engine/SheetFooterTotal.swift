@@ -51,7 +51,10 @@ public enum SheetFooterTotal {
     public static func contribution(of result: LineResult, isTotalRow: Bool) -> Double? {
         guard !isTotalRow else { return nil }
         switch result {
-        case .number(let v, _, _, _):
+        case .number(let v, _, let kind, _):
+            // A timecode-lane seconds value is temporal text, never a
+            // footer contribution (temporal Task 4 contract).
+            guard kind != .timecodeSeconds else { return nil }
             return v.isFinite ? v : nil
         case .variable(_, let v, _, _):
             return v.isFinite ? v : nil
@@ -61,7 +64,7 @@ public enum SheetFooterTotal {
             return Double(v)
         case .variableInt(_, let v, _):
             return Double(v)
-        case .clock, .laptime:
+        case .clock, .laptime, .dateTime, .timestamp, .timecode, .frameCount:
             // Temporal values are never numeric: they never enter a total.
             return nil
         case .blank, .skip, .title, .boolean, .date, .location, .dms,

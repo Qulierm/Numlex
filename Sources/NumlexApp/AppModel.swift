@@ -128,13 +128,15 @@ final class AppModel {
                                         decimalPlaces: max(settings.decimalPlaces, 10),
                                         constants: settings.customConstants,
                                         context: old,
-                                        unitContext: unitContext)
+                                        unitContext: unitContext,
+                                        preferences: settings.temporal)
             let rowsNew = evaluateSheet(sheet.content, variables: &newVars,
                                         rates: rates,
                                         decimalPlaces: max(settings.decimalPlaces, 10),
                                         constants: settings.customConstants,
                                         context: new,
-                                        unitContext: unitContext)
+                                        unitContext: unitContext,
+                                        preferences: settings.temporal)
             let lines = sheet.content.components(separatedBy: "\n")
             for row in rowsOld where rowsNew.indices.contains(row.sourceLineIndex) {
                 let other = rowsNew[row.sourceLineIndex]
@@ -956,6 +958,55 @@ final class AppModel {
     func deleteUnitRow(id: UUID) {
         guard settings.customUnits.contains(where: { $0.id == id }) else { return }
         settings.customUnits.removeAll { $0.id == id }
+        persist()
+    }
+
+    // MARK: Custom timezones (temporal Task 1)
+
+    /// THE one custom-timezone mutation family: add / update / delete.
+    /// Every call persists ONCE and only touches `settings.temporal` —
+    /// sheets, content, line IDs, references, the editor identity and
+    /// the caret are never touched, and the observable settings write is
+    /// what live-reevaluates every sheet through the TimezoneLane.
+    /// Appends (or inserts after a row) a fresh custom-timezone row when
+    /// under the 100-row cap; returns the new row's ID so the view can
+    /// focus its name field.
+    @discardableResult
+    func addCustomTimeZone(after rowID: UUID? = nil) -> UUID? {
+        let zones = settings.temporal.customTimeZones
+        guard zones.count < TemporalPreferences.maxCustomTimeZones else { return nil }
+        let taken = Set(zones.map { CustomTimeZoneEditor.canonicalName($0.name) })
+        let row = CustomTimeZone(
+            name: CustomTimeZoneEditor.generatedName(taken: taken),
+            identifier: "")
+        if let rowID, let i = zones.firstIndex(where: { $0.id == rowID }) {
+            settings.temporal.customTimeZones.insert(row, at: i + 1)
+        } else {
+            settings.temporal.customTimeZones.append(row)
+        }
+        persist()
+        return row.id
+    }
+
+    /// Live edit of one custom-timezone row by STABLE ID (never an
+    /// index): both fields are bounded, invalid rows are still persisted
+    /// (so the user can fix them) but the lane consumes only active rows.
+    func updateCustomTimeZone(id: UUID, name: String, identifier: String) {
+        guard let i = settings.temporal.customTimeZones.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        settings.temporal.customTimeZones[i].name =
+            String(name.prefix(CustomTimeZoneEditor.maxNameLength))
+        settings.temporal.customTimeZones[i].identifier =
+            String(identifier.prefix(CustomTimeZoneEditor.maxIdentifierLength))
+        persist()
+    }
+
+    /// Immediate delete by stable ID; dependent sheets re-evaluate on the
+    /// same tick through the observable settings mutation.
+    func deleteCustomTimeZone(id: UUID) {
+        guard settings.temporal.customTimeZones.contains(where: { $0.id == id }) else { return }
+        settings.temporal.customTimeZones.removeAll { $0.id == id }
         persist()
     }
 

@@ -100,11 +100,12 @@ public let settingsNavigationCases: [EngineCase] = [
         try expectEqual(switches, 2, "general is the first detail branch")
     },
 
-    EngineCase("settings-nav-six-destinations-in-order") {
+    EngineCase("settings-nav-seven-destinations-in-order") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // The horizontal bar exposes exactly SIX destinations, in this
-        // order, with About last.
-        let order = ["general", "editing", "numbers", "constantsUnits", "styling", "about"]
+        // The horizontal bar exposes exactly SEVEN destinations, in this
+        // order, with About last (temporal Task 1 inserted Dates & Times
+        // between Numbers and Constants).
+        let order = ["general", "editing", "numbers", "datesTimes", "constantsUnits", "styling", "about"]
         var last = -1
         for name in order {
             guard let r = text.range(of: "case \(name)\n") else {
@@ -158,7 +159,7 @@ public let settingsNavigationCases: [EngineCase] = [
     EngineCase("settings-nav-symbols-and-labels") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
         for symbol in ["gearshape", "pencil.tip",
-                       "number", "function", "paintbrush",
+                       "number", "calendar", "function", "paintbrush",
                        "info.circle"] {
             try expect(text.contains("return \"\(symbol)\""),
                        "sidebar uses the SF Symbol \(symbol)")
@@ -217,14 +218,14 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(!text.contains("NSTitlebarAccessoryViewController"),
                    "no duplicate fake titlebar")
         // Every page routes through the scaffold exactly once.
-        for dest in ["general", "about", "editing",
+        for dest in ["general", "about", "editing", "datesTimes",
                      "constantsUnits", "numbers", "styling"] {
             let needle = "SettingsDetailPage(destination: .\(dest), language: language)"
             try expect(text.contains(needle), "\(dest) uses the shared scaffold")
         }
-        // Exactly SIX scaffolds — the merged Appearance page is gone.
-        try expectEqual(text.components(separatedBy: "SettingsDetailPage(destination: .").count - 1, 6,
-                        "six destinations use the shared scaffold")
+        // Exactly SEVEN scaffolds — the merged Appearance page is gone.
+        try expectEqual(text.components(separatedBy: "SettingsDetailPage(destination: .").count - 1, 7,
+                        "seven destinations use the shared scaffold")
     },
 
     EngineCase("settings-ownership-no-duplicates") {

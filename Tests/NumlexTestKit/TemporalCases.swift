@@ -150,3 +150,143 @@ public let temporalCases: [EngineCase] = [
         try expectEqual(TemporalContext.maxYearSpan, 5000, "bounded span")
     }
 ]
+
+
+// MARK: - temporal Task 7: the consolidated official-example corpus
+
+/// ONE end-to-end pass over every official temporal example, each under
+/// an explicit injected context (never the host locale).
+private func corpusEval(_ line: String, now: Date, calendar: Calendar,
+                        preferences: TemporalPreferences = .defaults,
+                        hours: Double = 8) -> LineResult? {
+    var prefs = preferences
+    prefs.hoursPerWorkday = hours
+    var v: [String: Double] = [:]
+    return evalLine(line, variables: &v, rates: Rates(), decimalPlaces: 10,
+                    now: now, calendar: calendar, context: .legacy,
+                    unitContext: .builtIns, preferences: prefs)
+}
+
+private func corpusText(_ line: String, now: Date, calendar: Calendar,
+                        preferences: TemporalPreferences = .defaults,
+                        hours: Double = 8) -> String? {
+    guard let r = corpusEval(line, now: now, calendar: calendar,
+                             preferences: preferences, hours: hours) else { return nil }
+    return AnswerDisplay.displayText(for: r, decimalPlaces: 10, context: .legacy)
+}
+
+private func corpusParis(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 12)
+    -> (Date, Calendar) {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "Europe/Paris")!
+    let date = cal.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+    return (date, cal)
+}
+
+private func corpusExpect(_ line: String, _ expected: String,
+                          now: Date, calendar: Calendar,
+                          preferences: TemporalPreferences = .defaults,
+                          hours: Double = 8) throws {
+    guard let text = corpusText(line, now: now, calendar: calendar,
+                                preferences: preferences, hours: hours) else {
+        throw CaseFailure(message: "corpus: no text for \(line)", location: "TemporalCorpus")
+    }
+    try expectEqual(text, expected, "corpus \(line)")
+}
+
+public let temporalCorpusCases: [EngineCase] = [
+
+        EngineCase("temporal-corpus-timezone-and-clock") {
+            let (now, cal) = corpusParis(2024, 6, 15)
+            try corpusExpect("time in Paris", "12:00 pm", now: now, calendar: cal)
+            try corpusExpect("Tokyo time", "7:00 pm", now: now, calendar: cal)
+            try corpusExpect("6pm Sydney in Chicago", "3:00 am", now: now, calendar: cal)
+            try corpusExpect("2am PST to GMT", "10:00 am", now: now, calendar: cal)
+            try corpusExpect("7:30am LAX to Japan", "11:30 pm", now: now, calendar: cal)
+            try corpusExpect("3:30pm + 2 hours 15 minutes", "5:45 pm", now: now, calendar: cal)
+            try corpusExpect("01:02:03 + 01:09:54", "02:11:57", now: now, calendar: cal)
+        },
+
+        EngineCase("temporal-corpus-timestamps-and-iso") {
+            let (now, cal) = corpusParis(2019, 4, 1)
+            try corpusExpect("April 1, 2019 3:30pm as iso8601",
+                             "2019-04-01T15:30:00+02:00", now: now, calendar: cal)
+            try corpusExpect("2019-04-01T15:30:00 to date",
+                             "Apr 1, 2019 3:30:00 pm", now: now, calendar: cal)
+            try corpusExpect("April 1, 2019 to timestamp", "1,554,112,800",
+                             now: now, calendar: cal)
+            try corpusExpect("current timestamp", "1,554,112,800", now: now, calendar: cal)
+            try corpusExpect("1559740303.48 to date",
+                             "Jun 5, 2019 3:11:43 pm", now: now, calendar: cal)
+            try corpusExpect("1733823083000 to date",
+                             "Dec 10, 2024 10:31:23 am", now: now, calendar: cal)
+        },
+
+        EngineCase("temporal-corpus-timespan") {
+            let (now, cal) = corpusParis(2025, 1, 15)
+            try corpusExpect("5.5 minutes as timespan", "5 min 30 s", now: now, calendar: cal)
+            try corpusExpect("4.54 hours as timespan",
+                             "4 hours 32 minutes 24 seconds", now: now, calendar: cal)
+            try corpusExpect("72 days as timespan", "10 weeks 2 days", now: now, calendar: cal)
+            try corpusExpect("3 hours 5 minutes 10 seconds", "3 h 5 min 10 s",
+                             now: now, calendar: cal)
+            try corpusExpect("3h 5m 10s in seconds", "11,110 s", now: now, calendar: cal)
+        },
+
+        EngineCase("temporal-corpus-timecode") {
+            let (now, cal) = corpusParis(2025, 1, 15)
+            let examples: [(String, String)] = [
+                ("03:10:20:05 at 30 fps + 50 frames", "03:10:21:25"),
+                ("00:10:20:50 @ 60 fps + 10 minutes", "00:20:20:50"),
+                ("00:30:10:00 @ 24 fps in frames", "43,440 frames"),
+                ("43,440 frames @ 24 fps", "00:30:10:00"),
+                ("03:10:20:05 at 30 fps + 03:10:20:010", "06:20:40:15"),
+                ("03:10:20:05 at 12 fps - 00:20:35:00", "02:49:45:05"),
+                ("30 fps × 3 minutes", "5,400 frames"),
+                ("15.6k frames / 24 fps", "650 s"),
+            ]
+            for (line, expected) in examples {
+                try corpusExpect(line, expected, now: now, calendar: cal)
+            }
+        },
+
+        EngineCase("temporal-corpus-work-calendars") {
+            let (now, cal) = corpusParis(2025, 1, 15)
+            var prefs = TemporalPreferences.defaults
+            prefs.holidayRegion = "US"
+            let examples: [(String, String)] = [
+                ("workdays in 3 weeks", "15 workdays"),
+                ("10 March to 17 March in workdays", "5 workdays"),
+                ("$500/workday × 4 weeks", "$10,000.00"),
+                ("55h in work days", "6.875 workdays"),
+                ("December 24 + 2 workdays", "Dec 29"),
+            ]
+            for (line, expected) in examples {
+                try corpusExpect(line, expected, now: now, calendar: cal,
+                                 preferences: prefs)
+            }
+            guard let span = corpusText("workdays from April 12 to June 15",
+                                        now: now, calendar: cal, preferences: prefs) else {
+                throw CaseFailure(message: "corpus workday range", location: "TemporalCorpus")
+            }
+            try expectEqual(span, "44 workdays", "corpus workday range")
+            guard let hours = corpusText("work hours in June", now: now, calendar: cal,
+                                         preferences: prefs) else {
+                throw CaseFailure(message: "corpus work hours", location: "TemporalCorpus")
+            }
+            try expectEqual(hours, "6 day 16 h", "corpus work hours")
+            guard let rangeHours = corpusText("work hours between March 12 and March 25",
+                                              now: now, calendar: cal,
+                                              preferences: prefs) else {
+                throw CaseFailure(message: "corpus work hours range", location: "TemporalCorpus")
+            }
+            try expectEqual(rangeHours, "3 day", "corpus work hours range")
+        },
+
+        EngineCase("temporal-corpus-official-whats-new") {
+            let (now, cal) = corpusParis(2025, 1, 15)
+            try corpusExpect("Easter 2027", "Mar 28, 2027", now: now, calendar: cal)
+            try corpusExpect("days until Christmas", "344 days", now: now, calendar: cal)
+            try corpusExpect("March 12 + 3 weeks 2 days", "Apr 4", now: now, calendar: cal)
+        },
+    ]

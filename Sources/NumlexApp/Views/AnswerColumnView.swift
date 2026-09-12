@@ -110,7 +110,8 @@ struct AnswerColumnView: View {
         case .dms:
             // r85: DMS answers are not token sources — no outline.
             return false
-        case .blank, .skip, .title, .date, .brokenToken, .error:
+        case .blank, .skip, .title, .date, .dateTime, .timestamp,
+             .timecode, .frameCount, .brokenToken, .error:
             return false
         }
     }
@@ -260,6 +261,11 @@ struct AnswerColumnView: View {
             if opts.allowsFraction {
                 subItem(L10n.t("formatFraction", language: language), mode: .fraction)
             }
+            // temporal Task 3: the Timespan option sits alongside the
+            // numeric notations; it applies only to time-dimension
+            // quantities and falls back to Automatic for every other
+            // number.
+            subItem(L10n.t("formatTimespan", language: language), mode: .timespan)
             subItem(L10n.t("formatCustom", language: language), mode: .custom,
                     enabled: customValid,
                     help: customValid ? nil
@@ -776,6 +782,40 @@ struct AnswerColumnView: View {
                     .font(palette.swiftUIFont(fontSize))
                     .foregroundStyle(Color(nsColor: Design.baseText))
                     .lineLimit(1)
+            case .dateTime(let y, let m, let d, let h, let min, let s, let hasSeconds, let offset, let iso):
+                // temporal Task 2: the shared date-time presentation (ISO
+                // or regional), never tokenized as a number.
+                Text(AnswerDisplay.dateTimeText(year: y, month: m, day: d,
+                                                hour: h, minute: min, second: s,
+                                                hasSeconds: hasSeconds,
+                                                utcOffsetSeconds: offset, iso: iso,
+                                                context: numberContext))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .timestamp(let seconds):
+                // temporal Task 2: the epoch value as a locale-formatted
+                // number; never in a total, never a token.
+                if let text = AnswerDisplay.timestampText(seconds,
+                                                          decimalPlaces: places,
+                                                          context: numberContext) {
+                    Text(text)
+                        .font(palette.swiftUIFont(fontSize))
+                        .foregroundStyle(Color(nsColor: Design.baseText))
+                        .lineLimit(1)
+                }
+            case .timecode(let frames, let fps):
+                // temporal Task 4: the shared `HH:MM:SS:FF` timecode.
+                Text(AnswerDisplay.timecodeText(frames: frames, fps: fps))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            case .frameCount(let frames):
+                // temporal Task 4: the grouped frame count.
+                Text(AnswerDisplay.framesText(frames, context: numberContext))
+                    .font(palette.swiftUIFont(fontSize))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
             case .variable(_, let v, let kind, let fraction):
                 // Assignment rows show ONLY the value — the name and
                 // equals sign live in the editor, never in the answers.
@@ -884,7 +924,23 @@ struct AnswerColumnView: View {
                                               decimalPlaces: places,
                                               context: numberContext)
         }
-        if eff == .automatic {
+        // A timespan kind is the SAME contract through the timespan
+        // formatter (average yr/mo, pluralized full words).
+        if kind == .timespan {
+            return AnswerDisplay.formatKinded(v, unit: unit, kind: .timespan,
+                                              fraction: fraction,
+                                              decimalPlaces: places,
+                                              context: numberContext)
+        }
+        // The Timespan NOTATION applies to time-dimension quantities; every
+        // other number deterministically falls back to Automatic.
+        if eff == .timespan,
+           let span = AnswerDisplay.timespanText(value: v, unit: unit,
+                                                 decimalPlaces: places,
+                                                 context: numberContext) {
+            return span
+        }
+        if eff == .automatic || eff == .timespan {
             return AnswerDisplay.formatKinded(v, unit: unit, kind: kind,
                                               fraction: fraction,
                                               decimalPlaces: places,
@@ -941,14 +997,34 @@ struct AnswerColumnView: View {
                 .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                 .foregroundStyle(Color(nsColor: Design.baseText))
                 .lineLimit(1)
+        } else if kind == .timespan, let u = unit {
+            // temporal Task 3: an explicit `as timespan` value renders the
+            // timespan decomposition with its real unit.
+            Text(kindedString(v: v, unit: u, kind: .timespan,
+                              fraction: fraction, eff: eff, places: places))
+                .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                .foregroundStyle(Color(nsColor: Design.baseText))
+                .lineLimit(1)
         } else if kind == .plain, let u = unit {
             // r87: the value takes the row's effective notation; the
             // unit run is untouched (same size, weight and baseline as
             // the value — the split keeps the pre-r87 pixel layout for
             // the automatic default).
-            let vStr = eff == .automatic
+            // The Timespan notation applies to time-dimension quantities;
+            // every other number falls back to the automatic shape.
+            if eff == .timespan,
+               let span = AnswerDisplay.timespanText(value: v, unit: u,
+                                                     decimalPlaces: places,
+                                                     context: numberContext) {
+                Text(span)
+                    .font(palette.swiftUIFont(fontSize, weight: totalWeight))
+                    .foregroundStyle(Color(nsColor: Design.baseText))
+                    .lineLimit(1)
+            } else {
+            let plainEff: NumberNotation = eff == .timespan ? .automatic : eff
+            let vStr = plainEff == .automatic
                 ? formatDisplayValue(v, decimalPlaces: places, context: numberContext)
-                : NumberPresentation.format(v, category: .plain, notation: eff,
+                : NumberPresentation.format(v, category: .plain, notation: plainEff,
                                             precision: places,
                                             prefs: presentation, context: numberContext)
             HStack(spacing: 5) {
@@ -963,6 +1039,7 @@ struct AnswerColumnView: View {
                 Text(u)
                     .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                     .foregroundStyle(Color(nsColor: Design.baseText))
+            }
             }
         } else {
             // r83: a semantic kind renders its ONE kinded string

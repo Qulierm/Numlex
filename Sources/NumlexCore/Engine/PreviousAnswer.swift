@@ -82,7 +82,9 @@ public enum PreviousAnswerPlan {
     /// the line that uses it).
     public static func isAnswerable(_ result: LineResult) -> Bool {
         switch result {
-        case .number(let v, _, _, _): return v.isFinite
+        case .number(let v, _, let kind, _):
+            // A timecode-lane seconds value never joins the numeric chain.
+            return v.isFinite && kind != .timecodeSeconds
         case .variable: return true
         case .variableInt: return true
         case .integer: return true
@@ -90,6 +92,9 @@ public enum PreviousAnswerPlan {
         case .boolean: return false
         case .clock, .laptime: return false
         case .location, .dms: return false
+        // temporal Task 2/4: date-time/epoch/timecode rows are temporal
+        // text, never numeric operands for the previous-answer chain.
+        case .dateTime, .timestamp, .timecode, .frameCount: return false
         case .blank, .skip, .title, .date, .brokenToken, .error: return false
         }
     }

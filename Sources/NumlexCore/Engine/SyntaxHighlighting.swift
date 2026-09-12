@@ -193,6 +193,17 @@ public enum SyntaxClassifier {
             case .date:
                 isMath = true
                 spans = dateSpans(line, context: context)
+            case .dateTime, .timestamp:
+                // temporal Task 2: timestamp/ISO rows paint numbers and
+                // their specifier keywords (current, timestamp, iso8601,
+                // to/in, date).
+                isMath = true
+                spans = timestampSpans(line, context: context)
+            case .timecode, .frameCount:
+                // temporal Task 4: timecode/frame rows paint their numbers
+                // and fps/frames vocabulary.
+                isMath = true
+                spans = timestampSpans(line, context: context)
             case .blank, .skip, .title, .brokenToken:
                 spans = []
             case .error:
@@ -443,6 +454,19 @@ public enum SyntaxClassifier {
             spans.append(SyntaxSpan(role: .number, range: m))
         }
         for m in matches(#"\b(?:days?|weeks?|months?|years?)\b"#, in: ns) {
+            spans.append(SyntaxSpan(role: .conversion, range: m))
+        }
+        return spans
+    }
+
+    /// temporal Task 2: numbers plus the timestamp/ISO specifier words.
+    private static func timestampSpans(_ line: String, context: NumberFormatContext) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var spans: [SyntaxSpan] = []
+        for m in matches(Self.numberPattern(context), in: ns) {
+            spans.append(SyntaxSpan(role: .number, range: m))
+        }
+        for m in matches(#"\b(?:current|timestamp|iso8601|to|in|date)\b"#, in: ns) {
             spans.append(SyntaxSpan(role: .conversion, range: m))
         }
         return spans

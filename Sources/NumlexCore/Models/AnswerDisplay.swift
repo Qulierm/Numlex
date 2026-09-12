@@ -143,12 +143,81 @@ public enum AnswerDisplay {
         TemporalContext.laptimeText(seconds: seconds)
     }
 
+    /// temporal Task 4: the shared `HH:MM:SS:FF` timecode text.
+    public static func timecodeText(frames: Int64, fps: Int) -> String {
+        TimecodeLane.text(frames: frames, fps: fps)
+    }
+
+    /// temporal Task 4: the shared grouped frame-count text.
+    public static func framesText(_ frames: Int64,
+                                  context: NumberFormatContext) -> String {
+        TimecodeLane.framesText(frames, context: context)
+    }
+
+    /// temporal Task 2: the ONE date-time rendering, shared by the visible
+    /// row, Copy Answer and tests. `iso` selects the canonical
+    /// `yyyy-MM-dd'T'HH:mm:ssXXX` form (with the source/local offset);
+    /// otherwise the regional 12/24-hour clock style is prepended to the
+    /// deterministic English date (`Apr 1, 2019 3:30 pm`).
+    public static func dateTimeText(year: Int, month: Int, day: Int,
+                                    hour: Int, minute: Int, second: Int,
+                                    hasSeconds: Bool, utcOffsetSeconds: Int,
+                                    iso: Bool,
+                                    context: NumberFormatContext) -> String {
+        if iso {
+            let offset: String
+            if utcOffsetSeconds == 0 {
+                offset = "Z"
+            } else {
+                let sign = utcOffsetSeconds < 0 ? "-" : "+"
+                let a = abs(utcOffsetSeconds)
+                offset = "\(sign)\(String(format: "%02d", a / 3600)):\(String(format: "%02d", (a % 3600) / 60))"
+            }
+            return String(format: "%04d-%02d-%02dT%02d:%02d:%02d%@",
+                          year, month, day, hour, minute, second, offset)
+        }
+        let clock: String
+        switch ClockStyle.forContext(context) {
+        case .twelveHour:
+            let displayHour = hour % 12 == 0 ? 12 : hour % 12
+            let suffix = hour < 12 ? "am" : "pm"
+            var text = "\(displayHour):\(String(format: "%02d", minute))"
+            if hasSeconds { text += ":\(String(format: "%02d", second))" }
+            clock = text + " \(suffix)"
+        case .twentyFourHour:
+            var text = String(format: "%02d:%02d", hour, minute)
+            if hasSeconds { text += String(format: ":%02d", second) }
+            clock = text
+        }
+        return "\(DateArithmetic.display(year: year, month: month, day: day, showYear: true)) \(clock)"
+    }
+
+    /// The plain numeric presentation of an epoch row.
+    public static func timestampText(_ seconds: Double, decimalPlaces: Int,
+                                     context: NumberFormatContext) -> String? {
+        guard seconds.isFinite else { return nil }
+        return formatDisplayValue(seconds, decimalPlaces: decimalPlaces,
+                                  context: context.withoutCompactNotation)
+    }
+
+    /// temporal Task 3: the ONE timespan text for a quantity, or nil when
+    /// the unit is not a time-dimension quantity (the caller falls back to
+    /// Automatic deterministically).
+    public static func timespanText(value: Double, unit: String?,
+                                    decimalPlaces: Int,
+                                    context: NumberFormatContext) -> String? {
+        guard let unit else { return nil }
+        return TimespanPresentation.text(value: value, unitLabel: unit,
+                                         decimalPlaces: decimalPlaces,
+                                         context: context)
+    }
+
     public static func formatKinded(_ value: Double, unit: String?,
                                     kind: NumericKind, fraction: Rational?,
                                     decimalPlaces: Int,
                                     context: NumberFormatContext) -> String {
         switch kind {
-        case .plain:
+        case .plain, .timecodeSeconds:
             let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
                                        context: context.withoutCompactNotation)
             if let u = unit { return "\(s) \(u)" }
@@ -174,6 +243,18 @@ public enum AnswerDisplay {
                                                               decimalPlaces: decimalPlaces,
                                                               context: context) {
                 return natural
+            }
+            let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
+                                       context: context.withoutCompactNotation)
+            if let u = unit { return "\(s) \(u)" }
+            return s
+        case .timespan:
+            // The ONE timespan decomposition; a non-time unit falls back
+            // to the automatic plain shape (never blank, never an error).
+            if let span = timespanText(value: value, unit: unit,
+                                       decimalPlaces: decimalPlaces,
+                                       context: context) {
+                return span
             }
             let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
                                        context: context.withoutCompactNotation)
@@ -217,12 +298,22 @@ public enum AnswerDisplay {
                                                        notation: eff,
                                                        prefs: prefs, context: context)
             }
-            if kind == .duration {
-                // Duration presentation is semantic, not a notation: the
-                // copy is byte-identical to the visible row.
+            if kind == .duration || kind == .timespan {
+                // Duration/timespan presentation is semantic, not a
+                // notation: the copy is byte-identical to the visible row.
                 return formatKinded(v, unit: unit, kind: kind, fraction: fraction,
                                     decimalPlaces: decimalPlaces, context: context)
             }
+            // temporal Task 3: the Timespan NOTATION applies only to
+            // time-dimension quantities; every other number falls back to
+            // the automatic formatter.
+            if eff == .timespan, let u = unit,
+               let span = TimespanPresentation.text(value: v, unitLabel: u,
+                                                    decimalPlaces: decimalPlaces,
+                                                    context: context) {
+                return span
+            }
+            let eff = eff == .timespan ? .automatic : eff
             // r87: automatic keeps the ONE shared kinded presentation
             // (percent × 100 + `%`, the exact rational verbatim,
             // multiplier + `x`) on the full-precision copy shape;
@@ -257,7 +348,7 @@ public enum AnswerDisplay {
                 s = NumberPresentation.format(v, category: .plain,
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext) + "x"
-            case .plain, .fraction, .duration:
+            case .plain, .fraction, .duration, .timespan, .timecodeSeconds:
                 let exact = (v.truncatingRemainder(dividingBy: 1) == 0
                              && abs(v) <= 9.007199254740992e15) ? Int64(v) : nil
                 s = NumberPresentation.format(v, int64: exact,
@@ -307,6 +398,13 @@ public enum AnswerDisplay {
                 return formatKinded(v, unit: nil, kind: .plain, fraction: fraction,
                                     decimalPlaces: decimalPlaces, context: context)
             }
+            if kind == .timespan {
+                // A timespan-typed variable is unitless here; the plain
+                // automatic shape is the deterministic fallback.
+                return formatKinded(v, unit: nil, kind: .plain, fraction: fraction,
+                                    decimalPlaces: decimalPlaces, context: context)
+            }
+            let eff = eff == .timespan ? .automatic : eff
             let copyContext: NumberFormatContext =
                 eff == .automatic ? context.withoutCompactNotation : context
             if eff == .automatic {
@@ -333,7 +431,7 @@ public enum AnswerDisplay {
                 s = NumberPresentation.format(v, category: .plain,
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext) + "x"
-            case .plain, .fraction, .duration:
+            case .plain, .fraction, .duration, .timespan, .timecodeSeconds:
                 s = NumberPresentation.format(v, category: .plain,
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext)
@@ -344,6 +442,16 @@ public enum AnswerDisplay {
                                                   prefs: prefs, context: context)
         case .date(let y, let m, let d, let showYear):
             return DateArithmetic.display(year: y, month: m, day: d, showYear: showYear)
+        case .dateTime(let y, let m, let d, let h, let min, let s, let hasSeconds, let offset, let iso):
+            return dateTimeText(year: y, month: m, day: d, hour: h, minute: min, second: s,
+                                hasSeconds: hasSeconds, utcOffsetSeconds: offset,
+                                iso: iso, context: context)
+        case .timestamp(let seconds):
+            return timestampText(seconds, decimalPlaces: decimalPlaces, context: context)
+        case .timecode(let frames, let fps):
+            return TimecodeLane.text(frames: frames, fps: fps)
+        case .frameCount(let frames):
+            return TimecodeLane.framesText(frames, context: context)
         case .brokenToken(let line):
             return "Line \(line)"
         case .error(let msg):
@@ -376,7 +484,7 @@ public enum AnswerDisplay {
             if let u = unit, isCurrencyCode(u) {
                 return formatMoney(v, code: u, context: context)
             }
-            if kind == .duration {
+            if kind == .duration || kind == .timespan {
                 return formatKinded(v, unit: unit, kind: kind,
                                     fraction: nil, decimalPlaces: decimalPlaces,
                                     context: context)
@@ -420,6 +528,10 @@ public enum AnswerDisplay {
             return nil
         case .blank, .skip, .title, .brokenToken, .date, .location, .dms, .error:
             return nil
+        case .dateTime, .timestamp, .timecode, .frameCount:
+            // temporal Task 2/4: date-time/epoch/timecode rows have no
+            // number notation.
+            return nil
         case .boolean:
             // r82: true/false has nothing to re-notation.
             return nil
@@ -432,7 +544,16 @@ public enum AnswerDisplay {
                 return nil  // the exact reduced rational stays verbatim
             case .duration:
                 // A natural duration has component semantics; no notation,
-                // no fraction, no compact/scientific form.
+                // no fraction, no compact/scientific form. (The GLOBAL
+                // Timespan notation still applies to it through the row
+                // presentation path; the per-answer menu stays absent,
+                // exactly as before Task 3.)
+                return nil
+            case .timespan:
+                // Already the timespan shape: nothing to re-notation.
+                return nil
+            case .timecodeSeconds:
+                // A timecode-lane duration has no number notation.
                 return nil
             case .plain, .percent, .multiplier:
                 return NotationOptions(allowsFraction: kind == .plain)
@@ -442,6 +563,8 @@ public enum AnswerDisplay {
             case .fraction:
                 return nil
             case .duration:
+                return nil
+            case .timespan, .timecodeSeconds:
                 return nil
             case .plain, .percent, .multiplier:
                 return NotationOptions(allowsFraction: kind == .plain)
@@ -482,6 +605,9 @@ public enum AnswerDisplay {
             // Copy Answer and Delete Line only: a clock has no decimals to
             // round and no notation to choose.
             return Menu(showsActions: true, showsRounding: false)
+        case .timecode, .frameCount:
+            // temporal Task 4: timecode/frame rows are Copy/Delete only.
+            return Menu(showsActions: true, showsRounding: false)
         case .error(let msg):
             // r55: weather-unavailable rows offer no menu at all (no
             // Copy, no rounding) — quiet and secondary by design.
@@ -503,9 +629,10 @@ public enum AnswerDisplay {
                 // r83: a fraction is Copy/Delete only — a reduced
                 // rational has no decimals to choose.
                 return Menu(showsActions: true, showsRounding: false)
-            case .duration:
-                // A natural duration has component semantics, not a decimal
-                // count: Copy Answer and Delete Line only.
+            case .duration, .timespan, .timecodeSeconds:
+                // A natural duration/timespan/timecode-seconds value has
+                // component semantics, not a decimal count: Copy and
+                // Delete only.
                 return Menu(showsActions: true, showsRounding: false)
             }
         case .variable(_, _, let kind, _):
@@ -514,7 +641,7 @@ public enum AnswerDisplay {
                 return Menu(showsActions: true, showsRounding: true)
             case .fraction:
                 return Menu(showsActions: true, showsRounding: false)
-            case .duration:
+            case .duration, .timespan, .timecodeSeconds:
                 return Menu(showsActions: true, showsRounding: false)
             }
         case .boolean:
@@ -528,7 +655,8 @@ public enum AnswerDisplay {
         case .location, .dms:
             // r85: coordinate and DMS answers are Copy/Delete only.
             return Menu(showsActions: true, showsRounding: false)
-        case .money, .date, .brokenToken:
+        case .money, .date, .brokenToken, .dateTime, .timestamp,
+             .timecode, .frameCount:
             return Menu(showsActions: true, showsRounding: false)
         }
     }

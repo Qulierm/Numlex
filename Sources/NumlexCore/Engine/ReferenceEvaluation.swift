@@ -75,13 +75,14 @@ public func resolveSheet(
     weather: WeatherContext = .empty,
     geo: GeoContext = .empty,
     context: NumberFormatContext = .legacy,
-    unitContext: UnitContext = .builtIns
+    unitContext: UnitContext = .builtIns,
+    preferences: TemporalPreferences = .defaults
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
                  constants: constants, weather: weather, geo: geo, context: context,
-                 unitContext: unitContext)
+                 unitContext: unitContext, preferences: preferences)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -101,7 +102,8 @@ public func resolveSheet(
     weather: WeatherContext = .empty,
     geo: GeoContext = .empty,
     context: NumberFormatContext = .legacy,
-    unitContext: UnitContext = .builtIns
+    unitContext: UnitContext = .builtIns,
+    preferences: TemporalPreferences = .defaults
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -154,7 +156,8 @@ public func resolveSheet(
         if let eval = evalLineTyped(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
                                     now: now, calendar: calendar, weather: weather,
                                     geo: geo,
-                                    context: context, unitContext: unitContext) {
+                                    context: context, unitContext: unitContext,
+                                    preferences: preferences) {
             return eval
         }
         return .skip
@@ -793,6 +796,8 @@ func shapeForTokenKind(_ kind: NumericKind) -> OperandShape {
     case .multiplier: return .multiplier
     case .fraction: return .fraction
     case .duration: return .plain
+    case .timespan: return .plain
+    case .timecodeSeconds: return .plain
     case .plain: return .plain
     }
 }
@@ -1189,7 +1194,8 @@ enum TokenExpr {
                 var end = k
                 if k < ns.length, isLetter16(ns.character(at: k)) {
                     let rest = ns.substring(from: k)
-                    if let (c, idx) = DurationLiteral.gluedComponent(rest, from: rest.startIndex) {
+                    if let (c, idx) = DurationLiteral.chainGluedComponent(
+                        rest, from: rest.startIndex, chainHasComponent: !pairs.isEmpty) {
                         component = c
                         end = k + rest.distance(from: rest.startIndex, to: idx)
                         glued = true

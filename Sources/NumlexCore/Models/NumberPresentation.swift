@@ -25,6 +25,11 @@ public enum NumberNotation: String, CaseIterable, Codable, Equatable, Sendable {
     /// Re-typeable ASCII mixed/proper fraction (falls back to decimal
     /// when no bounded approximation fits).
     case fraction
+    /// temporal Task 3: the timespan presentation (greedy
+    /// yr/mo/week/day/hour/min/sec/ms decomposition). Applies ONLY to
+    /// time-dimension quantities; every non-time number deterministically
+    /// falls back to Automatic.
+    case timespan
     /// A user pattern (`#,##0.00` …); falls back to `.automatic` when
     /// the stored pattern is invalid (never blank).
     case custom
@@ -47,7 +52,7 @@ public enum NumberNotation: String, CaseIterable, Codable, Equatable, Sendable {
 /// explicitly records the global automatic choice, which is equivalent
 /// to a missing override).
 public enum AnswerNotationOverride: String, CaseIterable, Codable, Equatable, Sendable {
-    case automatic, decimal, scientific, engineering, fraction, custom
+    case automatic, decimal, scientific, engineering, fraction, custom, timespan
 
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -73,6 +78,7 @@ public enum AnswerNotationOverride: String, CaseIterable, Codable, Equatable, Se
         case .engineering: return .engineering
         case .fraction: return .fraction
         case .custom: return .custom
+        case .timespan: return .timespan
         }
     }
 }
