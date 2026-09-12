@@ -127,6 +127,206 @@ public let welcomeCases: [EngineCase] = [
                    "existing installs mount the editor immediately")
     },
 
+    EngineCase("welcome-calculation-field-is-one-batched-canvas") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        let renderers = welcomeRendererSource()
+        // Still exactly the ten correct expressions in two columns.
+        let table = welcomeSlice(view, from: "static let calculations:", to: "static func anchor")
+        try expectEqual(table.components(separatedBy: ".init(column:").count - 1, 10, "ten expressions")
+        try expectEqual(view.components(separatedBy: ".init(column: .left,").count - 1, 5, "five left rows")
+        try expectEqual(view.components(separatedBy: ".init(column: .right,").count - 1, 5, "five right rows")
+        // ONE Canvas inside a dedicated ANIMATABLE renderer: a non-Animatable
+        // view capturing parent state receives no interpolated values at all
+        // (the "5 fps" bug), so the conformance is pinned here.
+        try expect(renderers.contains("struct CalculationBloomCanvas: View"), "a dedicated renderer")
+        try expect(renderers.contains("nonisolated") || renderers.contains("@preconcurrency Animatable"),
+                   "Animatable conformance")
+        try expect(view.contains("CalculationBloomCanvas(stream: streamProgress"), "driven by the scalars")
+        let canvas = welcomeSlice(renderers, from: "var body: some View {", to: "// MARK: constants")
+        try expect(canvas.contains("Canvas(opaque: false, rendersAsynchronously: false)"),
+                   "one synchronous Canvas")
+        try expectEqual(canvas.components(separatedBy: "Canvas(").count - 1, 1, "exactly one Canvas")
+        try expect(canvas.contains("for (index, expression) in WelcomeView.calculations.enumerated()"),
+                   "all rows in ONE pass")
+        for banned in ["ForEach", "expressionRow", "tokenText", "TimelineView",
+                       "repeatForever", "Timer(", "CADisplayLink"] {
+            try expect(!canvas.contains(banned), "no \(banned) in the batched field")
+        }
+        // The per-run stagger, row stagger and result emphasis are computed
+        // inside that one pass — never as separate animation transactions.
+        let draw = welcomeSlice(renderers, from: "private static func drawRow", to: "// MARK: - Silver splash")
+        try expect(draw.contains("tokenStagger"), "per-run stagger inside the pass")
+        try expect(renderers.contains("Double(index) * Self.rowStagger"), "per-row stagger")
+        try expect(draw.contains("run.isResult, emphasis > 0.01"), "result emphasis inside the pass")
+        try expect(!draw.contains(".animation("), "no animation modifiers inside the pass")
+        try expect(!draw.contains(".shadow("), "no per-row blur")
+        // The 16 pt rounded, monospaced-digit appearance is unchanged.
+        try expect(renderers.contains("static let fieldFontSize: CGFloat = 16"), "16 pt")
+        try expect(draw.contains("design: .rounded"), "rounded design")
+        try expect(draw.contains(".monospacedDigit()"), "monospaced digits")
+    },
+
+
+    EngineCase("welcome-canvas-renderers-carry-every-progress-scalar") {
+        let renderers = welcomeRendererSource()
+        // Both renderers are Animatable and their animatableData covers EVERY
+        // animated scalar: a scalar left out of the pair would silently jump.
+        for name in ["stream", "emphasis", "converge", "scale", "iconOffset"] {
+            let field = welcomeSlice(renderers, from: "struct CalculationBloomCanvas",
+                                     to: "struct SilverSplashCanvas")
+            try expect(field.contains("var \(name):") || field.contains("var \(name);"),
+                       "field renders \(name)")
+        }
+        let field = welcomeSlice(renderers, from: "struct CalculationBloomCanvas",
+                                 to: "struct SilverSplashCanvas")
+        guard let fieldPair = field.range(of: "var animatableData")?.lowerBound,
+              let fieldSetter = field.range(of: "set {", range: fieldPair..<field.endIndex)?.lowerBound
+        else { throw CaseFailure(message: "field animatableData missing", location: "Welcome") }
+        let fieldAnimatable = String(field[fieldPair...])
+        for scalar in ["stream", "emphasis", "converge", "scale", "iconOffset"] {
+            try expect(fieldAnimatable.contains("self.\(scalar) = ")
+                       || fieldAnimatable.contains("\(scalar) = newValue"),
+                       "field animatableData carries \(scalar)")
+        }
+        _ = fieldSetter
+        let splash = String(renderers[renderers.range(of: "struct SilverSplashCanvas")!.lowerBound...])
+        for scalar in ["burst", "fade", "footprint", "scale", "iconOffset"] {
+            try expect(splash.contains("var \(scalar):"), "splash renders \(scalar)")
+            try expect(splash.contains("\(scalar) = newValue"), "splash animatableData carries \(scalar)")
+        }
+        // The splash footprint is DERIVED from the fade scalar (one animation,
+        // no second animation retargeting the same renderer).
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        try expect(view.contains("* fadeProgress"), "the footprint follows the fade scalar")
+        try expect(!view.contains("iconGrowth"), "no separate footprint animation")
+        // Reduce Motion creates neither renderer.
+        let reduce = welcomeSlice(view, from: "if reduceMotion {", to: "// 0.00")
+        try expect(reduce.contains("fieldActive = false"), "no field renderer")
+        try expect(reduce.contains("splashActive = false"), "no splash renderer")
+    },
+
+
+    EngineCase("welcome-colors-come-from-the-editor-palette") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        for token in ["Design.numberColor", "Design.variableColor",
+                      "Design.conversionColor", "Design.moneyMarkerColor",
+                      "Design.baseText", "Design.editorBackground"] {
+            try expect(view.contains(token), "uses \(token)")
+        }
+        try expect(!view.contains("Color(srgb255"), "no hardcoded sRGB")
+        try expect(!view.contains("Color(red:"), "no hardcoded RGB")
+    },
+
+    // MARK: - Silver splash (source)
+
+
+    EngineCase("welcome-splash-is-monochrome-silver") {
+        let view = try welcomeSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        // The rejected coloured arcs are gone.
+        try expect(!view.contains("WelcomeArc"), "no colored arc shape")
+        try expect(!view.contains("arcStyles"), "no colored arc palette")
+        try expect(!view.contains("arcProgress"), "no colored arc progress")
+        // The splash draws from neutral/icon tones only.
+        try expect(view.contains("private var silver: Color { Color(nsColor: Design.baseText) }"),
+                   "silver from the icon family (baseText)")
+        try expect(view.contains("private var silverSoft: Color { Color(nsColor: .secondaryLabelColor) }"),
+                   "the wave uses a neutral label tone")
+        for hue in ["Design.numberColor", "Design.variableColor",
+                    "Design.conversionColor", "Design.moneyMarkerColor"] {
+            let splash = welcomeSlice(view, from: "private var splash: some View",
+                                      to: "private func icon(")
+            try expect(!splash.contains(hue), "the splash never uses \(hue)")
+        }
+        // Deterministic counts: 14 rays, 8 droplets, one wave.
+        let renderers = welcomeRendererSource()
+        try expectEqual(renderers.components(separatedBy: "static let rays:").count - 1, 1, "one ray table")
+        try expectEqual(renderers.components(separatedBy: "static let droplets:").count - 1, 1,
+                        "one droplet table")
+        try expect(renderers.contains("(8, 96, 0.00, 2.5)"), "the ray table is literal/fixed")
+        try expect(renderers.contains("(20, 100, 3.5, 0.02)"), "the droplet table is literal/fixed")
+        // Still exactly 14 rays and 8 droplets (the ring was pushed outward
+        // so the droplets read outside the larger icon).
+        let rayTable = welcomeSlice(renderers, from: "static let rays:", to: "/// 8 droplets placed")
+        try expectEqual(welcomeTupleCount(rayTable), 14, "14 rays")
+        let dropTable = welcomeSlice(renderers, from: "static let droplets:", to: "/// Rays start just outside")
+        try expectEqual(welcomeTupleCount(dropTable), 8, "8 droplets")
+        // The whole burst is ONE Canvas drawn from two finite scalars, with
+        // the deterministic geometry still living in the same arrays.
+        try expect(renderers.contains("private static func drawWave("), "one soft expanding wave")
+        try expect(renderers.contains("private static func drawRays("), "one ray pass")
+        try expect(renderers.contains("private static func drawDroplets("), "one droplet pass")
+        let splash = welcomeSlice(renderers, from: "struct SilverSplashCanvas",
+                                  to: "private static func drawWave")
+        try expect(splash.contains("Canvas(opaque: false, rendersAsynchronously: false)"),
+                   "one splash Canvas")
+        try expectEqual(splash.components(separatedBy: "Canvas(").count - 1, 1, "exactly one Canvas")
+        try expect(splash.contains("Self.drawRays(&context"), "the ray pass is called")
+        try expect(splash.contains("Self.drawDroplets(&context"), "the droplet pass is called")
+        try expect(splash.contains("Self.drawWave(&context"), "the wave pass is called")
+        for banned in ["ForEach", "Capsule()", ".animation(", "TimelineView"] {
+            try expect(!splash.contains(banned), "no \(banned) in the batched splash")
+        }
+        try expect(splash.contains("var burst: Double"), "driven by the burst scalar")
+        try expect(splash.contains("var fade: Double"), "and the fade scalar")
+        try expect(renderers.contains("rayOriginRadius * footprint * scale"),
+                   "rays stay anchored to the icon edge")
+        // No runtime randomness anywhere in the welcome.
+        for banned in ["random", "shuffled", "SystemRandomNumberGenerator"] {
+            try expect(!view.contains(banned), "no runtime randomness: \(banned)")
+        }
+    },
+
+    // MARK: - TEMPORARY QA replay control (source)
+
+
+    EngineCase("welcome-temporary-replay-control-is-quarantined") {
+        let sidebar = try welcomeSource("Sources/NumlexApp/Views/SidebarView.swift")
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        // Exactly ONE temporary control, marked for removal.
+        try expectEqual(sidebar.components(separatedBy: "TEMPORARY QA CONTROL").count - 1, 3,
+                        "the control is marked (state + divider + row)")
+        try expect(sidebar.contains("remove after onboarding sign-off"), "removal is obvious")
+        try expectEqual(sidebar.components(separatedBy: "Replay Welcome").count - 1, 2,
+                        "one label + one accessibility label")
+        try expectEqual(sidebar.components(separatedBy: ".replayWelcome").count - 1, 1,
+                        "exactly one post site")
+        try expect(sidebar.contains(".post(name: .replayWelcome, object: nil)"),
+                   "the row only posts the notification")
+        // The row is a sibling BELOW the pinned folder tabs, so it can never
+        // cover them, and it stays quiet (secondary text, plain style).
+        guard let tabs = sidebar.range(of: "            folderTabs")?.upperBound,
+              let replay = sidebar.range(of: "NotificationCenter.default.post(name: .replayWelcome",
+                                                                             range: tabs..<sidebar.endIndex)?.lowerBound
+        else { throw CaseFailure(message: "replay row not after folderTabs", location: "Sidebar") }
+        try expect(tabs < replay, "the row follows the pinned tabs")
+        try expect(sidebar.contains(".buttonStyle(.plain)"), "not a competing glass surface")
+        try expect(sidebar.contains(".foregroundStyle(.secondary)"), "visually quiet")
+        try expect(sidebar.contains(".frame(height: 28)"), "at least a 28 pt hit row")
+        // Session-only: the row is hidden (visually, from hit testing and from
+        // accessibility) while a reveal is in flight, and never persisted.
+        try expect(sidebar.contains(".opacity(replayControlHidden ? 0 : 1)"), "opacity gate")
+        try expect(sidebar.contains(".allowsHitTesting(!replayControlHidden)"), "no hidden hits")
+        try expect(sidebar.contains(".accessibilityHidden(replayControlHidden)"), "no hidden a11y")
+        try expect(app.contains("private struct ReplayControlHiddenKey: EnvironmentKey"),
+                   "a transient environment key")
+        try expect(!app.contains("AppSettings.replayControlHidden"), "never a setting")
+        try expect(sidebar.contains(".help(\"Replay the welcome animation\")"), "a clear tooltip")
+        try expect(sidebar.contains(".accessibilityLabel(Text(\"Replay Welcome\"))"), "a11y label")
+        try expect(sidebar.contains(".accessibilityHint("), "a11y hint")
+        // The sidebar never touches the model, the marker or the store.
+        let replayRow = String(sidebar[replay...])
+        for banned in ["markCompleted", "FirstLaunch", "Persistence", "model.save",
+                       "model.sheets", "revealStage"] {
+            try expect(!replayRow.contains(banned), "the row never touches \(banned)")
+        }
+        // The notification name is app-local and declared once.
+        try expect(app.contains("static let replayWelcome = Notification.Name(\"numlex.replayWelcome\")"),
+                   "one app-local notification")
+        try expectEqual(app.components(separatedBy: "static let replayWelcome").count - 1, 1,
+                        "declared exactly once")
+    },
+
+
     EngineCase("welcome-curtain-reveal-contract") {
         let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
         // Three stages on ONE stable container: the welcome lives in a
