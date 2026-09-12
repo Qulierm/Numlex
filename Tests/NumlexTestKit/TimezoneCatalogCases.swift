@@ -140,7 +140,7 @@ public let timezoneCatalogCases: [EngineCase] = [
         }
         // Copy the real resources, then tamper one: the hash check refuses it.
         for name in ["iana-zones.tsv", "cities.tsv", "countries.tsv",
-                     "airports.tsv", "sources.json"] {
+                     "country-names.tsv", "airports.tsv", "sources.json"] {
             try FileManager.default.copyItem(at: source.appendingPathComponent(name),
                                              to: temp.appendingPathComponent(name))
         }

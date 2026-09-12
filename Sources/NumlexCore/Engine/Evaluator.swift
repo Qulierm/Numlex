@@ -536,6 +536,21 @@ func evalLineTyped(_ line: String,
        env.isConstant(display: lhs) {
         return .error(message: "Cannot assign to constant")
     }
+    // Task 4: the strict timezone lane owns timezone-shaped lines before the
+    // ordinary clock/date/geo lanes (a place-qualified time is never a plain
+    // clock, a date or a geo query).
+    if !BooleanLogic.hasAssignment(line) {
+        let temporal = TemporalContext.standard(now: now, calendar: calendar,
+                                                context: context)
+        switch TimezoneLane.tryLine(line, context: context, temporal: temporal) {
+        case .result(let result):
+            return result
+        case .error(let message):
+            return .error(message: message)
+        case .notMine:
+            break
+        }
+    }
     // Task 2: the strict clock/laptime lane owns clock-shaped lines before
     // the integer/mixed/date lanes (a clock is never a ratio, a date or a
     // unit expression).

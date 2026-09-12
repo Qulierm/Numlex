@@ -19,6 +19,9 @@
     "countries.tsv": {
       "sha256": "6f0211201e6bfb3d5747fb601dc18ecc70378cbcaba45b8ca552ddfc66088825"
     },
+    "country-names.tsv": {
+      "sha256": "1e1eeab1511701bd8e3073a990746aad98a407df8b17a3ffca4518a38d01761d"
+    },
     "iana-zones.tsv": {
       "sha256": "ae356c5f54c8a0d6d26185dfa2760b7fa388bf0ca6bd2e4bc434235d60b66eaa"
     }
@@ -41,6 +44,12 @@
       "license": "CC BY 4.0",
       "sha256": "4f6fd2209a5660fed2989fccc8842947e3107ff595c14efc35ab281bba0ee467",
       "url": "https://download.geonames.org/export/dump/cities15000.zip"
+    },
+    "countryInfo.txt": {
+      "attribution": "GeoNames, https://www.geonames.org (countryInfo)",
+      "license": "CC BY 4.0",
+      "sha256": "93bafc525813f22e4711ff9ed6d626343094ce48c26388dc7c49189b3d7d5512",
+      "url": "https://download.geonames.org/export/dump/countryInfo.txt"
     },
     "zone1970.tab": {
       "attribution": "IANA Time Zone Database (tzdata), https://www.iana.org/time-zones",

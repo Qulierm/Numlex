@@ -47,6 +47,8 @@ public struct TimezoneCatalog: Sendable {
     public let aliases: [String: String]
     public let cities: [City]
     public let countries: [String: String]
+    /// City/country NAME -> country code (from GeoNames countryInfo).
+    public let countryNames: [String: String]
     public let airports: [String: String]
 
     /// The process-wide catalog, loaded once (nil when the bundle is broken —
@@ -94,7 +96,7 @@ public struct TimezoneCatalog: Sendable {
     /// Testable loader: verifies the resources in `directory` and parses them.
     public init(contentsOf directory: URL) throws {
         let required = ["iana-zones.tsv", "cities.tsv", "countries.tsv",
-                        "airports.tsv", "sources.json"]
+                        "country-names.tsv", "airports.tsv", "sources.json"]
         var files: [String: Data] = [:]
         for name in required {
             let url = directory.appendingPathComponent(name)
@@ -147,6 +149,15 @@ public struct TimezoneCatalog: Sendable {
                                zone: String(fields[4])))
         }
         self.cities = cities
+
+        var countryNames: [String: String] = [:]
+        for line in lines("country-names.tsv") {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count >= 4 else { continue }
+            let key = TimezoneCatalog.normalizedName(String(fields[1]))
+            if !key.isEmpty { countryNames[key] = String(fields[0]).uppercased() }
+        }
+        self.countryNames = countryNames
 
         var countries: [String: String] = [:]
         for line in lines("countries.tsv") {
@@ -206,6 +217,13 @@ public struct TimezoneCatalog: Sendable {
             return .ambiguous(sorted)
         }
         return .zone(best.zone)
+    }
+
+    /// A country NAME ("Japan") -> its capital zone.
+    public func zone(forCountryName name: String) -> String? {
+        let key = TimezoneCatalog.normalizedName(name)
+        guard let code = countryNames[key] else { return nil }
+        return zone(forCountry: code)
     }
 
     public func zone(forCountry code: String) -> String? {

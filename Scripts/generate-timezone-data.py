@@ -50,6 +50,12 @@ SOURCES = {
         "CC BY 4.0",
         "GeoNames, https://www.geonames.org (cities15000)",
     ),
+    "countryInfo.txt": (
+        "https://download.geonames.org/export/dump/countryInfo.txt",
+        "",
+        "CC BY 4.0",
+        "GeoNames, https://www.geonames.org (countryInfo)",
+    ),
     "airports.csv": (
         "https://raw.githubusercontent.com/mborsetti/airportsdata/main/airportsdata/airports.csv",
         "516c57d9d999f7a3be28ca649d2badbe3b972f07e57dc6173ab973b72d51cf52",
@@ -137,6 +143,25 @@ def load_airports(text: str, known: set) -> list:
     return rows
 
 
+def country_names(text: str, capitals: dict) -> list:
+    """country code -> (name, ascii name, capital zone) from GeoNames."""
+    rows = []
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) < 5:
+            continue
+        code = fields[0].strip()
+        name = fields[4].strip()
+        ascii_name = name
+        zone = capitals.get(code)
+        if code and name and zone:
+            rows.append((code, name, ascii_name, zone))
+    rows.sort()
+    return rows
+
+
 def capitals(cities: list) -> list:
     """country -> capital zone, from the GeoNames capital feature (PPLC)."""
     seen = {}
@@ -194,7 +219,11 @@ def main() -> int:
         zones_lines.append(f"{zone}\t{canonical[zone]}\t{','.join(zone_aliases)}")
     cities_lines = [f"{name}\t{ascii_name}\t{country}\t{population}\t{zone}"
                     for name, ascii_name, country, population, zone, _f in cities]
+    capital_map = dict(capitals(cities))
     country_lines = [f"{cc}\t{zone}" for cc, zone in capitals(cities)]
+    name_lines = [f"{cc}\t{name}\t{ascii_name}\t{zone}"
+                  for cc, name, ascii_name, zone in
+                  country_names(fetched["countryInfo.txt"].decode("utf-8"), capital_map)]
     airport_lines = [f"{iata}\t{icao}\t{zone}" for iata, icao, zone in airports]
 
     resources = {
@@ -204,6 +233,8 @@ def main() -> int:
                             "\n".join(cities_lines) + "\n"),
         "countries.tsv": write(os.path.join(OUT, "countries.tsv"),
                                "\n".join(country_lines) + "\n"),
+        "country-names.tsv": write(os.path.join(OUT, "country-names.tsv"),
+                                    "\n".join(name_lines) + "\n"),
         "airports.tsv": write(os.path.join(OUT, "airports.tsv"),
                               "\n".join(airport_lines) + "\n"),
     }

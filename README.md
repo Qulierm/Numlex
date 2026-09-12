@@ -296,7 +296,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,181 shared cases, runnable two ways:
+The engine suite covers 1,186 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)
