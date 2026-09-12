@@ -204,7 +204,7 @@ public func formatQuantity(_ value: Double, unit: String?, decimalPlaces: Int,
         return formatMoney(value, code: unit, context: context)
     }
     let v = formatDisplayValue(value, decimalPlaces: decimalPlaces, context: context)
-    return unit.map { "\(v) \($0)" } ?? v
+    return unit.map { "\(v) \(AnswerDisplay.unitText($0, value: value))" } ?? v
 }
 
 public func scientificNotation(_ value: Double) -> String {

@@ -274,13 +274,13 @@ public let temporalCorpusCases: [EngineCase] = [
                                          preferences: prefs) else {
                 throw CaseFailure(message: "corpus work hours", location: "TemporalCorpus")
             }
-            try expectEqual(hours, "6 day 16 h", "corpus work hours")
+            try expectEqual(hours, "160 h", "corpus work hours")
             guard let rangeHours = corpusText("work hours between March 12 and March 25",
                                               now: now, calendar: cal,
                                               preferences: prefs) else {
                 throw CaseFailure(message: "corpus work hours range", location: "TemporalCorpus")
             }
-            try expectEqual(rangeHours, "3 day", "corpus work hours range")
+            try expectEqual(rangeHours, "72 h", "corpus work hours range")
         },
 
         EngineCase("temporal-corpus-official-whats-new") {

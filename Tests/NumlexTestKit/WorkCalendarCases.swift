@@ -82,8 +82,8 @@ public let workCalendarCases: [EngineCase] = [
         try expectWC("10 March to 17 March in workdays", "5 workdays")
         try expectWC("workdays from April 12 to June 15", "44 workdays")
         try expectWC("$500/workday × 4 weeks", "$10,000.00")
-        try expectWC("work hours in June", "6 day 16 h")
-        try expectWC("work hours between March 12 and March 25", "3 day")
+        try expectWC("work hours in June", "160 h")
+        try expectWC("work hours between March 12 and March 25", "72 h")
         try expectWC("55h in work days", "6.875 workdays")
         try expectWC("December 24 + 2 workdays", "Dec 29")
         // Alias spellings.
@@ -93,7 +93,7 @@ public let workCalendarCases: [EngineCase] = [
 
     EngineCase("work-calendar-region-resolution") {
         // The explicit region drives the holiday set.
-        try expectWC("3 July to 7 July in workdays", "1 workdays", region: "US")
+        try expectWC("3 July to 7 July in workdays", "1 workday", region: "US")
         try expectWC("3 July to 7 July in workdays", "2 workdays", region: "DE")
         // Automatic resolves through the number context's locale region.
         let (now, cal) = wcNow()
@@ -116,7 +116,7 @@ public let workCalendarCases: [EngineCase] = [
               let deText = AnswerDisplay.displayText(for: de, decimalPlaces: 10, context: .legacy) else {
             throw CaseFailure(message: "automatic region resolves", location: "WorkCalendar")
         }
-        try expectEqual(usText, "1 workdays", "en_US resolves US holidays")
+        try expectEqual(usText, "1 workday", "en_US resolves US holidays")
         try expectEqual(deText, "2 workdays", "de_DE resolves DE holidays")
     },
 
@@ -152,7 +152,7 @@ public let workCalendarCases: [EngineCase] = [
                                                        context: .legacy) else {
             throw CaseFailure(message: "9-hour workday", location: "WorkCalendar")
         }
-        try expectEqual(nineText, "1 week 12 h", "hours per workday honored")
+        try expectEqual(nineText, "180 h", "hours per workday honored")
         guard let r = wcEval("55h in work days", region: "US", hours: 11) else {
             throw CaseFailure(message: "hours conversion", location: "WorkCalendar")
         }
@@ -176,7 +176,7 @@ public let workCalendarCases: [EngineCase] = [
             throw CaseFailure(message: "work hours typed", location: "WorkCalendar")
         }
         try expectEqual(hUnit, "h", "hours unit")
-        try expectEqual(kind, .duration, "typed duration")
+        try expectEqual(kind, .plain, "standard single-unit presentation")
         // A non-workday date arithmetic answer skips holidays and weekends.
         try expectWC("December 24 + 1 workdays", "Dec 26")
         try expectWC("December 24 + 5 workdays", "Jan 2, 2026")
@@ -265,5 +265,52 @@ public let workCalendarCases: [EngineCase] = [
             }
         }
         try expect(7 * 66 + 6 * 2 <= 520, "seven tiles fit the minimum width")
+    },
+
+    EngineCase("work-calendar-hours-presentation") {
+        // `work hours` is a REAL T^1 quantity in unit `h`, presented in
+        // the STANDARD single-unit shape (never the calendar/natural
+        // decomposition).
+        guard let hours = wcEval("work hours in June", region: "US"),
+              case .number(let h, let hUnit, let hKind, _) = hours else {
+            throw CaseFailure(message: "work hours are a typed quantity", location: "WorkCalendar")
+        }
+        try expectClose(h, 160, 1e-9, "US June 2025: 20 workdays x 8 h")
+        try expectEqual(hUnit, "h", "hours keep the h unit")
+        try expectEqual(hKind, .plain, "standard single-unit presentation")
+        try expectEqual(AnswerDisplay.displayText(for: hours, decimalPlaces: 10,
+                                                  context: .legacy),
+                        "160 h", "visible standard hours")
+        try expectEqual(AnswerDisplay.text(for: hours, decimalPlaces: 10,
+                                           context: .legacy),
+                        "160 h", "copy == visible")
+        // The global/per-answer Timespan path still decomposes the typed
+        // result (it is a time-dimension quantity).
+        try expectEqual(AnswerDisplay.displayText(for: hours, decimalPlaces: 10,
+                                                  context: .legacy, notation: .timespan),
+                        "6 days 16 hours", "Timespan still applies")
+        try expectEqual(AnswerDisplay.text(for: hours, decimalPlaces: 10,
+                                           context: .legacy, notation: .timespan),
+                        "6 days 16 hours", "Timespan copy parity")
+        // A per-answer override decodes to the same behavior.
+        let prefJSON = Data(#"{"lineID": "\#(UUID().uuidString)", "decimalPlaces": 6, "notation": "timespan"}"#.utf8)
+        let pref = try JSONDecoder().decode(AnswerDisplayPreference.self, from: prefJSON)
+        try expectEqual(pref.notation?.notation, .timespan, "override decodes")
+        try expectEqual(AnswerDisplay.displayText(for: hours, decimalPlaces: 6,
+                                                  context: .legacy,
+                                                  notation: pref.notation?.notation),
+                        "6 days 16 hours", "override presentation")
+        // Exact 9 h/day total.
+        guard let nine = wcEval("work hours in June", region: "US", hours: 9),
+              let nineText = AnswerDisplay.displayText(for: nine, decimalPlaces: 10,
+                                                       context: .legacy) else {
+            throw CaseFailure(message: "9-hour workday", location: "WorkCalendar")
+        }
+        try expectEqual(nineText, "180 h", "settings live reevaluation")
+        // Singular grammar: exactly one workday.
+        try expectWC("3 July to 7 July in workdays", "1 workday", region: "US")
+        try expectWC("3 July to 7 July in workdays", "2 workdays", region: "DE")
+        try expectWC("55h in work days", "6.875 workdays", region: "US")
+        try expectWC("$500/workday × 4 weeks", "$10,000.00", region: "US")
     },
 ]

@@ -200,6 +200,14 @@ public enum AnswerDisplay {
                                   context: context.withoutCompactNotation)
     }
 
+    /// temporal Task 5: the workday count label pluralizes exactly like
+    /// the mandated examples: exactly one is `1 workday`, everything else
+    /// `workdays`. Every other unit passes through unchanged.
+    public static func unitText(_ unit: String, value: Double) -> String {
+        if unit == "workdays", abs(value - 1) < 1e-9 { return "workday" }
+        return unit
+    }
+
     /// temporal Task 3: the ONE timespan text for a quantity, or nil when
     /// the unit is not a time-dimension quantity (the caller falls back to
     /// Automatic deterministically).
@@ -220,7 +228,7 @@ public enum AnswerDisplay {
         case .plain, .timecodeSeconds:
             let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
                                        context: context.withoutCompactNotation)
-            if let u = unit { return "\(s) \(u)" }
+            if let u = unit { return "\(s) \(unitText(u, value: value))" }
             return s
         case .percent:
             let s = formatDisplayValue(value * 100, decimalPlaces: decimalPlaces,
@@ -246,7 +254,7 @@ public enum AnswerDisplay {
             }
             let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
                                        context: context.withoutCompactNotation)
-            if let u = unit { return "\(s) \(u)" }
+            if let u = unit { return "\(s) \(unitText(u, value: value))" }
             return s
         case .timespan:
             // The ONE timespan decomposition; a non-time unit falls back
@@ -258,7 +266,7 @@ public enum AnswerDisplay {
             }
             let s = formatDisplayValue(value, decimalPlaces: decimalPlaces,
                                        context: context.withoutCompactNotation)
-            if let u = unit { return "\(s) \(u)" }
+            if let u = unit { return "\(s) \(unitText(u, value: value))" }
             return s
         }
     }
@@ -356,7 +364,7 @@ public enum AnswerDisplay {
                                               notation: eff, precision: decimalPlaces,
                                               prefs: prefs, context: copyContext)
             }
-            if let u = unit { return "\(s) \(u)" }
+            if let u = unit { return "\(s) \(unitText(u, value: v))" }
             return s
         case .boolean(let b):
             // r82: booleans copy exactly as their lowercase word.
@@ -495,7 +503,7 @@ public enum AnswerDisplay {
                 // keeps full precision; unit rows display raw too.
                 let s = formatDisplayValue(v, decimalPlaces: decimalPlaces,
                                            context: context)
-                if let u = unit { return "\(s) \(u)" }
+                if let u = unit { return "\(s) \(unitText(u, value: v))" }
                 return s
             }
             return text(for: result, decimalPlaces: decimalPlaces, context: context,

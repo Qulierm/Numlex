@@ -123,7 +123,7 @@ public enum CurrencyPresentation {
             return formatMoney(value, code: unit)
         }
         let v = formatDisplayValue(value, decimalPlaces: decimalPlaces)
-        return unit.map { "\(v) \($0)" } ?? v
+        return unit.map { "\(v) \(AnswerDisplay.unitText($0, value: value))" } ?? v
     }
 
     // MARK: - Positional marker grammar (shared by ALL parser paths)

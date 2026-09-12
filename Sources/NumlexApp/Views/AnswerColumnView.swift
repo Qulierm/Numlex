@@ -1036,7 +1036,7 @@ struct AnswerColumnView: View {
                     .lineLimit(1)
                 // Units are full answer content: exactly the same size,
                 // weight and baseline as the value.
-                Text(u)
+                Text(AnswerDisplay.unitText(u, value: v))
                     .font(palette.swiftUIFont(fontSize, weight: totalWeight))
                     .foregroundStyle(Color(nsColor: Design.baseText))
             }

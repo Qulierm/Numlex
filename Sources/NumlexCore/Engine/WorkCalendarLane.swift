@@ -211,7 +211,13 @@ enum WorkCalendarLane {
                                                  country: country, catalog: catalog,
                                                  calendar: temporal.calendar)
             let hours = Double(days) * temporal.preferences.hoursPerWorkday
-            return .result(.number(value: hours, unit: "h", kind: .duration, fraction: nil))
+            // A work-hours answer is a REAL T-dimension quantity in unit
+            // `h`, but it presents in the STANDARD single-unit shape
+            // (`160 h`) — never the calendar/natural duration
+            // decomposition. The global/per-answer/explicit Timespan
+            // notation still decomposes it through the time-quantity
+            // path.
+            return .result(.number(value: hours, unit: "h", kind: .plain, fraction: nil))
         } catch let error as WorkCalendarError {
             return .error(error.errorDescription ?? "Unsupported holiday calendar")
         } catch {
