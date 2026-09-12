@@ -435,3 +435,15 @@ reserve, so the label disappears one step before any overlap or truncation.
 A very long value keeps the existing maximum width and one-line overflow
 behaviour, and the footer is announced once to assistive tech as
 "<label> <value>" in both modes.
+
+## Replay geometry isolation
+
+The temporary Replay Welcome control attaches its overlay with `.overlay`, a
+non-sizing layer: the production root stays the SIZING AUTHORITY, so a replay
+can only toggle hit testing and compositing on it — never its proposal, frame,
+bounds, safe area or alignment. The curtain no longer carries a
+`GeometryReader`: its travel is the fixed designed content height plus the
+80 pt overscan, and the window itself clips anything beyond its edges. The
+editor's frames, the sidebar's frames and the settled pixels are therefore
+identical before and after a replay (measured), with no compensating padding,
+offset, scroll reset or remount.

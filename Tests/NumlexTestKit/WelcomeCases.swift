@@ -381,6 +381,43 @@ public let welcomeCases: [EngineCase] = [
         try expect(sidebar.contains(".help(\"Replay the welcome animation\")"), "still available")
     },
 
+    EngineCase("welcome-replay-cannot-resize-the-base-view") {
+        let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
+        // The base root is the SIZING AUTHORITY: a replay attaches with
+        // `.overlay` (a non-sizing layer) and only ever toggles hit testing
+        // and compositing on the base — never its frame, clip or safe area.
+        try expect(app.contains("launchRoot\n            .allowsHitTesting(!replayWelcomePresented)"),
+                   "the base is launchRoot with a hit-testing gate")
+        try expect(app.contains(".overlay {\n                if replayWelcomePresented {"),
+                   "the overlay is an overlay layer, not a ZStack sibling")
+        try expect(!app.contains("ZStack {\n            launchRoot"), "no sizing sibling ZStack")
+        // The curtain layers carry no GeometryReader of their own…
+        func code(_ text: String) -> String {
+            text.split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                       && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("///") }
+                .joined(separator: "\n")
+        }
+        let launch = code(welcomeSlice(app, from: "struct LaunchContainer: View", to: "struct ReplayOverlay: View"))
+        let overlay = code(welcomeSlice(app, from: "struct ReplayOverlay: View", to: "struct CurtainPanel"))
+        try expect(!launch.contains("GeometryReader"), "the launch container has no GeometryReader")
+        try expect(!overlay.contains("GeometryReader"), "the replay overlay has no GeometryReader")
+        try expect(launch.contains("travel: RevealTiming.travelDistance"), "fixed travel")
+        try expect(overlay.contains("travel: RevealTiming.travelDistance"), "fixed travel")
+        // …and the fixed distance is the designed content height plus overscan.
+        try expect(app.contains("static var travelDistance: CGFloat {"), "one travel constant")
+        try expect(app.contains("MainWindowGeometry.defaultContentHeight + overscan"),
+                   "travel = designed height + overscan")
+        // The base is never clipped or offset by the curtain.
+        try expect(!launch.contains(".clipped()"), "the base is not clipped")
+        try expect(!launch.contains(".offset("), "the base is never offset")
+        try expect(!launch.contains("ignoresSafeArea"), "the base never ignores the safe area")
+        // No compensating geometry hacks anywhere.
+        for banned in ["padding(.top, 52", "offset(y: -52", "setFrame", "scrollTo"] {
+            try expect(!app.contains(banned), "no compensation: \(banned)")
+        }
+    },
+
     EngineCase("welcome-curtain-reveal-contract") {
         let app = try welcomeSource("Sources/NumlexApp/NumlexApp.swift")
         // Three stages on ONE stable container: the welcome lives in a
@@ -574,13 +611,14 @@ public let welcomeCases: [EngineCase] = [
         try expect(root.contains("launchRoot"), "the production root stays mounted")
         try expect(app.contains(".allowsHitTesting(!replayWelcomePresented)"),
                    "hit testing is blocked while the overlay covers")
+        try expect(app.contains(".overlay {"), "the replay is a NON-SIZING overlay layer")
         try expect(app.contains("if replayWelcomePresented {"), "the overlay is conditional")
         try expect(app.contains("content: WelcomeView(language: language"),
                    "a real welcome inside the curtain panel")
         try expect(app.contains(".id(replaySession)"),
                    "a fresh identity restarts the staged animation")
-        try expect(app.contains("travel: geo.size.height + RevealTiming.overscan"),
-                   "the panel travels the full content height plus overscan")
+        try expect(app.contains("travel: RevealTiming.travelDistance"),
+                   "the panel travels a FIXED distance (no GeometryReader)")
         try expect(app.contains("shadowOpacity: progress > 0.001 ? 0 : 0.28"),
                    "the same restrained panel shadow")
         // The production first-launch machinery is untouched by the replay:

@@ -48,6 +48,12 @@ enum RevealTiming {
     /// The panel travels past the clipped content height by this much, so no
     /// bottom or titlebar sliver can survive the slide.
     static let overscan: CGFloat = 80
+    /// The curtain's fixed travel: the designed 600 pt content height plus the
+    /// overscan. A constant keeps the curtain free of any GeometryReader, so
+    /// the moving layer can never influence the base view's proposal.
+    static var travelDistance: CGFloat {
+        MainWindowGeometry.defaultContentHeight + overscan
+    }
     /// One committed render turn before the slide starts (a mounted underlay
     /// must exist on screen first, or the editor would appear mid-travel).
     static let mountCommitNanoseconds: UInt64 = 24_000_000
@@ -243,29 +249,29 @@ struct NumlexApp: App {
     /// and the model are never re-created.
     @ViewBuilder
     private var sessionRoot: some View {
-        ZStack {
-            launchRoot
-                // While the replay covers the window the editor must not take
-                // pointer events; the welcome overlay owns them.
-                .allowsHitTesting(!replayWelcomePresented)
-                // The editor stays MOUNTED (same identity, same TextKit
-                // storage) but stops compositing behind the opaque welcome.
-                // `.opacity` — never `.hidden()` or a conditional — so no
-                // layout or identity can change.
-                .opacity(replayWelcomePresented && !replayContentReady ? 0 : 1)
-            if replayWelcomePresented {
-                ReplayOverlay(language: model.settings.language,
-                              onGetStarted: finishReplay,
-                              liftRequested: replayLiftRequested)
-                    // A fresh identity per presentation restarts the whole
-                    // staged animation from its initial frame.
-                    .id(replaySession)
+        // The production root is the SIZING BASE and nothing about a replay
+        // may change its proposal, frame, bounds, safe area or alignment: the
+        // overlay is attached with `.overlay`, which is explicitly a
+        // non-sizing layer, and the base itself keeps its identity and its
+        // TextKit storage. Hit testing and compositing are the only things a
+        // replay touches on the base (both geometry-neutral).
+        launchRoot
+            .allowsHitTesting(!replayWelcomePresented)
+            .opacity(replayWelcomePresented && !replayContentReady ? 0 : 1)
+            .overlay {
+                if replayWelcomePresented {
+                    ReplayOverlay(language: model.settings.language,
+                                  onGetStarted: finishReplay,
+                                  liftRequested: replayLiftRequested)
+                        // A fresh identity per presentation restarts the whole
+                        // staged animation from its initial frame.
+                        .id(replaySession)
+                }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .replayWelcome)) { _ in
-            presentReplayWelcome()
-        }
-        .environment(\.sidebarToggleHiddenForWelcome, sidebarToggleHiddenForWelcome)
+            .onReceive(NotificationCenter.default.publisher(for: .replayWelcome)) { _ in
+                presentReplayWelcome()
+            }
+            .environment(\.sidebarToggleHiddenForWelcome, sidebarToggleHiddenForWelcome)
     }
 
     /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
@@ -327,13 +333,13 @@ struct NumlexApp: App {
             replayWelcomePresented = false
             replayLiftRequested = false
             restoreReplayResponder()
-            return
+                return
         }
         replayTask = Task { @MainActor in
             // The editor becomes visible BEFORE the panel starts lifting, and
             // a bounded delay gives it a real committed frame, so the reveal
             // always shows the finished interface from its first frame.
-            replayContentReady = true
+                replayContentReady = true
             try? await Task.sleep(nanoseconds: RevealTiming.mountCommitNanoseconds)
             guard !Task.isCancelled, replayWelcomePresented else { return }
             replayLiftRequested = true
@@ -526,24 +532,29 @@ struct LaunchContainer: View {
     @State private var progress: Double = 0
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                if stage != .welcome {
-                    content()
-                        .allowsHitTesting(stage == .app)
-                }
-                if stage != .app {
-                    CurtainPanel(progress: progress,
-                                 travel: geo.size.height + RevealTiming.overscan,
-                                 shadowOpacity: progress > 0.001 ? 0 : 0.28,
-                                 content: WelcomeView(language: language, onGetStarted: onGetStarted))
-                        .id(NumlexApp.productionWelcomeID)
-                        .zIndex(1)
-                        .allowsHitTesting(stage == .welcome)
-                }
+        ZStack {
+            // The editor is the SIZING BASE from the moment it exists; it is
+            // never clipped, offset or safe-area-shifted by the curtain.
+            if stage != .welcome {
+                content()
+                    .allowsHitTesting(stage == .app)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
+            // The curtain is ONE branch with a stable id, so the production
+            // WelcomeView keeps its identity (and its running bloom) when the
+            // editor appears beneath it. It carries no GeometryReader and no
+            // `.clipped()`: the WelcomeView already fills the window through
+            // its own GeometryReader, the travel is a fixed distance (the
+            // designed 600 pt content plus the overscan), and the window
+            // itself clips anything beyond its edges.
+            if stage != .app {
+                CurtainPanel(progress: progress,
+                             travel: RevealTiming.travelDistance,
+                             shadowOpacity: progress > 0.001 ? 0 : 0.28,
+                             content: WelcomeView(language: language, onGetStarted: onGetStarted))
+                    .id(NumlexApp.productionWelcomeID)
+                    .zIndex(1)
+                    .allowsHitTesting(stage == .welcome)
+            }
         }
         .onChange(of: revealRequested) { _, requested in
             withAnimation(requested ? RevealTiming.curtainAnimation : nil) {
@@ -563,21 +574,19 @@ struct ReplayOverlay: View {
     @State private var progress: Double = 0
 
     var body: some View {
-        GeometryReader { geo in
-            CurtainPanel(progress: progress,
-                         travel: geo.size.height + RevealTiming.overscan,
-                         shadowOpacity: progress > 0.001 ? 0 : 0.28,
-                         content: WelcomeView(language: language, onGetStarted: onGetStarted))
-                .frame(width: geo.size.width, height: geo.size.height)
-                .zIndex(1)
-        }
-        .clipped()
-        .ignoresSafeArea()
-        .onChange(of: liftRequested) { _, requested in
-            withAnimation(requested ? RevealTiming.curtainAnimation : nil) {
-                progress = requested ? 1 : 0
+        CurtainPanel(progress: progress,
+                     travel: RevealTiming.travelDistance,
+                     shadowOpacity: progress > 0.001 ? 0 : 0.28,
+                     content: WelcomeView(language: language, onGetStarted: onGetStarted))
+            // The overlay layer covers the whole window, titlebar strip
+            // included. Because it is attached with `.overlay`, its
+            // `.ignoresSafeArea()` cannot reach the base view's layout.
+            .ignoresSafeArea()
+            .onChange(of: liftRequested) { _, requested in
+                withAnimation(requested ? RevealTiming.curtainAnimation : nil) {
+                    progress = requested ? 1 : 0
+                }
             }
-        }
     }
 }
 
