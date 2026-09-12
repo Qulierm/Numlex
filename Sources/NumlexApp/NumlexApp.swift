@@ -90,6 +90,17 @@ struct NumlexApp: App {
     /// The pending replay completion (cancelled on re-presentation, finish
     /// or window closure).
     @State private var replayTask: Task<Void, Never>?
+    /// The base editor's compositing is suspended while the fully opaque
+    /// welcome covers it (the live ContentView/TextKit stays MOUNTED with
+    /// its identity, caret, scroll and selection intact). It becomes visible
+    /// again one frame BEFORE the curtain lifts, so the reveal itself always
+    /// shows the real interface.
+    @State private var replayContentReady = false
+    /// The editor text view that owned the keyboard just before the replay
+    /// covered it. Restoring THIS responder (never a fresh model focus
+    /// request) is what keeps the caret, selection, typing attributes,
+    /// scroll origin and marked text exactly as the user left them.
+    @State private var replayRestoreResponder: NotebookTextView?
 
     init() {
         // 1) Decide first (non-creating directory lookup)…
@@ -235,6 +246,11 @@ struct NumlexApp: App {
                 // While the replay covers the window the editor must not take
                 // pointer events; the welcome overlay owns them.
                 .allowsHitTesting(!replayWelcomePresented)
+                // The editor stays MOUNTED (same identity, same TextKit
+                // storage) but stops compositing behind the opaque welcome.
+                // `.opacity` — never `.hidden()` or a conditional — so no
+                // layout or identity can change.
+                .opacity(replayWelcomePresented && !replayContentReady ? 0 : 1)
             if replayWelcomePresented {
                 GeometryReader { geo in
                     WelcomeView(language: model.settings.language,
@@ -269,9 +285,35 @@ struct NumlexApp: App {
     private func presentReplayWelcome() {
         guard revealStage == .app, !replayWelcomePresented else { return }
         replayTask?.cancel()
+        // Capture the LIVE first responder (the editor's own text view)
+        // BEFORE anything covers it: restoring that exact responder after
+        // the curtain is what preserves the caret and selection, where a
+        // fresh model focus request would reset the caret to position 0.
+        replayRestoreResponder = Self.liveEditorResponder()
+        replayContentReady = false
         replayCurtainLifted = false
         replaySession = UUID()
         replayWelcomePresented = true
+    }
+
+    /// The editor text view that currently owns the keyboard, or — if the
+    /// window is not focused — the live one found in the main window's view
+    /// tree. Purely observational: nothing is mutated.
+    private static func liveEditorResponder() -> NotebookTextView? {
+        let window = NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) })
+        guard let window else { return nil }
+        if let responder = window.firstResponder as? NotebookTextView { return responder }
+        return findTextView(in: window.contentView)
+    }
+
+    private static func findTextView(in view: NSView?) -> NotebookTextView? {
+        guard let view else { return nil }
+        if let textView = view as? NotebookTextView { return textView }
+        for subview in view.subviews {
+            if let found = findTextView(in: subview) { return found }
+        }
+        return nil
     }
 
     /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
@@ -284,12 +326,16 @@ struct NumlexApp: App {
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         replayTask?.cancel()
         if reduceMotion {
+            replayContentReady = true
             replayWelcomePresented = false
             replayCurtainLifted = false
-            focusSelectedEditor()
+            restoreReplayResponder()
             return
         }
         replayTask = Task { @MainActor in
+            // The editor becomes visible BEFORE the panel starts lifting, so
+            // the reveal shows the real interface from its first frame.
+            replayContentReady = true
             await Task.yield()
             guard !Task.isCancelled, replayWelcomePresented else { return }
             withAnimation(RevealTiming.animation) { replayCurtainLifted = true }
@@ -297,8 +343,21 @@ struct NumlexApp: App {
             guard !Task.isCancelled else { return }
             replayWelcomePresented = false
             replayCurtainLifted = false
-            focusSelectedEditor()
+            restoreReplayResponder()
         }
+    }
+
+    /// Hands the keyboard back to the SAME text view that had it before the
+    /// replay. `makeFirstResponder` alone does not touch the selection,
+    /// typing attributes, scroll origin or marked text, so the caret the
+    /// user left behind is exactly where it was. If the view is gone (sheet
+    /// switch, window closed) nothing happens — the content is never
+    /// altered as a fallback.
+    private func restoreReplayResponder() {
+        defer { replayRestoreResponder = nil }
+        guard let textView = replayRestoreResponder,
+              let window = textView.window else { return }
+        window.makeFirstResponder(textView)
     }
 
     var body: some Scene {

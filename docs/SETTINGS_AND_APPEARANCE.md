@@ -68,6 +68,15 @@ units, `moneyMarkerColor` for currency markers, `baseText` for operators) on
 Dark automatically. The notebook, sidebar and TextKit are never created behind
 the screen.
 
+The transient drawing is BATCHED: the ten calculation rows are drawn by a
+single `Canvas` from one finite progress scalar (per-run stagger, result
+emphasis and the two-batch convergence are all computed inside that one pass),
+and the 14 rays, 8 droplets and the wave share one further `Canvas` driven by a
+burst scalar and a fade scalar. Both Canvases retire as soon as their pass is
+over, so the settled scene carries no animation state at all — and the only
+view-level animations left are the three that need identity: the icon, the
+slogan and the button.
+
 The choreography is one deterministic one-shot sequence of roughly two seconds:
 the icon fades in, the rows stream in with a per-row and per-token stagger, the
 result runs brighten once, the rows gather into the icon in two tight batches,

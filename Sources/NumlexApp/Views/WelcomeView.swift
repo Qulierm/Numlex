@@ -28,13 +28,19 @@ struct WelcomeView: View {
     // One-shot staged state. Only opacity/offset/scale/rotation/trim change;
     // every final frame exists from the first layout pass.
     @State private var iconRevealed = false
-    @State private var tokensRevealed = false
-    @State private var emphasized = false
-    @State private var converged = false
-    @State private var splashBurst = false
-    @State private var splashFaded = false
-    @State private var waveProgress: CGFloat = 0
-    @State private var waveFaded = false
+    // r101: ONE finite scalar per batched pass. The calculation field and
+    // the silver splash are each drawn by a single Canvas from these
+    // values, so the whole transient animation costs three (field) plus
+    // two (splash) animation transactions instead of ~90 per-view ones.
+    @State private var streamProgress: Double = 0
+    @State private var emphasisProgress: Double = 0
+    @State private var convergeProgress: Double = 0
+    @State private var burstProgress: Double = 0
+    @State private var fadeProgress: Double = 0
+    /// Both Canvases leave the hierarchy for good once their pass is over,
+    /// so the settled final scene draws nothing transient at all.
+    @State private var fieldActive = true
+    @State private var splashActive = true
     @State private var pulsed = false
     @State private var sheenProgress: CGFloat = -1.2
     /// Set at the splash finish: the icon grows from its ~110 pt streaming
@@ -61,8 +67,12 @@ struct WelcomeView: View {
             ZStack {
                 Color(nsColor: Design.editorBackground)
 
-                calculationField(scale: scale)
-                splash(scale: scale)
+                if fieldActive {
+                    calculationField(scale: scale)
+                }
+                if splashActive {
+                    splash(scale: scale)
+                }
                 icon(scale: scale)
                 slogan(scale: scale)
                 button(scale: scale)
@@ -171,67 +181,127 @@ struct WelcomeView: View {
         return CGPoint(x: x, y: y)
     }
 
+    /// ONE Canvas draws every transient calculation. The old field was ten
+    /// rows of five-to-eleven independently animated `Text` views (each with
+    /// its own animation transaction, offset, scale and blur shadow) — the
+    /// measured dominant cost. Now a single draw pass per frame produces the
+    /// same picture from three finite scalars:
+    ///
+    ///  * `streamProgress` reveals the runs with the row + token stagger
+    ///    (a cheap horizontal wipe and fade, computed inside the drawing),
+    ///  * `emphasisProgress` brightens the result runs once,
+    ///  * `convergeProgress` gathers the rows into the icon in two batches.
     private func calculationField(scale: CGFloat) -> some View {
-        ZStack {
-            ForEach(Array(Self.calculations.enumerated()), id: \.offset) { index, expression in
+        Canvas(opaque: false, rendersAsynchronously: false) { context, size in
+            let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+            let iconCentre = CGPoint(x: centre.x,
+                                     y: centre.y + Self.iconCanvasOffset.height * scale)
+            for (index, expression) in Self.calculations.enumerated() {
+                let converge = Self.convergeAmount(convergeProgress, expression)
+                let opacity = (1 - converge)
+                guard opacity > 0.012 else { continue }
                 let anchor = Self.anchor(for: expression)
-                expressionRow(expression, index: index)
-                    .scaleEffect(scale, anchor: .center)
-                    .offset(x: anchor.x * scale, y: anchor.y * scale)
-                    // Gather into the icon (batched per column/slot), then
-                    // disappear: no row survives into the calm final state.
-                    .scaleEffect(converged ? 0.5 : 1, anchor: .center)
-                    .opacity(converged ? 0 : 1)
-                    .offset(x: anchor.x * (converged ? -0.55 : 0),
-                            y: anchor.y * (converged ? -0.45 : 0))
-                    .animation(.easeInOut(duration: 0.34)
-                        .delay(converged ? Self.batchDelay(expression) : 0),
-                               value: converged)
+                let base = CGPoint(x: centre.x + anchor.x * scale,
+                                   y: centre.y + anchor.y * scale)
+                let position = CGPoint(
+                    x: base.x + (iconCentre.x - base.x) * converge * 0.55,
+                    y: base.y + (iconCentre.y - base.y) * converge * 0.45)
+                let rowScale = scale * (1 - 0.5 * converge)
+                Self.drawRow(expression, index: index,
+                             at: position, canvasScale: rowScale,
+                             stream: streamProgress,
+                             emphasis: emphasisProgress,
+                             opacity: opacity, in: &context)
             }
         }
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
+    /// The transient field's one font size (16 pt, rounded, monospaced
+    /// digits) — the same appearance the per-token `Text` views had.
+    static let fieldFontSize: CGFloat = 16
+
+    /// Per-run stagger for the streaming reveal.
+    private static let tokenStagger: Double = 0.055
+    private static let rowStagger: Double = 0.038
+    /// The reveal window each run takes (of the normalised row progress).
+    private static let revealWindow: Double = 0.55
+
+    /// Draws one expression centered on `at`, run by run, from the same
+    /// palette roles the old per-token `Text` views used (numbers,
+    /// variables, units, money markers, operators), with the per-run
+    /// stagger and the result emphasis computed INSIDE this single pass.
+    private static func drawRow(_ expression: BloomExpression, index: Int,
+                                at centre: CGPoint, canvasScale: CGFloat,
+                                stream: Double, emphasis: Double,
+                                opacity: Double,
+                                in context: inout GraphicsContext) {
+        var runs: [(text: GraphicsContext.ResolvedText, width: CGFloat,
+                    isResult: Bool, delay: Double)] = []
+        var total: CGFloat = 0
+        for (tokenIndex, token) in expression.tokens.enumerated() {
+            let styled = Text(token.text)
+                .font(.system(size: fieldFontSize, weight: token.weight, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(Color(nsColor: token.color))
+            let resolved = context.resolve(styled)
+            let width = resolved.measure(in: CGSize(width: 1e6, height: 1e6)).width
+            runs.append((resolved, width, expression.resultIndices.contains(tokenIndex),
+                         Double(tokenIndex) * tokenStagger))
+            total += width
+        }
+        guard total > 0 else { return }
+        let rowStart = Double(index) * rowStagger
+        let rowReveal = clamp01((stream - rowStart) / revealWindow)
+        guard rowReveal > 0 else { return }
+        let totalScaled = total * canvasScale
+        var x = centre.x - totalScaled / 2
+        for run in runs {
+            let width = run.width * canvasScale
+            let tokenReveal = clamp01((rowReveal - run.delay) / max(0.2, 1 - run.delay))
+            let alpha = opacity * tokenReveal
+            if alpha > 0.012 {
+                let rise = (1 - tokenReveal) * 5 * canvasScale
+                let wipe = (1 - tokenReveal) * -6 * canvasScale
+                var ctx = context
+                ctx.opacity = alpha
+                if run.isResult, emphasis > 0.01 {
+                    // Result emphasis: a cheap 6% scale + brightness pass,
+                    // never a blur (the old per-row blur shadow measured
+                    // free but was still an extra compositing layer).
+                    let scale = canvasScale * (1 + 0.06 * emphasis)
+                    var local = ctx
+                    local.opacity = alpha * (1 + 0.20 * emphasis)
+                    local.translateBy(x: x + width / 2 + wipe, y: centre.y + rise)
+                    local.scaleBy(x: scale, y: scale)
+                    local.draw(run.text, at: .zero)
+                } else {
+                    ctx.draw(run.text, at: CGPoint(x: x + width / 2 + wipe,
+                                                   y: centre.y + rise))
+                }
+            }
+            x += width
+        }
+    }
+
+    fileprivate static func clamp01(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+
     /// Two tight batches (left column, then right column) with a small
-    /// per-row stagger inside each.
+    /// per-row stagger inside each — the same rhythm the per-row views had,
+    /// now expressed as a delay inside the single batched pass.
     private static func batchDelay(_ expression: BloomExpression) -> Double {
         let columnBase: Double = expression.column == .left ? 0 : 0.09
         return columnBase + Double(expression.slot) * 0.025
     }
 
-    private func expressionRow(_ expression: BloomExpression, index: Int) -> some View {
-        HStack(spacing: 0) {
-            ForEach(Array(expression.tokens.enumerated()), id: \.offset) { tokenIndex, token in
-                tokenText(token, emphasized: emphasized && expression.resultIndices.contains(tokenIndex))
-                    .opacity(tokensRevealed ? 1 : 0)
-                    .offset(y: tokensRevealed ? 0 : 5)
-                    .scaleEffect(tokensRevealed ? 1 : 0.97)
-                    // Stream: a small per-row offset plus a per-token stagger.
-                    .animation(.easeOut(duration: 0.22)
-                        .delay(tokensRevealed
-                               ? 0.14 + Double(index) * 0.035 + Double(tokenIndex) * 0.022
-                               : 0),
-                               value: tokensRevealed)
-                    .animation(.easeOut(duration: 0.16)
-                        .delay(emphasized ? 0.62 + Double(index) * 0.022 : 0),
-                               value: emphasized)
-            }
-        }
-        .shadow(color: emphasized
-                ? Color(nsColor: Design.baseText).opacity(0.30)
-                : Color(nsColor: Design.baseText).opacity(0.14),
-                radius: emphasized ? 7 : 2)
-    }
-
-    /// One typographic run, resolved from the app's own editor palette.
-    @ViewBuilder
-    private func tokenText(_ token: BloomToken, emphasized: Bool) -> some View {
-        Text(token.text)
-            .font(.system(size: 16, weight: token.weight, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(Color(nsColor: token.color))
-            .scaleEffect(emphasized ? 1.06 : 1)
-            .animation(.easeOut(duration: 0.16), value: emphasized)
+    /// A per-row convergence amount for the batched field.
+    static func convergeAmount(_ progress: Double, _ expression: BloomExpression) -> Double {
+        let delay = batchDelay(expression)
+        let span = max(0.35, 1 - delay)
+        return clamp01((progress - delay * 0.35) / span)
     }
 
     // MARK: - Silver splash (Task 2)
@@ -264,48 +334,97 @@ struct WelcomeView: View {
     /// disconnected from the small one or being swallowed by the large one.
     private static let rayOriginRadius: CGFloat = 79
 
+    /// ONE Canvas draws the whole silver splash — 14 rays, 8 droplets and
+    /// the expanding wave — from two finite scalars (`burstProgress`,
+    /// `fadeProgress`), so there are no per-ray/per-drop animation
+    /// transactions or layers. Geometry comes from the same deterministic
+    /// arrays as before; the varied lengths and delays are derived inside
+    /// the drawing.
     private func splash(scale: CGFloat) -> some View {
-        ZStack {
-            // Soft expanding wave.
-            Circle()
-                .stroke(silverSoft.opacity(waveFaded ? 0 : 0.45), lineWidth: 1.5)
-                .frame(width: 186, height: 186)
-                .scaleEffect(waveProgress == 0 ? 0.55 : 0.55 + waveProgress * 1.4)
-                .opacity(waveFaded ? 0 : min(1, waveProgress * 2) * (1 - waveProgress * 0.55))
-
-            // Fine radial rays.
-            ForEach(Array(Self.rays.enumerated()), id: \.offset) { _, ray in
-                Capsule()
-                    .fill(silver.opacity(splashFaded ? 0 : 0.75))
-                    .frame(width: ray.width, height: ray.length)
-                    .offset(y: -ray.length / 2 - Self.rayOriginRadius)
-                    .rotationEffect(.degrees(ray.angle))
-                    .scaleEffect(splashBurst ? 1 : 0.35, anchor: .bottom)
-                    .opacity(splashFaded ? 0 : 1)
-                    .animation(.easeOut(duration: 0.42).delay(ray.delay), value: splashBurst)
-                    .animation(.easeOut(duration: 0.26), value: splashFaded)
-            }
-
-            // Droplets.
-            ForEach(Array(Self.droplets.enumerated()), id: \.offset) { _, drop in
-                let rad = drop.angle * .pi / 180
-                Circle()
-                    .fill(silver.opacity(splashFaded ? 0 : 0.8))
-                    .frame(width: drop.size, height: drop.size)
-                    .offset(x: splashBurst ? cos(rad) * drop.radius : 0,
-                            y: splashBurst ? sin(rad) * drop.radius : 0)
-                    .opacity(splashBurst ? (splashFaded ? 0 : 0.9) : 0)
-                    .animation(.easeOut(duration: 0.40).delay(0.06 + drop.delay), value: splashBurst)
-                    .animation(.easeOut(duration: 0.24), value: splashFaded)
-            }
+        Canvas(opaque: false, rendersAsynchronously: false) { context, size in
+            // The burst is centred on the ICON anchor, not the window
+            // centre (the icon sits above the middle of the canvas).
+            let centre = CGPoint(x: size.width / 2,
+                                 y: size.height / 2 + Self.iconCanvasOffset.height * scale)
+            Self.drawWave(&context, centre: centre, scale: scale,
+                          footprint: Self.splashFootprint(iconExpanded),
+                          burst: burstProgress, fade: fadeProgress)
+            Self.drawRays(&context, centre: centre, scale: scale,
+                          footprint: Self.splashFootprint(iconExpanded),
+                          burst: burstProgress, fade: fadeProgress)
+            Self.drawDroplets(&context, centre: centre, scale: scale,
+                              footprint: Self.splashFootprint(iconExpanded),
+                              burst: burstProgress, fade: fadeProgress)
         }
-        // The splash tracks the icon's own footprint: ~110 pt while the
-        // field is streaming, full size once the icon has grown.
-        .scaleEffect(iconExpanded ? 1 : Self.preFinishIconScale, anchor: .center)
-        .animation(.easeOut(duration: 0.55), value: iconExpanded)
-        .scaleEffect(scale, anchor: .center)
-        .offset(y: Self.iconCanvasOffset.height * scale)
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// The splash follows the icon's own footprint: the streaming size while
+    /// the calculations are visible, full size once the icon has grown.
+    static func splashFootprint(_ expanded: Bool) -> CGFloat {
+        expanded ? 1 : preFinishIconScale
+    }
+
+    static func eased(_ value: Double) -> Double {
+        clamp01(value)
+    }
+
+    private static func drawWave(_ context: inout GraphicsContext, centre: CGPoint,
+                                 scale: CGFloat, footprint: CGFloat,
+                                 burst: Double, fade: Double) {
+        let wave = clamp01(burst * 1.15)
+        guard wave > 0, fade < 1 else { return }
+        let radius = 93 * (0.55 + wave * 1.4) * footprint * scale
+        let alpha = min(1, wave * 2) * (1 - wave * 0.55) * (1 - fade)
+        let rect = CGRect(x: centre.x - radius, y: centre.y - radius,
+                          width: radius * 2, height: radius * 2)
+        context.stroke(Path(ellipseIn: rect),
+                       with: .color(Color(nsColor: .secondaryLabelColor).opacity(0.45 * alpha)),
+                       lineWidth: 1.5 * scale)
+    }
+
+    private static func drawRays(_ context: inout GraphicsContext, centre: CGPoint,
+                                 scale: CGFloat, footprint: CGFloat,
+                                 burst: Double, fade: Double) {
+        guard fade < 1 else { return }
+        let colour = Color(nsColor: Design.baseText)
+        for ray in rays {
+            let local = clamp01((burst - ray.delay * 2.2) / 0.7)
+            guard local > 0.01 else { continue }
+            let angle = ray.angle * .pi / 180
+            let originRadius = rayOriginRadius * footprint * scale
+            let origin = CGPoint(x: centre.x + cos(angle) * originRadius,
+                                 y: centre.y + sin(angle) * originRadius)
+            let length = ray.length * (0.35 + 0.65 * local) * footprint * scale
+            let end = CGPoint(x: origin.x + cos(angle) * length,
+                              y: origin.y + sin(angle) * length)
+            var path = Path()
+            path.move(to: origin)
+            path.addLine(to: end)
+            context.stroke(path,
+                           with: .color(colour.opacity(0.75 * local * (1 - fade))),
+                           style: StrokeStyle(lineWidth: ray.width * scale, lineCap: .round))
+        }
+    }
+
+    private static func drawDroplets(_ context: inout GraphicsContext, centre: CGPoint,
+                                     scale: CGFloat, footprint: CGFloat,
+                                     burst: Double, fade: Double) {
+        guard fade < 1 else { return }
+        let colour = Color(nsColor: Design.baseText)
+        for drop in droplets {
+            let local = clamp01((burst - 0.06 - drop.delay * 2.0) / 0.7)
+            guard local > 0.01 else { continue }
+            let angle = drop.angle * .pi / 180
+            let radius = drop.radius * footprint * scale * (0.35 + 0.65 * local)
+            let side = drop.size * scale
+            let rect = CGRect(x: centre.x + cos(angle) * radius - side / 2,
+                              y: centre.y + sin(angle) * radius - side / 2,
+                              width: side, height: side)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color(colour.opacity(0.9 * local * (1 - fade))))
+        }
     }
 
     private func icon(scale: CGFloat) -> some View {
@@ -428,32 +547,36 @@ struct WelcomeView: View {
             sloganRevealed = true
             buttonRevealed = true
             buttonFocused = true
+            // No Canvas, no progress, no ticker: the field and the splash
+            // never exist in the Reduce Motion presentation.
+            fieldActive = false
+            splashActive = false
             return
         }
         // 0.00–0.35 icon fades/scales in.
         withAnimation(.easeOut(duration: 0.35)) { iconRevealed = true }
-        // 0.14–1.1 the calculations stream in (row + token stagger).
+        // 0.14–1.1 the calculations stream in (row + token stagger, all
+        // derived inside the ONE field Canvas from this single scalar).
         try? await Task.sleep(nanoseconds: 140_000_000)
         if Task.isCancelled { return }
-        withAnimation { tokensRevealed = true }
+        withAnimation(.easeOut(duration: 0.96)) { streamProgress = 1 }
         // 0.62–0.95 the result runs brighten once.
         try? await Task.sleep(nanoseconds: 480_000_000)
         if Task.isCancelled { return }
-        withAnimation { emphasized = true }
+        withAnimation(.easeOut(duration: 0.33)) { emphasisProgress = 1 }
         // 0.95–1.45 gather into the icon in two tight batches.
         try? await Task.sleep(nanoseconds: 330_000_000)
         if Task.isCancelled { return }
-        withAnimation { converged = true }
+        withAnimation(.easeInOut(duration: 0.52)) { convergeProgress = 1 }
         // 1.30–1.75 the monochrome silver splash.
         try? await Task.sleep(nanoseconds: 350_000_000)
         if Task.isCancelled { return }
         withAnimation { pulsed = true }
-        withAnimation(.easeOut(duration: 0.55)) { waveProgress = 1 }
-        withAnimation { splashBurst = true }
+        withAnimation(.easeOut(duration: 0.46)) { burstProgress = 1 }
         withAnimation(.easeInOut(duration: 0.34)) { sheenProgress = 1.2 }
         try? await Task.sleep(nanoseconds: 340_000_000)
         if Task.isCancelled { return }
-        withAnimation { splashFaded = true; waveFaded = true }
+        withAnimation(.easeOut(duration: 0.30)) { fadeProgress = 1 }
         withAnimation(.easeInOut(duration: 0.18)) { pulsed = false }
         // 1.64–2.19 the icon grows from the streaming footprint (110 pt) to
         // the large final frame (152 pt) on one restrained ease. This
@@ -469,8 +592,17 @@ struct WelcomeView: View {
         try? await Task.sleep(nanoseconds: 300_000_000)
         if Task.isCancelled { return }
         withAnimation(.easeOut(duration: 0.40)) { buttonRevealed = true }
+        // Both transient passes are invisible by now (rows converged,
+        // splash faded): drop the Canvases for good so the settled scene
+        // carries no animation state at all.
+        // The two transient Canvases have drawn their final (empty) frame:
+        // retire them and hand the keyboard over on the NEXT run-loop turn,
+        // after the visible sequence has finished, so neither the layer-tree
+        // change nor the focus change can land inside the animation.
         try? await Task.sleep(nanoseconds: 120_000_000)
         if Task.isCancelled { return }
+        fieldActive = false
+        splashActive = false
         buttonFocused = true
     }
 
