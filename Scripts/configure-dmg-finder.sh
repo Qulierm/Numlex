@@ -72,8 +72,14 @@ case "$seen" in
 esac
 
 ATTEMPT_RESULT=""
+# osascript may print non-fatal host warnings (for example the
+# "ApplePersistence=NO" line some macOS sessions emit on Finder Apple
+# events) on stderr. The strict comparison below must see the script's
+# stdout ONLY; stderr is kept for diagnostics and printed on a mismatch.
+OSASCRIPT_ERR="$(mktemp)"
+trap 'rm -f "$OSASCRIPT_ERR"' EXIT
 for attempt in 1 2 3 4; do
-  ATTEMPT_RESULT="$(osascript - "$VOLNAME" "$VOLPATH" <<'APPLEOF' 2>&1 || echo "APPLESCRIPT-ERROR"
+  ATTEMPT_RESULT="$(osascript - "$VOLNAME" "$VOLPATH" 2>"$OSASCRIPT_ERR" <<'APPLEOF' || echo "APPLESCRIPT-ERROR"
 on run argv
 	set volName to item 1 of argv
 	set volPath to item 2 of argv
@@ -139,6 +145,9 @@ APPLEOF
     break
   fi
   echo "attempt $attempt: readback mismatch: '$ATTEMPT_RESULT'" >&2
+  if [[ -s "$OSASCRIPT_ERR" ]]; then
+    echo "  osascript diagnostics: $(tr '\n' ' ' < "$OSASCRIPT_ERR")" >&2
+  fi
   if [[ "$attempt" == "4" ]]; then
     echo "error: Finder layout could not be applied exactly after 4 attempts." >&2
     echo "error: expected '$EXPECTED'." >&2
