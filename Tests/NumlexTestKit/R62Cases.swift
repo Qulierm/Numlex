@@ -269,8 +269,11 @@ public let r62Cases: [EngineCase] = [
         let view = r62Source("Sources/NumlexApp/Views/AnswerColumnView.swift")
         let block = view.range(of: "onDoubleTap: { y, count in")
             .map { String(view[$0.lowerBound..<view.endIndex]).prefix(1800) } ?? ""
-        try expect(block.contains("case .number, .variable, .money"),
-                   "double-tap mints number/variable/money rows (number covers units and weather)")
+        let planSource = r62Source("Sources/NumlexCore/Engine/SheetCommandPlans.swift")
+        try expect(planSource.contains("case .number, .variable, .money"),
+                   "the shared double-tap plan tokenizes number/variable/money rows")
+        try expect(block.contains("AnswerDoubleTapPlan.action("),
+                   "the catcher routes through the shared pure plan")
         try expect(!block.contains(".date"),
                    "date answers are never minted")
     },

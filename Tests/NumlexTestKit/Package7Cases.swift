@@ -67,6 +67,24 @@ private func exportProbeContext(_ content: String) -> ExportPresentationContext 
         financial: .defaults, presentation: .defaults, language: .en)
 }
 
+private func p7Source(_ path: String) -> String {
+    let fromFile = URL(fileURLWithPath: #file)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    for root in [fromFile.path, FileManager.default.currentDirectoryPath] {
+        let full = (root as NSString).appendingPathComponent(path)
+        if let text = try? String(contentsOfFile: full, encoding: .utf8) { return text }
+    }
+    return ""
+}
+
+private func p7value(_ line: SheetLine) -> Double? {
+    if let n = p7number(line) { return n }
+    if case .variable(_, let v, _, _) = line.result { return v }
+    return nil
+}
+
 private func p7rows(_ source: String) -> [SheetLine] {
     var vars: [String: Double] = [:]
     return evaluateSheet(source, variables: &vars, rates: Rates(), decimalPlaces: 7)
@@ -518,8 +536,9 @@ public let package7Cases: [EngineCase] = [
     EngineCase("p7-statistics-natural-forms") {
         try expectEqual(p7number(p7rows("median of 1, 2, 3")[0]), 2)
         try expectEqual(p7number(p7rows("count of 1, 2, 3, 4")[0]), 4)
+        // The phrase lane rounds at the CALLER's decimalPlaces (7 here).
         let rows = p7rows("standard deviation of 2, 4, 4, 4, 5, 5, 7, 9")
-        try expectClose(p7number(rows[0]) ?? .nan, 2.138089935299395, 1e-9)
+        try expectClose(p7number(rows[0]) ?? .nan, 2.1380899, 1e-9)
         let randomRows = p7rows("random number between 1 and 6")
         try expectEqual(randomRows[0].metadata, .dynamic, "random phrase is dynamic")
         // Decimal-comma lists use the semicolon separator.
@@ -679,12 +698,20 @@ public let package7Cases: [EngineCase] = [
 
     EngineCase("p7-pdf-fixture-tags-dividers-subtotals-footer") {
         // Headless PDF evidence for the Package 7 presentation: tags,
-        // an exact divider, a tag aggregate, a subtotal, a grand total
-        // and the median footer statistic (with its localized label).
+        // an exact divider, a tag aggregate, TWO successful subtotals
+        // and a grand total (350) that must appear as a DRAWN answer,
+        // plus the median footer statistic (with its localized label).
         let content = "# Ledger\nrevenue = 125000\ncosts = 73000\n"
             + "profit = revenue - costs #money\n---\n100 #food\n200 #food\n"
-            + "total of #food\nsubtotal\ngrand total"
+            + "total of #food\nsubtotal\n50\nsubtotal\ngrand total"
         let ids = content.components(separatedBy: "\n").map { _ in UUID() }
+        // The grand total actually resolves (two prior subtotals).
+        var checkVars: [String: Double] = [:]
+        let checkRows = evaluateSheet(content, variables: &checkVars,
+                                      rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(checkRows[11]), 350, "grand total value")
+        try expectEqual(checkRows[11].metadata, .grandTotal, "grand metadata")
+        try expect(checkRows[11].isTotal, "grand derived presentation")
         let context = ExportPresentationContext(
             sheetID: UUID(), sheetTitle: "Package 7", content: content,
             lineIDs: ids, references: [], answerDisplay: [], highlights: [],
@@ -710,6 +737,7 @@ public let package7Cases: [EngineCase] = [
             try expect(text.contains("profit = revenue - costs #money"),
                        "tags stay in the exported text")
             try expect(text.contains("total of #food"), "tag aggregate text")
+            try expect(text.contains("350"), "grand total answer is drawn")
             try expect(text.contains("Median"), "footer statistic label")
         }
     },
@@ -727,6 +755,409 @@ public let package7Cases: [EngineCase] = [
         try expectEqual(spans[1][0].range, NSRange(location: 0, length: 3))
         try expectEqual(spans[2].map(\.role), [.hashMarker, .hashBody])
         try expectEqual(spans[2][0].range, NSRange(location: 0, length: 2))
+    },
+
+
+    // MARK: - Task 9 acceptance: empties, dynamics, stability, menus
+
+    EngineCase("p7-empty-answer-double-tap-dispatch") {
+        let number: LineResult = .number(value: 1, unit: nil, kind: .plain, fraction: nil)
+        let variable: LineResult = .variable(name: "x", value: 1)
+        let money: LineResult = .money(value: 5, code: "USD")
+        try expectEqual(AnswerDoubleTapPlan.action(for: number, sourceLine: "1 + 1", isDynamic: false), .mintToken, "number mints")
+        try expectEqual(AnswerDoubleTapPlan.action(for: variable, sourceLine: "x = 1", isDynamic: false), .mintToken, "variable mints")
+        try expectEqual(AnswerDoubleTapPlan.action(for: money, sourceLine: "$5", isDynamic: false), .mintToken, "money mints")
+        try expectEqual(AnswerDoubleTapPlan.action(for: number, sourceLine: "rand(1, 6)", isDynamic: true), .inert, "dynamic never mints")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .blank, sourceLine: "   ", isDynamic: false), .insertSubtotal, "whitespace inserts")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .error(message: "Missing expression"), sourceLine: "total =", isDynamic: false), .insertSubtotal, "empty assignment inserts")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .blank, sourceLine: "# Title", isDynamic: false), .inert, "heading inert")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .blank, sourceLine: "// c", isDynamic: false), .inert, "comment inert")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .blank, sourceLine: "---", isDynamic: false), .inert, "divider inert")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .blank, sourceLine: "#tag", isDynamic: false), .inert, "tag-only inert")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .skip, sourceLine: "plain prose", isDynamic: false), .inert, "prose inert")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .error(message: "Invalid expression"), sourceLine: "1 +", isDynamic: false), .inert, "error inert")
+        try expectEqual(AnswerDoubleTapPlan.action(for: .error(message: "Missing expression"), sourceLine: "x = 1", isDynamic: false), .inert, "non-empty assignment inert")
+        // Predicate and planner agree on both classes.
+        for line in ["   ", "\t", "total =", "x =  "] {
+            try expect(SubtotalInsertionPlan.isEligibleTarget(line: line), "eligible: \(line)")
+            try expect(SubtotalInsertionPlan.plan(content: "5\n\(line)\n6", lineIndex: 1,
+                                                  command: "subtotal",
+                                                  priorSubtotalCount: Int.max) != nil,
+                       "planned: \(line)")
+        }
+        for line in ["# Title", "// c", "---", "#tag", "plain prose", "1 +", "x = 1"] {
+            try expect(!SubtotalInsertionPlan.isEligibleTarget(line: line), "inert: \(line)")
+            try expect(SubtotalInsertionPlan.plan(content: "5\n\(line)\n6", lineIndex: 1,
+                                                  command: "subtotal",
+                                                  priorSubtotalCount: Int.max) == nil,
+                       "rejected: \(line)")
+        }
+        // UI wiring: the catcher uses the shared plan and the empty path
+        // is connected in the owner.
+        let view = p7Source("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        try expect(view.contains("AnswerDoubleTapPlan.action("), "catcher uses the shared plan")
+        try expect(view.contains("isDynamic: line.isDynamic"), "catcher passes the taint")
+        try expect(p7Source("Sources/NumlexApp/Views/ContentView.swift")
+                    .contains("onEmptyAnswerDoubleTap"), "empty path wired")
+    },
+
+    EngineCase("p7-dynamic-token-plan-refused") {
+        let ids = [UUID()]
+        let selection = NSRange(location: 0, length: 0)
+        try expect(AnswerTokenInsertion.plan(content: "1", lineIDs: ids, references: [],
+                                             sourceLineIndex: 0, selection: selection,
+                                             sourceIsDynamic: true) == nil,
+                   "dynamic source refuses the token plan")
+        try expect(AnswerTokenInsertion.plan(content: "1", lineIDs: ids, references: [],
+                                             sourceLineIndex: 0, selection: selection,
+                                             sourceIsDynamic: false) != nil,
+                   "ordinary source still plans")
+        // The resolver marks the executed rand row and a referenced token
+        // becomes broken (never a stale value).
+        let ctx = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        let content = "rand(1, 6)\n5\n\u{FFFC}"
+        let contentIDs = (0..<3).map { _ in UUID() }
+        let markerAt = ("rand(1, 6)\n5\n" as NSString).length
+        let refs = [AnswerReference(sourceLineID: contentIDs[0], labelLine: 1,
+                                    location: markerAt)]
+        let resolved = resolveSheet(content: content, lineIDs: contentIDs, references: refs,
+                                    rates: Rates(), decimalPlaces: 7, random: ctx)
+        try expect(resolved.lines[0].isDynamic, "executed rand row dynamic")
+        try expect(!resolved.lines[1].isDynamic, "ordinary row not dynamic")
+        try expectEqual(resolved.tokens.count, 1, "token present")
+        if case .broken = resolved.tokens[0].state {
+        } else {
+            throw CaseFailure(message: "dynamic source token is broken", location: "p7")
+        }
+    },
+
+    EngineCase("p7-rand-registry-every-route") {
+        // Free expression, whitespace before `(`.
+        let free = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        try expectEqual(try evaluateExpression("10 + rand (1, 6)", variables: [:],
+                                               random: free), 16)
+        // Single-identifier assignment route + name taint.
+        let assign = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        var av: [String: Double] = [:]
+        let assigned = evaluateSheet("x = rand(1, 6)\nx + 1", variables: &av,
+                                     rates: Rates(), decimalPlaces: 7, random: assign)
+        try expectEqual(p7value(assigned[0]), 6, "assigned rand value")
+        try expect(assigned[0].isDynamic, "assignment row dynamic")
+        try expectEqual(p7number(assigned[1]), 7, "name value propagates")
+        try expect(assigned[1].isDynamic, "referencing row dynamic")
+        // Natural multiword assignment.
+        let natural = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        var nv: [String: Double] = [:]
+        let naturalRows = evaluateSheet("total revenue = rand(1, 6)\ntotal revenue + 1",
+                                        variables: &nv, rates: Rates(),
+                                        decimalPlaces: 7, random: natural)
+        try expectEqual(p7value(naturalRows[0]), 6, "natural assignment rand")
+        try expectEqual(p7number(naturalRows[1]), 7, "natural name propagates")
+        // Multiple calls draw multiple samples ONCE per epoch.
+        let store = RandomSampleStore()
+        var draws = 0
+        let multi = RandomEvaluationContext(sheetID: UUID(), store: store,
+                                            draw: { _, high in draws += 1; return high })
+        var mv: [String: Double] = [:]
+        let multiRows = evaluateSheet("rand(1, 6) + rand(1, 6)", variables: &mv,
+                                      rates: Rates(), decimalPlaces: 7, random: multi)
+        try expectEqual(p7number(multiRows[0]), 12, "two draws summed")
+        try expectEqual(draws, 2, "one draw per call")
+        var mv2: [String: Double] = [:]
+        _ = evaluateSheet("rand(1, 6) + rand(1, 6)", variables: &mv2,
+                          rates: Rates(), decimalPlaces: 7, random: multi)
+        try expectEqual(draws, 2, "duplicated pass reuses samples")
+        // Decimal-comma argument separator.
+        let de = NumberFormatContext(locale: Locale(identifier: "de_DE"),
+                                     decimalSeparator: ",",
+                                     groupingSeparator: ".",
+                                     argumentSeparator: ";",
+                                     displayGrouping: true,
+                                     compactNotation: false,
+                                     convertForeignOnPaste: false)
+        let deCtx = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        try expectEqual(try evaluateExpression("rand(1; 6)", variables: [:],
+                                               context: de, random: deCtx), 6)
+        // Token expression + rand through the shared strict core.
+        let tokenCtx = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        let ids = [UUID(), UUID()]
+        let tokenRefs = [AnswerReference(sourceLineID: ids[0], labelLine: 1,
+                                         location: 2)]
+        let tokenRows = resolveSheet(content: "5\n\u{FFFC} + rand (1, 6)",
+                                     lineIDs: ids, references: tokenRefs,
+                                     rates: Rates(), decimalPlaces: 7, random: tokenCtx)
+        try expectEqual(p7number(tokenRows.lines[1]), 11, "token + rand")
+        try expect(tokenRows.lines[1].isDynamic, "token rand row dynamic")
+    },
+
+    EngineCase("p7-dynamic-detection-execution-aware") {
+        // A lazy unselected branch never draws and never taints.
+        let lazyStore = RandomSampleStore()
+        var lazyDraws = 0
+        let lazy = RandomEvaluationContext(sheetID: UUID(), store: lazyStore,
+                                           draw: { _, high in lazyDraws += 1; return high })
+        var lv: [String: Double] = [:]
+        let lazyRows = evaluateSheet("if false then rand(1, 6) else 5", variables: &lv,
+                                     rates: Rates(), decimalPlaces: 7, random: lazy)
+        try expectEqual(p7number(lazyRows[0]), 5, "unselected branch value")
+        try expect(!lazyRows[0].isDynamic, "unexecuted rand never taints")
+        try expectEqual(lazyDraws, 0, "unexecuted rand never draws")
+        // The selected branch draws and taints.
+        let taken = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        var tv: [String: Double] = [:]
+        let takenRows = evaluateSheet("if true then rand(1, 6) else 5", variables: &tv,
+                                      rates: Rates(), decimalPlaces: 7, random: taken)
+        try expectEqual(p7number(takenRows[0]), 6, "selected branch value")
+        try expect(takenRows[0].isDynamic, "executed rand taints")
+        // Lexical decoys are not dynamic: comments and malformed text.
+        let decoyStore = RandomSampleStore()
+        var decoyDraws = 0
+        let decoy = RandomEvaluationContext(sheetID: UUID(), store: decoyStore,
+                                            draw: { _, high in decoyDraws += 1; return high })
+        var dv: [String: Double] = [:]
+        let decoyRows = evaluateSheet("// rand(1, 6)\nrand(1, 6", variables: &dv,
+                                      rates: Rates(), decimalPlaces: 7, random: decoy)
+        try expect(!decoyRows[0].isDynamic, "comment mentioning rand is inert")
+        try expect(!decoyRows[1].isDynamic, "malformed rand is not dynamic")
+        try expectEqual(decoyDraws, 0, "decoys never draw")
+        // Derived rows carry the taint orthogonally to their kind.
+        let derivedCtx = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        var rv: [String: Double] = [:]
+        let derived = evaluateSheet("rand(1, 6)\nsubtotal\n5\nsubtotal\ngrand total",
+                                    variables: &rv, rates: Rates(),
+                                    decimalPlaces: 7, random: derivedCtx)
+        try expectEqual(derived[1].metadata, .subtotal, "subtotal kind")
+        try expect(derived[1].isDynamic, "subtotal is dynamic")
+        try expectEqual(derived[4].metadata, .grandTotal, "grand kind")
+        try expect(derived[4].isDynamic, "grand total is dynamic")
+        // Named derived assignment propagates to later references.
+        let namedCtx = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        var nv: [String: Double] = [:]
+        let namedRows = evaluateSheet("rand(1, 6)\ns = subtotal\ns + 1",
+                                      variables: &nv, rates: Rates(),
+                                      decimalPlaces: 7, random: namedCtx)
+        try expect(namedRows[1].isDynamic, "named subtotal dynamic")
+        try expect(namedRows[2].isDynamic, "name reference tainted")
+        // Tag aggregate fed by a dynamic tagged row is dynamic.
+        let tagCtx = RandomEvaluationContext(sheetID: UUID(), draw: { _, high in high })
+        var gv: [String: Double] = [:]
+        let tagRows = evaluateSheet("rand(1, 6) #x\ntotal of #x", variables: &gv,
+                                    rates: Rates(), decimalPlaces: 7, random: tagCtx)
+        try expectEqual(tagRows[1].metadata, .tagAggregate, "tag kind")
+        try expect(tagRows[1].isDynamic, "tag aggregate dynamic")
+    },
+
+    EngineCase("p7-random-stability-and-conversion") {
+        let store = RandomSampleStore()
+        var draws = 0
+        let ctx = RandomEvaluationContext(sheetID: UUID(), store: store,
+                                          draw: { _, high in draws += 1; return high })
+        let ids = [UUID(), UUID()]
+        let content = "rand(1, 6)\nsubtotal"
+        func pass() -> (lines: [SheetLine], tokens: [TokenResolution]) {
+            resolveSheet(content: content, lineIDs: ids, references: [],
+                         rates: Rates(), decimalPlaces: 7, random: ctx)
+        }
+        let first = pass()
+        try expectEqual(p7number(first.lines[0]), 6, "displayed sample")
+        // Scroll/hover/format/footer-menu/export passes reuse the epoch.
+        for _ in 0..<4 { _ = pass() }
+        try expectEqual(draws, 1, "duplicated display passes never redraw")
+        // Footer menu changes are pure UI state.
+        try expect(FooterStatisticMenu.isChecked(.sum, current: .sum), "footer menu pure")
+        try expectEqual(draws, 1, "footer menu change never redraws")
+        // Export freezes the CURRENT epoch: building a snapshot with the
+        // same context neither redraws nor changes the value.
+        let exportContext = ExportPresentationContext(
+            sheetID: UUID(), sheetTitle: "Freeze", content: content,
+            lineIDs: ids, references: [], answerDisplay: [], highlights: [],
+            rates: Rates(), decimalPlaces: 7,
+            now: Date(timeIntervalSince1970: 1_700_000_000),
+            calendar: Calendar(identifier: .gregorian), constants: [],
+            weather: .empty, geo: .empty, numberContext: .legacy,
+            unitContext: .builtIns, preferences: .defaults, financial: .defaults,
+            presentation: .defaults, language: .en, random: ctx)
+        _ = ExportSnapshotBuilder.build(context: exportContext, options: ExportOptions())
+        _ = ExportSnapshotBuilder.build(context: exportContext, options: ExportOptions())
+        try expectEqual(draws, 1, "export never redraws")
+        // Conversion freezes the DISPLAYED value without a redraw.
+        let displayed = p7number(first.lines[1]) ?? .nan
+        try expectEqual(displayed, 6, "displayed subtotal")
+        guard let plan = SubtotalConversionPlan.plan(content: content, lineIndex: 1,
+                                                     value: displayed,
+                                                     context: .legacy) else {
+            throw CaseFailure(message: "conversion planned", location: "p7")
+        }
+        try expectEqual(plan.content, "rand(1, 6)\n6.0", "converted to displayed value")
+        try expectEqual(draws, 1, "conversion never redraws")
+        // A content edit / Recalculate clears the store: the next pass
+        // draws a fresh epoch.
+        store.clear()
+        _ = pass()
+        try expectEqual(draws, 2, "clear starts a new epoch")
+    },
+
+    EngineCase("p7-projection-offsets-preserve-markers") {
+        let analysis = SheetLineAnalysis.parse("  \u{FFFC} + 1 #tag")
+        try expectEqual(analysis.evaluationProjection, "\u{FFFC} + 1", "tag stripped")
+        try expectEqual(analysis.projectionOffset, 2, "leading whitespace offset")
+        try expectEqual(analysis.tags.count, 1, "tag parsed")
+        // Leading tabs/spaces plus a tag: the marker sidecar still maps.
+        let ids = (0..<3).map { _ in UUID() }
+        let content = "10\n\t \u{FFFC} + 1 #tag\n20"
+        let markerAt = ("10\n\t " as NSString).length
+        let refs = [AnswerReference(sourceLineID: ids[0], labelLine: 1,
+                                    location: markerAt)]
+        let resolved = resolveSheet(content: content, lineIDs: ids, references: refs,
+                                    rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(resolved.lines[1]), 11, "marker resolved to 10")
+        try expectEqual(resolved.tokens.count, 1, "one token")
+        try expectEqual(resolved.tokens[0].location, markerAt, "token location unmoved")
+        if case .active(let v, _, _) = resolved.tokens[0].state {
+            try expectEqual(v, 10, "active value")
+        } else {
+            throw CaseFailure(message: "token active", location: "p7")
+        }
+        // Multiple markers in one tagged row keep their coordinates.
+        let ids2 = (0..<3).map { _ in UUID() }
+        let content2 = "5\n7\n  \u{FFFC} + \u{FFFC} #sum"
+        let m1 = ("5\n7\n  " as NSString).length
+        let m2 = m1 + ("\u{FFFC} + " as NSString).length
+        let refs2 = [AnswerReference(sourceLineID: ids2[0], labelLine: 1, location: m1),
+                     AnswerReference(sourceLineID: ids2[1], labelLine: 2, location: m2)]
+        let resolved2 = resolveSheet(content: content2, lineIDs: ids2, references: refs2,
+                                     rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(resolved2.lines[2]), 12, "both markers resolve")
+        try expectEqual(resolved2.tokens.count, 2, "two tokens")
+        // A marker row with a tag still contributes to its tag aggregate.
+        let ids3 = [UUID(), UUID(), UUID()]
+        let content3 = "5\n \u{FFFC} + 1 #a\ntotal of #a"
+        let mA = ("5\n " as NSString).length
+        let refs3 = [AnswerReference(sourceLineID: ids3[0], labelLine: 1, location: mA)]
+        let resolved3 = resolveSheet(content: content3, lineIDs: ids3, references: refs3,
+                                     rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(resolved3.lines[2]), 6,
+                        "tagged marker expression contributes to its tag aggregate")
+        // Syntax spans keep original UTF-16 coordinates.
+        let spans = SyntaxClassifier.spans(for: "  \u{FFFC} + 1 #tag",
+                                           rates: Rates(), decimalPlaces: 7)
+        let tagSpans = spans[0].filter { $0.role == .tagMarker || $0.role == .tagBody }
+        try expectEqual(tagSpans.first?.range, NSRange(location: 8, length: 1),
+                        "tag marker span in original coordinates")
+        try expectEqual(tagSpans.last?.range, NSRange(location: 9, length: 3),
+                        "tag body span in original coordinates")
+    },
+
+    EngineCase("p7-nfc-tag-validation-and-lookup") {
+        let composed = SheetLineAnalysis.parse("1 #café")
+        let decomposed = SheetLineAnalysis.parse("1 #cafe\u{0301}")
+        try expectEqual(composed.tags.count, 1, "composed tag valid")
+        try expectEqual(decomposed.tags.count, 1, "decomposed tag valid")
+        try expectEqual(composed.tags[0].key, decomposed.tags[0].key,
+                        "NFC keys equal")
+        try expectEqual(decomposed.tags[0].spelling, "cafe\u{0301}",
+                        "original spelling preserved")
+        try expectEqual(decomposed.tags[0].span, NSRange(location: 2, length: 6),
+                        "original span preserved")
+        try expectEqual(decomposed.tags[0].nameSpan, NSRange(location: 3, length: 5),
+                        "original name span preserved")
+        // Composed and decomposed spellings query the same aggregate.
+        let first = p7rows("1 #cafe\u{0301}\ntotal of #café")
+        try expectEqual(p7number(first[1]), 1, "decomposed tag, composed query")
+        let second = p7rows("2 #café\ntotal of #cafe\u{0301}")
+        try expectEqual(p7number(second[1]), 2, "composed tag, decomposed query")
+    },
+
+    EngineCase("p7-statistics-numerical-stability") {
+        // The shared midpoint never overflows for opposite extremes.
+        try expectEqual(StatisticsFunctions.midpoint(-1e308, 1e308), 0,
+                        "midpoint of finite extremes")
+        try expectEqual(StatisticsFunctions.median([-1e308, 1e308]), 0,
+                        "median of finite extremes")
+        let footer = p7rows("0 - 10^308\n10^308")
+        try expectEqual(SheetFooterStatistics.compute(footer, statistic: .median),
+                        .value(0), "footer median uses the safe midpoint")
+        // The stable average is reused by tag aggregates.
+        try expectEqual(StatisticsFunctions.average([1e308, 1e308]), 1e308,
+                        "average of huge same-sign values")
+        let tagAvg = p7rows("10^308 #a\n10^308 #a\naverage of #a")
+        try expectEqual(p7number(tagAvg[2]), 1e308, "tag average stable")
+        // Scaled two-pass stdev stays finite for huge finite spreads.
+        let sd = StatisticsFunctions.stdev([-1e308, 1e308])
+        try expect(sd?.isFinite == true, "stdev finite for opposite extremes")
+        try expectClose(sd ?? .nan, 1.4142135623730951e308, 1e300)
+        let near = StatisticsFunctions.stdev([1e308, 1e308.nextUp])
+        try expect(near?.isFinite == true, "stdev finite near the top")
+        try expect((near ?? 0) > 0, "non-zero near-top spread")
+        // Ordinary corpus.
+        try expectClose(StatisticsFunctions.stdev([2, 4, 4, 4, 5, 5, 7, 9]) ?? .nan,
+                        2.138089935299395, 1e-12)
+        // The phrase lane accepts expressions/variables through the
+        // shared parser and never strips neutral words.
+        var vars: [String: Double] = [:]
+        let phrase = evaluateSheet("x = 3\nstandard deviation of x, 5, 7",
+                                   variables: &vars, rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(phrase[1]), 2, "variable list entry")
+        let exprList = p7rows("median of 1 + 1, 5 - 1, 3")
+        try expectEqual(p7number(exprList[0]), 3, "expression list entries")
+        let neutral = p7rows("median of 1 and 2")
+        if case .error = neutral[0].result {
+        } else {
+            throw CaseFailure(message: "neutral words rejected", location: "p7")
+        }
+        // Caller decimalPlaces drives rounding (no hardcoded 10).
+        var tenVars: [String: Double] = [:]
+        let ten = evaluateSheet("standard deviation of 2, 4, 4, 4, 5, 5, 7, 9",
+                                variables: &tenVars, rates: Rates(), decimalPlaces: 10)
+        try expectClose(p7number(ten[0]) ?? .nan, 2.1380899353, 1e-9)
+    },
+
+    EngineCase("p7-menu-contracts-and-isTotal") {
+        try expectEqual(FooterStatisticMenu.order, [.sum, .average, .count, .median],
+                        "footer menu order")
+        try expect(FooterStatisticMenu.isChecked(.median, current: .median),
+                   "checked entry")
+        try expect(!FooterStatisticMenu.isChecked(.sum, current: .median),
+                   "single checked entry")
+        let view = p7Source("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        try expect(view.contains("FooterStatisticMenu.order"),
+                   "footer menu built from the shared order")
+        try expect(!view.contains("menu.addItem(NSMenuItem.separator())\n            menu.addItem(item(L10n.t(\"convertToNormalLine\""),
+                   "convert never starts with a separator")
+        if let at = view.range(of: "menu.addItem(item(L10n.t(\"convertToNormalLine\"") {
+            let tail = String(view[at.lowerBound...]).prefix(240)
+            try expect(tail.contains("menu.addItem(.separator())"),
+                       "separator follows the convert item")
+        } else {
+            throw CaseFailure(message: "convert item present", location: "p7")
+        }
+        // `isTotal` is precise: every derived aggregate row carries it
+        // (successful or not), including tag aggregates and errors.
+        let rows = p7rows("1\nsubtotal\ngrand total\ntotal of #x")
+        try expect(rows[1].isTotal && rows[1].metadata == .subtotal, "subtotal isTotal")
+        try expect(rows[2].isTotal && rows[2].metadata == .grandTotal, "grand isTotal")
+        try expect(rows[3].isTotal && rows[3].metadata == .tagAggregate,
+                   "tag aggregate isTotal")
+        let errorGrand = p7rows("subtotal\ngrand total")
+        try expect(errorGrand[1].isTotal && errorGrand[1].metadata == .grandTotal,
+                   "unsuccessful grand is still a derived row")
+    },
+
+    EngineCase("p7-app-random-context-parity") {
+        let model = p7Source("Sources/NumlexApp/AppModel.swift")
+        let occurrences = model.components(separatedBy: "random: randomContext(for: sheet.id)")
+            .count - 1
+        try expect(occurrences >= 4,
+                   "all auxiliary evaluates thread the current store")
+        try expect(model.contains("randomStores[removedID] = nil"),
+                   "removed sheet stores deleted")
+        try expect(model.contains("randomStores[sheets[0].id] = nil"),
+                   "replaced sole sheet store deleted")
+        let content = p7Source("Sources/NumlexApp/Views/ContentView.swift")
+        try expect(content.contains("random: model.currentRandomContext"),
+                   "export/display share the epoch")
+        let plan = p7Source("Sources/NumlexCore/Models/AnswerTokenInsertion.swift")
+        try expect(plan.contains("sourceIsDynamic"), "token plan guards dynamic sources")
     },
 
     EngineCase("p7-weather-scan-ignores-tag-suffix") {
