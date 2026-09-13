@@ -91,11 +91,17 @@ public enum SheetAggregateCommand: Equatable, Sendable {
 public struct SheetAggregateState: Sendable {
     private var legacySum: Double = 0
     private var legacyOverflow = false
+    /// Package 7: sticky dynamic taint of the current section — set by
+    /// any observed row whose result depended on rand, so a subtotal /
+    /// legacy total/reference fed by a dynamic row is itself dynamic.
+    private var legacyDynamic = false
     private var subtotalSum: Double = 0
     private var subtotalOverflow = false
+    private var subtotalDynamic = false
     /// Raw values of the SUCCESSFUL subtotal rows (the grand list is not
-    /// erased by a divider).
-    private var grandValues: [Double] = []
+    /// erased by a divider); each keeps its dynamic taint so `grand
+    /// total` is dynamic when any subtotal it sums is dynamic.
+    private var grandValues: [(value: Double, dynamic: Bool)] = []
 
     public init() {}
 
@@ -138,10 +144,14 @@ public struct SheetAggregateState: Sendable {
     /// (legacy totals, subtotals, grand totals, tag aggregates,
     /// dividers, dynamic rows) must pass `isDerived: true`.
     public mutating func observe(result: LineResult, projection: String,
-                                 isDerived: Bool) {
+                                 isDerived: Bool, isDynamic: Bool = false) {
         guard !isDerived,
               let c = Self.contribution(of: result, projection: projection) else {
             return
+        }
+        if isDynamic {
+            legacyDynamic = true
+            subtotalDynamic = true
         }
         add(c, to: &legacySum, overflow: &legacyOverflow)
         add(c, to: &subtotalSum, overflow: &subtotalOverflow)
@@ -152,64 +162,78 @@ public struct SheetAggregateState: Sendable {
     public mutating func boundary() {
         legacySum = 0
         legacyOverflow = false
+        legacyDynamic = false
         subtotalSum = 0
         subtotalOverflow = false
+        subtotalDynamic = false
     }
 
     /// The legacy `total` command: resolves and resets ONLY the legacy
     /// section (a subtotal is not a legacy boundary).
-    public mutating func resolveLegacyTotal(decimalPlaces: Int) -> LineResult {
+    public mutating func resolveLegacyTotal(decimalPlaces: Int)
+        -> (result: LineResult, isDynamic: Bool) {
+        let dynamic = legacyDynamic
         defer {
             legacySum = 0
             legacyOverflow = false
+            legacyDynamic = false
         }
         guard !legacyOverflow else {
-            return .error(message: InlineTotal.overflowMessage)
+            return (.error(message: InlineTotal.overflowMessage), dynamic)
         }
-        return .number(value: roundResult(legacySum, decimalPlaces: decimalPlaces),
-                       unit: nil)
+        return (.number(value: roundResult(legacySum, decimalPlaces: decimalPlaces),
+                        unit: nil),
+                dynamic)
     }
 
     /// The `subtotal[ ± P%]` command: resolves and resets the subtotal
     /// section (even when it overflowed) and records successful values
-    /// for `grand total`. Returns the row result plus the raw subtotal
-    /// value (nil on overflow) so a caller can decide about the env.
+    /// for `grand total`. Returns the row result, the raw subtotal value
+    /// (nil on overflow) and the section's dynamic taint.
     public mutating func resolveSubtotal(percent: Double?,
                                          decimalPlaces: Int) -> (result: LineResult,
-                                                                 raw: Double?) {
+                                                                 raw: Double?,
+                                                                 isDynamic: Bool) {
+        let dynamic = subtotalDynamic
         defer {
             subtotalSum = 0
             subtotalOverflow = false
+            subtotalDynamic = false
         }
         guard !subtotalOverflow else {
-            return (.error(message: InlineTotal.overflowMessage), nil)
+            return (.error(message: InlineTotal.overflowMessage), nil, dynamic)
         }
         let base = subtotalSum
         let raw = percent.map { base * (1 + $0) } ?? base
         guard raw.isFinite else {
-            return (.error(message: InlineTotal.overflowMessage), nil)
+            return (.error(message: InlineTotal.overflowMessage), nil, dynamic)
         }
-        grandValues.append(raw)
+        grandValues.append((value: raw, dynamic: dynamic))
         return (.number(value: roundResult(raw, decimalPlaces: decimalPlaces), unit: nil),
-                raw)
+                raw,
+                dynamic)
     }
 
     /// The `grand total` command: the sum of the successful subtotal row
     /// values above. Fewer than two subtotals is the quiet generic
-    /// error. The grand list is never erased.
-    public mutating func resolveGrandTotal(decimalPlaces: Int) -> LineResult {
+    /// error. The grand list is never erased. Dynamic when any subtotal
+    /// it sums is dynamic.
+    public mutating func resolveGrandTotal(decimalPlaces: Int)
+        -> (result: LineResult, isDynamic: Bool) {
+        let dynamic = grandValues.contains { $0.dynamic }
         guard grandValues.count >= 2 else {
-            return .error(message: InlineTotal.overflowMessage)
+            return (.error(message: InlineTotal.overflowMessage), dynamic)
         }
         var sum = 0.0
-        for v in grandValues {
-            let next = sum + v
+        for entry in grandValues {
+            let next = sum + entry.value
             guard next.isFinite else {
-                return .error(message: InlineTotal.overflowMessage)
+                return (.error(message: InlineTotal.overflowMessage), dynamic)
             }
             sum = next
         }
-        return .number(value: roundResult(sum, decimalPlaces: decimalPlaces), unit: nil)
+        return (.number(value: roundResult(sum, decimalPlaces: decimalPlaces), unit: nil),
+                dynamic)
     }
 
     /// How many successful subtotal rows exist (tests/diagnostics).
@@ -234,13 +258,15 @@ func resolveAggregateCommand(_ command: SheetAggregateCommand,
                              env: inout TypedEnv,
                              aggregate: inout SheetAggregateState,
                              decimalPlaces: Int) -> (result: LineResult,
-                                                     metadata: SheetLineMetadata) {
+                                                     metadata: SheetLineMetadata,
+                                                     isDynamic: Bool) {
     switch command {
     case .legacyTotal:
-        return (aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces), .legacyTotal)
+        let r = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+        return (r.result, .legacyTotal, r.isDynamic)
     case .subtotal(let percent), .namedSubtotal(_, let percent):
-        let (result, raw) = aggregate.resolveSubtotal(percent: percent,
-                                                      decimalPlaces: decimalPlaces)
+        let (result, raw, dynamic) = aggregate.resolveSubtotal(percent: percent,
+                                                               decimalPlaces: decimalPlaces)
         var finalResult = result
         if case .namedSubtotal(let name, _) = command {
             if env.isConstant(display: name) {
@@ -250,9 +276,10 @@ func resolveAggregateCommand(_ command: SheetAggregateCommand,
                 env.set(display: name, qty: .scalar(raw))
             }
         }
-        return (finalResult, .subtotal)
+        return (finalResult, .subtotal, dynamic)
     case .grandTotal, .namedGrandTotal:
-        var finalResult = aggregate.resolveGrandTotal(decimalPlaces: decimalPlaces)
+        let r = aggregate.resolveGrandTotal(decimalPlaces: decimalPlaces)
+        var finalResult = r.result
         if case .namedGrandTotal(let name) = command {
             if env.isConstant(display: name) {
                 finalResult = .error(message: "Cannot assign to constant")
@@ -260,6 +287,6 @@ func resolveAggregateCommand(_ command: SheetAggregateCommand,
                 env.set(display: name, qty: .scalar(v))
             }
         }
-        return (finalResult, .grandTotal)
+        return (finalResult, .grandTotal, r.isDynamic)
     }
 }

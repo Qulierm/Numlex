@@ -351,7 +351,8 @@ public enum BooleanLogic {
     /// otherwise — a visible `LineResult` for every well-formed
     /// conditional.
     public static func conditionalLine(_ line: String, env: inout TypedEnv,
-                                       context: NumberFormatContext = .legacy) -> LineResult? {
+                                       context: NumberFormatContext = .legacy,
+                                       random: RandomEvaluationContext? = nil) -> LineResult? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, !trimmed.hasPrefix("//"), !trimmed.hasPrefix("#") else { return nil }
         guard BooleanLogic.booleanShape(trimmed, env: env) else { return nil }
@@ -380,7 +381,8 @@ public enum BooleanLogic {
                 }
                 let branch = cond ? tA : eA
                 // The UNSELECTED branch is never evaluated.
-                if let r = branchValue(branch.rhs, env: env, context: context) {
+                if let r = branchValue(branch.rhs, env: env, context: context,
+                                       random: random) {
                     switch r {
                     case .boolean(let b):
                         env.set(display: t, qty: .bool(b))
@@ -396,7 +398,8 @@ public enum BooleanLogic {
             }
             // --- value form: exactly one branch evaluates.
             let branchText = cond ? parts.thenBranch : parts.elseBranch
-            if let r = branchValue(branchText, env: env, context: context) {
+            if let r = branchValue(branchText, env: env, context: context,
+                                   random: random) {
                 return r
             }
             return .error(message: "Invalid expression")
@@ -410,7 +413,8 @@ public enum BooleanLogic {
     /// never coerced (a money-only branch fails), and nil means the
     /// branch is unusable (the caller errors).
     public static func branchValue(_ text: String, env: TypedEnv,
-                                   context: NumberFormatContext = .legacy) -> LineResult? {
+                                   context: NumberFormatContext = .legacy,
+                                   random: RandomEvaluationContext? = nil) -> LineResult? {
         let matches = NamedValues.matches(in: text, env: env)
         var vars: [String: TypedScalar] = [:]
         for e in env.entries {
@@ -431,7 +435,8 @@ public enum BooleanLogic {
         for (idx, m) in matches.enumerated().reversed() {
             expr = (expr as NSString).replacingCharacters(in: m.range, with: namePlaceholder(idx))
         }
-        if let v = try? evaluateTypedExpression(expr, variables: vars, context: context) {
+        if let v = try? evaluateTypedExpression(expr, variables: vars, context: context,
+                                                random: random) {
             switch v {
             case .number(let n, _) where n.isFinite:
                 return .number(value: n, unit: nil)
@@ -441,7 +446,8 @@ public enum BooleanLogic {
                 break
             }
         }
-        if let (n, codes) = evaluateNamedExpr(text, env: env, context: context) {
+        if let (n, codes) = evaluateNamedExpr(text, env: env, context: context,
+                                             random: random) {
             guard codes.isEmpty else { return nil }
             return .number(value: n, unit: nil)
         }

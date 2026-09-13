@@ -191,7 +191,8 @@ func assignmentLHSName(_ line: String) -> String? {
 }
 
 private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: Int,
-                                   context: NumberFormatContext = .legacy) -> LineResult? {
+                                   context: NumberFormatContext = .legacy,
+                                   random: RandomEvaluationContext? = nil) -> LineResult? {
     guard let split = BooleanLogic.assignmentSplit(line) else { return nil }
     let left = split.lhs.trimmingCharacters(in: .whitespaces)
     let rightRaw = split.rhs.trimmingCharacters(in: .whitespaces)
@@ -215,7 +216,7 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
         // r83: the kind-aware engine — a percent/multiplier right-hand
         // side (`x = 10% + 20%`, `x = 1.5x`) records its semantic kind
         // in the environment and the displayed answer.
-        let (raw, kind) = try evaluateExpressionKinded(right, variables: typedTable(env), context: context)
+        let (raw, kind) = try evaluateExpressionKinded(right, variables: typedTable(env), context: context, random: random)
         let v = roundResult(raw, decimalPlaces: decimalPlaces)
         env.set(display: left, qty: .scalar(value: v, kind: kind, fraction: nil))
         return .variable(name: left, value: v, kind: kind, fraction: nil)
@@ -290,8 +291,9 @@ private func evalFreeExpression(line: String, variables: [String: TypedScalar], 
 /// referenced names carry (more than one ⇒ hidden error upstream).
 /// No rounding happens here — display rounding is the caller's choice.
 func namedExprCore(_ line: String, env: TypedEnv,
-                   context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
-    strictExprCore(line, env: env, extraVars: [:])
+                   context: NumberFormatContext = .legacy,
+                   random: RandomEvaluationContext? = nil) -> (value: Double, codes: Set<String>)? {
+    strictExprCore(line, env: env, extraVars: [:], context: context, random: random)
 }
 
 /// The SHARED strict named-expression core with OPTIONAL extra scalar
@@ -302,7 +304,8 @@ func namedExprCore(_ line: String, env: TypedEnv,
 func strictExprCore(_ line: String,
                     env: TypedEnv,
                     extraVars: [String: Double],
-                    context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
+                    context: NumberFormatContext = .legacy,
+                    random: RandomEvaluationContext? = nil) -> (value: Double, codes: Set<String>)? {
     let matches = NamedValues.matches(in: line, env: env)
     var expr = line
     var vars: [String: Double] = [:]
@@ -354,7 +357,7 @@ func strictExprCore(_ line: String,
                 return nil
             }
         }
-        let raw = try evaluateExpression(normalized, variables: vars, context: context)
+        let raw = try evaluateExpression(normalized, variables: vars, context: context, random: random)
         guard raw.isFinite else { return nil }
         return (raw, codes)
     } catch {
@@ -365,8 +368,9 @@ func strictExprCore(_ line: String,
 /// Evaluates an expression that may reference DECLARED named values,
 /// with the line-pipeline's display rounding (10 decimals) applied.
 func evaluateNamedExpr(_ line: String, env: TypedEnv,
-                        context: NumberFormatContext = .legacy) -> (value: Double, codes: Set<String>)? {
-    guard let r = namedExprCore(line, env: env, context: context) else { return nil }
+                        context: NumberFormatContext = .legacy,
+                        random: RandomEvaluationContext? = nil) -> (value: Double, codes: Set<String>)? {
+    guard let r = namedExprCore(line, env: env, context: context, random: random) else { return nil }
     return (roundResult(r.value, decimalPlaces: 10), r.codes)
 }
 
@@ -399,7 +403,8 @@ private func evalNamedLine(_ line: String,
                            env: inout TypedEnv,
                            rates: Rates,
                            decimalPlaces: Int,
-                   context: NumberFormatContext = .legacy) -> LineResult? {
+                   context: NumberFormatContext = .legacy,
+                   random: RandomEvaluationContext? = nil) -> LineResult? {
     // 1. Explicit conversion of a named quantity: `monthly rent in EUR`.
     if let unit = namedConversionShape(line: line, env: env) {
         let matches = NamedValues.matches(in: line, env: env)
@@ -427,7 +432,7 @@ private func evalNamedLine(_ line: String,
     }
     // 2. Named reference expression: `monthly rent × 12`,
     //    `monthly rent + phone bill`, `monthly rent + 5%`.
-    if let (v, codes) = evaluateNamedExpr(line, env: env, context: context) {
+    if let (v, codes) = evaluateNamedExpr(line, env: env, context: context, random: random) {
         if let c = codes.first {
             return .money(value: v, code: c)
         }
@@ -535,7 +540,9 @@ func evalLineTyped(_ line: String,
     // Package 7: the strict natural statistics forms (median/count/
     // standard deviation of a list, random number between X and Y).
     if !BooleanLogic.hasAssignment(line),
-       let stat = StatisticsPhraseLane.tryLine(line, context: context, random: random) {
+       let stat = StatisticsPhraseLane.tryLine(line, context: context, random: random,
+                                               decimalPlaces: decimalPlaces,
+                                               variables: env.scalarDict()) {
         return stat
     }
     // r33: assignment to an ACTIVE global constant is a visible error on
@@ -784,7 +791,8 @@ func evalLineTyped(_ line: String,
     // assigned quantity and the name is recorded typed.
     if BooleanLogic.hasAssignment(line),
        let a = NaturalCalculation.tryAssignment(line: line, env: env, context: context,
-                                                rates: rates, unitContext: unitContext) {
+                                                rates: rates, unitContext: unitContext,
+                                                random: random) {
         switch a.value {
         case .error(let m):
             // r82: a rejected boolean-looking right-hand side fails
@@ -825,7 +833,7 @@ func evalLineTyped(_ line: String,
     }
     if NamedValues.referencesTypedName(line, env: env) {
         return evalNamedLine(line, env: &env, rates: rates, decimalPlaces: decimalPlaces,
-                             context: context)
+                             context: context, random: random)
     }
     switch NaturalCalculation.tryMoney(line: line, env: env, context: context,
                                        rates: rates) {
@@ -856,7 +864,8 @@ func evalLineTyped(_ line: String,
         // Conditional lines come first: the conditional-assignment form
         // (`if c then x = a else x = b`) DOES carry an `=`, so it must
         // be resolved before the assignment-aware skip below.
-        if let cond = BooleanLogic.conditionalLine(line, env: &env, context: context) {
+        if let cond = BooleanLogic.conditionalLine(line, env: &env, context: context,
+                                                   random: random) {
             return cond
         }
         // Lines with a single assignment `=` are owned by the
@@ -874,7 +883,8 @@ func evalLineTyped(_ line: String,
         }
     }
     if BooleanLogic.hasAssignment(line) {
-        return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces, context: context)
+        return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces,
+                              context: context, random: random)
     }
     return evalFreeExpression(line: line, variables: typedTable(env),
                               decimalPlaces: decimalPlaces, context: context,
@@ -966,6 +976,10 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     // Package 7: an explicit random epoch context (a fresh ephemeral
     // store when the caller has none).
     let random = random ?? RandomEvaluationContext(sheetID: nil)
+    /// Package 7: names whose CURRENT value depends on rand (assigned
+    /// from an executed rand or from another dynamic value); a line
+    /// referencing one is dynamic too.
+    var dynamicNames = Set<String>()
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
@@ -976,6 +990,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
         let result: LineResult
         var isTotalRow = false
         var metadata: SheetLineMetadata = .ordinary
+        var isDynamicRow = false
         switch analysis.kind {
         case .blank, .comment, .tagOnly:
             result = .blank
@@ -994,15 +1009,19 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             let work = analysis.evaluationProjection
             random.beginLine("\(index + 1)")
             if let tagCommand = TagAggregateLane.parse(analysis) {
-                result = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
+                let resolved = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
+                result = resolved.result
                 metadata = .tagAggregate
                 isTotalRow = true
+                isDynamicRow = resolved.isDynamic
             } else if InlineTotal.isCommand(work, env: env) {
-                result = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+                let resolved = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+                result = resolved.result
                 if case .number = result {
                     isTotalRow = true
                     metadata = .legacyTotal
                 }
+                isDynamicRow = resolved.isDynamic
             } else if let command = SheetAggregateCommand.parse(work, env: env,
                                                                 context: context) {
                 let resolved = resolveAggregateCommand(command, env: &env,
@@ -1011,6 +1030,12 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                 result = resolved.result
                 metadata = resolved.metadata
                 isTotalRow = true
+                isDynamicRow = resolved.isDynamic
+                // A named derived assignment carries the taint onward.
+                if isDynamicRow {
+                    if case .namedSubtotal(let name, _) = command { dynamicNames.insert(name) }
+                    if case .namedGrandTotal(let name) = command { dynamicNames.insert(name) }
+                }
             } else if let eval = evalLineTyped(work, env: &env, rates: rates,
                                                decimalPlaces: decimalPlaces,
                                                now: now, calendar: calendar, weather: weather,
@@ -1020,17 +1045,31 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                                                financial: financial,
                                                random: random) {
                 result = eval
-                if lineUsesRandom(work) { metadata = .dynamic }
+                // Package 7 (execution-aware dynamics): the line is
+                // dynamic when the evaluation ACTUALLY consumed a rand
+                // sample, or when it references a name whose value is
+                // dynamic. Lexical text never decides.
+                let consumed = random.didConsumeRandom
+                let referencedDynamic = NamedValues.matches(in: work, env: env)
+                    .contains { dynamicNames.contains($0.entry.display) }
+                if consumed || referencedDynamic {
+                    isDynamicRow = true
+                    metadata = .dynamic
+                    if let lhs = assignmentLHSName(work) { dynamicNames.insert(lhs) }
+                }
                 let eligible = SheetAggregateState.contribution(of: result,
                                                                 projection: work)
-                aggregate.observe(result: result, projection: work, isDerived: false)
-                tagAggregates.observe(tags: analysis.tags, value: eligible)
+                aggregate.observe(result: result, projection: work, isDerived: false,
+                                  isDynamic: isDynamicRow)
+                tagAggregates.observe(tags: analysis.tags, value: eligible,
+                                      isDynamic: isDynamicRow)
             } else {
                 result = .skip
             }
         }
         rows.append(SheetLine(sourceLineIndex: index, result: result,
-                              isTotal: isTotalRow, metadata: metadata))
+                              isTotal: isTotalRow, metadata: metadata,
+                              isDynamic: isDynamicRow))
     }
     for (k, v) in env.scalarDict() { variables[k] = v }
     return rows

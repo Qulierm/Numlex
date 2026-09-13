@@ -73,13 +73,21 @@ public enum AnswerTokenInsertion {
     ///   - selection: the live editor selection in UTF-16 units. A
     ///     length-0 range inserts at the caret; a longer range is
     ///     replaced by the single marker.
+    ///   - sourceIsDynamic: the clicked row's Package 7 dynamic taint;
+    ///     true refuses the plan (dynamic rows stay copyable but are
+    ///     never tokenizable).
     public static func plan(
         content: String,
         lineIDs: [UUID],
         references: [AnswerReference],
         sourceLineIndex: Int,
-        selection: NSRange
+        selection: NSRange,
+        sourceIsDynamic: Bool = false
     ) -> Plan? {
+        // Package 7: a dynamic (rand-dependent) source row is never
+        // tokenizable — the plan refuses outright so a direct caller
+        // can never mint a token that renders as broken.
+        guard !sourceIsDynamic else { return nil }
         // --- source identity (captured from the PRE-EDIT sheet) ---
         guard lineIDs.indices.contains(sourceLineIndex) else { return nil }
         let sourceLineID = lineIDs[sourceLineIndex]

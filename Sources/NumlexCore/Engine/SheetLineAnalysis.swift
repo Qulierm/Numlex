@@ -64,6 +64,13 @@ public struct SheetLineAnalysis: Equatable, Sendable {
     public let headingBodySpan: NSRange?
     /// The exact `---` span (outer whitespace trimmed) for dividers.
     public let dividerSpan: NSRange?
+    /// Package 7: the UTF-16 delta between a position in
+    /// `evaluationProjection` and the ORIGINAL source line
+    /// (`original = projectionOffset + position`). Non-zero when the
+    /// projection starts after a heading marker or after leading
+    /// whitespace stripped from a tagged row's prefix; the resolver
+    /// adds it so marker sidecar lookups keep their document offsets.
+    public let projectionOffset: Int
 
     public var isHeading: Bool { kind == .heading }
     public var isDivider: Bool { kind == .divider }
@@ -80,7 +87,7 @@ public struct SheetLineAnalysis: Equatable, Sendable {
                                      evaluationProjection: "", body: source,
                                      tags: [], tagSuffixSpan: nil,
                                      headingMarkerSpan: nil, headingBodySpan: nil,
-                                     dividerSpan: nil)
+                                     dividerSpan: nil, projectionOffset: 0)
         }
         // Exact standalone divider: outer whitespace tolerated, exactly
         // three dashes. Four or more dashes are an ordinary row.
@@ -91,7 +98,7 @@ public struct SheetLineAnalysis: Equatable, Sendable {
                                      evaluationProjection: "", body: source,
                                      tags: [], tagSuffixSpan: nil,
                                      headingMarkerSpan: nil, headingBodySpan: nil,
-                                     dividerSpan: range)
+                                     dividerSpan: range, projectionOffset: 0)
         }
         if source.hasPrefix("# ") {
             let marker = NSRange(location: 0, length: 2)
@@ -102,7 +109,8 @@ public struct SheetLineAnalysis: Equatable, Sendable {
                                         .substring(with: bodyRange),
                                      body: source, tags: [], tagSuffixSpan: nil,
                                      headingMarkerSpan: marker,
-                                     headingBodySpan: bodyRange, dividerSpan: nil)
+                                     headingBodySpan: bodyRange, dividerSpan: nil,
+                                     projectionOffset: 2)
         }
         if source.hasPrefix("//") {
             let kind: SheetLineKind = source.hasPrefix("// ") ? .commentTitle : .comment
@@ -110,7 +118,7 @@ public struct SheetLineAnalysis: Equatable, Sendable {
                                      evaluationProjection: "", body: source,
                                      tags: [], tagSuffixSpan: nil,
                                      headingMarkerSpan: nil, headingBodySpan: nil,
-                                     dividerSpan: nil)
+                                     dividerSpan: nil, projectionOffset: 0)
         }
         // Terminal tag suffix: parse backwards over whitespace-separated
         // tokens; only a token that is exactly `#<valid identifier>` is
@@ -160,25 +168,42 @@ public struct SheetLineAnalysis: Equatable, Sendable {
                                      evaluationProjection: source, body: source,
                                      tags: [], tagSuffixSpan: nil,
                                      headingMarkerSpan: nil, headingBodySpan: nil,
-                                     dividerSpan: nil)
+                                     dividerSpan: nil, projectionOffset: 0)
         }
         let suffix = NSRange(location: start,
                              length: (source as NSString).length - start)
-        let body = (source as NSString).substring(to: start)
-            .trimmingCharacters(in: .whitespaces)
+        let prefix = (source as NSString).substring(to: start)
+        let body = prefix.trimmingCharacters(in: .whitespaces)
+        // Package 7: the projection keeps the ORIGINAL prefix
+        // coordinates — leading whitespace must not shift marker
+        // sidecar lookups (`  U+FFFC + 1 #tag`). Only the terminal
+        // separator/tag suffix is removed; the offset records the
+        // stripped prefix so `projectionOffset + pos` is the original
+        // UTF-16 position.
+        var leadingUTF16 = 0
+        for ch in prefix {
+            let isSpace = ch == " " || ch == "\t"
+            guard isSpace else { break }
+            leadingUTF16 += ch.utf16.count
+        }
         let kind: SheetLineKind = body.isEmpty ? .tagOnly : .expression
         return SheetLineAnalysis(source: source, kind: kind,
                                  evaluationProjection: body, body: body,
                                  tags: tags, tagSuffixSpan: suffix,
                                  headingMarkerSpan: nil, headingBodySpan: nil,
-                                 dividerSpan: nil)
+                                 dividerSpan: nil,
+                                 projectionOffset: body.isEmpty ? 0 : leadingUTF16)
     }
 
-    /// A token is a tag only when it is `#` + a valid identifier.
+    /// A token is a tag only when it is `#` + a valid identifier. The
+    /// identifier is validated in its CANONICAL NFC form (a decomposed
+    /// `#cafe\u0301` is a valid tag) while the original spelling and
+    /// source spans are preserved for display and highlighting.
     private static func validTagIdentifierSpan(token: String,
                                                tokenRange: NSRange) -> NSRange? {
-        let name = String(token.dropFirst())
-        guard !name.isEmpty else { return nil }
+        let rawName = String(token.dropFirst())
+        guard !rawName.isEmpty else { return nil }
+        let name = rawName.precomposedStringWithCanonicalMapping
         let graphemes = Array(name)
         guard graphemes.count <= SheetLineAnalysis.tagMaxGraphemes else { return nil }
         guard let first = graphemes.first,

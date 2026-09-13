@@ -170,7 +170,8 @@ public func resolveSheet(
         return .skip
     }
 
-    func evalTokenLine(_ line: String, _ index: Int, _ docStart: Int) -> LineResult {
+    func evalTokenLine(_ line: String, _ index: Int, _ docStart: Int,
+                       _ random: RandomEvaluationContext?) -> LineResult {
         // r33: constant-assignment guard on the token route too — the
         // token lines bypass `evalLineTyped` entirely.
         // r82: the shared `=` recognizer (comparison operators never
@@ -560,7 +561,8 @@ public func resolveSheet(
                     for (k, q) in rhsQuantities.enumerated() where q.v.isFinite {
                         extra[namePlaceholder(k)] = q.v
                     }
-                    if let (v, codes) = strictExprCore(exprRhs, env: env, extraVars: extra),
+                    if let (v, codes) = strictExprCore(exprRhs, env: env, extraVars: extra,
+                                                       random: random),
                        codes.isEmpty, v.isFinite {
                         env.set(display: lhs, qty: .scalar(v))
                         return .variable(name: lhs, value: roundResult(v, decimalPlaces: decimalPlaces))
@@ -669,7 +671,8 @@ public func resolveSheet(
             for (k, q) in quantities.enumerated() {
                 if let q, q.v.isFinite { extra[namePlaceholder(k)] = q.v }
             }
-            if let (v, codes) = strictExprCore(exprLine, env: env, extraVars: extra),
+            if let (v, codes) = strictExprCore(exprLine, env: env, extraVars: extra,
+                                               random: random),
                codes.isEmpty, v.isFinite {
                 return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: nil)
             }
@@ -744,12 +747,15 @@ public func resolveSheet(
     // must never be tokenized.
     let random = random ?? RandomEvaluationContext(sheetID: nil)
     var dynamicIndices = Set<Int>()
+    /// Package 7: names whose current value depends on rand.
+    var dynamicNames = Set<String>()
     var out: [SheetLine] = []
     for i in 0..<lines.count {
         let analysis = SheetLineAnalysis.parse(lines[i])
         let result: LineResult
         var isTotalRow = false
         var metadata: SheetLineMetadata = .ordinary
+        var isDynamicRow = false
         switch analysis.kind {
         case .blank, .comment, .tagOnly:
             result = .blank
@@ -769,25 +775,42 @@ public func resolveSheet(
             random.beginLine(lineIDs.indices.contains(i)
                              ? lineIDs[i].uuidString : "\(i + 1)")
             if let tagCommand = TagAggregateLane.parse(analysis) {
-                result = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
+                let resolved = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
+                result = resolved.result
                 metadata = .tagAggregate
                 isTotalRow = true
+                isDynamicRow = resolved.isDynamic
             } else if work.contains(String(answerTokenMarker)) {
-                let tokenResult = evalTokenLine(work, i, docOffsets[i])
+                let tokenResult = evalTokenLine(work, i,
+                                                docOffsets[i] + analysis.projectionOffset,
+                                                random)
                 result = tokenResult
+                // Package 7: a token expression is dynamic when it
+                // executed rand itself or references a dynamic name.
+                let consumed = random.didConsumeRandom
+                let referencedDynamic = NamedValues.matches(in: work, env: env)
+                    .contains { dynamicNames.contains($0.entry.display) }
+                if consumed || referencedDynamic {
+                    isDynamicRow = true
+                    metadata = .dynamic
+                    if let lhs = assignmentLHSName(work) { dynamicNames.insert(lhs) }
+                }
                 // A token used inside a genuine expression is eligible; a
                 // bare-token-only row is not (checked source-aware).
                 let eligible = SheetAggregateState.contribution(of: tokenResult,
                                                                 projection: work)
                 aggregate.observe(result: tokenResult, projection: work,
-                                  isDerived: false)
-                tagAggregates.observe(tags: analysis.tags, value: eligible)
+                                  isDerived: false, isDynamic: isDynamicRow)
+                tagAggregates.observe(tags: analysis.tags, value: eligible,
+                                      isDynamic: isDynamicRow)
             } else if InlineTotal.isCommand(work, env: env) {
-                result = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+                let resolved = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+                result = resolved.result
                 if case .number = result {
                     isTotalRow = true
                     metadata = .legacyTotal
                 }
+                isDynamicRow = resolved.isDynamic
             } else if let command = SheetAggregateCommand.parse(work, env: env,
                                                                 context: context) {
                 let resolved = resolveAggregateCommand(command, env: &env,
@@ -796,23 +819,35 @@ public func resolveSheet(
                 result = resolved.result
                 metadata = resolved.metadata
                 isTotalRow = true
+                isDynamicRow = resolved.isDynamic
+                if isDynamicRow {
+                    if case .namedSubtotal(let name, _) = command { dynamicNames.insert(name) }
+                    if case .namedGrandTotal(let name) = command { dynamicNames.insert(name) }
+                }
             } else {
                 let plainResult = plainLine(work)
                 result = plainResult
-                if lineUsesRandom(work) {
+                let consumed = random.didConsumeRandom
+                let referencedDynamic = NamedValues.matches(in: work, env: env)
+                    .contains { dynamicNames.contains($0.entry.display) }
+                if consumed || referencedDynamic {
+                    isDynamicRow = true
                     metadata = .dynamic
-                    dynamicIndices.insert(i)
+                    if let lhs = assignmentLHSName(work) { dynamicNames.insert(lhs) }
                 }
                 let eligible = SheetAggregateState.contribution(of: plainResult,
                                                                 projection: work)
                 aggregate.observe(result: plainResult, projection: work,
-                                  isDerived: false)
-                tagAggregates.observe(tags: analysis.tags, value: eligible)
+                                  isDerived: false, isDynamic: isDynamicRow)
+                tagAggregates.observe(tags: analysis.tags, value: eligible,
+                                      isDynamic: isDynamicRow)
             }
         }
+        if isDynamicRow { dynamicIndices.insert(i) }
         memo[i] = result
         out.append(SheetLine(sourceLineIndex: i, result: result,
-                             isTotal: isTotalRow, metadata: metadata))
+                             isTotal: isTotalRow, metadata: metadata,
+                             isDynamic: isDynamicRow))
     }
     let tokens = tokenStates.keys.sorted().map { TokenResolution(location: $0, state: tokenStates[$0]!) }
     return (out, tokens)

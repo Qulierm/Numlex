@@ -431,12 +431,20 @@ public struct SheetLine: Equatable, Sendable {
     public var isTotal: Bool = false
     /// Package 7: the typed derived-row kind for this row.
     public var metadata: SheetLineMetadata = .ordinary
+    /// Package 7 (orthogonal dynamic taint): true when the row's
+    /// EXECUTED result depends on a rand sample — directly (the line
+    /// ran `rand`), through a named value assigned from rand, or
+    /// through a derived aggregate fed by a dynamic row. Independent of
+    /// `metadata`, so a subtotal can be BOTH `.subtotal` and dynamic.
+    /// Dynamic rows are never tokenizable and never previous answers.
+    public var isDynamic: Bool = false
     public init(sourceLineIndex: Int, result: LineResult, isTotal: Bool = false,
-                metadata: SheetLineMetadata = .ordinary) {
+                metadata: SheetLineMetadata = .ordinary, isDynamic: Bool = false) {
         self.sourceLineIndex = sourceLineIndex
         self.result = result
         self.isTotal = isTotal
         self.metadata = metadata
+        self.isDynamic = isDynamic
     }
 
     public var isDerived: Bool { metadata.isDerived }

@@ -14,7 +14,9 @@ import Foundation
 public enum StatisticsPhraseLane {
     public static func tryLine(_ line: String,
                                context: NumberFormatContext,
-                               random: RandomEvaluationContext?) -> LineResult? {
+                               random: RandomEvaluationContext?,
+                               decimalPlaces: Int = 10,
+                               variables: [String: Double] = [:]) -> LineResult? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         let lower = trimmed.lowercased()
 
@@ -43,7 +45,8 @@ public enum StatisticsPhraseLane {
         ]
         for (prefix, name) in forms where lower.hasPrefix(prefix) {
             let listText = String(trimmed.dropFirst(prefix.count))
-            let values = parseList(listText, context: context)
+            let values = parseList(listText, context: context, random: random,
+                                   variables: variables)
             guard !values.isEmpty else { return .error(message: "Invalid expression") }
             switch name {
             case "count":
@@ -52,20 +55,24 @@ public enum StatisticsPhraseLane {
                 guard let m = StatisticsFunctions.median(values) else {
                     return .error(message: "Invalid expression")
                 }
-                return .number(value: roundResult(m, decimalPlaces: 10), unit: nil)
+                return .number(value: roundResult(m, decimalPlaces: decimalPlaces), unit: nil)
             default:
                 guard let sd = StatisticsFunctions.stdev(values), sd.isFinite else {
                     return .error(message: "Invalid expression")
                 }
-                return .number(value: roundResult(sd, decimalPlaces: 10), unit: nil)
+                return .number(value: roundResult(sd, decimalPlaces: decimalPlaces), unit: nil)
             }
         }
         return nil
     }
 
     /// The numeric argument list: values separated by the active
-    /// argument separator (`,`/`;`), every entry a strict number.
-    static func parseList(_ raw: String, context: NumberFormatContext) -> [Double] {
+    /// argument separator (`,`/`;`), every entry a STRICT scalar — a
+    /// number literal OR a scalar expression/variable resolved through
+    /// the ONE shared parser (no neutral word stripping).
+    static func parseList(_ raw: String, context: NumberFormatContext,
+                          random: RandomEvaluationContext? = nil,
+                          variables: [String: Double] = [:]) -> [Double] {
         // The ACTIVE argument separator only: in decimal-comma modes the
         // comma is the decimal mark, so lists use `;`.
         let separator = context.argumentSeparator.isEmpty ? "," : context.argumentSeparator
@@ -73,8 +80,14 @@ public enum StatisticsPhraseLane {
         var out: [Double] = []
         for piece in pieces {
             let trimmed = piece.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty,
-                  let v = FinancialPhraseLane.parseNumber(trimmed, context: context) else {
+            guard !trimmed.isEmpty else { return [] }
+            if let v = FinancialPhraseLane.parseNumber(trimmed, context: context) {
+                out.append(v)
+                continue
+            }
+            guard let v = try? evaluateExpression(trimmed, variables: variables,
+                                                   context: context, random: random),
+                  v.isFinite else {
                 return []
             }
             out.append(v)

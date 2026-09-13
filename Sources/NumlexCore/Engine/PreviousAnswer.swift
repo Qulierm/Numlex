@@ -47,7 +47,8 @@ public enum PreviousAnswerPlan {
         constants: [UserConstant] = [],
         weather: WeatherContext = .empty,
         geo: GeoContext = .empty,
-        context: NumberFormatContext = .legacy
+        context: NumberFormatContext = .legacy,
+        random: RandomEvaluationContext? = nil
     ) -> Plan? {
         guard operators.contains(op) else { return nil }
         let ns = content as NSString
@@ -62,13 +63,16 @@ public enum PreviousAnswerPlan {
         let resolved = resolveSheet(
             content: content, lineIDs: lineIDs, references: references,
             rates: rates, decimalPlaces: decimalPlaces,
-            constants: constants, weather: weather, geo: geo, context: context
+            constants: constants, weather: weather, geo: geo, context: context,
+            random: random
         )
         for i in stride(from: caretLine - 1, through: 0, by: -1) {
             guard resolved.lines.indices.contains(i) else { continue }
             // Package 7: a dynamic (rand-dependent) row never enters the
-            // previous-answer chain.
-            guard resolved.lines[i].metadata != .dynamic else { continue }
+            // previous-answer chain. `isDynamic` is the orthogonal flag
+            // (a derived row can be `.subtotal` AND dynamic).
+            guard !resolved.lines[i].isDynamic,
+                  resolved.lines[i].metadata != .dynamic else { continue }
             guard isAnswerable(resolved.lines[i].result) else { continue }
             let id = lineIDs.indices.contains(i) ? lineIDs[i] : UUID()
             return Plan(sourceLineIndex: i, sourceLineID: id,

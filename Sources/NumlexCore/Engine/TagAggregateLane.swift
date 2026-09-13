@@ -64,9 +64,10 @@ public struct TagAggregateState: Sendable {
         var count: Int = 0
         var sum: Double = 0
         var overflowed = false
-        /// Welford running mean (overflow-stable average).
-        var mean: Double = 0
         var values: [Double] = []
+        /// Package 7: sticky dynamic taint (any observed row that
+        /// depends on rand makes the aggregate result dynamic).
+        var hasDynamic = false
     }
 
     private var buckets: [String: Bucket] = [:]
@@ -80,11 +81,13 @@ public struct TagAggregateState: Sendable {
 
     /// Feeds one completed row's tags (only when the row is eligible
     /// under the shared source-aware contract and is not derived).
-    public mutating func observe(tags: [LineTag], value: Double?) {
+    public mutating func observe(tags: [LineTag], value: Double?,
+                                 isDynamic: Bool = false) {
         guard let value, value.isFinite else { return }
         for tag in tags {
             var bucket = buckets[tag.key] ?? Bucket()
             bucket.count += 1
+            if isDynamic { bucket.hasDynamic = true }
             if !bucket.overflowed {
                 let next = bucket.sum + value
                 if next.isFinite {
@@ -93,8 +96,6 @@ public struct TagAggregateState: Sendable {
                     bucket.overflowed = true
                 }
             }
-            // Welford mean: stable against avoidable overflow.
-            bucket.mean += (value - bucket.mean) / Double(bucket.count)
             bucket.values.append(value)
             buckets[tag.key] = bucket
         }
@@ -102,42 +103,36 @@ public struct TagAggregateState: Sendable {
 
     /// Resolves one query. Empty total/count = 0; empty average/median
     /// is the quiet generic error; total overflow is the same error.
+    /// The second element is the aggregate's dynamic taint.
     public func resolve(_ command: TagAggregateCommand,
-                        decimalPlaces: Int) -> LineResult {
+                        decimalPlaces: Int) -> (result: LineResult, isDynamic: Bool) {
         let bucket = buckets[command.tagKey] ?? Bucket()
         switch command.kind {
         case .count:
-            return .number(value: Double(bucket.count), unit: nil)
+            return (.number(value: Double(bucket.count), unit: nil), bucket.hasDynamic)
         case .total:
             guard !bucket.overflowed else {
-                return .error(message: InlineTotal.overflowMessage)
+                return (.error(message: InlineTotal.overflowMessage), bucket.hasDynamic)
             }
-            return .number(value: roundResult(bucket.sum, decimalPlaces: decimalPlaces),
-                           unit: nil)
+            return (.number(value: roundResult(bucket.sum, decimalPlaces: decimalPlaces),
+                            unit: nil),
+                    bucket.hasDynamic)
         case .average:
-            guard bucket.count > 0 else {
-                return .error(message: InlineTotal.overflowMessage)
+            guard bucket.count > 0,
+                  let mean = StatisticsFunctions.average(bucket.values) else {
+                return (.error(message: InlineTotal.overflowMessage), bucket.hasDynamic)
             }
-            return .number(value: roundResult(bucket.mean, decimalPlaces: decimalPlaces),
-                           unit: nil)
+            return (.number(value: roundResult(mean, decimalPlaces: decimalPlaces),
+                            unit: nil),
+                    bucket.hasDynamic)
         case .median:
-            guard !bucket.values.isEmpty else {
-                return .error(message: InlineTotal.overflowMessage)
+            guard !bucket.values.isEmpty,
+                  let median = StatisticsFunctions.median(bucket.values) else {
+                return (.error(message: InlineTotal.overflowMessage), bucket.hasDynamic)
             }
-            var sorted = bucket.values.sorted()
-            let n = sorted.count
-            let median: Double
-            if n % 2 == 1 {
-                median = sorted[n / 2]
-            } else {
-                let a = sorted[n / 2 - 1]
-                let b = sorted[n / 2]
-                // Overflow-safe midpoint.
-                median = a + (b - a) / 2
-            }
-            _ = sorted.popLast()
-            return .number(value: roundResult(median, decimalPlaces: decimalPlaces),
-                           unit: nil)
+            return (.number(value: roundResult(median, decimalPlaces: decimalPlaces),
+                            unit: nil),
+                    bucket.hasDynamic)
         }
     }
 

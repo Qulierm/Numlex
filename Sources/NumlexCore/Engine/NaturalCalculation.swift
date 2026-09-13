@@ -178,7 +178,8 @@ public enum NaturalCalculation {
                                    rates: Rates = Rates(),
                                    unitContext: UnitContext = .builtIns,
                                    now: Date = Date(),
-                                   calendar: Calendar = .current) -> (name: String, value: AssignmentValue)? {
+                                   calendar: Calendar = .current,
+                                   random: RandomEvaluationContext? = nil) -> (name: String, value: AssignmentValue)? {
         guard let split = BooleanLogic.assignmentSplit(line) else { return nil }
         let lhsRaw = split.lhs
         guard let name = naturalLHS(lhsRaw) else { return nil }
@@ -244,7 +245,8 @@ public enum NaturalCalculation {
         // straight away: it never degrades to the numeric/money
         // routes (no silent money coercion).
         if BooleanLogic.isBoolLikely(rhsRaw, env: env) {
-            if let r = BooleanLogic.branchValue(rhsRaw, env: env, context: context) {
+            if let r = BooleanLogic.branchValue(rhsRaw, env: env, context: context,
+                                                random: random) {
                 switch r {
                 case .boolean(let b):
                     return (name, .bool(b))
@@ -259,7 +261,8 @@ public enum NaturalCalculation {
         // Multiword names may also hold plain (possibly named) scalars;
         // single identifiers keep the legacy assignment path.
         guard name.contains(" ") else { return nil }
-        if let (v, codes) = evaluateNamedExpr(rhsRaw, env: env, context: context) {
+        if let (v, codes) = evaluateNamedExpr(rhsRaw, env: env, context: context,
+                                              random: random) {
             guard codes.count <= 1 else { return nil }
             if let c = codes.first {
                 return (name, .money(value: v, code: c))

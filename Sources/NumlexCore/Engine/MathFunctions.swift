@@ -291,7 +291,7 @@ public enum MathFunctions {
     /// is finite (`average(1e308, 1e308)`). Shift by the largest value
     /// (and, if that partial sum still overflows, by the smallest) so
     /// every partial term stays bounded; the shift is exact in Double.
-    static func stableAverage(_ values: [Double]) throws -> Double {
+    public static func stableAverage(_ values: [Double]) throws -> Double {
         guard !values.isEmpty else {
             throw MathFunctionError.nonFinite(name: "average")
         }

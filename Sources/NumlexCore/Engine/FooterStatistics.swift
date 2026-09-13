@@ -60,21 +60,29 @@ public enum SheetFooterStatistics {
             }
             return .value(sum)
         case .average:
-            // Welford running mean: stable against avoidable overflow.
-            var mean = 0.0
-            var n = 0
-            for v in values {
-                n += 1
-                mean += (v - mean) / Double(n)
+            guard let mean = StatisticsFunctions.average(values) else {
+                return nil
             }
             return .value(mean)
         case .median:
-            let sorted = values.sorted()
-            let n = sorted.count
-            if n % 2 == 1 { return .value(sorted[n / 2]) }
-            let a = sorted[n / 2 - 1]
-            let b = sorted[n / 2]
-            return .value(a + (b - a) / 2)
+            guard let median = StatisticsFunctions.median(values) else {
+                return nil
+            }
+            return .value(median)
         }
+    }
+}
+
+/// Package 7: the ONE footer-statistic menu contract — the display
+/// order and the single checked entry. Pure so the UI construction and
+/// its tests share the same source of truth.
+public enum FooterStatisticMenu {
+    /// The menu order (also the `allCases` order).
+    public static let order: [FooterStatistic] = FooterStatistic.allCases
+
+    /// Whether `statistic` is the checked entry for the current value.
+    public static func isChecked(_ statistic: FooterStatistic,
+                              current: FooterStatistic) -> Bool {
+        statistic == current
     }
 }

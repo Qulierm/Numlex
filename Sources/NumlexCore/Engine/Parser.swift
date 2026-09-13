@@ -979,11 +979,12 @@ func operandShape(of e: Expr, vars: [String: TypedScalar]) -> OperandShape {
 /// result is returned as `TypedScalar.bool` — never a numeric 1/0.
 public func evaluateTypedExpression(_ expr: String,
                                     variables: [String: TypedScalar],
-                                    context: NumberFormatContext = .legacy) throws -> TypedScalar {
+                                    context: NumberFormatContext = .legacy,
+                                    random: RandomEvaluationContext? = nil) throws -> TypedScalar {
     let trimmed = expr.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty { throw ParseError.emptyExpression }
     let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
-    var parser = ExprParser(tokens: tokens, vars: variables)
+    var parser = ExprParser(tokens: tokens, vars: variables, random: random)
     let parsed = try parser.parseConditional()
     if parser.pos < parser.tokens.count {
         throw ParseError.unexpectedToken("\(parser.tokens[parser.pos])")

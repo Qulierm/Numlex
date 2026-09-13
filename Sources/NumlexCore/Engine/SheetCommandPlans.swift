@@ -29,6 +29,18 @@ public struct SheetCommandEditPlan: Equatable, Sendable {
 ///
 /// Anything else is nil — the caller beeps and changes nothing.
 public enum SubtotalInsertionPlan {
+    /// The accepted empty-answer targets (the SAME predicate `plan`
+    /// enforces): a whitespace-only logical line, or a strict valid
+    /// empty assignment `<name> =` with optional trailing whitespace.
+    /// Pure so the double-click dispatch and its tests share it.
+    public static func isEligibleTarget(line: String) -> Bool {
+        if line.trimmingCharacters(in: .whitespaces).isEmpty { return true }
+        guard let split = BooleanLogic.assignmentSplit(line) else { return false }
+        let lhs = split.lhs.trimmingCharacters(in: .whitespaces)
+        guard SheetAggregateCommand.isValidName(lhs) else { return false }
+        return split.rhs.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     public static func plan(content: String,
                             lineIndex: Int,
                             command: String,
@@ -82,6 +94,49 @@ public enum SubtotalInsertionPlan {
             offset += (lines[i] as NSString).length + 1
         }
         return offset
+    }
+}
+
+/// Package 7: the pure double-click dispatch contract shared by the
+/// answer-pane click catcher and its tests. A successful answer row
+/// mints a token (unless the row is dynamic); an EMPTY-answer row
+/// (whitespace-only or strict `<name> =`) inserts a subtotal through
+/// the same pure planner; every other quiet row (heading, comment,
+/// divider, tag-only, prose, error, derived aggregate target…) is
+/// inert.
+public enum AnswerDoubleTapAction: Equatable, Sendable {
+    /// Mint an answer token referencing the clicked row.
+    case mintToken
+    /// Insert `subtotal` into the empty target row.
+    case insertSubtotal
+    /// Do nothing (the clicked row has no double-click action).
+    case inert
+}
+
+public enum AnswerDoubleTapPlan {
+    /// The result kinds the double-click currently tokenizes. Exactly
+    /// the pre-Package-7 set: `.number`, `.variable`, `.money`.
+    public static func isTokenizable(_ result: LineResult) -> Bool {
+        switch result {
+        case .number, .variable, .money: return true
+        default: return false
+        }
+    }
+
+    /// The action for one clicked row. `sourceLine` is the ORIGINAL
+    /// logical source line (the eligibility check never trusts the
+    /// evaluated result kind alone). `isDynamic` is the orthogonal
+    /// Package 7 taint: a dynamic row is never tokenized, even though
+    /// its result is a finite number.
+    public static func action(for result: LineResult,
+                              sourceLine: String,
+                              isDynamic: Bool) -> AnswerDoubleTapAction {
+        if isDynamic { return .inert }
+        if isTokenizable(result) { return .mintToken }
+        if SubtotalInsertionPlan.isEligibleTarget(line: sourceLine) {
+            return .insertSubtotal
+        }
+        return .inert
     }
 }
 
