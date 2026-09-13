@@ -65,14 +65,25 @@ struct ContentView: View {
         let snapDesc = snap.map { "\($0.location)+\($0.length)" } ?? "nil"
         Diagnostics.shared?.log("answerDoubleTap line=\(lineIndex) sheet=\(sheetID.uuidString.prefix(4)) modelSelected=\(modelSel) bridgeSheet=\(bridgeSheet) snapshot=\(snapDesc)")
         guard let range = snap else { return }
-        // Package 7: double-clicking an EMPTY answer row (whitespace
-        // line or strict `<name> =`) inserts a subtotal; successful
-        // answers keep the existing token-insertion behaviour.
-        if model.addSubtotalCommand(grand: false, selection: range,
-                                    targetLineIndex: lineIndex) {
-            return
-        }
+        // Package 7: the dispatch already routed a successful,
+        // non-dynamic row here — mint the token at the live selection.
         model.insertToken(sourceLineIndex: lineIndex, selection: range)
+    }
+
+    /// Package 7: double-click on an EMPTY answer row — the shared pure
+    /// planner validates the target (whitespace-only or strict
+    /// `<name> =`) and inserts `subtotal`; a rejection beeps and
+    /// changes nothing. The live bridge snapshot is the marked-text +
+    /// sheet-ID guard.
+    private func emptyAnswerDoubleTap(lineIndex: Int,
+                                      sheetID: Sheet.ID?,
+                                      bridge: NotebookEditorCoordinator?) {
+        guard let sheetID else { return }
+        guard let range = bridge?.selectionSnapshot(sheetID: sheetID) else { return }
+        if !model.addSubtotalCommand(grand: false, selection: range,
+                                     targetLineIndex: lineIndex) {
+            NSSound.beep()
+        }
     }
 
     /// r55: the weather refresh identity — selected sheet ID plus the
@@ -527,6 +538,13 @@ struct ContentView: View {
                                         sheetID: model.selectedSheet?.id,
                                         bridge: editorBridge)
                     },
+                    onEmptyAnswerDoubleTap: { lineIndex in
+                        emptyAnswerDoubleTap(lineIndex: lineIndex,
+                                             sheetID: model.selectedSheet?.id,
+                                             bridge: editorBridge)
+                    },
+                    sourceLines: model.selectedSheet?.content
+                        .components(separatedBy: "\n") ?? [],
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
                     decimalPlaces: settings.decimalPlaces,

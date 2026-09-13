@@ -25,11 +25,19 @@ struct AnswerColumnView: View {
     /// no visible scroll bar of its own: the wheel catcher is the whole
     /// content width.
     var onWheelScroll: (NSEvent) -> Void
-    /// Double-click on a SUCCESSFUL answer row (`.number` / `.variable`)
-    /// reports the row's explicit source line index; the owner mints a
-    /// token referencing that line. All other rows (errors, titles,
-    /// prose, the Total bar) are inert.
+    /// Double-click on a SUCCESSFUL answer row (`.number` / `.variable` /
+    /// `.money`, and not dynamic) reports the row's explicit source line
+    /// index; the owner mints a token referencing that line. All other
+    /// rows are inert except the empty-answer path below.
     var onAnswerDoubleTap: (Int) -> Void
+    /// Package 7: double-click on an EMPTY-answer row (whitespace-only
+    /// source line or strict `<name> =` empty RHS) inserts a subtotal
+    /// through the shared pure planner. Every other quiet row stays
+    /// inert.
+    var onEmptyAnswerDoubleTap: (Int) -> Void = { _ in }
+    /// Package 7: the ORIGINAL logical source lines (1:1 with `rows`),
+    /// used only for the empty-answer eligibility check.
+    var sourceLines: [String] = []
     var fontSize: Double
     var lineHeight: Double
     var decimalPlaces: Int
@@ -214,10 +222,12 @@ struct AnswerColumnView: View {
             return mi
         }
         if line.metadata == .subtotal || line.metadata == .grandTotal {
-            menu.addItem(NSMenuItem.separator())
+            // Package 7: Convert leads the menu; a leading separator is
+            // never added (an NSMenu must not start with one).
             menu.addItem(item(L10n.t("convertToNormalLine", language: language)) {
                 onConvertToNormal(idx)
             })
+            menu.addItem(.separator())
         }
         menu.addItem(item(L10n.t("copyAnswer", language: language)) {
             let pb = NSPasteboard.general
@@ -652,13 +662,16 @@ struct AnswerColumnView: View {
                             }
                             guard let idx = rowIndex else { return }
                             if let line = rows.first(where: { $0.sourceLineIndex == idx }) {
-                                switch line.result {
-                                case .number, .variable, .money:
-                                    // Money answers are tokenizable (their
-                                    // tokens carry the ISO code); date
-                                    // answers are never minted.
+                                let source = sourceLines.indices.contains(idx)
+                                    ? sourceLines[idx] : ""
+                                switch AnswerDoubleTapPlan.action(for: line.result,
+                                                                  sourceLine: source,
+                                                                  isDynamic: line.isDynamic) {
+                                case .mintToken:
                                     onAnswerDoubleTap(idx)
-                                default:
+                                case .insertSubtotal:
+                                    onEmptyAnswerDoubleTap(idx)
+                                case .inert:
                                     break
                                 }
                             }
@@ -704,13 +717,16 @@ struct AnswerColumnView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
                                                                       unit: s.unit)))
-                    // Package 7: the ONE native checked statistic menu.
+                    // Package 7: the ONE native checked statistic menu
+                    // (order + checked entry from the shared pure
+                    // contract).
                     .contextMenu {
-                        ForEach(FooterStatistic.allCases, id: \.self) { statistic in
+                        ForEach(FooterStatisticMenu.order, id: \.self) { statistic in
                             Button {
                                 onSetFooterStatistic(statistic)
                             } label: {
-                                if statistic == footerStatistic {
+                                if FooterStatisticMenu.isChecked(statistic,
+                                                                 current: footerStatistic) {
                                     Label(statisticLabel(statistic),
                                           systemImage: "checkmark")
                                 } else {

@@ -185,24 +185,29 @@ final class AppModel {
         var examples: [String] = []
         if let sheet = selectedSheet,
            !sheet.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            var oldVars = [String: Double]()
-            var newVars = [String: Double]()
-            let rowsOld = evaluateSheet(sheet.content, variables: &oldVars,
-                                        rates: rates,
-                                        decimalPlaces: max(settings.decimalPlaces, 10),
-                                        constants: settings.customConstants,
-                                        context: old,
-                                        unitContext: unitContext,
-                                        preferences: settings.temporal,
-                                        financial: financialContext)
-            let rowsNew = evaluateSheet(sheet.content, variables: &newVars,
-                                        rates: rates,
-                                        decimalPlaces: max(settings.decimalPlaces, 10),
-                                        constants: settings.customConstants,
-                                        context: new,
-                                        unitContext: unitContext,
-                                        preferences: settings.temporal,
-                                        financial: financialContext)
+            // Package 7: the SAME current random epoch and the stable
+            // line-ID keys as the display pass — the region preview
+            // never draws a different rand sample.
+            let rowsOld = resolveSheet(content: sheet.content, lineIDs: sheet.lineIDs,
+                                       references: sheet.references,
+                                       rates: rates,
+                                       decimalPlaces: max(settings.decimalPlaces, 10),
+                                       constants: settings.customConstants,
+                                       context: old,
+                                       unitContext: unitContext,
+                                       preferences: settings.temporal,
+                                       financial: financialContext,
+                                       random: randomContext(for: sheet.id)).lines
+            let rowsNew = resolveSheet(content: sheet.content, lineIDs: sheet.lineIDs,
+                                       references: sheet.references,
+                                       rates: rates,
+                                       decimalPlaces: max(settings.decimalPlaces, 10),
+                                       constants: settings.customConstants,
+                                       context: new,
+                                       unitContext: unitContext,
+                                       preferences: settings.temporal,
+                                       financial: financialContext,
+                                       random: randomContext(for: sheet.id)).lines
             let lines = sheet.content.components(separatedBy: "\n")
             for row in rowsOld where rowsNew.indices.contains(row.sourceLineIndex) {
                 let other = rowsNew[row.sourceLineIndex]
@@ -701,12 +706,32 @@ final class AppModel {
             return
         }
         let sheet = sheets[selectedIndex]
+        // Package 7: a dynamic source row is never tokenizable. The
+        // SAME random context as the display pass resolves the sheet,
+        // so this check never instantiates an unrelated draw; the plan
+        // itself also refuses when told.
+        let resolved = resolveSheet(content: sheet.content, lineIDs: sheet.lineIDs,
+                                    references: sheet.references, rates: rates,
+                                    decimalPlaces: settings.decimalPlaces,
+                                    constants: settings.customConstants,
+                                    weather: weatherContext, geo: geoContext,
+                                    context: numberContext, unitContext: unitContext,
+                                    preferences: settings.temporal,
+                                    financial: financialContext,
+                                    random: randomContext(for: sheet.id))
+        let sourceIsDynamic = resolved.lines.indices.contains(sourceLineIndex)
+            && resolved.lines[sourceLineIndex].isDynamic
+        guard !sourceIsDynamic else {
+            dlog("insertToken REFUSE dynamic source sheet=\(sheetID ?? "nil") line=\(sourceLineIndex)")
+            return
+        }
         guard let plan = AnswerTokenInsertion.plan(
             content: sheet.content,
             lineIDs: sheet.lineIDs,
             references: sheet.references,
             sourceLineIndex: sourceLineIndex,
-            selection: selection
+            selection: selection,
+            sourceIsDynamic: sourceIsDynamic
         ) else {
             dlog("insertToken ABORT plan-nil sheet=\(sheetID ?? "nil") line=\(sourceLineIndex) sel=\(selection) nlines=\(sheet.lineIDs.count)")
             return
@@ -752,14 +777,18 @@ final class AppModel {
     /// numeric value (the grand-total prerequisite).
     private func successfulSubtotalCount(above lineIndex: Int,
                                          in sheet: Sheet) -> Int {
-        var vars: [String: Double] = [:]
-        let rows = evaluateSheet(sheet.content, variables: &vars, rates: rates,
-                                 decimalPlaces: max(settings.decimalPlaces, 6),
-                                 constants: settings.customConstants,
-                                 weather: weatherContext, geo: geoContext,
-                                 context: numberContext, unitContext: unitContext,
-                                 preferences: settings.temporal,
-                                 financial: financialContext)
+        // Package 7: the display's random epoch and stable line-ID keys,
+        // so the prerequisite count never redraws.
+        let rows = resolveSheet(content: sheet.content, lineIDs: sheet.lineIDs,
+                                references: sheet.references,
+                                rates: rates,
+                                decimalPlaces: max(settings.decimalPlaces, 6),
+                                constants: settings.customConstants,
+                                weather: weatherContext, geo: geoContext,
+                                context: numberContext, unitContext: unitContext,
+                                preferences: settings.temporal,
+                                financial: financialContext,
+                                random: randomContext(for: sheet.id)).lines
         return rows.reduce(0) { count, row in
             guard row.sourceLineIndex < lineIndex, row.metadata == .subtotal,
                   case .number = row.result else { return count }
@@ -825,14 +854,18 @@ final class AppModel {
     func convertSubtotalRowToNormal(at index: Int) -> Bool {
         guard sheets.indices.contains(selectedIndex) else { return false }
         let sheet = sheets[selectedIndex]
-        var vars: [String: Double] = [:]
-        let rows = evaluateSheet(sheet.content, variables: &vars, rates: rates,
-                                 decimalPlaces: max(settings.decimalPlaces, 6),
-                                 constants: settings.customConstants,
-                                 weather: weatherContext, geo: geoContext,
-                                 context: numberContext, unitContext: unitContext,
-                                 preferences: settings.temporal,
-                                 financial: financialContext)
+        // Package 7: the SAME display epoch (stable line-ID keys) — the
+        // conversion freezes the DISPLAYED subtotal value.
+        let rows = resolveSheet(content: sheet.content, lineIDs: sheet.lineIDs,
+                                references: sheet.references,
+                                rates: rates,
+                                decimalPlaces: max(settings.decimalPlaces, 6),
+                                constants: settings.customConstants,
+                                weather: weatherContext, geo: geoContext,
+                                context: numberContext, unitContext: unitContext,
+                                preferences: settings.temporal,
+                                financial: financialContext,
+                                random: randomContext(for: sheet.id)).lines
         guard rows.indices.contains(index),
               rows[index].metadata == .subtotal || rows[index].metadata == .grandTotal,
               case .number(let value, _, _, _) = rows[index].result,
@@ -865,7 +898,8 @@ final class AppModel {
             op: key, rates: rates, decimalPlaces: settings.decimalPlaces,
             references: sheet.references,
             constants: settings.customConstants,
-            weather: weatherContext, geo: geoContext
+            weather: weatherContext, geo: geoContext,
+            random: randomContext(for: sheet.id)
         ) else { return false }
         // Honor the operator settings in the inserted text, and apply
         // the pure insertion: marker + separator + operator lands at
@@ -971,11 +1005,18 @@ final class AppModel {
             // so deleting the sole sheet of a folder leaves a fresh
             // empty sheet inside that same folder.
             let folder = sheets[0].folderID
+            // Package 7: the replaced sheet's random epoch store is
+            // discarded (no leak, no accidental inheritance).
+            randomStores[sheets[0].id] = nil
             sheets[0] = Sheet(title: "\(settings.sheetName) 1", content: "",
                               createdAt: Date(), modifiedAt: Date(), folderID: folder)
             selectedIndex = 0
         } else {
+            let removedID = sheets[index].id
             sheets.remove(at: index)
+            // Package 7: drop the removed sheet's ephemeral random
+            // store so deleted sheets never leak sample state.
+            randomStores[removedID] = nil
             selectedIndex = plan.selectedIndexAfter
         }
         persist()
