@@ -181,8 +181,8 @@ any other unit, in Light, Dark and custom styling alike.
 
 ## Dates and times
 
-The temporal subsystem on current `main` (released builds may lag 4.8.2 here)
-turns the notebook into a small time-aware calculator: calendar arithmetic,
+The temporal subsystem (shipped in 4.9.0) turns the notebook into a small
+time-aware calculator: calendar arithmetic,
 clock math, timezones, timestamps, durations, timecode, work calendars and
 special dates all read as ordinary lines.
 
@@ -208,7 +208,7 @@ for the strict forms and every lane.
 
 ## Money and finance
 
-Finance phrases on current `main` build on the same money grammar and strict
+Finance phrases (shipped in 4.9.0) build on the same money grammar and strict
 lane discipline:
 
 ```text
@@ -349,7 +349,7 @@ rows only, writes are atomic, and the whole path is fully offline. See
 ## Download
 
 - macOS 26 or later, Apple Silicon (arm64).
-- 4.8.2 is the current release. 4.8.0 was the first release with secure in-app
+- 4.9.0 is the current release. 4.8.0 was the first release with secure in-app
   updates, so anyone on 4.8.0 or later (including 4.8.0 itself) can check,
   verify and install later versions in the app; users still on 4.7.0 or earlier
   have no updater and install the current release manually once, then update
