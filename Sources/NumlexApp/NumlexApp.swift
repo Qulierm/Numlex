@@ -43,7 +43,7 @@ enum RevealTiming {
     /// bounce and no overshoot of the final (fully cleared) position.
     static let duration: Double = 0.90
     static let animation: Animation = .timingCurve(0.42, 0.0, 0.20, 1.0, duration: duration)
-    /// The slide uses the same curve in production and replay.
+    /// The slide uses this same curve everywhere.
     static var curtainAnimation: Animation { animation }
     /// The panel travels past the clipped content height by this much, so no
     /// bottom or titlebar sliver can survive the slide.
@@ -85,37 +85,6 @@ struct NumlexApp: App {
     @State private var curtainRequested = false
     /// The pending curtain completion (cancelled when the window closes).
     @State private var curtainTask: Task<Void, Never>?
-
-    // MARK: TEMPORARY QA CONTROL — remove after onboarding sign-off
-    //
-    // A session-only replay of the welcome animation, for visual testing.
-    // It is deliberately SEPARATE from the production first-launch stages:
-    // `revealStage` is never set back to `.welcome`, so ContentView/TextKit
-    // are neither unmounted nor recreated and the caret, scroll position,
-    // selection and sheet UUIDs are untouched. Nothing here reads or writes
-    // `welcome-v1`, calls `FirstLaunch`, or persists anything at all.
-    /// True only while the replay overlay is on screen.
-    @State private var replayWelcomePresented = false
-    /// Drives the replay panel's upward travel (same stable-offset contract
-    /// as the production curtain).
-    @State private var replayLiftRequested = false
-    /// Re-identified on every presentation, so each replay mounts a BRAND
-    /// NEW WelcomeView whose staged @State restarts from its initial values.
-    @State private var replaySession = UUID()
-    /// The pending replay completion (cancelled on re-presentation, finish
-    /// or window closure).
-    @State private var replayTask: Task<Void, Never>?
-    /// The base editor's compositing is suspended while the fully opaque
-    /// welcome covers it (the live ContentView/TextKit stays MOUNTED with
-    /// its identity, caret, scroll and selection intact). It becomes visible
-    /// again one frame BEFORE the curtain lifts, so the reveal itself always
-    /// shows the real interface.
-    @State private var replayContentReady = false
-    /// The editor text view that owned the keyboard just before the replay
-    /// covered it. Restoring THIS responder (never a fresh model focus
-    /// request) is what keeps the caret, selection, typing attributes,
-    /// scroll origin and marked text exactly as the user left them.
-    @State private var replayRestoreResponder: NotebookTextView?
 
     init() {
         // 1) Decide first (non-creating directory lookup)…
@@ -233,140 +202,18 @@ struct NumlexApp: App {
     /// Stable structural identity for the production welcome.
     static let productionWelcomeID = "production-welcome"
 
-    /// True while a welcome reveal (production or replay) owns the window:
-    /// the native sidebar toggle stays hidden until the transition has
+    /// True while the production welcome reveal owns the window: the
+    /// native sidebar toggle stays hidden until the transition has
     /// finished. Transient view state only — never persisted anywhere.
     private var sidebarToggleHiddenForWelcome: Bool {
-        revealStage != .app || replayWelcomePresented
-    }
-
-    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
-    ///
-    /// The scene root is a STABLE container: the production `launchRoot`
-    /// stays mounted (and keeps its own identity and state) whether or not a
-    /// replay is running. A replay only INSERTS a sibling overlay above it,
-    /// so the editor, its TextKit storage, caret, scroll offset, selection
-    /// and the model are never re-created.
-    @ViewBuilder
-    private var sessionRoot: some View {
-        // The production root is the SIZING BASE and nothing about a replay
-        // may change its proposal, frame, bounds, safe area or alignment: the
-        // overlay is attached with `.overlay`, which is explicitly a
-        // non-sizing layer, and the base itself keeps its identity and its
-        // TextKit storage. Hit testing and compositing are the only things a
-        // replay touches on the base (both geometry-neutral).
-        launchRoot
-            .allowsHitTesting(!replayWelcomePresented)
-            .opacity(replayWelcomePresented && !replayContentReady ? 0 : 1)
-            .overlay {
-                if replayWelcomePresented {
-                    ReplayOverlay(language: model.settings.language,
-                                  onGetStarted: finishReplay,
-                                  liftRequested: replayLiftRequested)
-                        // A fresh identity per presentation restarts the whole
-                        // staged animation from its initial frame.
-                        .id(replaySession)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .replayWelcome)) { _ in
-                presentReplayWelcome()
-            }
-            .environment(\.sidebarToggleHiddenForWelcome, sidebarToggleHiddenForWelcome)
-    }
-
-    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
-    /// Presents the replay overlay once: only after the production reveal has
-    /// finished, never twice, and always from a clean curtain state.
-    private func presentReplayWelcome() {
-        guard revealStage == .app, !replayWelcomePresented else { return }
-        replayTask?.cancel()
-        // Capture the LIVE first responder (the editor's own text view)
-        // BEFORE anything covers it: restoring that exact responder after
-        // the curtain is what preserves the caret and selection, where a
-        // fresh model focus request would reset the caret to position 0.
-        replayRestoreResponder = Self.liveEditorResponder()
-        // Protect the document: the editor keeps its captured reference and
-        // its exact state, but stops owning the keyboard while the overlay
-        // plays, so nothing can be typed into an invisible document. This
-        // does not change the selection, typing attributes, scroll origin or
-        // marked text — the view is merely resigned.
-        if let textView = replayRestoreResponder, let window = textView.window {
-            window.makeFirstResponder(nil)
-        }
-        replayContentReady = false
-        replayLiftRequested = false
-        replaySession = UUID()
-        replayWelcomePresented = true
-    }
-
-    /// The editor text view that currently owns the keyboard, or — if the
-    /// window is not focused — the live one found in the main window's view
-    /// tree. Purely observational: nothing is mutated.
-    private static func liveEditorResponder() -> NotebookTextView? {
-        let window = NSApp.mainWindow
-            ?? NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) })
-        guard let window else { return nil }
-        if let responder = window.firstResponder as? NotebookTextView { return responder }
-        return findTextView(in: window.contentView)
-    }
-
-    private static func findTextView(in view: NSView?) -> NotebookTextView? {
-        guard let view else { return nil }
-        if let textView = view as? NotebookTextView { return textView }
-        for subview in view.subviews {
-            if let found = findTextView(in: subview) { return found }
-        }
-        return nil
-    }
-
-    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
-    /// The replay's Get Started: the SAME stable overlay panel slides fully
-    /// out of the content bounds (identical timing contract to the production
-    /// curtain), then only the overlay is removed and focus returns to the
-    /// current sheet. No marker is written and nothing is persisted.
-    private func finishReplay() {
-        guard replayWelcomePresented else { return }
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        replayTask?.cancel()
-        if reduceMotion {
-            replayContentReady = true
-            replayWelcomePresented = false
-            replayLiftRequested = false
-            restoreReplayResponder()
-                return
-        }
-        replayTask = Task { @MainActor in
-            // The editor becomes visible BEFORE the panel starts lifting, and
-            // a bounded delay gives it a real committed frame, so the reveal
-            // always shows the finished interface from its first frame.
-                replayContentReady = true
-            try? await Task.sleep(nanoseconds: RevealTiming.mountCommitNanoseconds)
-            guard !Task.isCancelled, replayWelcomePresented else { return }
-            replayLiftRequested = true
-            try? await Task.sleep(nanoseconds: RevealTiming.travelNanoseconds)
-            guard !Task.isCancelled else { return }
-            replayWelcomePresented = false
-            replayLiftRequested = false
-            restoreReplayResponder()
-        }
-    }
-
-    /// Hands the keyboard back to the SAME text view that had it before the
-    /// replay. `makeFirstResponder` alone does not touch the selection,
-    /// typing attributes, scroll origin or marked text, so the caret the
-    /// user left behind is exactly where it was. If the view is gone (sheet
-    /// switch, window closed) nothing happens — the content is never
-    /// altered as a fallback.
-    private func restoreReplayResponder() {
-        defer { replayRestoreResponder = nil }
-        guard let textView = replayRestoreResponder,
-              let window = textView.window else { return }
-        window.makeFirstResponder(textView)
+        revealStage != .app
     }
 
     var body: some Scene {
         WindowGroup {
-            themedRoot(sessionRoot)
+            themedRoot(launchRoot)
+                .environment(\.sidebarToggleHiddenForWelcome,
+                             sidebarToggleHiddenForWelcome)
                 // r59: the SwiftUI content minimum allows the COLLAPSED
                 // window size AND the compact 260 pt content height
                 // (MainWindowGeometry.minContentHeight — the one source
@@ -578,31 +425,6 @@ struct LaunchContainer: View {
     }
 }
 
-/// The replay overlay, same contract: the overlay owns its own animated
-/// progress and lifts when the app asks it to.
-struct ReplayOverlay: View {
-    let language: AppLanguage
-    let onGetStarted: () -> Void
-    let liftRequested: Bool
-
-    @State private var progress: Double = 0
-
-    var body: some View {
-        CurtainPanel(progress: progress,
-                     shadowOpacity: progress > 0.001 ? 0 : 0.28,
-                     content: WelcomeView(language: language, onGetStarted: onGetStarted))
-            // The overlay layer covers the whole window, titlebar strip
-            // included. Because it is attached with `.overlay`, its
-            // `.ignoresSafeArea()` cannot reach the base view's layout.
-            .ignoresSafeArea()
-            .onChange(of: liftRequested) { _, requested in
-                withAnimation(requested ? RevealTiming.curtainAnimation : nil) {
-                    progress = requested ? 1 : 0
-                }
-            }
-    }
-}
-
 /// The moving welcome panel. `progress` is an interpolated scalar (0 = fully
 /// covering, 1 = fully retired), so the slide is produced by SwiftUI's
 /// Animatable machinery on every display frame — the same guarantee the
@@ -638,7 +460,7 @@ struct CurtainPanel<Content: View>: View, @preconcurrency Animatable {
 }
 
 /// Transient view-environment flag: TRUE while a welcome reveal (production
-/// or replay) owns the window, so the NATIVE sidebar toggle can be hidden
+/// owns the window, so the NATIVE sidebar toggle can be hidden
 /// while the curtain covers or travels. It is deliberately NOT part of
 /// AppModel, settings, the store, UserDefaults, the marker or any export —
 /// it exists only for the lifetime of the transition.
@@ -669,8 +491,4 @@ extension Notification.Name {
     /// by ContentView's export presentation.
     static let exportSheetPDF = Notification.Name("numlex.exportSheetPDF")
     static let printSheet = Notification.Name("numlex.printSheet")
-    /// TEMPORARY QA CONTROL — remove after onboarding sign-off.
-    /// Posted by the temporary sidebar "Replay Welcome" button; caught by the
-    /// scene root, which owns the session-only replay overlay.
-    static let replayWelcome = Notification.Name("numlex.replayWelcome")
 }

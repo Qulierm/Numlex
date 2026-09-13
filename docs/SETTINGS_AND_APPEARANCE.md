@@ -152,7 +152,7 @@ keyboard focus ring — no system accent colour. Nothing repeats, nothing ticks
 after the sequence, and only opacity/offset/scale/rotation/trim change, so the
 window never resizes.
 
-While a welcome reveal (production or replay) owns the window the NATIVE sidebar
+While the welcome reveal owns the window the NATIVE sidebar
 toggle is hidden (`NSToolbarItem.isHidden` on the item SwiftUI installs, matched
 by both its identifiers) so it cannot be clicked under the moving curtain; it
 comes back the moment the transition reaches the app, unless the saved
@@ -464,7 +464,7 @@ lines without an answer — headings, comments, prose — can be highlighted too
   with the sheet and its `.nlx` export.
 - Constants and custom units are app-global and are never embedded in `.nlx`.
 
-While a welcome reveal (production or replay) owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.
+While the welcome reveal owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.
 
 ## Bottom Total bar
 
@@ -480,18 +480,3 @@ reserve, so the label disappears one step before any overlap or truncation.
 A very long value keeps the existing maximum width and one-line overflow
 behaviour, and the footer is announced once to assistive tech as
 "<label> <value>" in both modes.
-
-## Replay geometry isolation
-
-The temporary Replay Welcome control attaches its overlay with `.overlay`, a
-non-sizing layer: the production root stays the SIZING AUTHORITY, so a replay
-can only toggle hit testing and compositing on it — never its proposal, frame,
-bounds, safe area or alignment. The curtain no longer carries a
-sizing `GeometryReader`: its travel is read from its own LIVE bounds inside
-`visualEffect` (`proxy.size.height + 80`), which is a purely visual transform,
-so it clears at any window height — `defaultContentHeight` is not a maximum and
-the main window is vertically resizable. The window itself clips anything
-beyond its edges. The
-editor's frames, the sidebar's frames and the settled pixels are therefore
-identical before and after a replay (measured), with no compensating padding,
-offset, scroll reset or remount.

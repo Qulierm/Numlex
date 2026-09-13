@@ -691,7 +691,7 @@ private struct WindowConfigurator: NSViewRepresentable {
     /// space); never removed/reinserted.
     var hideSidebarButtonWhenCollapsed: Bool
 
-    /// r105: the welcome/replay transition asks for the NATIVE sidebar
+    /// r105: the welcome transition asks for the NATIVE sidebar
     /// toggle to be hidden while the curtain covers or travels. It is OR-ed
     /// with the saved collapsed preference, so the transition can only ever
     /// HIDE the item — never force it visible against the user's setting.
@@ -733,7 +733,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         /// outlives any single representable struct value).
         var hidePreference = false
         var collapsed = false
-        /// r105: latest welcome/replay force flag, kept for the key and
+        /// r105: latest welcome force flag, kept for the key and
         /// toolbar-item re-assertion paths.
         var forcedHide = false
         /// Observes toolbar item installation so a late-installed button is
