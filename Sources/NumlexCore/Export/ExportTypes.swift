@@ -114,6 +114,8 @@ public struct ExportPresentationContext {
     /// Package 7: the frozen random epoch (a rand row keeps the sample
     /// it showed at presentation).
     public let random: RandomEvaluationContext?
+    /// Package 7: the frozen footer statistic (sum/average/count/median).
+    public let footerStatistic: FooterStatistic
 
     public init(sheetID: UUID,
                 sheetTitle: String,
@@ -136,7 +138,8 @@ public struct ExportPresentationContext {
                 presentation: NumberPresentationPreferences,
                 language: AppLanguage,
                 styling: StylingPreferences = .defaults,
-                random: RandomEvaluationContext? = nil) {
+                random: RandomEvaluationContext? = nil,
+                footerStatistic: FooterStatistic = .sum) {
         self.sheetID = sheetID
         self.sheetTitle = sheetTitle
         self.content = content
@@ -159,6 +162,7 @@ public struct ExportPresentationContext {
         self.language = language
         self.styling = styling
         self.random = random
+        self.footerStatistic = footerStatistic
     }
 
     /// Logical source lines (the evaluator's exact split).
@@ -255,10 +259,13 @@ public struct ExportSnapshot: Equatable, Sendable {
     public let lineCount: Int
     /// The captured UI language (localized Total label and statuses).
     public let language: AppLanguage
+    /// Package 7: the localized footer-statistic label (Sum/Average/
+    /// Count/Median) drawn with the footer value.
+    public let totalLabel: String
 
     public init(sheetTitle: String, rows: [ExportRow], total: Double?,
                 totalText: String?, options: ExportOptions, lineCount: Int,
-                language: AppLanguage = .en) {
+                language: AppLanguage = .en, totalLabel: String = "Total") {
         self.sheetTitle = sheetTitle
         self.rows = rows
         self.total = total
@@ -266,6 +273,7 @@ public struct ExportSnapshot: Equatable, Sendable {
         self.options = options
         self.lineCount = lineCount
         self.language = language
+        self.totalLabel = totalLabel
     }
 }
 

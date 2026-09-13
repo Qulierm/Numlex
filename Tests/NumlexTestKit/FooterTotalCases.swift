@@ -344,8 +344,10 @@ public let footerTotalCases: [EngineCase] = [
         guard let view = footerSource("Sources/NumlexApp/Views/AnswerColumnView.swift") else {
             throw CaseFailure(message: "missing AnswerColumnView.swift", location: "FooterTotal")
         }
-        try expect(view.contains("SheetFooterTotal.aggregate(rows)"),
-                   "the footer delegates to the core aggregate", "wiring")
+        // Package 7: the footer delegates to the ONE footer-statistics
+        // entry (sum keeps the legacy aggregate byte-for-byte).
+        try expect(view.contains("SheetFooterStatistics.compute(rows"),
+                   "the footer delegates to the core statistics", "wiring")
         // The view no longer encodes eligibility: no unit filter, no
         // result-type switch in the summary property.
         try expect(!view.contains("u == nil"), "no unitless-only filter in the view", "wiring")

@@ -196,6 +196,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// block or a wrong JSON type falls back to the defaults, the payload
     /// version is NOT bumped and nothing here enters `.nlx`.
     public var tax: TaxPreferences
+    /// Package 7: the floating footer statistic (sum/average/count/
+    /// median). Additive and failure-proof: a missing key or a malformed
+    /// value falls back to `.sum` and nothing here enters `.nlx`.
+    public var footerStatistic: FooterStatistic
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -212,7 +216,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum) {
         self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
@@ -231,6 +235,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.presentation = presentation
         self.appIcon = appIcon
         self.tax = tax
+        self.footerStatistic = footerStatistic
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -292,6 +297,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         temporal = (try? c.decodeIfPresent(TemporalPreferences.self, forKey: .temporal)) ?? .defaults
         // Package 2 tax: the same additive, failure-proof contract.
         tax = (try? c.decodeIfPresent(TaxPreferences.self, forKey: .tax)) ?? .defaults
+        // Package 7 footer statistic: additive, failure-proof, .sum
+        // default (unknown values decode tolerantly inside the enum).
+        footerStatistic = (try? c.decodeIfPresent(FooterStatistic.self,
+                                                  forKey: .footerStatistic)) ?? .sum
     }
 
     public var fontSize: Double {

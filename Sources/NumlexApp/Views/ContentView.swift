@@ -108,6 +108,19 @@ struct ContentView: View {
             .compactMap { pref in pref.notation.map { (pref.lineID, $0) } })
     }
 
+    /// Package 7: the localized footer-statistic name.
+    private func footerStatisticLabel(_ statistic: FooterStatistic,
+                                      language: AppLanguage) -> String {
+        let key: String
+        switch statistic {
+        case .sum: key = "footerSum"
+        case .average: key = "footerAverage"
+        case .count: key = "footerCount"
+        case .median: key = "footerMedian"
+        }
+        return L10n.t(key, language: language)
+    }
+
     /// Package 7: Convert to Normal Line from the answer context menu.
     private func handleConvertToNormal(_ index: Int) {
         _ = model.convertSubtotalRowToNormal(at: index)
@@ -524,7 +537,10 @@ struct ContentView: View {
                     onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
                     onConvertToNormal: { idx in handleConvertToNormal(idx) },
                     fontDesign: settings.styling.fontDesign,
-                    totalLabel: L10n.t("total", language: settings.language),
+                    totalLabel: footerStatisticLabel(settings.footerStatistic,
+                                                     language: settings.language),
+                    footerStatistic: settings.footerStatistic,
+                    onSetFooterStatistic: { model.setFooterStatistic($0) },
                     showTotalBar: settings.showTotalBar,
                     highlightedSourceLineIndex: highlightedSourceLineIndex,
                     numberContext: model.numberContext,

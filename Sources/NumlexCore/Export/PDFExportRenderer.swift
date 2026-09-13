@@ -349,7 +349,7 @@ public struct ExportRenderedDocument {
     }
 
     private func drawTotal(_ text: String, frame: CGRect, in ctx: CGContext) {
-        let label = L10n.t("total", language: snapshot.language)
+        let label = snapshot.totalLabel
         let maxWidth = Double(frame.width)
         let labelWidth = ExportRenderedDocument.measure(label, font: fonts.chrome)
         if layout.totalLines >= 2 {

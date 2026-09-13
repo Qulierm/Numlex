@@ -169,20 +169,59 @@ public enum ExportSnapshotBuilder {
         }
         guard hasPrintableContent else { return .failure(.noPrintableRows) }
 
-        let total = options.showTotal
-            ? SheetFooterTotal.aggregate(exportedLines)
-            : nil
-        let totalText = total.map {
-            formatTotal($0, context: context)
+        // Package 7: the footer statistic over the EXPORTED evaluated
+        // rows only, formatted exactly like the live footer.
+        var total: Double? = nil
+        var totalText: String? = nil
+        if options.showTotal,
+           let computed = SheetFooterStatistics.compute(exportedLines,
+                                                        statistic: context.footerStatistic) {
+            switch computed {
+            case .count(let count):
+                total = Double(count)
+                totalText = String(count)
+            case .value(let value):
+                total = value
+                var display = value
+                if display.truncatingRemainder(dividingBy: 1) != 0 {
+                    let scale = pow(10, Double(context.decimalPlaces))
+                    display = (display * scale).rounded() / scale
+                }
+                if context.presentation.notation == .automatic {
+                    totalText = formatDisplayValue(display,
+                                                   decimalPlaces: context.decimalPlaces,
+                                                   context: context.numberContext)
+                } else {
+                    totalText = NumberPresentation.format(
+                        display, category: .plain,
+                        notation: context.presentation.notation,
+                        precision: context.decimalPlaces,
+                        prefs: context.presentation,
+                        context: context.numberContext)
+                }
+            }
         }
+        let totalLabel = L10n.t(Self.footerStatisticKey(context.footerStatistic),
+                                language: context.language)
         let snapshot = ExportSnapshot(sheetTitle: context.sheetTitle,
                                       rows: rows,
                                       total: total,
                                       totalText: totalText,
                                       options: options,
                                       lineCount: lineCount,
-                                      language: context.language)
+                                      language: context.language,
+                                      totalLabel: totalLabel)
         return .success(snapshot)
+    }
+
+    /// Package 7: the localization key of a footer statistic.
+    static func footerStatisticKey(_ statistic: FooterStatistic) -> String {
+        switch statistic {
+        case .sum: return "footerSum"
+        case .average: return "footerAverage"
+        case .count: return "footerCount"
+        case .median: return "footerMedian"
+        }
     }
 
     // MARK: - Row projection helpers

@@ -53,6 +53,9 @@ struct AnswerColumnView: View {
     /// match the editor exactly (same resolver).
     var fontDesign: StylingFontDesign = .system
     var totalLabel: String
+    /// Package 7: the floating footer statistic and its setter.
+    var footerStatistic: FooterStatistic = .sum
+    var onSetFooterStatistic: (FooterStatistic) -> Void = { _ in }
     /// r80: the sheet's bottom Total panel (footer bar under the
     /// answers). OFF removes the panel AND its reserved space — the
     /// answers viewport above expands to take it; inline total lines
@@ -461,29 +464,42 @@ struct AnswerColumnView: View {
     }
 
     private var summary: (value: String, unit: String?)? {
-        // The bottom Total is the OVERALL sheet total, dimension-
-        // agnostic and unitless: `SheetFooterTotal` owns the whole
-        // eligibility contract (every ordinary scalar answer row —
-        // unitless numbers, unit-bearing quantities, money, named
-        // scalars and exact integers — counted once in display order,
-        // with inline `total` rows excluded so the feature never
-        // double-counts). The view must not encode result-type
-        // eligibility itself: it only formats the aggregate.
-        guard var sum = SheetFooterTotal.aggregate(rows) else { return nil }
-        if sum.truncatingRemainder(dividingBy: 1) != 0 {
-            sum = (sum * pow(10, Double(decimalPlaces))).rounded() / pow(10, Double(decimalPlaces))
+        // Package 7: the selected footer statistic over the SAME broad
+        // contribution set the legacy Total used (derived aggregate
+        // rows excluded); sums stay byte-for-byte the old value.
+        guard let computed = SheetFooterStatistics.compute(rows,
+                                                           statistic: footerStatistic) else {
+            return nil
         }
-        // The shared overflow-safe formatter (automatic = the exact
-        // pre-r87 Total shape); r87: non-automatic global notations
-        // format the unrounded sum through the ONE presentation API —
-        // per-source overrides never touch the Total.
-        let value = presentation.notation == .automatic
-            ? formatDisplayValue(sum, decimalPlaces: decimalPlaces, context: numberContext)
-            : NumberPresentation.format(sum, category: .plain,
-                                        notation: presentation.notation,
-                                        precision: decimalPlaces,
-                                        prefs: presentation, context: numberContext)
-        return (value, nil)
+        switch computed {
+        case .count(let count):
+            // Count is an exact integer.
+            return (String(count), nil)
+        case .value(var sum):
+            if sum.truncatingRemainder(dividingBy: 1) != 0 {
+                sum = (sum * pow(10, Double(decimalPlaces))).rounded()
+                    / pow(10, Double(decimalPlaces))
+            }
+            let value = presentation.notation == .automatic
+                ? formatDisplayValue(sum, decimalPlaces: decimalPlaces, context: numberContext)
+                : NumberPresentation.format(sum, category: .plain,
+                                            notation: presentation.notation,
+                                            precision: decimalPlaces,
+                                            prefs: presentation, context: numberContext)
+            return (value, nil)
+        }
+    }
+
+    /// Package 7: the localized statistic name (the footer label).
+    private func statisticLabel(_ statistic: FooterStatistic) -> String {
+        let key: String
+        switch statistic {
+        case .sum: key = "footerSum"
+        case .average: key = "footerAverage"
+        case .count: key = "footerCount"
+        case .median: key = "footerMedian"
+        }
+        return L10n.t(key, language: language)
     }
 
     var body: some View {
@@ -688,6 +704,21 @@ struct AnswerColumnView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
                                                                       unit: s.unit)))
+                    // Package 7: the ONE native checked statistic menu.
+                    .contextMenu {
+                        ForEach(FooterStatistic.allCases, id: \.self) { statistic in
+                            Button {
+                                onSetFooterStatistic(statistic)
+                            } label: {
+                                if statistic == footerStatistic {
+                                    Label(statisticLabel(statistic),
+                                          systemImage: "checkmark")
+                                } else {
+                                    Text(statisticLabel(statistic))
+                                }
+                            }
+                        }
+                    }
                     // Mode changes must not animate the bubble's geometry.
                     .transaction { if !reduceMotion { $0.animation = nil } }
             }

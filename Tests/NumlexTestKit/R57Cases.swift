@@ -426,8 +426,10 @@ public let r57Cases: [EngineCase] = [
         try expect(view.contains("line.isTotal"), "view trusts metadata")
         try expect(view.contains("Design.panelSeparator"), "neutral rule color")
         try expect(view.contains("weight: totalWeight"), "total-only weight")
-        try expect(view.contains("SheetFooterTotal.aggregate(rows)"),
-                   "footer delegates to the core footer aggregate")
+        // Package 7: the footer now goes through the ONE footer-statistics
+        // entry (sum remains byte-for-byte the legacy aggregate).
+        try expect(view.contains("SheetFooterStatistics.compute(rows"),
+                   "footer delegates to the core footer statistics")
         try expect(!view.contains("guard !line.isTotal else { return nil }"),
                    "the view no longer filters rows itself")
         let sheet = try src("Sources/NumlexCore/Models/Sheet.swift")

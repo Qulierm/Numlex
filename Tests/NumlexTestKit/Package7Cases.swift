@@ -542,6 +542,95 @@ public let package7Cases: [EngineCase] = [
         try expectEqual(counter.n, 2, "one new draw after clear")
     },
 
+
+    EngineCase("p7-footer-statistics-values") {
+        let rows = p7rows("1\n2\n3\ntotal")
+        try expectEqual(SheetFooterStatistics.compute(rows, statistic: .sum),
+                        .value(6), "sum")
+        try expectEqual(SheetFooterStatistics.compute(rows, statistic: .average),
+                        .value(2), "average")
+        try expectEqual(SheetFooterStatistics.compute(rows, statistic: .count),
+                        .count(3), "count")
+        try expectEqual(SheetFooterStatistics.compute(rows, statistic: .median),
+                        .value(2), "median")
+        // Even counts use the overflow-safe midpoint.
+        let even = p7rows("1\n2\n3\n4")
+        try expectEqual(SheetFooterStatistics.compute(even, statistic: .median),
+                        .value(2.5), "even median")
+        // Derived aggregate rows never contribute.
+        let derived = p7rows("1\n2\nsubtotal\ngrand total")
+        try expectEqual(SheetFooterStatistics.compute(derived, statistic: .count),
+                        .count(2), "derived excluded")
+        // Magnitude eligibility is preserved (money/units count).
+        let broad = p7rows("$7\n3 kg")
+        try expectEqual(SheetFooterStatistics.compute(broad, statistic: .sum),
+                        .value(10), "magnitude sum")
+        // Nothing eligible -> nil.
+        try expect(SheetFooterStatistics.compute(p7rows("// c\n---"), statistic: .sum) == nil,
+                   "no eligible rows")
+    },
+
+    EngineCase("p7-footer-setting-is-tolerant-and-global") {
+        // Missing key decodes to .sum.
+        let legacy = """
+        {"decimalPlaces":7,"fontSizeKey":"tf","language":"en","sheetName":"Sheet","lineNumbers":true,"fontColor":"white"}
+        """
+        let decoded = try JSONDecoder().decode(AppSettings.self,
+                                               from: Data(legacy.utf8))
+        try expectEqual(decoded.footerStatistic, .sum, "missing -> sum")
+        // Malformed value decodes to .sum.
+        let malformed = """
+        {"decimalPlaces":7,"fontSizeKey":"tf","language":"en","sheetName":"Sheet","lineNumbers":true,"fontColor":"white","footerStatistic":"bogus"}
+        """
+        let malformedDecoded = try JSONDecoder().decode(AppSettings.self,
+                                                        from: Data(malformed.utf8))
+        try expectEqual(malformedDecoded.footerStatistic, .sum, "malformed -> sum")
+        // Round-trip keeps an explicit choice.
+        var settings = AppSettings.defaults
+        settings.footerStatistic = .median
+        let data = try JSONEncoder().encode(settings)
+        let round = try JSONDecoder().decode(AppSettings.self, from: data)
+        try expectEqual(round.footerStatistic, .median, "round-trip")
+    },
+
+    EngineCase("p7-footer-statistic-in-pdf") {
+        let context = exportProbeContext("1\n2\n3\n4")
+        var medianContext = context
+        medianContext = ExportPresentationContext(
+            sheetID: context.sheetID, sheetTitle: "Stats", content: context.content,
+            lineIDs: context.lineIDs, references: [], answerDisplay: [],
+            highlights: [], rates: Rates(), decimalPlaces: 7, now: context.now,
+            calendar: context.calendar, constants: [], weather: .empty, geo: .empty,
+            numberContext: .legacy, unitContext: .builtIns, preferences: .defaults,
+            financial: .defaults, presentation: .defaults, language: .en,
+            footerStatistic: .median)
+        switch ExportSnapshotBuilder.build(context: medianContext,
+                                           options: ExportOptions()) {
+        case .success(let snapshot):
+            try expectEqual(snapshot.totalText, "2.5", "median value")
+            try expectEqual(snapshot.totalLabel, "Median", "median label")
+        case .failure(let e):
+            throw CaseFailure(message: "export failed: \(e)", location: "p7")
+        }
+        var countContext = medianContext
+        countContext = ExportPresentationContext(
+            sheetID: context.sheetID, sheetTitle: "Stats", content: context.content,
+            lineIDs: context.lineIDs, references: [], answerDisplay: [],
+            highlights: [], rates: Rates(), decimalPlaces: 7, now: context.now,
+            calendar: context.calendar, constants: [], weather: .empty, geo: .empty,
+            numberContext: .legacy, unitContext: .builtIns, preferences: .defaults,
+            financial: .defaults, presentation: .defaults, language: .en,
+            footerStatistic: .count)
+        switch ExportSnapshotBuilder.build(context: countContext,
+                                           options: ExportOptions()) {
+        case .success(let snapshot):
+            try expectEqual(snapshot.totalText, "4", "count value")
+            try expectEqual(snapshot.totalLabel, "Count", "count label")
+        case .failure(let e):
+            throw CaseFailure(message: "export failed: \(e)", location: "p7")
+        }
+    },
+
     EngineCase("p7-classifier-tag-and-divider-spans") {
         let spans = SyntaxClassifier.spans(for: "2 + 3 #math #cash\n---\n# Head",
                                            rates: Rates(), decimalPlaces: 7)

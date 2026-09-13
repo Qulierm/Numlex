@@ -707,7 +707,7 @@ public enum ExportLayoutEngine {
         var totalFrame: CGRect? = nil
         var totalLines = 1
         if snapshot.options.showTotal, let totalText = snapshot.totalText {
-            let label = L10n.t("total", language: snapshot.language)
+            let label = snapshot.totalLabel
             if let chrome {
                 let combined = chrome.chrome(label) + 10 + chrome.totalValue(totalText)
                 if combined > contentWidth { totalLines = 2 }

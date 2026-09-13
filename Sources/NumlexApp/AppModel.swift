@@ -75,6 +75,15 @@ final class AppModel {
         return RandomEvaluationContext(sheetID: sheetID, store: store)
     }
 
+    /// Package 7: the floating footer statistic (app-global, persisted,
+    /// never in `.nlx`). Changes the footer only — never content, caret,
+    /// selection, IME, scroll or the editor.
+    func setFooterStatistic(_ statistic: FooterStatistic) {
+        guard settings.footerStatistic != statistic else { return }
+        settings.footerStatistic = statistic
+        persist()
+    }
+
     /// Discards the selected sheet's samples: the next evaluation draws
     /// a fresh semantic epoch (the explicit Recalculate command).
     func recalculateDynamicValues() {
