@@ -1160,6 +1160,85 @@ public let package7Cases: [EngineCase] = [
         try expect(plan.contains("sourceIsDynamic"), "token plan guards dynamic sources")
     },
 
+    EngineCase("p7-grand-counts-successful-subtotal-rows") {
+        let fee = [UserConstant(name: "fee", expression: "5")]
+        // A named subtotal assigning to an immutable constant is an
+        // ERROR row: it must not enter the grand list, while the
+        // section boundary reset still happens.
+        let first = "10\nfee = subtotal\n20\nsubtotal\ngrand total"
+        var vars1: [String: Double] = [:]
+        let rows1 = evaluateSheet(first, variables: &vars1, rates: Rates(),
+                                  decimalPlaces: 7, constants: fee)
+        if case .error = rows1[1].result {
+        } else {
+            throw CaseFailure(message: "constant named subtotal is an error",
+                              location: "p7")
+        }
+        try expectEqual(p7number(rows1[3]), 20, "boundary reset after the constant error")
+        try expectEqual(rows1[3].metadata, .subtotal, "subtotal kind preserved")
+        if case .error = rows1[4].result {
+        } else {
+            throw CaseFailure(message: "grand needs two successful rows", location: "p7")
+        }
+        func successCount(_ rows: [SheetLine], above index: Int) -> Int {
+            rows.filter { row in
+                guard row.sourceLineIndex < index, row.metadata == .subtotal else {
+                    return false
+                }
+                if case .number = row.result { return true }
+                return false
+            }.count
+        }
+        try expectEqual(successCount(rows1, above: 4), 1,
+                        "only one successful subtotal row")
+        // The SAME contract through resolveSheet.
+        let ids1 = rows1.map { _ in UUID() }
+        let resolved1 = resolveSheet(content: first, lineIDs: ids1, references: [],
+                                     rates: Rates(), decimalPlaces: 7, constants: fee)
+        if case .error = resolved1.lines[4].result {
+        } else {
+            throw CaseFailure(message: "resolveSheet grand error", location: "p7")
+        }
+        try expectEqual(successCount(resolved1.lines, above: 4), 1,
+                        "resolveSheet successful subtotal count")
+        // Two later successes: grand sums ONLY those two.
+        let second = "10\nfee = subtotal\n20\nsubtotal\n30\nsubtotal\ngrand total"
+        var vars2: [String: Double] = [:]
+        let rows2 = evaluateSheet(second, variables: &vars2, rates: Rates(),
+                                  decimalPlaces: 7, constants: fee)
+        try expectEqual(p7number(rows2[5]), 30, "second success value")
+        try expectEqual(p7number(rows2[6]), 50, "grand sums only successful rows")
+        try expectEqual(successCount(rows2, above: 6), 2, "two successful rows")
+        let ids2 = rows2.map { _ in UUID() }
+        let resolved2 = resolveSheet(content: second, lineIDs: ids2, references: [],
+                                     rates: Rates(), decimalPlaces: 7, constants: fee)
+        try expectEqual(p7number(resolved2.lines[6]), 50, "resolveSheet grand")
+        // An overflowed subtotal is never recorded.
+        let overflow = "10^308\n10^308\nsubtotal\n5\nsubtotal\ngrand total"
+        var vars3: [String: Double] = [:]
+        let rows3 = evaluateSheet(overflow, variables: &vars3, rates: Rates(),
+                                  decimalPlaces: 7)
+        if case .error = rows3[2].result {
+        } else {
+            throw CaseFailure(message: "overflow subtotal error", location: "p7")
+        }
+        try expectEqual(p7number(rows3[4]), 5, "success after overflow")
+        if case .error = rows3[5].result {
+        } else {
+            throw CaseFailure(message: "overflow row never recorded", location: "p7")
+        }
+        // Explicit API contract: resolving alone never records; the
+        // success record is a separate, deliberate call.
+        var agg = SheetAggregateState()
+        agg.observe(result: .number(value: 10, unit: nil, kind: .plain, fraction: nil),
+                    projection: "10", isDerived: false)
+        let probe = agg.resolveSubtotal(percent: nil, decimalPlaces: 7)
+        try expectEqual(probe.raw, 10, "resolved raw")
+        try expectEqual(agg.successfulSubtotalCount, 0, "resolve never records")
+        agg.recordGrandValue(10, isDynamic: false)
+        try expectEqual(agg.successfulSubtotalCount, 1, "explicit record")
+    },
+
     EngineCase("p7-weather-scan-ignores-tag-suffix") {
         // A trailing tag must never become part of a place name.
         let queries = WeatherQuery.scanQueries(in: "weather in Paris #travel")

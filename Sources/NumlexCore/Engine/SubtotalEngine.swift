@@ -187,9 +187,13 @@ public struct SheetAggregateState: Sendable {
     }
 
     /// The `subtotal[ ± P%]` command: resolves and resets the subtotal
-    /// section (even when it overflowed) and records successful values
-    /// for `grand total`. Returns the row result, the raw subtotal value
-    /// (nil on overflow) and the section's dynamic taint.
+    /// section (even when it overflowed). It does NOT record a grand
+    /// value: the caller records ONLY after the command's FINAL row
+    /// result is a successful subtotal number and any named-assignment
+    /// validation succeeded (a named subtotal assigning to an immutable
+    /// constant is an ERROR row and never a successful subtotal).
+    /// Returns the row result, the raw subtotal value (nil on overflow)
+    /// and the section's dynamic taint.
     public mutating func resolveSubtotal(percent: Double?,
                                          decimalPlaces: Int) -> (result: LineResult,
                                                                  raw: Double?,
@@ -208,10 +212,19 @@ public struct SheetAggregateState: Sendable {
         guard raw.isFinite else {
             return (.error(message: InlineTotal.overflowMessage), nil, dynamic)
         }
-        grandValues.append((value: raw, dynamic: dynamic))
         return (.number(value: roundResult(raw, decimalPlaces: decimalPlaces), unit: nil),
                 raw,
                 dynamic)
+    }
+
+    /// Records a SUCCESSFUL subtotal row's raw value for `grand total`.
+    /// Called by the command resolver only after the final result
+    /// (constant validation included) succeeded; the dynamic taint
+    /// rides with the value. An overflowed subtotal never reaches this
+    /// call (its raw value is nil).
+    public mutating func recordGrandValue(_ raw: Double, isDynamic: Bool) {
+        guard raw.isFinite else { return }
+        grandValues.append((value: raw, dynamic: isDynamic))
     }
 
     /// The `grand total` command: the sum of the successful subtotal row
@@ -268,13 +281,23 @@ func resolveAggregateCommand(_ command: SheetAggregateCommand,
         let (result, raw, dynamic) = aggregate.resolveSubtotal(percent: percent,
                                                                decimalPlaces: decimalPlaces)
         var finalResult = result
+        var recordGrand = false
         if case .namedSubtotal(let name, _) = command {
             if env.isConstant(display: name) {
+                // The FINAL row is an error: never a successful subtotal
+                // row, so it is not recorded for `grand total` (the
+                // section boundary reset already happened above).
                 finalResult = .error(message: "Cannot assign to constant")
             } else if let raw {
                 // The final plain scalar (the raw, unrounded value).
                 env.set(display: name, qty: .scalar(raw))
+                recordGrand = true
             }
+        } else if case .number = result, raw != nil {
+            recordGrand = true
+        }
+        if recordGrand, let raw {
+            aggregate.recordGrandValue(raw, isDynamic: dynamic)
         }
         return (finalResult, .subtotal, dynamic)
     case .grandTotal, .namedGrandTotal:
