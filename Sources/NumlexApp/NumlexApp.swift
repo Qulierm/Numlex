@@ -250,6 +250,20 @@ struct NumlexApp: App {
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }
+            // Package 7: the subtotal commands. `⌘⇧T` is claimed by the
+            // grand total (there is no macOS tab command in this app).
+            CommandGroup(after: .newItem) {
+                Button(L10n.t("addSubtotal",
+                              language: model.settings.language)) {
+                    NotificationCenter.default.post(name: .addSubtotal, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                Button(L10n.t("addGrandTotal",
+                              language: model.settings.language)) {
+                    NotificationCenter.default.post(name: .addGrandTotal, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+            }
             // Explicit File-menu ownership: this ONE group owns the
             // standard import/export placement (replacing it, so exactly
             // one Import Sheet… and one Export Sheet… ever appear —
@@ -491,4 +505,7 @@ extension Notification.Name {
     /// by ContentView's export presentation.
     static let exportSheetPDF = Notification.Name("numlex.exportSheetPDF")
     static let printSheet = Notification.Name("numlex.printSheet")
+    /// Package 7: Add Subtotal (⌘T) / Add Grand Total (⌘⇧T).
+    static let addSubtotal = Notification.Name("numlex.addSubtotal")
+    static let addGrandTotal = Notification.Name("numlex.addGrandTotal")
 }

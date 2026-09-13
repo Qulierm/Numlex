@@ -253,6 +253,82 @@ public let package7Cases: [EngineCase] = [
                    "footer counts the ordinary row only")
     },
 
+
+    EngineCase("p7-subtotal-insertion-plans") {
+        let ids = (0..<3).map { _ in UUID() }
+        // Whitespace-only line -> command replaces the line.
+        let blank = SubtotalInsertionPlan.plan(content: "5\n   \n6", lineIndex: 1,
+                                               command: "subtotal",
+                                               priorSubtotalCount: Int.max)
+        try expectEqual(blank?.content, "5\nsubtotal\n6", "blank line filled")
+        try expectEqual(blank?.edit.range, NSRange(location: 2, length: 3), "edit range")
+        try expectEqual(blank?.caret, 10, "caret after the command")
+        // Strict empty assignment -> named subtotal.
+        let named = SubtotalInsertionPlan.plan(content: "5\nsum =  \n6", lineIndex: 1,
+                                               command: "subtotal",
+                                               priorSubtotalCount: Int.max)
+        try expectEqual(named?.content, "5\nsum = subtotal\n6", "named form filled")
+        // Anything else is rejected.
+        for content in ["5\n7\n", "5\nx = 1\n", "5\nsum = 1\n", "5\n// c\n"] {
+            try expect(SubtotalInsertionPlan.plan(content: content, lineIndex: 1,
+                                                  command: "subtotal",
+                                                  priorSubtotalCount: Int.max) == nil,
+                       "rejected: \(content)")
+        }
+        // Grand total requires two prior subtotals.
+        try expect(SubtotalInsertionPlan.plan(content: "subtotal\n   ",
+                                              lineIndex: 1, command: "grand total",
+                                              priorSubtotalCount: 1) == nil,
+                   "grand needs two prior subtotals")
+        try expect(SubtotalInsertionPlan.plan(content: "subtotal\nsubtotal\n   ",
+                                              lineIndex: 2, command: "grand total",
+                                              priorSubtotalCount: 2) != nil,
+                   "grand accepted with two")
+        // The reconciled line IDs survive and following references move.
+        let content = "a = 1\n   \nb = 2"
+        let plan = SubtotalInsertionPlan.plan(content: content, lineIndex: 1,
+                                              command: "subtotal",
+                                              priorSubtotalCount: Int.max)!
+        let reconciled = LineIdentity.reconcile(oldContent: content,
+                                                oldLineIDs: ids,
+                                                oldReferences: [],
+                                                newContent: plan.content,
+                                                edit: plan.edit)
+        try expectEqual(reconciled.lineIDs, ids, "line IDs preserved")
+    },
+
+    EngineCase("p7-convert-to-normal-plans") {
+        let ids = (0..<2).map { _ in UUID() }
+        let bare = SubtotalConversionPlan.plan(content: "10\n20\nsubtotal",
+                                               lineIndex: 2, value: 30,
+                                               context: .legacy)!
+        try expectEqual(bare.content, "10\n20\n30.0", "bare converted")
+        try expectEqual(bare.caret, 10, "caret at the literal end")
+        let named = SubtotalConversionPlan.plan(content: "10\nsum = subtotal",
+                                                lineIndex: 1, value: 10.5,
+                                                context: .legacy)!
+        try expectEqual(named.content, "10\nsum = 10.5", "named form keeps LHS")
+        // Decimal-comma locales produce a retypeable literal.
+        let comma = SubtotalConversionPlan.plan(content: "sum = subtotal",
+                                                lineIndex: 0, value: 10.5,
+                                                context: NumberFormatContext(
+                                                    locale: Locale(identifier: "de_DE"),
+                                                    decimalSeparator: ",",
+                                                    groupingSeparator: ".",
+                                                    argumentSeparator: ";",
+                                                    displayGrouping: true,
+                                                    compactNotation: false,
+                                                    convertForeignOnPaste: false))!
+        try expectEqual(comma.content, "sum = 10,5", "decimal comma literal")
+        // Line count and stable IDs survive.
+        let reconciled = LineIdentity.reconcile(oldContent: "10\n20\nsubtotal",
+                                                oldLineIDs: ids + [UUID()],
+                                                oldReferences: [],
+                                                newContent: bare.content,
+                                                edit: bare.edit)
+        try expectEqual(reconciled.lineIDs.count, 3, "line count unchanged")
+    },
+
     EngineCase("p7-classifier-tag-and-divider-spans") {
         let spans = SyntaxClassifier.spans(for: "2 + 3 #math #cash\n---\n# Head",
                                            rates: Rates(), decimalPlaces: 7)

@@ -672,6 +672,121 @@ final class AppModel {
         noteAnswerActivity()
     }
 
+    // MARK: - Package 7: subtotal / grand-total commands
+
+    /// The logical line index containing a UTF-16 caret offset.
+    private func lineIndex(forCaret caret: Int, in content: String) -> Int {
+        let ns = content as NSString
+        let clamped = min(max(caret, 0), ns.length)
+        var index = 0
+        var p = 0
+        while p < clamped {
+            let r = ns.range(of: "\n", options: [],
+                             range: NSRange(location: p, length: ns.length - p))
+            guard r.location != NSNotFound, r.location < clamped else { break }
+            index += 1
+            p = r.location + 1
+        }
+        return index
+    }
+
+    /// How many prior SUBTOTAL rows above `lineIndex` hold a successful
+    /// numeric value (the grand-total prerequisite).
+    private func successfulSubtotalCount(above lineIndex: Int,
+                                         in sheet: Sheet) -> Int {
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet(sheet.content, variables: &vars, rates: rates,
+                                 decimalPlaces: max(settings.decimalPlaces, 6),
+                                 constants: settings.customConstants,
+                                 weather: weatherContext, geo: geoContext,
+                                 context: numberContext, unitContext: unitContext,
+                                 preferences: settings.temporal,
+                                 financial: financialContext)
+        return rows.reduce(0) { count, row in
+            guard row.sourceLineIndex < lineIndex, row.metadata == .subtotal,
+                  case .number = row.result else { return count }
+            return count + 1
+        }
+    }
+
+    /// Applies one pure single-line command plan with exact line-identity
+    /// reconciliation (following references move; the stable line ID of
+    /// the edited line survives).
+    private func applyCommandPlan(_ plan: SheetCommandEditPlan, to sheet: Sheet) {
+        let reconciled = LineIdentity.reconcile(
+            oldContent: sheet.content,
+            oldLineIDs: sheet.lineIDs,
+            oldReferences: sheet.references,
+            newContent: plan.content,
+            edit: plan.edit)
+        var s = sheet
+        s.content = plan.content
+        s.lineIDs = reconciled.lineIDs
+        s.references = reconciled.references
+        s.modifiedAt = Date()
+        sheets[selectedIndex] = Sheet.retitled(s, content: s.content,
+                                               constants: settings.customConstants)
+        persist()
+        focusSheetID = s.id
+        focusCaret = plan.caret
+        noteAnswerActivity()
+    }
+
+    /// Package 7: Add Subtotal / Add Grand Total. `selection` is the
+    /// LIVE editor selection (the marked-text/sheet-ID guard); the
+    /// target is the caret line unless the caller names one (the empty
+    /// answer-row double-click). Returns false when the target is not a
+    /// whitespace-only line / strict empty assignment, when the bridge
+    /// was stale, or when a grand total lacks two prior subtotals —
+    /// the caller beeps and nothing changes.
+    @discardableResult
+    func addSubtotalCommand(grand: Bool, selection: NSRange?,
+                            targetLineIndex: Int? = nil) -> Bool {
+        guard let selection, sheets.indices.contains(selectedIndex) else { return false }
+        let sheet = sheets[selectedIndex]
+        let target = targetLineIndex
+            ?? lineIndex(forCaret: selection.location, in: sheet.content)
+        guard let plan = SubtotalInsertionPlan.plan(
+            content: sheet.content,
+            lineIndex: target,
+            command: grand ? "grand total" : "subtotal",
+            priorSubtotalCount: grand ? successfulSubtotalCount(above: target, in: sheet)
+                                      : Int.max) else {
+            return false
+        }
+        applyCommandPlan(plan, to: sheet)
+        return true
+    }
+
+    /// Package 7: Convert to Normal Line on a subtotal/grand-total row:
+    /// the command projection becomes a locale-retypeable full-precision
+    /// numeric literal (a named form keeps its LHS). Stable line UUID,
+    /// references and every following row are untouched.
+    @discardableResult
+    func convertSubtotalRowToNormal(at index: Int) -> Bool {
+        guard sheets.indices.contains(selectedIndex) else { return false }
+        let sheet = sheets[selectedIndex]
+        var vars: [String: Double] = [:]
+        let rows = evaluateSheet(sheet.content, variables: &vars, rates: rates,
+                                 decimalPlaces: max(settings.decimalPlaces, 6),
+                                 constants: settings.customConstants,
+                                 weather: weatherContext, geo: geoContext,
+                                 context: numberContext, unitContext: unitContext,
+                                 preferences: settings.temporal,
+                                 financial: financialContext)
+        guard rows.indices.contains(index),
+              rows[index].metadata == .subtotal || rows[index].metadata == .grandTotal,
+              case .number(let value, _, _, _) = rows[index].result,
+              let plan = SubtotalConversionPlan.plan(content: sheet.content,
+                                                     lineIndex: index,
+                                                     value: value,
+                                                     context: numberContext) else {
+            return false
+        }
+        applyCommandPlan(plan, to: sheet)
+        return true
+    }
+
     /// The "insert previous answer" input helper (r19): when the user
     /// types an operator on a fresh line, the nearest earlier
     /// answerable line becomes a live token followed by the operator.

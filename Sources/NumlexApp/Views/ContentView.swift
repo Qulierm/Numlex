@@ -65,6 +65,13 @@ struct ContentView: View {
         let snapDesc = snap.map { "\($0.location)+\($0.length)" } ?? "nil"
         Diagnostics.shared?.log("answerDoubleTap line=\(lineIndex) sheet=\(sheetID.uuidString.prefix(4)) modelSelected=\(modelSel) bridgeSheet=\(bridgeSheet) snapshot=\(snapDesc)")
         guard let range = snap else { return }
+        // Package 7: double-clicking an EMPTY answer row (whitespace
+        // line or strict `<name> =`) inserts a subtotal; successful
+        // answers keep the existing token-insertion behaviour.
+        if model.addSubtotalCommand(grand: false, selection: range,
+                                    targetLineIndex: lineIndex) {
+            return
+        }
         model.insertToken(sourceLineIndex: lineIndex, selection: range)
     }
 
@@ -99,6 +106,25 @@ struct ContentView: View {
     private var notationOverrideMap: [UUID: AnswerNotationOverride] {
         Dictionary(uniqueKeysWithValues: (model.selectedSheet?.answerDisplay ?? [])
             .compactMap { pref in pref.notation.map { (pref.lineID, $0) } })
+    }
+
+    /// Package 7: Convert to Normal Line from the answer context menu.
+    private func handleConvertToNormal(_ index: Int) {
+        _ = model.convertSubtotalRowToNormal(at: index)
+    }
+
+    /// Package 7: the Add Subtotal / Add Grand Total command handler —
+    /// the live bridge snapshot is the marked-text + sheet-ID guard; a
+    /// rejected plan beeps and changes nothing.
+    private func handleAddSubtotal(grand: Bool) {
+        guard let sheetID = model.selectedSheet?.id,
+              let selection = editorBridge?.selectionSnapshot(sheetID: sheetID) else {
+            NSSound.beep()
+            return
+        }
+        if !model.addSubtotalCommand(grand: grand, selection: selection) {
+            NSSound.beep()
+        }
     }
 
     /// r87: the Format > Highlight command — every logical line
@@ -493,6 +519,7 @@ struct ContentView: View {
                     language: settings.language,
                     onSetRounding: { idx, places in model.setAnswerRounding(at: idx, places: places) },
                     onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
+                    onConvertToNormal: { idx in handleConvertToNormal(idx) },
                     fontDesign: settings.styling.fontDesign,
                     totalLabel: L10n.t("total", language: settings.language),
                     showTotalBar: settings.showTotalBar,
@@ -576,6 +603,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .printSheet)) { _ in
             presentExport(.print)
         }
+        .modifier(SubtotalCommandReceiver(handler: handleAddSubtotal))
         .sheet(item: $exportPresentation) { presentation in
             ExportDialogView(
                 mode: presentation.mode,
@@ -895,6 +923,22 @@ private func applyNoSeparatorChrome(to window: NSWindow) {    // The horizontal 
     // transparent: the separator strip disappears with it.
     window.titlebarAppearsTransparent = true
     window.titlebarSeparatorStyle = .none
+}
+
+/// Package 7: the ONE modifier that receives both subtotal commands —
+/// extracting them keeps the main body inside the type-checker budget.
+private struct SubtotalCommandReceiver: ViewModifier {
+    let handler: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .addSubtotal)) { _ in
+                handler(false)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .addGrandTotal)) { _ in
+                handler(true)
+            }
+    }
 }
 
 struct NLXDocument: FileDocument {

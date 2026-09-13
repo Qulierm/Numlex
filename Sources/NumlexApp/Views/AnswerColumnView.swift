@@ -46,6 +46,8 @@ struct AnswerColumnView: View {
     /// `places == nil` clears back to Default.
     var onSetRounding: (Int, Int?) -> Void = { _, _ in }
     var onDeleteLine: (Int) -> Void = { _ in }
+    /// Package 7: Convert to Normal Line on subtotal/grand rows.
+    var onConvertToNormal: (Int) -> Void = { _ in }
     /// r21: the selected font design — answers use the centralized dark
     /// base token (Design.baseText) on the light panel, but the face must
     /// match the editor exactly (same resolver).
@@ -207,6 +209,12 @@ struct AnswerColumnView: View {
             mi.isEnabled = enabled
             if let help { mi.toolTip = help }
             return mi
+        }
+        if line.metadata == .subtotal || line.metadata == .grandTotal {
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(item(L10n.t("convertToNormalLine", language: language)) {
+                onConvertToNormal(idx)
+            })
         }
         menu.addItem(item(L10n.t("copyAnswer", language: language)) {
             let pb = NSPasteboard.general
