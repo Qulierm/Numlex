@@ -1,4 +1,9 @@
 import Foundation
+import CoreGraphics
+import CoreText
+import ImageIO
+import PDFKit
+import UniformTypeIdentifiers
 import NumlexCore
 
 // MARK: - Package 7: shared sheet-line grammar (tags, dividers, headings)
@@ -7,6 +12,46 @@ private func p7number(_ line: SheetLine) -> Double? {
     if case .number(let v, _, _, _) = line.result { return v }
     if case .integer(let v, _) = line.result { return Double(v) }
     return nil
+}
+
+private func p7Fonts(size: Double = 12) -> ExportFonts {
+    func font(_ name: String) -> CTFont {
+        let desc = CTFontDescriptorCreateWithAttributes([
+            kCTFontNameAttribute: name as CFString,
+            kCTFontSizeAttribute: size as CFNumber,
+        ] as CFDictionary)
+        return CTFontCreateWithFontDescriptor(desc, size, nil)
+    }
+    return ExportFonts(expression: font("Helvetica"), answer: font("Helvetica"),
+                       semiboldAnswer: font("Helvetica-Bold"), heading: font("Helvetica-Bold"),
+                       title: font("Helvetica-Bold"), chrome: font("Helvetica"),
+                       token: font("Menlo"))
+}
+
+private func p7DumpFixture(_ document: ExportRenderedDocument, name: String) {
+    guard ProcessInfo.processInfo.environment["NUMLEX_EXPORT_FIXTURES"] != nil else { return }
+    let dir = "/tmp/qa-out"
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    try? document.pdfData().write(to: URL(fileURLWithPath: "\(dir)/\(name).pdf"))
+    let size = document.layout.pageSize
+    let w = Int(size.width), h = Int(size.height)
+    guard w > 0, h > 0, let page = document.layout.pages.first else { return }
+    let buffer = UnsafeMutableRawPointer.allocate(byteCount: w * h * 4, alignment: 4)
+    defer { buffer.deallocate() }
+    guard let ctx = CGContext(data: buffer, width: w, height: h,
+                              bitsPerComponent: 8, bytesPerRow: w * 4,
+                              space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    document.draw(page: page, in: ctx)
+    if let image = ctx.makeImage(),
+       let dest = CGImageDestinationCreateWithURL(
+           URL(fileURLWithPath: "\(dir)/\(name).png") as CFURL,
+           UTType.png.identifier as CFString, 1, nil) {
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
+    }
 }
 
 private func exportProbeContext(_ content: String) -> ExportPresentationContext {
@@ -628,6 +673,44 @@ public let package7Cases: [EngineCase] = [
             try expectEqual(snapshot.totalLabel, "Count", "count label")
         case .failure(let e):
             throw CaseFailure(message: "export failed: \(e)", location: "p7")
+        }
+    },
+
+
+    EngineCase("p7-pdf-fixture-tags-dividers-subtotals-footer") {
+        // Headless PDF evidence for the Package 7 presentation: tags,
+        // an exact divider, a tag aggregate, a subtotal, a grand total
+        // and the median footer statistic (with its localized label).
+        let content = "# Ledger\nrevenue = 125000\ncosts = 73000\n"
+            + "profit = revenue - costs #money\n---\n100 #food\n200 #food\n"
+            + "total of #food\nsubtotal\ngrand total"
+        let ids = content.components(separatedBy: "\n").map { _ in UUID() }
+        let context = ExportPresentationContext(
+            sheetID: UUID(), sheetTitle: "Package 7", content: content,
+            lineIDs: ids, references: [], answerDisplay: [], highlights: [],
+            rates: Rates(), decimalPlaces: 7,
+            now: Date(timeIntervalSince1970: 1_700_000_000),
+            calendar: Calendar(identifier: .gregorian), constants: [],
+            weather: .empty, geo: .empty, numberContext: .legacy,
+            unitContext: .builtIns, preferences: .defaults, financial: .defaults,
+            presentation: .defaults, language: .en, footerStatistic: .median)
+        let snapshot: ExportSnapshot
+        switch ExportSnapshotBuilder.build(context: context, options: ExportOptions()) {
+        case .success(let s): snapshot = s
+        case .failure(let e):
+            throw CaseFailure(message: "package 7 export failed: \(e)", location: "p7")
+        }
+        let doc = ExportRenderedDocument(snapshot: snapshot, fonts: p7Fonts(),
+                                         palette: ExportPalette())
+        p7DumpFixture(doc, name: "export-package7")
+        try expect(doc.pageCount >= 1, "package 7 PDF renders")
+        try expectEqual(snapshot.totalLabel, "Median", "median footer label")
+        if let pdf = PDFDocument(data: doc.pdfData()) {
+            let text = pdf.string ?? ""
+            try expect(text.contains("profit = revenue - costs #money"),
+                       "tags stay in the exported text")
+            try expect(text.contains("total of #food"), "tag aggregate text")
+            try expect(text.contains("Median"), "footer statistic label")
         }
     },
 
