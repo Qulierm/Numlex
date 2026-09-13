@@ -466,6 +466,18 @@ lines without an answer — headings, comments, prose — can be highlighted too
 
 While the welcome reveal owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.
 
+## Footer statistic
+
+The floating Total panel is configurable: right-click it to choose **Sum**,
+**Average**, **Count** or **Median** (one native checked menu, localized). The
+choice is an app-global, persisted setting (never part of `.nlx`), and it
+changes only the footer — never the sheet content, caret, selection, IME,
+scroll position or the editor. Count shows an exact integer; the other
+statistics use the existing global number presentation. Derived aggregate rows
+(inline totals, subtotals, grand totals, tag aggregates, dividers) never
+contribute, and the default **Sum** is byte-for-byte the previous Total. A
+mis-stored or unknown value falls back to Sum.
+
 ## Bottom Total bar
 
 The sheet's bottom Total is a glass bubble in the answer panel. It shows the

@@ -94,6 +94,9 @@ explains why — a blank or corrupt PDF is never produced.
   a margin. The layout reserves that extra footer line.
 - Rows stay intact when they fit; only a single row taller than the page body
   is fragmented safely. Page breaks are deterministic.
+- The footer shows the CURRENT footer statistic (Sum, Average, Count or
+  Median) with its localized label; over a partial range the statistic is
+  computed over the exported rows only. Count prints as an exact integer.
 - The PDF carries the sheet title as its document title and **Numlex** as
   author/creator. Writing is atomic: a failed or cancelled save leaves no
   partial file.

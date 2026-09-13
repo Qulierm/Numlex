@@ -249,6 +249,20 @@ marker is recorded best-effort without touching those files. Closing the window
 before pressing Get Started leaves no marker, so the bloom returns next launch.
 Your Light/Dark/Auto choice and app icon are never changed by any of this.
 
+## Tags, subtotals and statistics
+
+Package 7 adds a plain-text structure on top of the notebook: a trailing `#tag`
+marks a row for `total of #tag` / `average of #tag` / `count of #tag` /
+`median of #tag` aggregates; an exact `---` divider starts a new section;
+`subtotal` (± a percentage, optionally named) sums the section and
+`grand total` sums the successful subtotals. Four new functions join the
+registry — `count`, `median`, `stdev` (sample) and `rand` — alongside the
+natural forms `median of …`, `count of …`, `standard deviation of …` and
+`random number between X and Y`. Random values are stable for the current
+epoch and reroll only on a semantic edit or the explicit ⌘R (Recalculate
+Dynamic Values); they are never tokenizable. Right-click the floating Total to
+switch it between Sum, Average, Count and Median.
+
 ## Files and storage
 
 Sheets persist locally in Application Support. The only network traffic is the
