@@ -349,7 +349,7 @@ rows only, writes are atomic, and the whole path is fully offline. See
 ## Download
 
 - macOS 26 or later, Apple Silicon (arm64).
-- 4.9.0 is the current release. 4.8.0 was the first release with secure in-app
+- 4.9.1 is the current release. 4.8.0 was the first release with secure in-app
   updates, so anyone on 4.8.0 or later (including 4.8.0 itself) can check,
   verify and install later versions in the app; users still on 4.7.0 or earlier
   have no updater and install the current release manually once, then update
