@@ -263,6 +263,12 @@ struct NumlexApp: App {
                     NotificationCenter.default.post(name: .addGrandTotal, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+                Divider()
+                Button(L10n.t("recalculateDynamic",
+                              language: model.settings.language)) {
+                    NotificationCenter.default.post(name: .recalculateDynamic, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: .command)
             }
             // Explicit File-menu ownership: this ONE group owns the
             // standard import/export placement (replacing it, so exactly
@@ -508,4 +514,6 @@ extension Notification.Name {
     /// Package 7: Add Subtotal (⌘T) / Add Grand Total (⌘⇧T).
     static let addSubtotal = Notification.Name("numlex.addSubtotal")
     static let addGrandTotal = Notification.Name("numlex.addGrandTotal")
+    /// Package 7: Recalculate Dynamic Values (⌘R) — a fresh random epoch.
+    static let recalculateDynamic = Notification.Name("numlex.recalculateDynamic")
 }

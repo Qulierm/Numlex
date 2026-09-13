@@ -182,11 +182,15 @@ struct ExprParser {
     /// scalars and booleans and (by construction of the caller) never
     /// money — a money name in a boolean context must fail safely.
     let vars: [String: TypedScalar]
+    /// Package 7: the optional random context for `rand(...)`.
+    let random: RandomEvaluationContext?
     var pos = 0
 
-    init(tokens: [Token], vars: [String: TypedScalar]) {
+    init(tokens: [Token], vars: [String: TypedScalar],
+         random: RandomEvaluationContext? = nil) {
         self.tokens = tokens
         self.vars = vars
+        self.random = random
     }
 
     func peek() -> Token? { pos < tokens.count ? tokens[pos] : nil }
@@ -601,7 +605,7 @@ struct ExprParser {
             let values = try args.map { try evalNumeric($0).value }
             let v: Double
             do {
-                v = try MathFunctions.evaluate(key, args: values)
+                v = try MathFunctions.evaluate(key, args: values, random: random)
             } catch let e as MathFunctions.MathFunctionError {
                 throw ParseError.functionError(e.errorDescription ?? "Invalid function")
             }
@@ -710,7 +714,7 @@ struct ExprParser {
             let values = try args.map { try scalar($0, op: key) }
             let v: Double
             do {
-                v = try MathFunctions.evaluate(key, args: values)
+                v = try MathFunctions.evaluate(key, args: values, random: random)
             } catch let e as MathFunctions.MathFunctionError {
                 throw ParseError.functionError(e.errorDescription ?? "Invalid function")
             }
@@ -833,6 +837,13 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
     try evaluateExpression(expr, variables: variables, context: .legacy)
 }
 
+/// Package 7: the legacy convenience with an explicit random context.
+public func evaluateExpression(_ expr: String, variables: [String: Double],
+                               random: RandomEvaluationContext?) throws -> Double {
+    try evaluateExpression(expr, variables: variables, context: .legacy,
+                           random: random)
+}
+
 /// The numeric entry: parses down to the ADDITIVE level (boolean
 /// operators at the top level stay an unexpected-token failure,
 /// exactly like the pre-r82 behavior for unknown characters) and
@@ -840,7 +851,8 @@ public func evaluateExpression(_ expr: String, variables: [String: Double]) thro
 /// boolean-shaped line fails deterministically (`booleanExpression` or
 /// `unexpectedToken`) — never a coercion to 0/1.
 public func evaluateExpression(_ expr: String, variables: [String: Double],
-                               context: NumberFormatContext) throws -> Double {
+                               context: NumberFormatContext,
+                               random: RandomEvaluationContext? = nil) throws -> Double {
     let trimmed = expr.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty { throw ParseError.emptyExpression }
     // r47: normalize FIRST (idempotent — the line routes normalize
@@ -850,7 +862,7 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
     // The direct API and the line routes therefore always agree.
     let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
     let vars = variables.mapValues { TypedScalar.number($0) }
-    var parser = ExprParser(tokens: tokens, vars: vars)
+    var parser = ExprParser(tokens: tokens, vars: vars, random: random)
     let parsed = try parser.parseExpression()
     if parser.pos < parser.tokens.count {
         throw ParseError.unexpectedToken("\(parser.tokens[parser.pos])")
@@ -870,12 +882,13 @@ public func evaluateExpression(_ expr: String, variables: [String: Double],
 public func evaluateExpressionKinded(
     _ expr: String,
     variables: [String: TypedScalar],
-    context: NumberFormatContext
+    context: NumberFormatContext,
+    random: RandomEvaluationContext? = nil
 ) throws -> (value: Double, kind: NumericKind) {
     let trimmed = expr.trimmingCharacters(in: .whitespaces)
     if trimmed.isEmpty { throw ParseError.emptyExpression }
     let tokens = try tokenize(normalizeExprCorrect(trimmed, context: context), context: context)
-    var parser = ExprParser(tokens: tokens, vars: variables)
+    var parser = ExprParser(tokens: tokens, vars: variables, random: random)
     let parsed = try parser.parseExpression()
     if parser.pos < parser.tokens.count {
         throw ParseError.unexpectedToken("\(parser.tokens[parser.pos])")

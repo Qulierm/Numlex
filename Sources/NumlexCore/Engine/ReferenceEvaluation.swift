@@ -77,14 +77,15 @@ public func resolveSheet(
     context: NumberFormatContext = .legacy,
     unitContext: UnitContext = .builtIns,
     preferences: TemporalPreferences = .defaults,
-    financial: FinancialContext = .defaults
+    financial: FinancialContext = .defaults,
+    random: RandomEvaluationContext? = nil
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
                  constants: constants, weather: weather, geo: geo, context: context,
                  unitContext: unitContext, preferences: preferences,
-                 financial: financial)
+                 financial: financial, random: random)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -106,7 +107,8 @@ public func resolveSheet(
     context: NumberFormatContext = .legacy,
     unitContext: UnitContext = .builtIns,
     preferences: TemporalPreferences = .defaults,
-    financial: FinancialContext = .defaults
+    financial: FinancialContext = .defaults,
+    random: RandomEvaluationContext? = nil
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -161,7 +163,8 @@ public func resolveSheet(
                                     geo: geo,
                                     context: context, unitContext: unitContext,
                                     preferences: preferences,
-                                    financial: financial) {
+                                    financial: financial,
+                                    random: random) {
             return eval
         }
         return .skip
@@ -204,6 +207,14 @@ public func resolveSheet(
             }
             guard let srcIdx = idToIndex[ref.sourceLineID], srcIdx < index else {
                 // Missing source or forward reference: broken, no hang.
+                tokenStates[docPos] = .broken(line: ref.labelLine)
+                quantities.append(nil)
+                anyBroken = true
+                continue
+            }
+            guard !dynamicIndices.contains(srcIdx) else {
+                // Package 7: a dynamic (rand-dependent) source row is
+                // never tokenizable — the reference breaks.
                 tokenStates[docPos] = .broken(line: ref.labelLine)
                 quantities.append(nil)
                 anyBroken = true
@@ -728,6 +739,11 @@ public func resolveSheet(
     // + the grand list) fed by the same top-down pass.
     var aggregate = SheetAggregateState()
     var tagAggregates = TagAggregateState()
+    // Package 7: the explicit random epoch (fresh ephemeral store when
+    // the caller has none) and the dynamic source rows whose results
+    // must never be tokenized.
+    let random = random ?? RandomEvaluationContext(sheetID: nil)
+    var dynamicIndices = Set<Int>()
     var out: [SheetLine] = []
     for i in 0..<lines.count {
         let analysis = SheetLineAnalysis.parse(lines[i])
@@ -750,6 +766,8 @@ public func resolveSheet(
             tagAggregates.boundary()
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
+            random.beginLine(lineIDs.indices.contains(i)
+                             ? lineIDs[i].uuidString : "\(i + 1)")
             if let tagCommand = TagAggregateLane.parse(analysis) {
                 result = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
                 metadata = .tagAggregate
@@ -781,6 +799,10 @@ public func resolveSheet(
             } else {
                 let plainResult = plainLine(work)
                 result = plainResult
+                if lineUsesRandom(work) {
+                    metadata = .dynamic
+                    dynamicIndices.insert(i)
+                }
                 let eligible = SheetAggregateState.contribution(of: plainResult,
                                                                 projection: work)
                 aggregate.observe(result: plainResult, projection: work,

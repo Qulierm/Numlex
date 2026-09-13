@@ -66,6 +66,9 @@ public enum PreviousAnswerPlan {
         )
         for i in stride(from: caretLine - 1, through: 0, by: -1) {
             guard resolved.lines.indices.contains(i) else { continue }
+            // Package 7: a dynamic (rand-dependent) row never enters the
+            // previous-answer chain.
+            guard resolved.lines[i].metadata != .dynamic else { continue }
             guard isAnswerable(resolved.lines[i].result) else { continue }
             let id = lineIDs.indices.contains(i) ? lineIDs[i] : UUID()
             return Plan(sourceLineIndex: i, sourceLineID: id,

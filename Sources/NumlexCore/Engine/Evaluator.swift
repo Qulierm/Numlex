@@ -238,7 +238,8 @@ private func evalAssignment(line: String, env: inout TypedEnv, decimalPlaces: In
 }
 
 private func evalFreeExpression(line: String, variables: [String: TypedScalar], decimalPlaces: Int,
-                                         context: NumberFormatContext = .legacy) -> LineResult? {
+                                         context: NumberFormatContext = .legacy,
+                                         random: RandomEvaluationContext? = nil) -> LineResult? {
     let trimmed = normalizeExprCorrect(line.trimmingCharacters(in: .whitespaces), context: context)
     if trimmed.isEmpty { return nil }
     if trimmed.range(of: #"\d"#, options: .regularExpression) == nil {
@@ -254,7 +255,8 @@ private func evalFreeExpression(line: String, variables: [String: TypedScalar], 
         // r83: kind-aware — a percent mode (`10% + 20%` = 30%) or a
         // multiplier literal (`1.5x`) keeps its semantic kind on the
         // result; the plain projection keeps the legacy value.
-        let (raw, kind) = try evaluateExpressionKinded(trimmed, variables: variables, context: context)
+        let (raw, kind) = try evaluateExpressionKinded(trimmed, variables: variables,
+                                                       context: context, random: random)
         return .number(value: roundResult(raw, decimalPlaces: decimalPlaces),
                        unit: nil, kind: kind, fraction: nil)
     } catch {
@@ -511,7 +513,8 @@ func evalLineTyped(_ line: String,
                    context: NumberFormatContext = .legacy,
                    unitContext: UnitContext = .builtIns,
                    preferences: TemporalPreferences = .defaults,
-                   financial: FinancialContext = .defaults) -> LineResult? {
+                   financial: FinancialContext = .defaults,
+                   random: RandomEvaluationContext? = nil) -> LineResult? {
     // r55: weather detection runs FIRST so `weather in London` can
     // never be misclassified as conversion or prose — but ONLY the
     // strict grammar activates it, the environment is never mutated,
@@ -528,6 +531,12 @@ func evalLineTyped(_ line: String,
     // `Location unavailable` line.
     if let gq = GeoQueryParse.parse(line, context: context) {
         return evalGeoLine(gq, geo: geo, decimalPlaces: decimalPlaces, context: context)
+    }
+    // Package 7: the strict natural statistics forms (median/count/
+    // standard deviation of a list, random number between X and Y).
+    if !BooleanLogic.hasAssignment(line),
+       let stat = StatisticsPhraseLane.tryLine(line, context: context, random: random) {
+        return stat
     }
     // r33: assignment to an ACTIVE global constant is a visible error on
     // EVERY route (single identifier, multiword natural, money RHS,
@@ -867,7 +876,9 @@ func evalLineTyped(_ line: String,
     if BooleanLogic.hasAssignment(line) {
         return evalAssignment(line: line, env: &env, decimalPlaces: decimalPlaces, context: context)
     }
-    return evalFreeExpression(line: line, variables: typedTable(env), decimalPlaces: decimalPlaces, context: context)
+    return evalFreeExpression(line: line, variables: typedTable(env),
+                              decimalPlaces: decimalPlaces, context: context,
+                              random: random)
 }
 
 // MARK: - Backward-compatible public wrappers
@@ -920,11 +931,11 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults, financial: FinancialContext = .defaults) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults, financial: FinancialContext = .defaults, random: RandomEvaluationContext? = nil) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
                   now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
                   geo: geo, context: context, unitContext: unitContext, preferences: preferences,
-                  financial: financial)
+                  financial: financial, random: random)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -938,7 +949,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                           context: NumberFormatContext = .legacy,
                           unitContext: UnitContext = .builtIns,
                           preferences: TemporalPreferences = .defaults,
-                          financial: FinancialContext = .defaults) -> [SheetLine] {
+                          financial: FinancialContext = .defaults,
+                          random: RandomEvaluationContext? = nil) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
@@ -951,6 +963,9 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     // + the grand list) fed top-down.
     var aggregate = SheetAggregateState()
     var tagAggregates = TagAggregateState()
+    // Package 7: an explicit random epoch context (a fresh ephemeral
+    // store when the caller has none).
+    let random = random ?? RandomEvaluationContext(sheetID: nil)
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
@@ -977,6 +992,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             tagAggregates.boundary()
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
+            random.beginLine("\(index + 1)")
             if let tagCommand = TagAggregateLane.parse(analysis) {
                 result = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
                 metadata = .tagAggregate
@@ -1001,8 +1017,10 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                                                geo: geo,
                                                context: context, unitContext: unitContext,
                                                preferences: preferences,
-                                               financial: financial) {
+                                               financial: financial,
+                                               random: random) {
                 result = eval
+                if lineUsesRandom(work) { metadata = .dynamic }
                 let eligible = SheetAggregateState.contribution(of: result,
                                                                 projection: work)
                 aggregate.observe(result: result, projection: work, isDerived: false)

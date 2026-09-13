@@ -57,12 +57,13 @@ public let r47Cases: [EngineCase] = [
     // MARK: 1. Central registry
 
     EngineCase("r47-registry-table") {
-        // r85: int/bin/oct/hex joined the registry (exact base
-        // functions) — the pinned table count moves 19 -> 23.
-        try expectEqual(MathFunctions.knownNames.count, 23, "23 builtins")
+        // Package 7: count/median/stdev/rand joined the registry — the
+        // pinned table count moves 23 -> 27.
+        try expectEqual(MathFunctions.knownNames.count, 27, "27 builtins")
         for name in ["sqrt", "abs", "round", "min", "max", "sum", "average",
                      "pow", "ln", "log", "log10", "sin", "cos", "tan",
-                     "asin", "acos", "atan", "radians", "degrees"] {
+                     "asin", "acos", "atan", "radians", "degrees",
+                     "count", "median", "stdev", "rand"] {
             try expect(MathFunctions.isKnown(name), "known: \(name)")
         }
         try expect(!MathFunctions.isKnown("sqr"), "sqr unknown")

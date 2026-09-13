@@ -55,6 +55,11 @@ public enum MathFunctions {
         ("bin", 1, 1),
         ("oct", 1, 1),
         ("hex", 1, 1),
+        // Package 7: statistics + random.
+        ("count", 1, .max),
+        ("median", 1, .max),
+        ("stdev", 2, .max),
+        ("rand", 2, 2),
     ]
 
     /// Every known builtin name (lowercased). Membership is the shared
@@ -132,6 +137,14 @@ public enum MathFunctions {
     ///   `atan`: any finite. `radians(d)`: d * pi/180.
     ///   `degrees(r)`: r * 180/pi.
     public static func evaluate(_ name: String, args: [Double]) throws -> Double {
+        try evaluate(name, args: args, random: nil)
+    }
+
+    /// Package 7: the registry evaluation with an optional random
+    /// context. `rand` requires the context (the sheet loops own the
+    /// per-epoch sample store); every other function ignores it.
+    public static func evaluate(_ name: String, args: [Double],
+                                random: RandomEvaluationContext?) throws -> Double {
         let key = name.lowercased()
         guard let (min, max) = arity(key) else {
             // Unreachable through the parser (unknown names fail at
@@ -145,6 +158,30 @@ public enum MathFunctions {
             throw MathFunctionError.nonFinite(name: key)
         }
         switch key {
+        case "count":
+            return StatisticsFunctions.count(args)
+        case "median":
+            guard let m = StatisticsFunctions.median(args) else {
+                throw MathFunctionError.domain(name: key, detail: "needs at least one value")
+            }
+            return m
+        case "stdev":
+            guard let sd = StatisticsFunctions.stdev(args) else {
+                throw MathFunctionError.nonFinite(name: key)
+            }
+            guard sd.isFinite else { throw MathFunctionError.nonFinite(name: key) }
+            return sd
+        case "rand":
+            guard let random else {
+                throw MathFunctionError.domain(name: key,
+                                               detail: "no random context")
+            }
+            guard let (low, high) = StatisticsFunctions.randBounds(args[0], args[1]) else {
+                throw MathFunctionError.domain(
+                    name: key,
+                    detail: "bounds must be integers in ±2^53 with low <= high")
+            }
+            return Double(random.nextSample(low: low, high: high))
         case "sqrt":
             let x = args[0]
             guard x >= 0 else { throw MathFunctionError.domain(name: key, detail: "argument must be >= 0") }

@@ -256,7 +256,8 @@ struct ContentView: View {
             financial: model.financialContext,
             presentation: settings.presentation,
             language: settings.language,
-            styling: settings.styling)
+            styling: settings.styling,
+            random: model.currentRandomContext)
         exportOptions = exportOptions.clamped(toLineCount: context.lineCount)
         exportPresentation = ExportPresentation(
             mode: mode,
@@ -406,7 +407,8 @@ struct ContentView: View {
                         context: model.numberContext,
                         unitContext: model.unitContext,
                         preferences: settings.temporal,
-                        financial: model.financialContext
+                        financial: model.financialContext,
+                        random: model.currentRandomContext
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's
@@ -455,7 +457,8 @@ struct ContentView: View {
                         context: model.numberContext,
                         unitContext: model.unitContext,
                         preferences: settings.temporal,
-                        financial: model.financialContext
+                        financial: model.financialContext,
+                        random: model.currentRandomContext
                     ).lines
                 }()
                 // r77b: per-line result state for the answer-appearance
@@ -603,7 +606,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .printSheet)) { _ in
             presentExport(.print)
         }
-        .modifier(SubtotalCommandReceiver(handler: handleAddSubtotal))
+        .modifier(SubtotalCommandReceiver(handler: handleAddSubtotal,
+                                          onRecalculate: { model.recalculateDynamicValues() }))
         .sheet(item: $exportPresentation) { presentation in
             ExportDialogView(
                 mode: presentation.mode,
@@ -929,6 +933,7 @@ private func applyNoSeparatorChrome(to window: NSWindow) {    // The horizontal 
 /// extracting them keeps the main body inside the type-checker budget.
 private struct SubtotalCommandReceiver: ViewModifier {
     let handler: (Bool) -> Void
+    let onRecalculate: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -937,6 +942,9 @@ private struct SubtotalCommandReceiver: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .addGrandTotal)) { _ in
                 handler(true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .recalculateDynamic)) { _ in
+                onRecalculate()
             }
     }
 }

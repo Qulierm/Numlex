@@ -14,7 +14,13 @@ final class AppModel {
     var selectedIndex: Int = 0 {
         // r77: a sheet switch re-seeds the answer appearance state so
         // the new sheet's rows never replay insertion animations.
-        didSet { noteAnswerActivity() }
+        // Package 7: sheet activation also starts a documented new
+        // random epoch.
+        didSet {
+            noteAnswerActivity()
+            if let id = selectedSheet?.id { randomStores[id]?.clear() }
+            dynamicEpoch &+= 1
+        }
     }
     var settings: AppSettings = .defaults
     /// r39: one-level sidebar folders (array order = sidebar order).
@@ -44,6 +50,47 @@ final class AppModel {
     }
     var rates: Rates = Rates()
     var isRatesLoaded = false
+
+    /// Package 7: the EPHEMERAL per-sheet random sample stores (never
+    /// persisted, never in the store or `.nlx`) and an observable epoch
+    /// counter that forces a re-evaluation when samples are discarded.
+    @ObservationIgnored private var randomStores: [UUID: RandomSampleStore] = [:]
+    private(set) var dynamicEpoch = 0
+
+    /// The current random evaluation context (reads `dynamicEpoch`, so
+    /// SwiftUI re-evaluates after Recalculate; the store guarantees
+    /// stability across duplicated resolves, scrolling, hover and
+    /// format-only changes).
+    var currentRandomContext: RandomEvaluationContext {
+        _ = dynamicEpoch
+        return randomContext(for: selectedSheet?.id)
+    }
+
+    private func randomContext(for sheetID: UUID?) -> RandomEvaluationContext {
+        guard let sheetID else {
+            return RandomEvaluationContext(sheetID: nil)
+        }
+        let store = randomStores[sheetID] ?? RandomSampleStore()
+        randomStores[sheetID] = store
+        return RandomEvaluationContext(sheetID: sheetID, store: store)
+    }
+
+    /// Discards the selected sheet's samples: the next evaluation draws
+    /// a fresh semantic epoch (the explicit Recalculate command).
+    func recalculateDynamicValues() {
+        if let id = selectedSheet?.id {
+            randomStores[id]?.clear()
+        }
+        dynamicEpoch &+= 1
+    }
+
+    /// A semantic content edit starts a new random epoch.
+    private func beginNewDynamicEpoch() {
+        if let id = selectedSheet?.id {
+            randomStores[id]?.clear()
+        }
+        dynamicEpoch &+= 1
+    }
 
     /// The app's ONE updater integration (Sparkle 2.9.6), created on first
     /// main-actor access. Disabled gracefully when the packaged metadata is
@@ -472,6 +519,7 @@ final class AppModel {
         // (r33: a first calculation may USE a global constant).
         sheets[selectedIndex] = Sheet.retitled(sheet, content: content,
                                                constants: settings.customConstants)
+        beginNewDynamicEpoch()
         persist()
         noteAnswerActivity()
     }
@@ -662,6 +710,7 @@ final class AppModel {
         s.modifiedAt = Date()
         sheets[selectedIndex] = Sheet.retitled(s, content: plan.content,
                                                constants: settings.customConstants)
+        beginNewDynamicEpoch()
         persist()
         focusSheetID = s.id
         focusCaret = plan.caret
@@ -726,6 +775,7 @@ final class AppModel {
         s.modifiedAt = Date()
         sheets[selectedIndex] = Sheet.retitled(s, content: s.content,
                                                constants: settings.customConstants)
+        beginNewDynamicEpoch()
         persist()
         focusSheetID = s.id
         focusCaret = plan.caret
@@ -825,6 +875,7 @@ final class AppModel {
         s.modifiedAt = Date()
         sheets[selectedIndex] = Sheet.retitled(s, content: s.content,
                                                constants: settings.customConstants)
+        beginNewDynamicEpoch()
         persist()
         focusSheetID = s.id
         focusCaret = applied.caret

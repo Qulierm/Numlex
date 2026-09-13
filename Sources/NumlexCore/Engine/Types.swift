@@ -405,11 +405,13 @@ public enum SheetLineMetadata: Equatable, Sendable {
     /// A row whose executed result depends on `rand` (dynamic).
     case dynamic
 
-    /// Derived rows never contribute to aggregates or the footer.
+    /// AGGREGATE-EXCLUDED derived rows (dynamic rows are NOT excluded
+    /// from totals — their epoch value is a normal scalar; they are only
+    /// banned from tokenization and previous-answer planning).
     public var isDerived: Bool {
         switch self {
-        case .ordinary: return false
-        case .legacyTotal, .subtotal, .grandTotal, .tagAggregate, .divider, .dynamic:
+        case .ordinary, .dynamic: return false
+        case .legacyTotal, .subtotal, .grandTotal, .tagAggregate, .divider:
             return true
         }
     }

@@ -435,6 +435,113 @@ public let package7Cases: [EngineCase] = [
         _ = vars
     },
 
+
+    EngineCase("p7-math-functions-count-median-stdev-rand") {
+        try expectEqual(try evaluateExpression("count(1, 2, 3)", variables: [:]), 3)
+        try expectEqual(try evaluateExpression("median(1, 2, 3)", variables: [:]), 2)
+        try expectEqual(try evaluateExpression("median(1, 2, 3, 4)", variables: [:]), 2.5)
+        // Sample (n-1) standard deviation of the classic dataset.
+        let sd = try evaluateExpression("stdev(2, 4, 4, 4, 5, 5, 7, 9)", variables: [:])
+        try expectClose(sd, 2.138089935299395, 1e-9)
+        // Arity + domain strictness.
+        for bad in ["stdev(1)", "median()", "count()", "rand(1)", "rand(5, 1)"] {
+            do {
+                _ = try evaluateExpression(bad, variables: [:])
+                throw CaseFailure(message: "\(bad) must fail", location: "p7")
+            } catch is CaseFailure {
+                throw CaseFailure(message: "\(bad) must fail", location: "p7")
+            } catch {
+            }
+        }
+        // rand without a context is a strict domain failure.
+        do {
+            _ = try evaluateExpression("rand(1, 6)", variables: [:])
+            throw CaseFailure(message: "rand needs entropy", location: "p7")
+        } catch is CaseFailure {
+            throw CaseFailure(message: "rand needs entropy", location: "p7")
+        } catch {
+        }
+        // With a context the bounds are inclusive and unbiased-int.
+        let ctx = RandomEvaluationContext(sheetID: UUID(),
+                                          draw: { low, high in high })
+        let drawn = try evaluateExpression("rand(1, 6)", variables: [:], random: ctx)
+        try expectEqual(drawn, 6)
+        let nested = try evaluateExpression("10 + rand(1, 6)", variables: [:], random: ctx)
+        try expectEqual(nested, 16)
+    },
+
+    EngineCase("p7-statistics-natural-forms") {
+        try expectEqual(p7number(p7rows("median of 1, 2, 3")[0]), 2)
+        try expectEqual(p7number(p7rows("count of 1, 2, 3, 4")[0]), 4)
+        let rows = p7rows("standard deviation of 2, 4, 4, 4, 5, 5, 7, 9")
+        try expectClose(p7number(rows[0]) ?? .nan, 2.138089935299395, 1e-9)
+        let randomRows = p7rows("random number between 1 and 6")
+        try expectEqual(randomRows[0].metadata, .dynamic, "random phrase is dynamic")
+        // Decimal-comma lists use the semicolon separator.
+        let de = NumberFormatContext(locale: Locale(identifier: "de_DE"),
+                                     decimalSeparator: ",",
+                                     groupingSeparator: ".",
+                                     argumentSeparator: ";",
+                                     displayGrouping: true,
+                                     compactNotation: false,
+                                     convertForeignOnPaste: false)
+        var vars: [String: Double] = [:]
+        let deRows = evaluateSheet("median of 1,5; 2,5; 3,5", variables: &vars,
+                                   rates: Rates(), decimalPlaces: 7,
+                                   context: de)
+        try expectEqual(p7number(deRows[0]), 2.5, "decimal-comma median")
+    },
+
+    EngineCase("p7-rand-epoch-stability-and-dynamic-ban") {
+        final class Counter: @unchecked Sendable { var n = 0 }
+        let counter = Counter()
+        let store = RandomSampleStore()
+        let sheetID = UUID()
+        let context = RandomEvaluationContext(
+            sheetID: sheetID, store: store,
+            draw: { low, high in
+                counter.n += 1
+                return low
+            })
+        let ids = (0..<3).map { _ in UUID() }
+        let content = "rand(1, 100)\n\u{FFFC}"
+        let markerAt = ("rand(1, 100)\n" as NSString).length
+        let refs = [AnswerReference(sourceLineID: ids[0], labelLine: 1,
+                                    location: markerAt)]
+        let first = resolveSheet(content: content, lineIDs: ids, references: refs,
+                                 rates: Rates(), decimalPlaces: 7,
+                                 random: context)
+        try expectEqual(first.lines[0].metadata, .dynamic, "dynamic metadata")
+        try expectEqual(p7number(first.lines[0]), 1, "drawn value")
+        // A duplicated pass with the SAME store sees the same sample and
+        // does not redraw.
+        let second = resolveSheet(content: content, lineIDs: ids, references: refs,
+                                  rates: Rates(), decimalPlaces: 7,
+                                  random: RandomEvaluationContext(
+                                      sheetID: sheetID, store: store,
+                                      draw: { low, high in
+                                          counter.n += 1
+                                          return high
+                                      }))
+        try expectEqual(p7number(second.lines[0]), 1, "stable across passes")
+        try expectEqual(counter.n, 1, "one draw per epoch")
+        // A token referencing the dynamic row is broken.
+        try expectEqual(second.tokens.count, 1, "token present")
+        if case .broken = second.tokens[0].state {
+        } else {
+            throw CaseFailure(message: "dynamic token broken", location: "p7")
+        }
+        // Clearing the store starts a new epoch (a fresh draw).
+        store.clear()
+        let third = resolveSheet(content: content, lineIDs: ids, references: refs,
+                                 rates: Rates(), decimalPlaces: 7,
+                                 random: context)
+        // The injected provider deterministically returns `low`, so a
+        // fresh draw is proven by the counter, not by a different value.
+        try expectEqual(p7number(third.lines[0]), 1, "fresh draw")
+        try expectEqual(counter.n, 2, "one new draw after clear")
+    },
+
     EngineCase("p7-classifier-tag-and-divider-spans") {
         let spans = SyntaxClassifier.spans(for: "2 + 3 #math #cash\n---\n# Head",
                                            rates: Rates(), decimalPlaces: 7)

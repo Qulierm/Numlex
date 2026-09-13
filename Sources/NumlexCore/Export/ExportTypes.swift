@@ -111,6 +111,9 @@ public struct ExportPresentationContext {
     /// presentation — document construction never re-reads live
     /// settings after this point.
     public let styling: StylingPreferences
+    /// Package 7: the frozen random epoch (a rand row keeps the sample
+    /// it showed at presentation).
+    public let random: RandomEvaluationContext?
 
     public init(sheetID: UUID,
                 sheetTitle: String,
@@ -132,7 +135,8 @@ public struct ExportPresentationContext {
                 financial: FinancialContext,
                 presentation: NumberPresentationPreferences,
                 language: AppLanguage,
-                styling: StylingPreferences = .defaults) {
+                styling: StylingPreferences = .defaults,
+                random: RandomEvaluationContext? = nil) {
         self.sheetID = sheetID
         self.sheetTitle = sheetTitle
         self.content = content
@@ -154,6 +158,7 @@ public struct ExportPresentationContext {
         self.presentation = presentation
         self.language = language
         self.styling = styling
+        self.random = random
     }
 
     /// Logical source lines (the evaluator's exact split).
