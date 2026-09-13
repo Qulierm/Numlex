@@ -122,6 +122,10 @@ domain failure is a precise error, never a guess.
 - `ln(x)`, `log(x)` (base 10), `log(x, b)`, `log10(x)`
 - `sin`, `cos`, `tan` — radians; `asin`, `acos`, `atan`
 - `radians(d)` and `degrees(r)` — explicit unit helpers
+- `int(x)`, `bin(x)`, `oct(x)`, `hex(x)` — exact integer projection with its own
+  presentation radix (`hex(255)` → `0xFF`)
+- `count`, `median`, `stdev` (sample, n−1) — variadic statistics
+- `rand(lo, hi)` — a uniform random integer in the inclusive range (dynamic per epoch)
 
 Inside argument lists a comma separates arguments; a comma directly before exactly
 three digits is still a thousand separator, so `sum(1, 234)` is two arguments while
@@ -149,9 +153,10 @@ contract: it adds the evaluated magnitude of every ordinary scalar answer row
 once — unitless numbers, unit-bearing quantities (`2 kg`), money (`$3`),
 named scalars and exact integers — and shows one plain unitless number with no
 unit conversion, no FX normalization and no unit or currency suffix
-(`2 kg`, `$3` and `4 EUR` total `9`). Inline `total` rows are excluded so the
-two totals never double-count, and booleans, dates, locations/DMS, error and
-blank rows do not contribute. Per-answer rounding and number-format overrides
+(`2 kg`, `$3` and `4 EUR` total `9`). Derived aggregate rows (inline `total`,
+`subtotal`, `grand total` and tag aggregates) are excluded so the totals never
+double-count, and booleans, dates, locations/DMS, error and blank rows do not
+contribute. Per-answer rounding and number-format overrides
 never change the bottom Total; it follows the global notation and regional
 settings.
 
@@ -173,6 +178,59 @@ permission — only the city you typed is ever sent. Readings are cached for ten
 minutes, and the last good value keeps showing if the next refresh fails, so a
 flaky connection never blanks your sheet. The city name is tinted exactly like
 any other unit, in Light, Dark and custom styling alike.
+
+## Dates and times
+
+The temporal subsystem on current `main` (released builds may lag 4.8.2 here)
+turns the notebook into a small time-aware calculator: calendar arithmetic,
+clock math, timezones, timestamps, durations, timecode, work calendars and
+special dates all read as ordinary lines.
+
+```text
+May 5, 2026 + 30 days        Jun 4, 2026
+3:30pm + 2 hours 15 minutes  5:45 pm
+2am PST to GMT               10:00 am
+April 1, 2019 3:30pm as iso8601  2019-04-01T15:30:00+02:00
+5.5 minutes as timespan      5 min 30 s
+03:10:20:05 at 30 fps + 50 frames  03:10:21:25
+workdays from April 12 to June 15  44 workdays
+days until Christmas          344 days
+```
+
+Timezone conversion (`time in Paris`, `6pm Sydney in Chicago`) runs on a
+bundled, hash-verified offline catalog; work calendars use 25-country public
+holiday data for 2019–2035 and can be configured under Settings → Dates & Times
+(hours per workday, holiday region, custom timezone aliases). Unsupported
+regions, years or invalid dates fail closed with an exact error rather than
+guessing; time, timestamp and timecode rows are excluded from totals and are
+not tokenizable. See the [canonical syntax reference](docs/SYNTAX_REFERENCE.md)
+for the strict forms and every lane.
+
+## Money and finance
+
+Finance phrases on current `main` build on the same money grammar and strict
+lane discipline:
+
+```text
+$1,000 after 3 years at 7%                      $1,225.04
+$1,000 for 3 years at 7% compounding monthly    $1,232.93
+monthly repayment on $10,000 over 6 years at 6%  $165.73
+annual return on $1,000 invested $2,500 returned after 7 years  13.99%
+$300 + VAT                                      $345.00
+income tax on $75,000 in US                     $8,114.00
+what is $1,000 from 1990                        $2,537.53
+```
+
+Compound interest, present value, ROI and CAGR, loan/mortgage payments and
+interest, sales tax/VAT/GST, estimated 2026 income tax for 10 countries and BLS
+CPI-U inflation (1913–2025 plus a provisional 2026 point and an explicit-rate
+future form) all resolve offline from versioned, hash-verified catalogs. Sales
+tax uses the region preset you configure under Settings → General → Tax (with a
+documented unset-versus-zero distinction); income tax is a coarse national
+estimate with per-country provenance and fail-closed rules, not tax advice, and
+inflation answers are deterministic for the bundled data snapshot. Missing
+rates stay the explicit `Rates unavailable` state. See the
+[canonical syntax reference](docs/SYNTAX_REFERENCE.md).
 
 ## Answer tokens
 
@@ -212,10 +270,13 @@ reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. De
 `Sales Tax = 20%`, `Side = sqrt(4)`) that are available in every sheet and resolved
 live through the same strict engine — function arguments included.
 See [docs/SETTINGS_AND_APPEARANCE.md](docs/SETTINGS_AND_APPEARANCE.md) for the full
-settings reference: icon-over-label tiles across the top of the window (General,
-Editing, Numbers, Constants & Units, Styling, About) with one focused page each —
-language, appearance and the application icon live together in General, and
-About carries the app identity plus the update controls.
+settings reference: **seven** icon-over-label tiles across the top of the window
+(General, Editing, Numbers, Dates & Times, Constants & Units, Styling, About)
+with one focused page each — language, appearance, the application icon and the
+sales-tax configuration live together in General, Dates & Times owns the work
+calendar and custom timezone aliases, and About carries the app identity plus the
+update controls. The floating Total's statistic (Sum, Average, Count or Median)
+is a native checked context menu, persisted app-globally and never part of `.nlx`.
 
 ## First launch
 
@@ -268,9 +329,22 @@ switch it between Sum, Average, Count and Median.
 Sheets persist locally in Application Support. The only network traffic is the
 background rates refresh plus Open-Meteo lookups for `weather in …` lines you
 type yourself — never GPS or location data. From the File menu, import or export
-any sheet as a `.nlx` file, export it as a PDF, or print it (⌘P) — export and
-print are offline and never touch the live editor. Drag a sheet onto a folder
-tab to re-file it. See [docs/EXPORT_AND_PRINT.md](docs/EXPORT_AND_PRINT.md).
+any sheet as a `.nlx` file, export it as a PDF, or print it (⌘P). Drag a sheet
+onto a folder tab to re-file it.
+
+## PDF export and printing
+
+The File menu owns exactly four sheet commands: **Import Sheet…** (⌘I),
+**Export Sheet (.nlx)…** (⌘E), **Export Sheet as PDF…** and **Print…** (⌘P).
+PDF export and printing open one options sheet — font family, face and size,
+syntax highlighting, original line numbers, footer Total, comment/`#`-marker
+filters and an inclusive line range — and every option is session-only and
+clamped to the selected sheet. Both draw one immutable resolved snapshot through
+one deterministic paginated renderer: the live editor, caret, selection,
+highlights and tokens are never touched, answer tokens keep their real capsule
+labels, the exported footer uses the current footer statistic over the exported
+rows only, writes are atomic, and the whole path is fully offline. See
+[docs/EXPORT_AND_PRINT.md](docs/EXPORT_AND_PRINT.md) for the complete contract.
 
 ## Download
 
@@ -313,7 +387,7 @@ swift build               # debug
 swift build -c release    # release
 ```
 
-The engine suite covers 1,248 shared cases, runnable two ways:
+The engine suite covers 1,305 shared cases, runnable two ways:
 
 ```sh
 swift test                # Swift Testing suite (full Xcode toolchain)

@@ -83,7 +83,8 @@ over, so the settled scene carries no animation state at all — and the only
 view-level animations left are the three that need identity: the icon, the
 slogan and the button.
 
-The choreography is one deterministic one-shot sequence of roughly two seconds:
+The choreography is one deterministic one-shot sequence of roughly two and a
+half seconds:
 the icon fades in, the rows stream in with a per-row and per-token stagger, the
 result runs brighten once, the rows gather into the icon in two tight batches,
 and the icon answers with a **monochrome silver splash** — fourteen fine radial
