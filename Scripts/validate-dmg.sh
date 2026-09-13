@@ -283,25 +283,52 @@ for f in "$ROOT"/Assets/AppIcon.exported.iconset/*.png; do
 done
 (( prov_ok )) && ok "all 10 packaged icon slots byte-exact vs raw exports"
 [[ -e "$ROOT/Scripts/strip-icon-rim.py" ]] && { bad "strip-icon-rim.py still present"; prov_ok=0; } || ok "no strip-icon-rim.py in repo"
+# Canonical supplied ICNS: byte-identical at the source, the installed
+# resource and inside the mounted app (Assets/README.md +
+# Scripts/generate-app-icon.sh make byte preservation the invariant).
+ICNS_SRC="$ROOT/Assets/AppIcon.icns"
+ICNS_INSTALLED="$ROOT/Sources/NumlexApp/Resources/AppIcon.icns"
+ICNS_PACKAGED="$MNT/Numlex.app/Contents/Resources/AppIcon.icns"
+if cmp -s "$ICNS_SRC" "$ICNS_INSTALLED" && cmp -s "$ICNS_SRC" "$ICNS_PACKAGED"; then
+  ok "AppIcon.icns byte-exact: supplied source == installed == packaged"
+else
+  bad "AppIcon.icns byte identity broken (source/installed/packaged)"; prov_ok=0
+fi
+# Modern Liquid Glass catalog: the packaged Assets.car must be the committed
+# compiled catalog (dual named iconstacks, 32..1024 rendition ladder).
+CAR_SRC="$ROOT/Assets/AppIcon.compiled/Assets.car"
+CAR_PACKAGED="$MNT/Numlex.app/Contents/Resources/Assets.car"
+if [[ -f "$CAR_SRC" && -f "$CAR_PACKAGED" ]] \
+   && cmp -s "$CAR_SRC" "$CAR_PACKAGED" \
+   && [[ "$(shasum -a 256 "$CAR_PACKAGED" | cut -d' ' -f1)" == "be00c077a667c61da549c125efdde6e3d8448bb6bcf7b0f593777d6c6737ed1d" ]]; then
+  ok "packaged Assets.car byte-exact vs compiled catalog (be00c077…)"
+else
+  bad "packaged Assets.car differs from the compiled catalog"; prov_ok=0
+fi
 UPD="$(mktemp -d /tmp/numlex-iconcheck.XXXXXX)"
-iconutil -c iconset "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" -o "$UPD/c.iconset" 2>/dev/null \
-  || { bad "AppIcon.icns cannot be unpacked"; prov_ok=0; }
+iconutil -c iconset "$ICNS_PACKAGED" -o "$UPD/c.iconset" 2>/dev/null \
+  || { bad "packaged AppIcon.icns cannot be unpacked"; prov_ok=0; }
 if [[ -d "$UPD/c.iconset" ]]; then
-  python3 - "$UPD/c.iconset" "$ROOT/Assets/AppIcon.exported.iconset" <<'PY' 2>&1 | grep -q "^ICNS-RAW-OK" \
-    || { echo "FAIL: ICNS large reps differ from raw exports"; exit 1; }
-import sys
+  # The supplied fallback ICNS intentionally carries native 32/256/512 reps
+  # (the full ladder lives in Assets.car); generate-app-icon.sh enforces the
+  # same minimum, so the packaged file must satisfy it too.
+  rep_check="$(python3 - "$UPD/c.iconset" <<'PYX' 2>&1
+import os, sys
 from PIL import Image
-up, raw = sys.argv[1], sys.argv[2]
-for name in ["icon_512x512@2x.png", "icon_512x512.png", "icon_256x256@2x.png"]:
-    a = Image.open(f"{up}/{name}").convert("RGBA")
-    b = Image.open(f"{raw}/{name}").convert("RGBA")
-    assert a.size == b.size, name
-    da, db = a.load(), b.load()
-    nd = sum(1 for y in range(a.size[1]) for x in range(a.size[0]) if da[x,y] != db[x,y])
-    assert nd == 0, f"{name}: {nd} differing pixels"
-print("ICNS-RAW-OK")
-PY
-  if [[ "${PIPESTATUS[1]}" == "0" ]]; then ok "ICNS large reps pixel-identical to raw exports"; else bad "ICNS large reps differ from raw exports"; fi
+up = sys.argv[1]
+want = {(32, 32), (256, 256), (512, 512)}
+seen = set()
+for name in sorted(os.listdir(up)):
+    with Image.open(os.path.join(up, name)) as im:
+        seen.add(im.size)
+print("ICNS-REPS-OK" if want <= seen else f"missing reps: {sorted(want - seen)}")
+PYX
+)"
+  if [[ "$rep_check" == "ICNS-REPS-OK" ]]; then
+    ok "packaged ICNS unpacks with native 32/256/512 reps"
+  else
+    bad "packaged ICNS lacks native 32/256/512 reps ($rep_check)"; prov_ok=0
+  fi
 fi
 rm -rf "$UPD"
 
