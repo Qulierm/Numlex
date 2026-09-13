@@ -3,6 +3,12 @@ import NumlexCore
 
 // MARK: - Package 7: shared sheet-line grammar (tags, dividers, headings)
 
+private func p7number(_ line: SheetLine) -> Double? {
+    if case .number(let v, _, _, _) = line.result { return v }
+    if case .integer(let v, _) = line.result { return Double(v) }
+    return nil
+}
+
 private func p7rows(_ source: String) -> [SheetLine] {
     var vars: [String: Double] = [:]
     return evaluateSheet(source, variables: &vars, rates: Rates(), decimalPlaces: 7)
@@ -100,6 +106,151 @@ public let package7Cases: [EngineCase] = [
         // Divider spans for styling.
         try expectEqual(SheetLineAnalysis.parse("  ---  ").dividerSpan,
                         NSRange(location: 2, length: 3))
+    },
+
+
+    EngineCase("p7-subtotal-forms-and-percent") {
+        let rows = p7rows("10\n20\nsubtotal\n30\nsubtotal")
+        try expectEqual(rows[2].metadata, .subtotal, "subtotal metadata")
+        try expect(rows[2].isTotal, "derived presentation")
+        try expectEqual(p7number(rows[2]), 30, "section sum")
+        try expectEqual(p7number(rows[4]), 30, "second section sum")
+        // Percent forms apply to the RAW subtotal.
+        try expectEqual(p7number(p7rows("100\nsubtotal + 15%")[1]), 115)
+        try expectEqual(p7number(p7rows("100\nsubtotal - 10%")[1]), 90)
+        // Outer whitespace and case tolerance.
+        try expectEqual(p7number(p7rows("100\n  SUBTOTAL + 15%  ")[1]), 115)
+        // Empty subtotal is 0.
+        try expectEqual(p7number(p7rows("subtotal")[0]), 0)
+        // Near-misses stay ordinary rows.
+        for bad in ["subtotal + 5", "subtotal +", "subtotal extra", "subtotal + abc%"] {
+            try expectEqual(p7rows("5\n\(bad)")[1].metadata, .ordinary,
+                            "\(bad) is not a subtotal")
+        }
+    },
+
+    EngineCase("p7-subtotal-boundaries") {
+        // A `# ` heading and an exact `---` divider both reset.
+        try expectEqual(p7number(p7rows("10\n# h\n20\nsubtotal")[3]), 20,
+                        "heading boundary")
+        try expectEqual(p7number(p7rows("10\n---\n20\nsubtotal")[3]), 20,
+                        "divider boundary")
+        // A legacy total is NOT a subtotal boundary (its own row is
+        // excluded as derived).
+        try expectEqual(p7number(p7rows("10\ntotal\n20\nsubtotal")[3]), 30,
+                        "legacy total excluded, not a boundary")
+        // A subtotal resets only ITS accumulator: the legacy total
+        // still spans its own boundary (legacy total row excluded).
+        try expectEqual(p7number(p7rows("10\nsubtotal\n20\ntotal")[3]), 30,
+                        "legacy section spans the subtotal row")
+    },
+
+    EngineCase("p7-subtotal-eligibility-is-source-aware") {
+        // Declarations excluded; usage rows, percent/fraction/multiplier,
+        // exact integers and token-in-expression included; money, units,
+        // booleans and errors excluded.
+        let content = "x = 5\nx + 5\n$7\n3 kg\ntrue\n50%\n1/4\n0xFF\n2 + 3\nsubtotal"
+        let rows = p7rows(content)
+        // 10 (usage) + 0.5 + 0.25 + 255 + 5 = 270.75
+        try expectEqual(p7number(rows[9]), 270.75, "eligibility set")
+        // A bare-token-only row is excluded in resolveSheet.
+        let ids = (0..<4).map { _ in UUID() }
+        let markerAt = ("10\nsubtotal\n" as NSString).length
+        let refs = [AnswerReference(sourceLineID: ids[1], labelLine: 2,
+                                    location: markerAt)]
+        let resolved = resolveSheet(content: "10\nsubtotal\n\u{FFFC}\nsubtotal",
+                                    lineIDs: ids, references: refs,
+                                    rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(resolved.lines[1]), 10, "first subtotal")
+        try expectEqual(p7number(resolved.lines[3]), 0, "bare token excluded")
+        // A token INSIDE a genuine expression is eligible.
+        let markerAt2 = ("5\nsubtotal\n" as NSString).length
+        let refs2 = [AnswerReference(sourceLineID: ids[1], labelLine: 2,
+                                     location: markerAt2)]
+        let inExpr = resolveSheet(content: "5\nsubtotal\n\u{FFFC} + 1\nsubtotal",
+                                  lineIDs: Array(ids.prefix(4)), references: refs2,
+                                  rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(inExpr.lines[2]), 6, "token expression value")
+        try expectEqual(p7number(inExpr.lines[3]), 6, "token-in-expression counts")
+    },
+
+    EngineCase("p7-named-subtotal-and-shadowing") {
+        let rows = p7rows("10\n20\nsum = subtotal")
+        try expectEqual(rows[2].metadata, .subtotal, "named subtotal metadata")
+        try expectEqual(p7number(rows[2]), 30, "named subtotal value")
+        // The name is written to the environment as a plain scalar.
+        let use = p7rows("10\n20\nsum = subtotal\nsum + 1")
+        try expectEqual(p7number(use[3]), 31, "named value usable")
+        // Percentage on the named form.
+        try expectEqual(p7number(p7rows("100\nsum = subtotal + 15%")[1]), 115)
+        // Constants are never mutated.
+        let fee = UserConstant(name: "fee", expression: "5")
+        var vars: [String: Double] = [:]
+        let constantRows = evaluateSheet("10\nfee = subtotal", variables: &vars,
+                                         rates: Rates(), decimalPlaces: 7,
+                                         constants: [fee])
+        if case .error(let msg) = constantRows[1].result {
+            try expectEqual(msg, "Cannot assign to constant", "constant guarded")
+        } else {
+            throw CaseFailure(message: "constant assignment errors", location: "p7")
+        }
+        // An ACTIVE variable named `subtotal` suppresses the bare command
+        // but not the named form.
+        let shadow = p7rows("subtotal = 5\nsubtotal\nx = subtotal")
+        try expectEqual(shadow[0].result, .variable(name: "subtotal", value: 5,
+                                                    kind: .plain, fraction: nil),
+                        "assignment wins")
+        try expectEqual(shadow[1].metadata, .ordinary, "bare usage suppressed")
+        try expectEqual(p7number(shadow[1]), 5, "bare usage value")
+        try expectEqual(shadow[2].metadata, .subtotal, "named form still a command")
+        try expectEqual(p7number(shadow[2]), 5, "named subtotal of the section")
+    },
+
+    EngineCase("p7-grand-total-semantics") {
+        try expectEqual(p7number(p7rows("10\nsubtotal\n20\nsubtotal\ngrand total")[4]),
+                        30, "grand sums successful subtotals")
+        // Fewer than two subtotals: quiet generic error.
+        let one = p7rows("10\nsubtotal\ngrand total")
+        if case .error(let msg) = one[2].result {
+            try expectEqual(msg, InlineTotal.overflowMessage, "quiet generic error")
+        } else {
+            throw CaseFailure(message: "one subtotal errors", location: "p7")
+        }
+        // A divider does not erase the grand list.
+        try expectEqual(p7number(p7rows("10\nsubtotal\n---\n20\nsubtotal\ngrand total")[5]),
+                        30, "divider keeps the grand list")
+        // Named grand total writes the value.
+        let named = p7rows("10\nsubtotal\n20\nsubtotal\ng = grand total\ng + 1")
+        try expectEqual(named[4].metadata, .grandTotal, "grand metadata")
+        try expectEqual(p7number(named[4]), 30, "grand value")
+        try expectEqual(p7number(named[5]), 31, "named grand usable")
+        // Legacy totals are not subtotal ROW values.
+        let legacy = p7rows("10\ntotal\n20\nsubtotal\ngrand total")
+        if case .error = legacy[4].result {
+        } else {
+            throw CaseFailure(message: "one real subtotal errors", location: "p7")
+        }
+    },
+
+    EngineCase("p7-subtotal-tokenizable-and-footer-excluded") {
+        // A subtotal row is an ordinary number for tokens.
+        let ids = (0..<3).map { _ in UUID() }
+        let markerAt = ("10\nsubtotal\n" as NSString).length
+        let refs = [AnswerReference(sourceLineID: ids[1], labelLine: 2,
+                                    location: markerAt)]
+        let resolved = resolveSheet(content: "10\nsubtotal\n\u{FFFC}",
+                                    lineIDs: ids, references: refs,
+                                    rates: Rates(), decimalPlaces: 7)
+        try expectEqual(resolved.tokens.count, 1, "token resolves subtotal row")
+        if case .active(let v, nil, _) = resolved.tokens[0].state {
+            try expectEqual(v, 10, "token value")
+        } else {
+            throw CaseFailure(message: "subtotal token active", location: "p7")
+        }
+        // Derived rows never double-count in the footer.
+        let rows = p7rows("10\nsubtotal\ngrand total")
+        try expect(SheetFooterTotal.aggregate(rows) == 10,
+                   "footer counts the ordinary row only")
     },
 
     EngineCase("p7-classifier-tag-and-divider-spans") {

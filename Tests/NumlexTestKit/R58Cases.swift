@@ -112,12 +112,13 @@ public let r58Cases: [EngineCase] = [
     },
 
     EngineCase("r58-gaps-never-reset") {
-        // Blanks, headings, titles and prose neither contribute nor
-        // reset: the section spans them, but the boundary still cuts.
+        // Blanks, titles and prose neither contribute nor reset. Package
+        // 7: a `# ` HEADING is now a real boundary, so the first total
+        // sees the empty section that begins at the heading.
         let content = "10\n\n# ledger\n// June\nplain prose\ntotal\n\n20\ntotal"
         let lines = r58Sheet(content)
-        try expectEqual(r58Number(lines, 5), 10, "gaps spanned")
-        try expectEqual(r58Number(lines, 8), 20, "boundary cuts")
+        try expectEqual(r58Number(lines, 5), 0, "heading reset the section")
+        try expectEqual(r58Number(lines, 8), 20, "new section after the total")
         try expect(lines[5].isTotal && lines[8].isTotal, "flags")
         try r58Parity(content)
     },
@@ -142,8 +143,10 @@ public let r58Cases: [EngineCase] = [
 
     EngineCase("r58-token-row-new-section") {
         // A total referenced by a later ordinary token row contributes
-        // through THAT row in its own section: 10 / total(10) /
-        // bare-token(10) / total(10).
+        // through THAT row only when it is part of a genuine expression;
+        // a BARE-token-only row is excluded from aggregates, so the
+        // second total sees an empty section: 10 / total(10) /
+        // bare-token(10) / total(0).
         // "10\ntotal\n" is 9 UTF-16 units, so the bare marker on
         // line 2 sits at document offset 9.
         let ids = r58IDs(4)
@@ -153,7 +156,7 @@ public let r58Cases: [EngineCase] = [
         try expectEqual(r58Number(r.lines, 1), 10, "section total")
         try expectEqual(r58Number(r.lines, 2), 10, "token row value")
         try expect(!r.lines[2].isTotal, "token row not a total")
-        try expectEqual(r58Number(r.lines, 3), 10, "token is the section")
+        try expectEqual(r58Number(r.lines, 3), 0, "bare token row excluded")
         try expect(r.lines[3].isTotal, "second total flagged")
         if case .active(let v, nil, _) = r.tokens[0].state {
             try expectEqual(v, 10, "token live on section total")

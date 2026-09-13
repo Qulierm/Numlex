@@ -124,7 +124,7 @@ public func normalizeExprCorrect(_ expr: String, context: NumberFormatContext) -
     return s
 }
 
-private func isValidIdentifier(_ name: String) -> Bool {
+func isValidIdentifier(_ name: String) -> Bool {
     guard let regex = try? NSRegularExpression(pattern: #"^[A-Za-z_]\w*$"#) else { return false }
     return regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
 }
@@ -947,7 +947,9 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     // whole sheet — each command sums its section only and resets,
     // never mutates the env, and prior total rows never enter a new
     // section.
-    var totals = TotalAccumulator()
+    // Package 7: ONE shared aggregate state (legacy totals + subtotals
+    // + the grand list) fed top-down.
+    var aggregate = SheetAggregateState()
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
@@ -959,22 +961,34 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
         var isTotalRow = false
         var metadata: SheetLineMetadata = .ordinary
         switch analysis.kind {
-        case .blank, .heading, .comment, .tagOnly:
+        case .blank, .comment, .tagOnly:
             result = .blank
+        case .heading:
+            result = .blank
+            aggregate.boundary()
         case .commentTitle:
             result = .title(String(analysis.source.dropFirst(2))
                 .trimmingCharacters(in: .whitespaces))
         case .divider:
             result = .blank
             metadata = .divider
+            aggregate.boundary()
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
             if InlineTotal.isCommand(work, env: env) {
-                result = totals.total(decimalPlaces: decimalPlaces)
+                result = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
                 if case .number = result {
                     isTotalRow = true
                     metadata = .legacyTotal
                 }
+            } else if let command = SheetAggregateCommand.parse(work, env: env,
+                                                                context: context) {
+                let resolved = resolveAggregateCommand(command, env: &env,
+                                                       aggregate: &aggregate,
+                                                       decimalPlaces: decimalPlaces)
+                result = resolved.result
+                metadata = resolved.metadata
+                isTotalRow = true
             } else if let eval = evalLineTyped(work, env: &env, rates: rates,
                                                decimalPlaces: decimalPlaces,
                                                now: now, calendar: calendar, weather: weather,
@@ -983,11 +997,11 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                                                preferences: preferences,
                                                financial: financial) {
                 result = eval
+                aggregate.observe(result: result, projection: work, isDerived: false)
             } else {
                 result = .skip
             }
         }
-        totals.observe(result: result, isTotalRow: isTotalRow)
         rows.append(SheetLine(sourceLineIndex: index, result: result,
                               isTotal: isTotalRow, metadata: metadata))
     }

@@ -1,0 +1,265 @@
+import Foundation
+
+/// Package 7: the strict standalone aggregate commands understood by the
+/// sheet loops, plus the ONE O(n) accumulator they share.
+///
+/// - `total`: the legacy section sum (nearest prior legacy total, `# `
+///   heading or divider), kept for compatibility.
+/// - `subtotal` / `subtotal ± P%` / `<name> = subtotal[ ± P%]`: sum of
+///   the eligible rows since the nearest prior SUBTOTAL, `# ` heading
+///   or divider. A legacy total is NOT a subtotal boundary.
+/// - `grand total` / `<name> = grand total`: the sum of the already
+///   computed successful subtotal ROW values above, across the whole
+///   sheet (a divider does not erase the grand list). Requires at least
+///   two successful subtotals.
+public enum SheetAggregateCommand: Equatable, Sendable {
+    case legacyTotal
+    case subtotal(percent: Double?)
+    case namedSubtotal(name: String, percent: Double?)
+    case grandTotal
+    case namedGrandTotal(name: String)
+
+    /// Parses a strict aggregate command from the tag-stripped
+    /// evaluation body. `env` shadows the BARE keywords exactly like
+    /// the legacy `total` (an active variable/constant of the same name
+    /// wins); the named `= …` form always follows keyword precedence.
+    public static func parse(_ line: String, env: TypedEnv,
+                             context: NumberFormatContext = .legacy) -> SheetAggregateCommand? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        // Named form first: `<valid name> = subtotal|grand total`.
+        if let split = BooleanLogic.assignmentSplit(line) {
+            let lhs = split.lhs.trimmingCharacters(in: .whitespaces)
+            guard isValidName(lhs) else { return nil }
+            if let rhs = subtotalRHS(split.rhs, context: context) {
+                return .namedSubtotal(name: lhs, percent: rhs)
+            }
+            if isGrandTotalBody(split.rhs) {
+                return .namedGrandTotal(name: lhs)
+            }
+            return nil
+        }
+        // Bare forms, shadowed by an active entry of the same name.
+        if env.entry(display: "subtotal") == nil {
+            if let percent = subtotalRHS(trimmed, context: context) {
+                return .subtotal(percent: percent)
+            }
+        }
+        if env.entry(display: "grand total") == nil, isGrandTotalBody(trimmed) {
+            return .grandTotal
+        }
+        return nil
+    }
+
+    /// `subtotal` or `subtotal + R%` / `subtotal - R%`. nil = not this
+    /// shape. The percent is returned as a RATIO (15% -> 0.15), signed
+    /// by the operator (the caller multiplies the raw subtotal).
+    static func subtotalRHS(_ raw: String, context: NumberFormatContext) -> Double?? {
+        let tokens = raw.trimmingCharacters(in: .whitespaces)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        guard let head = tokens.first, head.lowercased() == "subtotal" else { return nil }
+        if tokens.count == 1 { return .some(nil) }
+        guard tokens.count == 3, tokens[1] == "+" || tokens[1] == "-",
+              let ratio = FinancialPhraseLane.parsePercent(tokens[2], context: context),
+              ratio.isFinite else {
+            return nil
+        }
+        return .some(tokens[1] == "-" ? -ratio : ratio)
+    }
+
+    static func isGrandTotalBody(_ raw: String) -> Bool {
+        let tokens = raw.trimmingCharacters(in: .whitespaces)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        return tokens.count == 2
+            && tokens[0].lowercased() == "grand"
+            && tokens[1].lowercased() == "total"
+    }
+
+    /// The assignment LHS grammar the evaluator uses: a valid ASCII
+    /// identifier or a bounded natural name.
+    static func isValidName(_ lhs: String) -> Bool {
+        if isValidIdentifier(lhs) { return true }
+        return NaturalCalculation.naturalLHS(lhs) != nil
+    }
+}
+
+/// Package 7: the ONE O(n) sheet aggregate state shared by
+/// `evaluateSheet` and `resolveSheet`. It keeps the legacy-total
+/// section, the subtotal section and the grand list in one pass.
+public struct SheetAggregateState: Sendable {
+    private var legacySum: Double = 0
+    private var legacyOverflow = false
+    private var subtotalSum: Double = 0
+    private var subtotalOverflow = false
+    /// Raw values of the SUCCESSFUL subtotal rows (the grand list is not
+    /// erased by a divider).
+    private var grandValues: [Double] = []
+
+    public init() {}
+
+    /// Package 7 eligibility, source-aware (the user's stated contract,
+    /// shared by the legacy inline total and every new aggregate):
+    /// finite unitless plain/fraction/percent/multiplier scalars, exact
+    /// integers and named scalar USAGE rows (a bare variable reference,
+    /// or a variable used inside a genuine expression). Excluded:
+    /// declarations (`x = …`), bare-token-only rows, money, unit-bearing
+    /// quantities, boolean/date/time/geo rows, errors and every derived
+    /// aggregate row.
+    public static func contribution(of result: LineResult,
+                                    projection: String) -> Double? {
+        let body = projection.trimmingCharacters(in: .whitespaces)
+        // A bare answer-token-only row never contributes.
+        if body == String(answerTokenMarker) { return nil }
+        // A declaration never contributes, whatever its result kind.
+        if BooleanLogic.assignmentSplit(body) != nil { return nil }
+        switch result {
+        case .number(let v, nil, let kind, _) where v.isFinite:
+            switch kind {
+            case .duration, .timespan, .timecodeSeconds:
+                return nil
+            case .plain, .fraction, .percent, .multiplier:
+                return v
+            }
+        case .variable(_, let v, _, _) where v.isFinite:
+            // A named scalar USAGE row (declarations returned above).
+            return v
+        case .integer(let v, _):
+            return Double(v)
+        case .variableInt(_, let v, _):
+            return Double(v)
+        default:
+            return nil
+        }
+    }
+
+    /// Feeds one completed row into both sections. Derived rows
+    /// (legacy totals, subtotals, grand totals, tag aggregates,
+    /// dividers, dynamic rows) must pass `isDerived: true`.
+    public mutating func observe(result: LineResult, projection: String,
+                                 isDerived: Bool) {
+        guard !isDerived,
+              let c = Self.contribution(of: result, projection: projection) else {
+            return
+        }
+        add(c, to: &legacySum, overflow: &legacyOverflow)
+        add(c, to: &subtotalSum, overflow: &subtotalOverflow)
+    }
+
+    /// A `# ` heading or an exact `---` divider: both sections restart;
+    /// the grand list is deliberately untouched.
+    public mutating func boundary() {
+        legacySum = 0
+        legacyOverflow = false
+        subtotalSum = 0
+        subtotalOverflow = false
+    }
+
+    /// The legacy `total` command: resolves and resets ONLY the legacy
+    /// section (a subtotal is not a legacy boundary).
+    public mutating func resolveLegacyTotal(decimalPlaces: Int) -> LineResult {
+        defer {
+            legacySum = 0
+            legacyOverflow = false
+        }
+        guard !legacyOverflow else {
+            return .error(message: InlineTotal.overflowMessage)
+        }
+        return .number(value: roundResult(legacySum, decimalPlaces: decimalPlaces),
+                       unit: nil)
+    }
+
+    /// The `subtotal[ ± P%]` command: resolves and resets the subtotal
+    /// section (even when it overflowed) and records successful values
+    /// for `grand total`. Returns the row result plus the raw subtotal
+    /// value (nil on overflow) so a caller can decide about the env.
+    public mutating func resolveSubtotal(percent: Double?,
+                                         decimalPlaces: Int) -> (result: LineResult,
+                                                                 raw: Double?) {
+        defer {
+            subtotalSum = 0
+            subtotalOverflow = false
+        }
+        guard !subtotalOverflow else {
+            return (.error(message: InlineTotal.overflowMessage), nil)
+        }
+        let base = subtotalSum
+        let raw = percent.map { base * (1 + $0) } ?? base
+        guard raw.isFinite else {
+            return (.error(message: InlineTotal.overflowMessage), nil)
+        }
+        grandValues.append(raw)
+        return (.number(value: roundResult(raw, decimalPlaces: decimalPlaces), unit: nil),
+                raw)
+    }
+
+    /// The `grand total` command: the sum of the successful subtotal row
+    /// values above. Fewer than two subtotals is the quiet generic
+    /// error. The grand list is never erased.
+    public mutating func resolveGrandTotal(decimalPlaces: Int) -> LineResult {
+        guard grandValues.count >= 2 else {
+            return .error(message: InlineTotal.overflowMessage)
+        }
+        var sum = 0.0
+        for v in grandValues {
+            let next = sum + v
+            guard next.isFinite else {
+                return .error(message: InlineTotal.overflowMessage)
+            }
+            sum = next
+        }
+        return .number(value: roundResult(sum, decimalPlaces: decimalPlaces), unit: nil)
+    }
+
+    /// How many successful subtotal rows exist (tests/diagnostics).
+    public var successfulSubtotalCount: Int { grandValues.count }
+
+    private func add(_ c: Double, to sum: inout Double, overflow: inout Bool) {
+        guard !overflow else { return }
+        let next = sum + c
+        guard next.isFinite else {
+            overflow = true
+            return
+        }
+        sum = next
+    }
+}
+
+/// Package 7: the ONE command resolver shared by `evaluateSheet` and
+/// `resolveSheet`. Resolves the command against the shared aggregate
+/// state, performs the optional named assignment (never mutating a
+/// constant) and returns the row result plus its derived metadata.
+func resolveAggregateCommand(_ command: SheetAggregateCommand,
+                             env: inout TypedEnv,
+                             aggregate: inout SheetAggregateState,
+                             decimalPlaces: Int) -> (result: LineResult,
+                                                     metadata: SheetLineMetadata) {
+    switch command {
+    case .legacyTotal:
+        return (aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces), .legacyTotal)
+    case .subtotal(let percent), .namedSubtotal(_, let percent):
+        let (result, raw) = aggregate.resolveSubtotal(percent: percent,
+                                                      decimalPlaces: decimalPlaces)
+        var finalResult = result
+        if case .namedSubtotal(let name, _) = command {
+            if env.isConstant(display: name) {
+                finalResult = .error(message: "Cannot assign to constant")
+            } else if let raw {
+                // The final plain scalar (the raw, unrounded value).
+                env.set(display: name, qty: .scalar(raw))
+            }
+        }
+        return (finalResult, .subtotal)
+    case .grandTotal, .namedGrandTotal:
+        var finalResult = aggregate.resolveGrandTotal(decimalPlaces: decimalPlaces)
+        if case .namedGrandTotal(let name) = command {
+            if env.isConstant(display: name) {
+                finalResult = .error(message: "Cannot assign to constant")
+            } else if case .number(let v, _, _, _) = finalResult {
+                env.set(display: name, qty: .scalar(v))
+            }
+        }
+        return (finalResult, .grandTotal)
+    }
+}

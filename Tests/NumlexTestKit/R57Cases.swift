@@ -67,14 +67,20 @@ public let r57Cases: [EngineCase] = [
     },
 
     EngineCase("r57-invalid-near-matches") {
-        // Near-misses, prose, comments and headings never set the flag
-        // (results stay exactly what the legacy pipeline produces).
-        for line in ["subtotal", "totals", "total:", "total + 5",
+        // Near-misses, prose, comments and headings never set the LEGACY
+        // flag. Package 7: `subtotal` is now its own command (checked
+        // separately below), so it is no longer a near-miss.
+        for line in ["totals", "total:", "total + 5",
                      "total recall", "my total", "  total x",
                      "// total", "# total", "total\u{FFFC}"] {
             let lines = r57Sheet("5\n\(line)")
             try expect(!lines[1].isTotal, "no flag: '\(line)'")
         }
+        // A bare `subtotal` is a strict Package 7 command now.
+        let subtotal = r57Sheet("5\nsubtotal")
+        try expectEqual(subtotal[1].metadata, .subtotal, "subtotal metadata")
+        try expect(subtotal[1].isTotal, "subtotal renders derived")
+        try expectEqual(r57Number(subtotal, 1), 5, "subtotal of the section")
         let comment = r57Sheet("5\n// total")
         if case .title = comment[1].result {} else {
             throw CaseFailure(message: "comment stays title", location: "r57")
@@ -116,6 +122,9 @@ public let r57Cases: [EngineCase] = [
     },
 
     EngineCase("r57-assignments-contribute") {
+        // Package 7 source-aware eligibility: DECLARATIONS never
+        // contribute (only their USAGE rows do). The assignment still
+        // evaluates and displays normally.
         let lines = r57Sheet("x = 10\nx + 5\ntotal")
         if case .variable(let name, let v, _, _) = lines[0].result {
             try expectEqual(name, "x", "assignment name")
@@ -123,12 +132,10 @@ public let r57Cases: [EngineCase] = [
         } else {
             throw CaseFailure(message: "row 0 is assignment", location: "r57")
         }
-        try expectEqual(r57Number(lines, 1), 15, "derived row")
-        // Assignment row (10) + derived row (15): each eligible row
-        // contributes once.
-        try expectEqual(r57Number(lines, 2), 25, "assignment + derived")
+        try expectEqual(r57Number(lines, 1), 15, "usage row")
+        try expectEqual(r57Number(lines, 2), 15, "usage only contributes")
         let bare = r57Sheet("x = 10\ntotal")
-        try expectEqual(r57Number(bare, 1), 10, "bare assignment contributes")
+        try expectEqual(r57Number(bare, 1), 0, "declaration contributes nothing")
     },
 
     EngineCase("r57-constants-need-rows") {
@@ -142,10 +149,15 @@ public let r57Cases: [EngineCase] = [
         try expectEqual(r57Number(used, 1), 6, "total of constant row")
     },
 
-    EngineCase("r57-blanks-headings-no-reset") {
+    EngineCase("r57-headings-reset-sections") {
+        // Package 7: a `# ` heading is a real section boundary (the
+        // legacy accumulator aligned with the user-declared baseline).
         let lines = r57Sheet("10\n\n# ledger\n// June\nplain prose\n20\ntotal")
-        try expectEqual(r57Number(lines, 6), 30, "no reset anywhere")
+        try expectEqual(r57Number(lines, 6), 20, "heading reset the section")
         try expect(lines[6].isTotal, "flag")
+        // Blanks/titles/prose still neither contribute nor reset.
+        let gaps = r57Sheet("10\n\n// June\nplain prose\n20\ntotal")
+        try expectEqual(r57Number(gaps, 5), 30, "gaps spanned")
     },
 
     EngineCase("r57-consecutive-totals") {
@@ -159,8 +171,9 @@ public let r57Cases: [EngineCase] = [
 
     EngineCase("r57-token-scalar-contributes") {
         // r58 sections: 10 / 20 / total(30) / bare-token(30) /
-        // total(30) — the token row is an ordinary unitless result of
-        // the NEW section and contributes normally there.
+        // total. Package 7: a BARE-token-only row is excluded from
+        // aggregates (a token inside a genuine expression still counts),
+        // so the second total sees an empty section.
         let ids = r57IDs(5)
         let markerAt = 12 // "10\n20\ntotal\n" is 12 UTF-16 units
         let refs = [AnswerReference(sourceLineID: ids[2], labelLine: 3,
@@ -169,7 +182,7 @@ public let r57Cases: [EngineCase] = [
         try expectEqual(r57Number(r.lines, 2), 30, "command total")
         try expectEqual(r57Number(r.lines, 3), 30, "bare token of total")
         try expect(!r.lines[3].isTotal, "token row is not a total")
-        try expectEqual(r57Number(r.lines, 4), 30, "token is the new section")
+        try expectEqual(r57Number(r.lines, 4), 0, "bare token row excluded")
         try expect(r.lines[4].isTotal, "second total flagged")
         try expectEqual(r.tokens.count, 1, "one token")
         if case .active(let v, nil, _) = r.tokens[0].state {

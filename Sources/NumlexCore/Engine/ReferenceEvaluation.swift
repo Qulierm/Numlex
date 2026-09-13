@@ -724,7 +724,9 @@ public func resolveSheet(
     // section, resets it, and enters the memo BEFORE later references
     // resolve, so tokens on a total stay live and forward references
     // still break. The command never mutates the environment.
-    var totals = TotalAccumulator()
+    // Package 7: ONE shared aggregate state (legacy totals + subtotals
+    // + the grand list) fed by the same top-down pass.
+    var aggregate = SheetAggregateState()
     var out: [SheetLine] = []
     for i in 0..<lines.count {
         let analysis = SheetLineAnalysis.parse(lines[i])
@@ -732,29 +734,48 @@ public func resolveSheet(
         var isTotalRow = false
         var metadata: SheetLineMetadata = .ordinary
         switch analysis.kind {
-        case .blank, .heading, .comment, .tagOnly:
+        case .blank, .comment, .tagOnly:
             result = .blank
+        case .heading:
+            result = .blank
+            aggregate.boundary()
         case .commentTitle:
             result = .title(String(analysis.source.dropFirst(2))
                 .trimmingCharacters(in: .whitespaces))
         case .divider:
             result = .blank
             metadata = .divider
+            aggregate.boundary()
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
             if work.contains(String(answerTokenMarker)) {
-                result = evalTokenLine(work, i, docOffsets[i])
+                let tokenResult = evalTokenLine(work, i, docOffsets[i])
+                result = tokenResult
+                // A token used inside a genuine expression is eligible; a
+                // bare-token-only row is not (checked source-aware).
+                aggregate.observe(result: tokenResult, projection: work,
+                                  isDerived: false)
             } else if InlineTotal.isCommand(work, env: env) {
-                result = totals.total(decimalPlaces: decimalPlaces)
+                result = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
                 if case .number = result {
                     isTotalRow = true
                     metadata = .legacyTotal
                 }
+            } else if let command = SheetAggregateCommand.parse(work, env: env,
+                                                                context: context) {
+                let resolved = resolveAggregateCommand(command, env: &env,
+                                                       aggregate: &aggregate,
+                                                       decimalPlaces: decimalPlaces)
+                result = resolved.result
+                metadata = resolved.metadata
+                isTotalRow = true
             } else {
-                result = plainLine(work)
+                let plainResult = plainLine(work)
+                result = plainResult
+                aggregate.observe(result: plainResult, projection: work,
+                                  isDerived: false)
             }
         }
-        totals.observe(result: result, isTotalRow: isTotalRow)
         memo[i] = result
         out.append(SheetLine(sourceLineIndex: i, result: result,
                              isTotal: isTotalRow, metadata: metadata))
