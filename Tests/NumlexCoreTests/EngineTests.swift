@@ -266,6 +266,7 @@ struct EngineTests {
     }
 
     @Test(arguments: updateCases)
+    @Test(arguments: plainDMGCases)
     func updateCase(`case`: EngineCase) throws {
         try `case`.body()
     }

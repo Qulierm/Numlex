@@ -355,7 +355,8 @@ rows only, writes are atomic, and the whole path is fully offline. See
   have no updater and install the current release manually once, then update
   in-app. See [docs/UPDATES.md](docs/UPDATES.md).
 - Download the `.dmg` from the [latest release](https://github.com/Qulierm/Numlex/releases/latest),
-  open it, and drag **Numlex.app** into Applications.
+  open the plain (unstyled) disk image — it contains only **Numlex.app** and an
+  **Applications** shortcut — and drag **Numlex.app** into Applications.
 - Numlex is ad-hoc signed and **not notarized**. On first launch, Control-click (or
   right-click) **Numlex.app**, choose **Open**, and confirm the prompt.
 - Verify your download with the checksums file from the same release:

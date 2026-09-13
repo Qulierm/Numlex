@@ -164,8 +164,6 @@ and verification, not for production `<img src>`.
 - Titles/captions must match what is actually shown in each clip (§4.4).
 
 ### 6.3 Rejected / non-canonical assets — do not use as site visuals
-- `Assets/DMG/NumlexDMGBackground.png` and `Assets/DMG/NumlexDMGBackground@2x.png`
-  — installer artwork, **rejected** as website visual reference.
 - `Assets/AppIcon.icns`, `AppIcon.icon`, `AppIcon.iconset`, `AppIcon.compiled`,
   `AppIcon.exported.iconset` — legacy/canonical icon *sources* for the macOS build, not
   website media; the site icon is `AppIconPreview.png` (512×512 raw PNG).
