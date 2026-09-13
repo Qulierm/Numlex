@@ -727,6 +727,7 @@ public func resolveSheet(
     // Package 7: ONE shared aggregate state (legacy totals + subtotals
     // + the grand list) fed by the same top-down pass.
     var aggregate = SheetAggregateState()
+    var tagAggregates = TagAggregateState()
     var out: [SheetLine] = []
     for i in 0..<lines.count {
         let analysis = SheetLineAnalysis.parse(lines[i])
@@ -746,15 +747,23 @@ public func resolveSheet(
             result = .blank
             metadata = .divider
             aggregate.boundary()
+            tagAggregates.boundary()
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
-            if work.contains(String(answerTokenMarker)) {
+            if let tagCommand = TagAggregateLane.parse(analysis) {
+                result = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
+                metadata = .tagAggregate
+                isTotalRow = true
+            } else if work.contains(String(answerTokenMarker)) {
                 let tokenResult = evalTokenLine(work, i, docOffsets[i])
                 result = tokenResult
                 // A token used inside a genuine expression is eligible; a
                 // bare-token-only row is not (checked source-aware).
+                let eligible = SheetAggregateState.contribution(of: tokenResult,
+                                                                projection: work)
                 aggregate.observe(result: tokenResult, projection: work,
                                   isDerived: false)
+                tagAggregates.observe(tags: analysis.tags, value: eligible)
             } else if InlineTotal.isCommand(work, env: env) {
                 result = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
                 if case .number = result {
@@ -772,8 +781,11 @@ public func resolveSheet(
             } else {
                 let plainResult = plainLine(work)
                 result = plainResult
+                let eligible = SheetAggregateState.contribution(of: plainResult,
+                                                                projection: work)
                 aggregate.observe(result: plainResult, projection: work,
                                   isDerived: false)
+                tagAggregates.observe(tags: analysis.tags, value: eligible)
             }
         }
         memo[i] = result

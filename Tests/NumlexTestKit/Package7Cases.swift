@@ -9,6 +9,19 @@ private func p7number(_ line: SheetLine) -> Double? {
     return nil
 }
 
+private func exportProbeContext(_ content: String) -> ExportPresentationContext {
+    ExportPresentationContext(
+        sheetID: UUID(), sheetTitle: "Probe", content: content,
+        lineIDs: content.components(separatedBy: "\n").map { _ in UUID() },
+        references: [], answerDisplay: [], highlights: [],
+        rates: Rates(), decimalPlaces: 7,
+        now: Date(timeIntervalSince1970: 1_700_000_000),
+        calendar: Calendar(identifier: .gregorian), constants: [],
+        weather: .empty, geo: .empty, numberContext: .legacy,
+        unitContext: .builtIns, preferences: .defaults,
+        financial: .defaults, presentation: .defaults, language: .en)
+}
+
 private func p7rows(_ source: String) -> [SheetLine] {
     var vars: [String: Double] = [:]
     return evaluateSheet(source, variables: &vars, rates: Rates(), decimalPlaces: 7)
@@ -327,6 +340,99 @@ public let package7Cases: [EngineCase] = [
                                                 newContent: bare.content,
                                                 edit: bare.edit)
         try expectEqual(reconciled.lineIDs.count, 3, "line count unchanged")
+    },
+
+
+    EngineCase("p7-tag-aggregates-see-tagged-rows-above") {
+        let content = "10 #food\n20 #food #cash\n30 #travel\n"
+            + "total of #food\naverage of #food\ncount of #food\nmedian of #food\n"
+            + "count of #cash"
+        let rows = p7rows(content)
+        try expectEqual(p7number(rows[3]), 30, "total of tagged rows")
+        try expectEqual(p7number(rows[4]), 15, "average")
+        try expectEqual(p7number(rows[5]), 2, "count")
+        try expectEqual(p7number(rows[6]), 15, "median of two")
+        try expectEqual(p7number(rows[7]), 1, "each tag contributes once per row")
+        try expectEqual(rows[3].metadata, .tagAggregate, "aggregate metadata")
+        try expect(rows[3].isTotal, "derived presentation")
+        // The query sees only rows STRICTLY above it.
+        let below = p7rows("total of #food\n10 #food")
+        try expectEqual(p7number(below[0]), 0, "rows below never count")
+        // A divider ends the segment.
+        let divided = p7rows("10 #food\n---\n20 #food\ntotal of #food")
+        try expectEqual(p7number(divided[3]), 20, "divider resets the segment")
+        // Non-contiguous tagged rows all count (blank/prose gaps).
+        let gaps = p7rows("1 #a\nx = 5\nplain prose\n2 #a\ntotal of #a")
+        try expectEqual(p7number(gaps[4]), 3, "gaps spanned; declarations excluded")
+    },
+
+    EngineCase("p7-tag-aggregate-grammar-and-empty") {
+        // Empty total/count are 0; average/median are quiet errors.
+        try expectEqual(p7number(p7rows("total of #none")[0]), 0)
+        try expectEqual(p7number(p7rows("count of #none")[0]), 0)
+        for kind in ["average", "median"] {
+            let rows = p7rows("\(kind) of #none")
+            if case .error(let msg) = rows[0].result {
+                try expectEqual(msg, InlineTotal.overflowMessage, "\(kind) empty errors")
+            } else {
+                throw CaseFailure(message: "\(kind) of empty errors", location: "p7")
+            }
+        }
+        // Strict grammar: multiple query tags, trailing garbage and
+        // invalid identifiers reject.
+        for bad in ["total of #a #b", "total of #a extra", "total of", "total #a",
+                    "sum of #a", "total of #1bad"] {
+            let rows = p7rows("5 #a\n\(bad)")
+            try expect(rows[1].metadata != .tagAggregate, "\(bad) rejected")
+        }
+        // Eligibility: money/units/units rows are excluded.
+        let mixed = p7rows("5 #m\n$7 #m\n3 kg #m\n2 #m\ntotal of #m")
+        try expectEqual(p7number(mixed[4]), 7, "only eligible tagged rows")
+        // Tokens inside expressions count; bare tokens do not.
+        let ids = (0..<4).map { _ in UUID() }
+        let markerAt = ("5 #a\n" as NSString).length
+        let refs = [AnswerReference(sourceLineID: ids[0], labelLine: 1,
+                                    location: markerAt)]
+        _ = markerAt
+        let bare = resolveSheet(content: "5 #a\n\u{FFFC} #a\ncount of #a",
+                                lineIDs: ids, references: refs,
+                                rates: Rates(), decimalPlaces: 7)
+        try expectEqual(p7number(bare.lines[2]), 1, "bare token excluded")
+    },
+
+    EngineCase("p7-tag-aggregates-tokenizable-and-export") {
+        // A finite aggregate row is an ordinary number for tokens.
+        let ids = (0..<4).map { _ in UUID() }
+        let markerAt = ("5 #a\ntotal of #a\n" as NSString).length
+        let refs = [AnswerReference(sourceLineID: ids[1], labelLine: 2,
+                                    location: markerAt)]
+        let resolved = resolveSheet(content: "5 #a\ntotal of #a\n\u{FFFC}",
+                                    lineIDs: ids, references: refs,
+                                    rates: Rates(), decimalPlaces: 7)
+        try expectEqual(resolved.tokens.count, 1, "aggregate token resolves")
+        if case .active(let v, nil, _) = resolved.tokens[0].state {
+            try expectEqual(v, 5, "token value")
+        } else {
+            throw CaseFailure(message: "aggregate token active", location: "p7")
+        }
+        // Derived rows never feed later aggregates or the footer.
+        let rows = p7rows("5 #a\ntotal of #a\ntotal of #a")
+        try expectEqual(p7number(rows[2]), 5, "aggregate not re-consumed")
+        try expect(SheetFooterTotal.aggregate(rows) == 5,
+                   "footer excludes derived aggregates")
+        // PDF export marks the row derived (total kind, no double count).
+        var vars: [String: Double] = [:]
+        let snapshot = ExportSnapshotBuilder.build(
+            context: exportProbeContext("5 #a\ntotal of #a"),
+            options: ExportOptions(showTotal: false))
+        switch snapshot {
+        case .success(let s):
+            try expect(s.rows.count == 2, "two export rows")
+            try expect(s.rows[1].isInlineTotal, "aggregate row derived in export")
+        case .failure(let e):
+            throw CaseFailure(message: "export build failed: \(e)", location: "p7")
+        }
+        _ = vars
     },
 
     EngineCase("p7-classifier-tag-and-divider-spans") {

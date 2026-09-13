@@ -126,6 +126,15 @@ public enum SyntaxClassifier {
             // suffix lives at the line end).
             let line = analysis.evaluationProjection
             let lineLength = (line as NSString).length
+            // Package 7: tag-aggregate rows paint their stat keyword and
+            // the `of` specifier plus the queried tag (no evaluation
+            // context is needed here — the sheet loops own the values).
+            if TagAggregateLane.parse(analysis) != nil {
+                var statSpans = tagKeywordSpans(line)
+                statSpans += tagSpans(analysis)
+                result.append(sanitize(statSpans, lineLength: originalLength))
+                continue
+            }
             // r55 amendment: a strict weather query paints ONLY the
             // city/place span with the existing unit role
             // (`.conversion` — the same palette custom Styling drives
@@ -262,6 +271,25 @@ public enum SyntaxClassifier {
             result.append(sanitize(withGrammar, lineLength: originalLength))
         }
         return result
+    }
+
+    /// Package 7: the stat keyword span (`total`/`average`/`count`/
+    /// `median`) of a tag-aggregate row; `of` is covered by the shared
+    /// specifier painter.
+    private static func tagKeywordSpans(_ line: String) -> [SyntaxSpan] {
+        let ns = line as NSString
+        var end = 0
+        while end < ns.length,
+              ns.character(at: end) != 32, ns.character(at: end) != 9 {
+            end += 1
+        }
+        var spans: [SyntaxSpan] = []
+        if end > 0 {
+            spans.append(SyntaxSpan(role: .specifier,
+                                    range: NSRange(location: 0, length: end)))
+        }
+        spans += specifierSpans(line)
+        return spans
     }
 
     /// Package 7: the fixed semantic spans of a row's trailing tags

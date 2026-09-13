@@ -950,6 +950,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     // Package 7: ONE shared aggregate state (legacy totals + subtotals
     // + the grand list) fed top-down.
     var aggregate = SheetAggregateState()
+    var tagAggregates = TagAggregateState()
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
@@ -973,9 +974,14 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             result = .blank
             metadata = .divider
             aggregate.boundary()
+            tagAggregates.boundary()
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
-            if InlineTotal.isCommand(work, env: env) {
+            if let tagCommand = TagAggregateLane.parse(analysis) {
+                result = tagAggregates.resolve(tagCommand, decimalPlaces: decimalPlaces)
+                metadata = .tagAggregate
+                isTotalRow = true
+            } else if InlineTotal.isCommand(work, env: env) {
                 result = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
                 if case .number = result {
                     isTotalRow = true
@@ -997,7 +1003,10 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                                                preferences: preferences,
                                                financial: financial) {
                 result = eval
+                let eligible = SheetAggregateState.contribution(of: result,
+                                                                projection: work)
                 aggregate.observe(result: result, projection: work, isDerived: false)
+                tagAggregates.observe(tags: analysis.tags, value: eligible)
             } else {
                 result = .skip
             }
