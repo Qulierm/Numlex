@@ -71,6 +71,13 @@ enum Design {
     /// Currency markers on money lines (`$`, `€`, ISO codes) — light
     /// #8E4EC6 (142, 78, 198), reusing the unit purple / dark #C780FF
     /// (199, 128, 255), the historical money purple.
+    /// Package 7: the `#` of a tag and its identifier body (fixed,
+    /// non-configurable semantic roles).
+    static let tagMarkerColor = adaptive(light: (116, 116, 120), dark: (160, 160, 164))
+    static let tagBodyColor = adaptive(light: (142, 78, 198), dark: (190, 137, 236))
+    /// Package 7: the `---` divider rule.
+    static let dividerColor = adaptive(light: (176, 176, 180), dark: (110, 110, 114))
+
     static let moneyMarkerColor = adaptive(light: (142, 78, 198), dark: (199, 128, 255))
 
     /// Editor caret: sRGB(52, 120, 247) — fixed accent blue matched to

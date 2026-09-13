@@ -705,8 +705,29 @@ struct AnswerColumnView: View {
         }
     }
 
+    /// Package 7: the ONE answer-pane representation of an exact `---`
+    /// divider — a calm rule inside the row. The row's geometry remains
+    /// owned by the live line metrics, so this changes no layout or
+    /// hit-testing anywhere.
+    private var dividerRuleView: some View {
+        Rectangle()
+            .fill(Color(nsColor: Design.dividerColor))
+            .frame(height: 0.5)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+    }
+
     @ViewBuilder
     private func rowView(_ line: SheetLine) -> some View {
+        if line.metadata == .divider {
+            dividerRuleView
+        } else {
+            standardRowView(line)
+        }
+    }
+
+    @ViewBuilder
+    private func standardRowView(_ line: SheetLine) -> some View {
         // r51: scalar/variable/unit strings render at the row's EFFECTIVE
         // decimals (override ?? global) — the same inputs Copy Answer
         // feeds through `AnswerDisplay.text`, so clipboard == visible.

@@ -98,6 +98,9 @@ struct NotebookEditor: NSViewRepresentable {
     /// color). Presentation-only: the coordinator repaints fills in
     /// place — never content, selection, IME or scroll.
     var lineHighlightFills: [UUID: HighlightColor] = [:]
+    /// Package 7: stable line IDs that hold an exact `---` divider — the
+    /// editor paints one calm rule on those rows (geometry-neutral).
+    var dividerLineIDs: Set<UUID> = []
     /// r87: the sheet's stable line table (parallel to the content's
     /// logical lines) — the highlight fills and the Format command's
     /// selection→line mapping both key off it.
@@ -132,6 +135,7 @@ struct NotebookEditor: NSViewRepresentable {
             onReady: onReady,
             onTokenHoverChanged: onTokenHoverChanged,
             lineHighlightFills: lineHighlightFills,
+            dividerLineIDs: dividerLineIDs,
             editorLineIDs: editorLineIDs,
             onHighlightLines: onHighlightLines,
             appLanguage: appLanguage
@@ -171,6 +175,7 @@ struct NotebookEditor: NSViewRepresentable {
             unitContext: unitContext,
             financial: financial,
             lineHighlightFills: lineHighlightFills,
+            dividerLineIDs: dividerLineIDs,
             editorLineIDs: editorLineIDs,
             onHighlightLines: onHighlightLines,
             appLanguage: appLanguage
@@ -282,6 +287,8 @@ final class NotebookEditorCoordinator: NSObject {
     private var lastPublishedHover: UUID?
     /// r87: the sheet's persistent line highlights (line UUID → color).
     private var lineHighlightFills: [UUID: HighlightColor] = [:]
+    /// Package 7: stable line IDs that hold an exact `---` divider.
+    private var dividerLineIDs: Set<UUID> = []
     /// r87: the sheet's stable line table (parallel to the content).
     private var editorLineIDs: [UUID] = []
     /// r87: the persistent-highlight write sink (Format command + the
@@ -310,6 +317,7 @@ final class NotebookEditorCoordinator: NSObject {
          onReady: (NotebookEditorCoordinator) -> Void,
          onTokenHoverChanged: ((UUID?) -> Void)? = nil,
          lineHighlightFills: [UUID: HighlightColor] = [:],
+         dividerLineIDs: Set<UUID> = [],
          editorLineIDs: [UUID] = [],
          onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)? = nil,
         appLanguage: AppLanguage = .en) {
@@ -325,6 +333,7 @@ final class NotebookEditorCoordinator: NSObject {
         self.onFocusConsumed = onFocusConsumed
         self.onTokenHoverChanged = onTokenHoverChanged
         self.lineHighlightFills = lineHighlightFills
+        self.dividerLineIDs = dividerLineIDs
         self.editorLineIDs = editorLineIDs
         self.onHighlightLines = onHighlightLines
         self.appLanguage = appLanguage
@@ -660,6 +669,7 @@ final class NotebookEditorCoordinator: NSObject {
                 unitContext: UnitContext = .builtIns,
                 financial: FinancialContext = .defaults,
                 lineHighlightFills: [UUID: HighlightColor] = [:],
+                dividerLineIDs: Set<UUID> = [],
                 editorLineIDs: [UUID] = [],
                 onHighlightLines: ((Sheet.ID?, [UUID], HighlightColor?) -> Void)? = nil,
         appLanguage: AppLanguage = .en) {
@@ -683,6 +693,10 @@ final class NotebookEditorCoordinator: NSObject {
         if lineHighlightFills != self.lineHighlightFills {
             self.lineHighlightFills = lineHighlightFills
             self.refreshHighlightFills()
+        }
+        if dividerLineIDs != self.dividerLineIDs {
+            self.dividerLineIDs = dividerLineIDs
+            self.refreshDividerRules()
         }
         self.editorLineIDs = editorLineIDs
         self.onHighlightLines = onHighlightLines
@@ -996,6 +1010,47 @@ final class NotebookEditorCoordinator: NSObject {
             fills.append((r, Design.highlightFill(color)))
         }
         tv.lineFillRects = fills
+        tv.needsDisplay = true
+    }
+
+    /// Package 7: recomputes the divider rule rects from the live
+    /// layout (top-down mid-line, full text width). Purely decorative:
+    /// no content, selection, hit testing or scroll effect.
+    func refreshDividerRules() {
+        let tv = textView
+        guard let lm = tv.layoutManager,
+              let tc = tv.textContainer else { return }
+        lm.ensureLayout(for: tc)
+        let content = tv.string
+        let starts = Self.lineStartOffsets(content)
+        let origin = tv.textContainerOrigin
+        let width = tc.size.width
+        guard width > 0 else {
+            tv.dividerRuleRects = []
+            return
+        }
+        var rects: [NSRect] = []
+        for (idx, id) in editorLineIDs.enumerated() where dividerLineIDs.contains(id) {
+            guard starts.indices.contains(idx) else { continue }
+            let charStart = starts[idx]
+            let charEnd = idx + 1 < starts.count ? starts[idx + 1] - 1
+                        : content.utf16.count
+            guard charStart < content.utf16.count else { continue }
+            let glyphRange = lm.glyphRange(
+                forCharacterRange: NSRange(location: charStart,
+                                           length: max(1, charEnd - charStart)),
+                actualCharacterRange: nil)
+            var top: CGFloat? = nil
+            var bottom: CGFloat? = nil
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, _, stop in
+                if top == nil { top = rect.minY }
+                bottom = rect.maxY
+            }
+            guard let t = top, let b = bottom, b > t else { continue }
+            rects.append(NSRect(x: origin.x, y: origin.y + (t + b) / 2 - 0.5,
+                                width: width, height: 1))
+        }
+        tv.dividerRuleRects = rects
         tv.needsDisplay = true
     }
 
@@ -1326,6 +1381,9 @@ final class NotebookEditorCoordinator: NSObject {
                 case .specifier: palette.specifiers
                 case .label: palette.labels
                 case .moneyMarker: Design.moneyMarkerColor
+                case .tagMarker: Design.tagMarkerColor
+                case .tagBody: Design.tagBodyColor
+                case .divider: Design.dividerColor
                 case .hashMarker, .hashBody: nil
             } else { continue }
             // Final document-bound guard: even a malformed span (a bad
@@ -1367,6 +1425,7 @@ final class NotebookEditorCoordinator: NSObject {
         }
         let metrics = computeMetrics()
         onLayout(metrics)
+        refreshDividerRules()
         textView.needsDisplay = true
         // r37: geometry moved (edit, settings, width) — rebuild the
         // hover hit cache from the shared capsule geometry.
@@ -1697,6 +1756,8 @@ final class NotebookTextView: NSTextView {
     /// drawn under the text, never replacing it, never affecting
     /// layout, selection, hit testing or metrics.
     var lineFillRects: [(rect: NSRect, color: NSColor)] = []
+    /// Package 7: divider rules (top-down mid-line, full text width).
+    var dividerRuleRects: [NSRect] = []
     var lineHeight: Double = 30
     var lineNumbers: Bool = true
     /// r73: the number context for the safe paste conversion (the
@@ -2068,10 +2129,13 @@ final class NotebookTextView: NSTextView {
     /// Overlay only: no content, layout or hit effect.
     override func drawBackground(in clipRect: NSRect) {
         super.drawBackground(in: clipRect)
-        guard !lineFillRects.isEmpty else { return }
         for fill in lineFillRects where fill.rect.intersects(clipRect) {
             fill.color.setFill()
             NSBezierPath(rect: fill.rect).fill()
+        }
+        for rule in dividerRuleRects where rule.intersects(clipRect) {
+            Design.dividerColor.setFill()
+            NSBezierPath(rect: rule).fill()
         }
     }
 

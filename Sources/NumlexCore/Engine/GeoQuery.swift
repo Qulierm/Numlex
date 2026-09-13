@@ -168,8 +168,17 @@ public enum GeoQueryParse {
                                    context: NumberFormatContext = .legacy) -> [GeoQuery] {
         var seen = Set<String>()
         var out: [GeoQuery] = []
-        for line in content.components(separatedBy: "\n") {
-            if let q = parse(line, context: context), seen.insert(q.key).inserted {
+        for raw in content.components(separatedBy: "\n") {
+            // Package 7: geographic queries scan the tag-stripped body.
+            let analysis = SheetLineAnalysis.parse(raw)
+            switch analysis.kind {
+            case .blank, .heading, .comment, .commentTitle, .divider, .tagOnly:
+                continue
+            case .totalCommand, .expression:
+                break
+            }
+            if let q = parse(analysis.evaluationProjection, context: context),
+               seen.insert(q.key).inserted {
                 out.append(q)
             }
         }

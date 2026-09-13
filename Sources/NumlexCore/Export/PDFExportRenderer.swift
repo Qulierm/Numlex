@@ -104,6 +104,10 @@ public struct ExportPalette: Equatable, Sendable {
         case .moneyMarker: return moneyMarker
         case .hashMarker: return headingMarker
         case .hashBody: return headingBody
+        case .tagMarker, .tagBody:
+            return tokenText
+        case .divider:
+            return rule
         }
     }
 }
@@ -296,8 +300,12 @@ public struct ExportRenderedDocument {
                          alignRightAt: metrics.margins.left + layout.gutterWidth - 8,
                          in: ctx)
             }
-            drawExpression(row: row, placed: placed, in: ctx)
-            drawAnswer(row: row, placed: placed, in: ctx)
+            if row.kind == .divider {
+                drawDivider(placed: placed, in: ctx)
+            } else {
+                drawExpression(row: row, placed: placed, in: ctx)
+                drawAnswer(row: row, placed: placed, in: ctx)
+            }
         }
 
         if let totalFrame = page.totalFrame, let totalText = snapshot.totalText {
@@ -459,6 +467,19 @@ public struct ExportRenderedDocument {
         ctx.restoreGState()
     }
 
+    /// Package 7: a divider row draws one calm rule across the body
+    /// width (never any text).
+    private func drawDivider(placed: ExportPlacedVisual, in ctx: CGContext) {
+        let midY = Double(placed.frame.midY)
+        ctx.setStrokeColor(palette.rule.cgColor)
+        ctx.setLineWidth(0.75)
+        ctx.stroke(cgRect(x: Double(placed.frame.minX), top: midY,
+                          width: Double(placed.frame.width)
+                              + metrics.columnGap
+                              + Double(placed.answerFrame?.width ?? 0),
+                          height: 0.5))
+    }
+
     private func drawAnswer(row: ExportRow, placed: ExportPlacedVisual,
                             in ctx: CGContext) {
         guard let answerRange = placed.visual.answerRange,
@@ -525,7 +546,7 @@ public struct ExportRenderedDocument {
         case .comment:
             font = fonts.expression
             color = snapshot.options.syntaxHighlighting ? palette.comment : palette.baseText
-        case .expression, .total, .blank:
+        case .expression, .total, .blank, .divider:
             font = fonts.expression
             color = palette.baseText
         }

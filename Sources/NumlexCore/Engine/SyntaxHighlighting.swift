@@ -37,6 +37,12 @@ public enum SyntaxRole: Equatable, Sendable {
     /// A prose label line ending with `:` (evaluated as skip) — the
     /// whole trimmed line, e.g. `Total:`.
     case label
+    /// Package 7: the `#` of a trailing tag atom.
+    case tagMarker
+    /// Package 7: the identifier body of a trailing tag atom.
+    case tagBody
+    /// Package 7: the exact `---` divider span.
+    case divider
 }
 
 /// One classified span. `range` is a UTF-16 `NSRange` inside a single
@@ -80,33 +86,46 @@ public enum SyntaxClassifier {
         // (green) exactly like declared names.
         var env = TypedEnv()
         env.seedConstants(constants)
-        for line in source.components(separatedBy: "\n") {
-            let lineLength = (line as NSString).length
-            // Mirror evaluateSheet's line-kind handling: empty and `//`
-            // lines never carry token spans.
-            if line.trimmingCharacters(in: .whitespaces).isEmpty
-                || line.hasPrefix("//") {
+        for rawLine in source.components(separatedBy: "\n") {
+            let originalLength = (rawLine as NSString).length
+            // Package 7: the ONE shared structural analysis decides the
+            // line kind. Tags are stripped from the evaluation body but
+            // keep their source spans; `# ` (hash + space) is the only
+            // heading; `---` is a divider.
+            let analysis = SheetLineAnalysis.parse(rawLine)
+            switch analysis.kind {
+            case .blank, .comment, .commentTitle:
                 result.append([])
                 continue
-            }
-            // Hash heading: the evaluator treats `#` lines as
-            // non-evaluated blanks, but they carry explicit heading
-            // spans — the single `#` marker and the whole body after it
-            // (UTF-16 lengths via NSString, so surrogate pairs in the
-            // body stay consistent with the text storage).
-            if line.hasPrefix("#") {
-                var heading: [SyntaxSpan] = [
-                    SyntaxSpan(role: .hashMarker, range: NSRange(location: 0, length: 1))
-                ]
-                if lineLength > 1 {
-                    heading.append(SyntaxSpan(
-                        role: .hashBody,
-                        range: NSRange(location: 1, length: lineLength - 1)
-                    ))
+            case .divider:
+                if let span = analysis.dividerSpan {
+                    result.append(sanitize([SyntaxSpan(role: .divider, range: span)],
+                                           lineLength: originalLength))
+                } else {
+                    result.append([])
                 }
-                result.append(heading)
                 continue
+            case .heading:
+                var heading: [SyntaxSpan] = []
+                if let marker = analysis.headingMarkerSpan {
+                    heading.append(SyntaxSpan(role: .hashMarker, range: marker))
+                }
+                if let body = analysis.headingBodySpan, body.length > 0 {
+                    heading.append(SyntaxSpan(role: .hashBody, range: body))
+                }
+                result.append(sanitize(heading, lineLength: originalLength))
+                continue
+            case .tagOnly:
+                result.append(sanitize(tagSpans(analysis), lineLength: originalLength))
+                continue
+            case .totalCommand, .expression:
+                break
             }
+            // The evaluator sees the tag-stripped projection; every span
+            // it produces is already in ORIGINAL line coordinates (the
+            // suffix lives at the line end).
+            let line = analysis.evaluationProjection
+            let lineLength = (line as NSString).length
             // r55 amendment: a strict weather query paints ONLY the
             // city/place span with the existing unit role
             // (`.conversion` — the same palette custom Styling drives
@@ -239,9 +258,25 @@ public enum SyntaxClassifier {
                 withGrammar += operatorSpans(line)
                 withGrammar += specifierSpans(line)
             }
-            result.append(sanitize(withGrammar, lineLength: lineLength))
+            withGrammar += tagSpans(analysis)
+            result.append(sanitize(withGrammar, lineLength: originalLength))
         }
         return result
+    }
+
+    /// Package 7: the fixed semantic spans of a row's trailing tags
+    /// (`#` marker plus the identifier body).
+    private static func tagSpans(_ analysis: SheetLineAnalysis) -> [SyntaxSpan] {
+        var spans: [SyntaxSpan] = []
+        for tag in analysis.tags {
+            spans.append(SyntaxSpan(role: .tagMarker,
+                                    range: NSRange(location: tag.span.location,
+                                                   length: 1)))
+            if tag.nameSpan.length > 0 {
+                spans.append(SyntaxSpan(role: .tagBody, range: tag.nameSpan))
+            }
+        }
+        return spans
     }
 
     // MARK: - Natural (money / named) lines

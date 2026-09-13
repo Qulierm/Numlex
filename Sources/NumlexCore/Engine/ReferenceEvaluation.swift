@@ -727,19 +727,37 @@ public func resolveSheet(
     var totals = TotalAccumulator()
     var out: [SheetLine] = []
     for i in 0..<lines.count {
+        let analysis = SheetLineAnalysis.parse(lines[i])
         let result: LineResult
         var isTotalRow = false
-        if lines[i].contains(String(answerTokenMarker)) {
-            result = evalTokenLine(lines[i], i, docOffsets[i])
-        } else if InlineTotal.isCommand(lines[i], env: env) {
-            result = totals.total(decimalPlaces: decimalPlaces)
-            if case .number = result { isTotalRow = true }
-        } else {
-            result = plainLine(lines[i])
+        var metadata: SheetLineMetadata = .ordinary
+        switch analysis.kind {
+        case .blank, .heading, .comment, .tagOnly:
+            result = .blank
+        case .commentTitle:
+            result = .title(String(analysis.source.dropFirst(2))
+                .trimmingCharacters(in: .whitespaces))
+        case .divider:
+            result = .blank
+            metadata = .divider
+        case .totalCommand, .expression:
+            let work = analysis.evaluationProjection
+            if work.contains(String(answerTokenMarker)) {
+                result = evalTokenLine(work, i, docOffsets[i])
+            } else if InlineTotal.isCommand(work, env: env) {
+                result = totals.total(decimalPlaces: decimalPlaces)
+                if case .number = result {
+                    isTotalRow = true
+                    metadata = .legacyTotal
+                }
+            } else {
+                result = plainLine(work)
+            }
         }
         totals.observe(result: result, isTotalRow: isTotalRow)
         memo[i] = result
-        out.append(SheetLine(sourceLineIndex: i, result: result, isTotal: isTotalRow))
+        out.append(SheetLine(sourceLineIndex: i, result: result,
+                             isTotal: isTotalRow, metadata: metadata))
     }
     let tokens = tokenStates.keys.sorted().map { TokenResolution(location: $0, state: tokenStates[$0]!) }
     return (out, tokens)

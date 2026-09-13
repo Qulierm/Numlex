@@ -147,7 +147,8 @@ public let syntaxRoleCases: [EngineCase] = [
     EngineCase("role-comment-and-heading-keep-existing-roles") {
         let heading = SyntaxClassifier.spans(for: "# Result", rates: Rates(), decimalPlaces: 7)[0]
         try expectEqual(heading.map { $0.role }, [.hashMarker, .hashBody])
-        try expectEqual(heading[1].range, NSRange(location: 1, length: 7), "body range")
+        try expectEqual(heading[0].range, NSRange(location: 0, length: 2), "`# ` marker")
+        try expectEqual(heading[1].range, NSRange(location: 2, length: 6), "body range")
         // `//` without a space still skips token spans (comment prefix).
         let tight = SyntaxClassifier.spans(for: "//x + 1", rates: Rates(), decimalPlaces: 7)[0]
         try expectEqual(tight.count, 0, "tight comment unspanned")

@@ -89,6 +89,11 @@ struct NotebookPalette {
         case .moneyMarker: Design.moneyMarkerColor
         case .hashMarker: Design.headingMarkerColor
         case .hashBody: headings
+        // Package 7: tags use fixed semantic colors; a divider is a
+        // calm neutral rule.
+        case .tagMarker: Design.tagMarkerColor
+        case .tagBody: Design.tagBodyColor
+        case .divider: Design.dividerColor
         }
     }
 

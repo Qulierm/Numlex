@@ -174,6 +174,8 @@ public enum ExportRowKind: String, Equatable, Sendable {
     case total
     /// An empty source row (kept for stable spacing).
     case blank
+    /// Package 7: an exact `---` divider row (drawn as a rule).
+    case divider
 }
 
 /// One inline answer token (U+FFFC) inside an exported row. `offset`

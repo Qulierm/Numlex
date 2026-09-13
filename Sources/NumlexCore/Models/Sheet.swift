@@ -182,7 +182,8 @@ public struct Sheet: Identifiable, Codable, Equatable, Sendable {
         for rawLine in content.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
-            if line.hasPrefix("#") || line.hasPrefix("//") { continue }
+            if SheetLineAnalysis.parse(line).kind == .heading
+                || line.hasPrefix("//") { continue }
             if WeatherQuery.parse(line) != nil {
                 let collapsed = line
                     .split(whereSeparator: { $0.isWhitespace })

@@ -290,6 +290,11 @@ struct EngineTests {
         try `case`.body()
     }
 
+    @Test(arguments: package7Cases)
+    func package7Case(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
     @Test(arguments: pdfExportCases)
     func pdfExportCase(`case`: EngineCase) throws {
         try `case`.body()

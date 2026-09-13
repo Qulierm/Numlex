@@ -74,34 +74,35 @@ public let syntaxCases: [EngineCase] = [
         let spans = SyntaxClassifier.spans(for: "// My sheet\n# note",
                                            rates: Rates(), decimalPlaces: 7)
         try expectEqual(spans[0].count, 0, "title owns its styling")
-        // `#` lines carry explicit heading spans (marker + body).
+        // Package 7: `# ` carries marker + body spans; the marker IS
+        // the two-character `# ` prefix and the body starts after it.
         try expectEqual(spans[1].filter { $0.role == .hashMarker }.map { $0.range },
-                        [NSRange(location: 0, length: 1)])
+                        [NSRange(location: 0, length: 2)])
         try expectEqual(spans[1].filter { $0.role == .hashBody }.map { $0.range },
-                        [NSRange(location: 1, length: 5)], "space + note is the body")
+                        [NSRange(location: 2, length: 4)], "body = everything after `# `")
     },
 
     EngineCase("syntax-hash-heading") {
-        // `#` lines are non-evaluated (no answers, no variable flow),
-        // but the classifier gives them explicit marker/body spans with
-        // UTF-16 line-local ranges.
+        // Package 7: only `# ` (hash + space) is a heading; it is
+        // non-evaluated but carries marker/body spans with UTF-16
+        // line-local ranges.
         let spans = SyntaxClassifier.spans(for: "# Heading", rates: Rates(), decimalPlaces: 7)
         try expectEqual(spans[0].filter { $0.role == .hashMarker }.map { $0.range },
-                        [NSRange(location: 0, length: 1)], "single-char marker")
+                        [NSRange(location: 0, length: 2)], "`# ` marker")
         try expectEqual(spans[0].filter { $0.role == .hashBody }.map { $0.range },
-                        [NSRange(location: 1, length: 8)], "body = everything after #")
+                        [NSRange(location: 2, length: 7)], "body = everything after `# `")
         try expectEqual(spans[0].count, 2, "no token spans inside a heading")
 
-        // Lone `#`: marker only, no body span.
+        // Lone `#`: ordinary prose, no heading spans at all.
         let lone = SyntaxClassifier.spans(for: "#", rates: Rates(), decimalPlaces: 7)
-        try expectEqual(lone[0].count, 1)
-        try expectEqual(lone[0][0].role, .hashMarker)
-        try expectEqual(lone[0][0].range, NSRange(location: 0, length: 1))
+        try expectEqual(lone[0].count, 0)
 
-        // `#text` (no space): body starts immediately after the marker.
+        // `#text` (no space) is a TAG-ONLY row: the marker + identifier
+        // carry fixed tag roles, never heading roles.
         let tight = SyntaxClassifier.spans(for: "#text", rates: Rates(), decimalPlaces: 7)
-        try expectEqual(tight[0].filter { $0.role == .hashBody }.map { $0.range },
-                        [NSRange(location: 1, length: 4)])
+        try expectEqual(tight[0].map { $0.role }, [.tagMarker, .tagBody])
+        try expectEqual(tight[0][0].range, NSRange(location: 0, length: 1))
+        try expectEqual(tight[0][1].range, NSRange(location: 1, length: 4))
 
         // Multiple heading lines followed by math: the heading spans are
         // line-local and the later expression classifies normally.
@@ -110,10 +111,10 @@ public let syntaxCases: [EngineCase] = [
         )
         try expectEqual(multi.count, 4)
         try expectEqual(multi[0].filter { $0.role == .hashBody }.map { $0.range },
-                        [NSRange(location: 1, length: 2)])
-        try expectEqual(multi[1].count, 1, "lone # is marker only")
-        try expectEqual(multi[2].filter { $0.role == .hashBody }.map { $0.range },
-                        [NSRange(location: 1, length: 4)])
+                        [NSRange(location: 2, length: 1)], "`# H` body after `# `")
+        try expectEqual(multi[1].count, 0, "lone # is ordinary prose")
+        try expectEqual(multi[2].map { $0.role }, [.tagMarker, .tagBody],
+                        "#text is a tag-only row")
         try expectEqual(multi[3].filter { $0.role == .number }.map { $0.range },
                         [NSRange(location: 0, length: 1),
                          NSRange(location: 4, length: 1)],

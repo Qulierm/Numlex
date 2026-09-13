@@ -106,21 +106,28 @@ public enum ExportSnapshotBuilder {
             let result = resolvedLines.indices.contains(index)
                 ? resolvedLines[index]
                 : SheetLine(sourceLineIndex: index, result: .blank)
-            let isComment = raw.hasPrefix("//")
+            let analysis = SheetLineAnalysis.parse(raw)
+            let isComment = analysis.kind == .comment || analysis.kind == .commentTitle
             if options.hideComments && isComment { continue }
+            // Package 7: strip ONLY the `# ` heading marker (exactly two
+            // characters), never a tag hash.
             let stripPrefix: Int = {
-                guard options.hideHashMarker, raw.hasPrefix("#") else { return 0 }
-                return raw.hasPrefix("# ") ? 2 : 1
+                guard options.hideHashMarker, analysis.kind == .heading else { return 0 }
+                return 2
             }()
             let displayText = stripPrefix > 0
                 ? String(raw.dropFirst(stripPrefix))
                 : raw
             let kind: ExportRowKind = {
-                if raw.hasPrefix("#") { return .heading }
-                if isComment { return .comment }
-                if result.isTotal { return .total }
-                if raw.trimmingCharacters(in: .whitespaces).isEmpty { return .blank }
-                return .expression
+                switch analysis.kind {
+                case .heading: return .heading
+                case .comment, .commentTitle: return .comment
+                case .divider: return .divider
+                case .blank, .tagOnly:
+                    return result.isTotal ? .total : .blank
+                case .totalCommand, .expression:
+                    return result.isTotal ? .total : .expression
+                }
             }()
             let lineID = context.lineIDs.indices.contains(index)
                 ? context.lineIDs[index]

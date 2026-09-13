@@ -125,6 +125,17 @@ struct ContentView: View {
         // color) for the editor's in-place fill rendering.
         let editorHighlightFills = Dictionary(
             uniqueKeysWithValues: (sheet?.highlights ?? []).map { ($0.lineID, $0.color) })
+        // Package 7: stable line IDs of the exact `---` divider rows.
+        let dividerLineIDs: Set<UUID> = {
+            guard let sheet else { return [] }
+            var ids = Set<UUID>()
+            for line in resolved.lines where line.metadata == .divider {
+                if sheet.lineIDs.indices.contains(line.sourceLineIndex) {
+                    ids.insert(sheet.lineIDs[line.sourceLineIndex])
+                }
+            }
+            return ids
+        }()
         let onHighlightLines: (Sheet.ID?, [UUID], HighlightColor?) -> Void = {
             sheetID, lineIDs, color in
             model.setLineHighlight(sheetID: sheetID, lineIDs: lineIDs, color: color)
@@ -165,6 +176,7 @@ struct ContentView: View {
             onReady: { bridge in editorBridge = bridge },
             onTokenHoverChanged: { id in hoveredSourceID = id },
             lineHighlightFills: editorHighlightFills,
+            dividerLineIDs: dividerLineIDs,
             editorLineIDs: sheet?.lineIDs ?? [],
             onHighlightLines: onHighlightLines,
             appLanguage: settings.language

@@ -260,10 +260,13 @@ public let sheetCases: [EngineCase] = [
 
     EngineCase("sheet-contract-multiple-hash-and-blanks") {
         var vars: [String: Double] = [:]
+        // Package 7: only `# ` (hash + space) is a heading; `#x` is a
+        // TAG-ONLY line (quiet blank); a lone `#` is an ordinary prose
+        // row (skip), never a heading.
         let rows = evaluateSheet("#\n#\n#x\n\n\n5", variables: &vars, rates: Rates(), decimalPlaces: 7)
         try expectEqual(rows.count, 6, "one row per logical line")
         try expectEqual(rows.map { $0.result },
-                        [.blank, .blank, .blank, .blank, .blank, .number(value: 5, unit: nil)])
+                        [.skip, .skip, .blank, .blank, .blank, .number(value: 5, unit: nil)])
         try expectEqual(rows[5].sourceLineIndex, 5)
     },
 

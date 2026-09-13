@@ -785,6 +785,8 @@ public enum ExportLayoutEngine {
         switch row.kind {
         case .heading: return max(metrics.headingLineHeight, metrics.tokenLineHeight)
         case .blank: return metrics.expressionLineHeight
+        case .divider:
+            return metrics.expressionLineHeight
         case .expression, .comment, .total:
             return max(max(metrics.expressionLineHeight, metrics.answerLineHeight),
                        metrics.tokenLineHeight)

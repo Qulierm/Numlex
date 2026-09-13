@@ -386,6 +386,35 @@ extension LineResult {
     }
 }
 
+/// Package 7: the typed derived-row metadata attached to a SheetLine.
+/// Additive: `.ordinary` is the default, so every existing constructor
+/// call stays source-compatible. Never persisted to the store or to
+/// `.nlx` — each pass re-derives it from the sheet text.
+public enum SheetLineMetadata: Equatable, Sendable {
+    case ordinary
+    /// A legacy standalone `total` command row.
+    case legacyTotal
+    /// A `subtotal` / named-subtotal row.
+    case subtotal
+    /// A `grand total` / named-grand-total row.
+    case grandTotal
+    /// A `total of #tag` style aggregate row.
+    case tagAggregate
+    /// An exact standalone `---` divider.
+    case divider
+    /// A row whose executed result depends on `rand` (dynamic).
+    case dynamic
+
+    /// Derived rows never contribute to aggregates or the footer.
+    public var isDerived: Bool {
+        switch self {
+        case .ordinary: return false
+        case .legacyTotal, .subtotal, .grandTotal, .tagAggregate, .divider, .dynamic:
+            return true
+        }
+    }
+}
+
 public struct SheetLine: Equatable, Sendable {
     public var sourceLineIndex: Int
     public var result: LineResult
@@ -396,10 +425,17 @@ public struct SheetLine: Equatable, Sendable {
     /// is never double-counted. Defaulted so every existing constructor
     /// call stays source-compatible; never persisted to the store or
     /// to `.nlx` — each pass re-derives it from the sheet text.
+    /// Package 7 keeps it in sync with `metadata == .legacyTotal`.
     public var isTotal: Bool = false
-    public init(sourceLineIndex: Int, result: LineResult, isTotal: Bool = false) {
+    /// Package 7: the typed derived-row kind for this row.
+    public var metadata: SheetLineMetadata = .ordinary
+    public init(sourceLineIndex: Int, result: LineResult, isTotal: Bool = false,
+                metadata: SheetLineMetadata = .ordinary) {
         self.sourceLineIndex = sourceLineIndex
         self.result = result
         self.isTotal = isTotal
+        self.metadata = metadata
     }
+
+    public var isDerived: Bool { metadata.isDerived }
 }

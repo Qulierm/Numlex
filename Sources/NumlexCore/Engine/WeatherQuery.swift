@@ -132,9 +132,16 @@ public struct WeatherQuery: Equatable, Sendable, Hashable {
         var seen: Set<String> = []
         var out: [WeatherQuery] = []
         for raw in content.components(separatedBy: "\n") {
-            let t = raw.trimmingCharacters(in: .whitespaces)
-            guard !t.isEmpty, !t.hasPrefix("#"), !t.hasPrefix("//") else { continue }
-            guard let q = parse(raw) else { continue }
+            // Package 7: scan the tag-stripped evaluation body so a
+            // trailing `#travel` never becomes part of a place name.
+            let analysis = SheetLineAnalysis.parse(raw)
+            switch analysis.kind {
+            case .blank, .heading, .comment, .commentTitle, .divider, .tagOnly:
+                continue
+            case .totalCommand, .expression:
+                break
+            }
+            guard let q = parse(analysis.evaluationProjection) else { continue }
             guard seen.insert(q.key).inserted else { continue }
             out.append(q)
         }

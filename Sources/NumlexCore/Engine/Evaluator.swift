@@ -951,30 +951,45 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
     var rows: [SheetLine] = []
     let lines = source.components(separatedBy: "\n")
     for (index, line) in lines.enumerated() {
+        // Package 7: ONE shared structural analysis decides the line
+        // kind; tags are stripped from evaluation, a divider is derived
+        // metadata and `#food` is never a heading.
+        let analysis = SheetLineAnalysis.parse(line)
         let result: LineResult
         var isTotalRow = false
-        if line.trimmingCharacters(in: .whitespaces).isEmpty || line.hasPrefix("#") {
+        var metadata: SheetLineMetadata = .ordinary
+        switch analysis.kind {
+        case .blank, .heading, .comment, .tagOnly:
             result = .blank
-        } else if line.hasPrefix("// ") {
-            result = .title(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
-        } else if line.hasPrefix("//") {
+        case .commentTitle:
+            result = .title(String(analysis.source.dropFirst(2))
+                .trimmingCharacters(in: .whitespaces))
+        case .divider:
             result = .blank
-        } else if InlineTotal.isCommand(line, env: env) {
-            result = totals.total(decimalPlaces: decimalPlaces)
-            if case .number = result { isTotalRow = true }
-        } else if let eval = evalLineTyped(line, env: &env, rates: rates,
-                                           decimalPlaces: decimalPlaces,
-                                           now: now, calendar: calendar, weather: weather,
-                                           geo: geo,
-                                           context: context, unitContext: unitContext,
-                                           preferences: preferences,
-                                           financial: financial) {
-            result = eval
-        } else {
-            result = .skip
+            metadata = .divider
+        case .totalCommand, .expression:
+            let work = analysis.evaluationProjection
+            if InlineTotal.isCommand(work, env: env) {
+                result = totals.total(decimalPlaces: decimalPlaces)
+                if case .number = result {
+                    isTotalRow = true
+                    metadata = .legacyTotal
+                }
+            } else if let eval = evalLineTyped(work, env: &env, rates: rates,
+                                               decimalPlaces: decimalPlaces,
+                                               now: now, calendar: calendar, weather: weather,
+                                               geo: geo,
+                                               context: context, unitContext: unitContext,
+                                               preferences: preferences,
+                                               financial: financial) {
+                result = eval
+            } else {
+                result = .skip
+            }
         }
         totals.observe(result: result, isTotalRow: isTotalRow)
-        rows.append(SheetLine(sourceLineIndex: index, result: result, isTotal: isTotalRow))
+        rows.append(SheetLine(sourceLineIndex: index, result: result,
+                              isTotal: isTotalRow, metadata: metadata))
     }
     for (k, v) in env.scalarDict() { variables[k] = v }
     return rows
