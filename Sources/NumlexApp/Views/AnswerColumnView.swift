@@ -3,6 +3,13 @@ import SwiftUI
 import NumlexCore
 
 struct AnswerColumnView: View {
+    /// The column's EFFECTIVE width (the persisted 140...400 pt
+    /// preference capped by the available detail width so the editor
+    /// keeps at least 280 pt; `AnswerColumnGeometry.defaultWidth` =
+    /// 200 is the legacy fixed panel). Every answer row, the wheel
+    /// catcher, the hover outlines, the total dividers and the footer
+    /// are laid out against this ONE actual width.
+    var width: Double = AnswerColumnGeometry.defaultWidth
     /// One indexed evaluated line per logical source line (strict 1:1
     /// contract from `evaluateSheet`); every rendered answer binds to its
     /// explicit `sourceLineIndex`, never to its position after filtering.
@@ -700,7 +707,12 @@ struct AnswerColumnView: View {
 
             if showTotalBar, let s = summary {
                 let metrics = footerTextMetrics(value: s.value)
-                let layout = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
+                // The footer is laid out against the column's ACTUAL
+                // width: the Result's content width drives the text
+                // frames, and the bubble slot is the real inset slot of
+                // the current column (at the 200 pt default it is the
+                // legacy 184 pt full bubble — byte-identical geometry).
+                let layout = FooterTotalLayout.layout(containerWidth: width,
                                                       labelWidth: metrics.label,
                                                       valueWidth: metrics.value)
                 footerBarContent(value: s.value, layout: layout)
@@ -708,9 +720,9 @@ struct AnswerColumnView: View {
                     .padding(.vertical, 8)
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     // The bubble shrinks from its LEADING edge: the trailing
-                    // edge stays put inside the panel's inset slot, and the
+                    // edge stays put inside the column's inset slot, and the
                     // reserved vertical space is untouched in both modes.
-                    .frame(width: FooterTotalLayout.bubbleWidth, alignment: .trailing)
+                    .frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)
                     .padding(FooterTotalLayout.outerInset)
                     // ONE announcement, in both modes: the localized label and
                     // the exact displayed value, never duplicated children.
@@ -739,16 +751,16 @@ struct AnswerColumnView: View {
                     .transaction { if !reduceMotion { $0.animation = nil } }
             }
         }
-        .frame(width: 200)
+        .frame(width: width)
         // v2: the answer panel is a DARKER calm gray than the editor
         // (Design.answerPanelBackground: explicit per-appearance sRGB —
         // quiet elevated gray in dark, quiet gray in light), so the
         // result surface reads as its own matte panel without looking
         // light. Editor background and every text token stay untouched.
         // The layer expands vertically so the titlebar-gap strip above
-        // the column matches the panel; the editor|answers hairline
-        // itself lives once in ContentView (full-height), never here —
-        // no double line, no width drift.
+        // the column matches the panel; the editor|answers divider
+        // itself lives once in ContentView (full-height, draggable),
+        // never here — no double line, no width drift.
         // r87: the Styling answer-column surface choice swaps the
         // panel color through the centralized palette resolver
         // (`.neutral` = the exact pre-r87 panel); the answer glyph

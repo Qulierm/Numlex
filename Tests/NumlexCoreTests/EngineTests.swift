@@ -305,4 +305,9 @@ struct EngineTests {
     func footerTotalCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: answerColumnWidthCases)
+    func answerColumnWidthCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

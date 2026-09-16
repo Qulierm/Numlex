@@ -39,6 +39,16 @@ struct ContentView: View {
     /// within 180...220). The window resize response uses this value, not
     /// a hardcoded ideal, so the width delta always matches the column.
     @State private var sidebarWidth: CGFloat = 190
+    /// Live measured width of the detail pane (editor + divider +
+    /// answer column). Drives the answer column's window cap: the
+    /// effective width keeps the editor at least
+    /// `AnswerColumnGeometry.editorMinimumWidth` wide.
+    @State private var detailWidth: CGFloat = 0
+    /// The answer-column width preference captured when the current
+    /// divider drag started (nil outside a drag). The drag's one
+    /// on-end persist is skipped when the final value equals this
+    /// (a no-op click/drag never writes to disk).
+    @State private var answerDragStartPref: Double?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// r43: mint an answer token at the editor's CURRENT caret/selection.
@@ -373,17 +383,195 @@ struct ContentView: View {
         }
     }
 
-    /// Editor|answers hairline (extracted as a property ONLY to keep
-    /// `body` inside the type-checker's budget — the emitted view is
-    /// the centralized panel separator, 1 pt in-flow like the old
-    /// Divider, stretched through the titlebar safe-area gap to the
-    /// very top and bottom.
-    private var editorAnswerDivider: some View {
-        Color(nsColor: Design.panelSeparator)
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .ignoresSafeArea(edges: .vertical)
-            .allowsHitTesting(false)
+    /// Editor|answers divider (extracted as a property ONLY to keep
+    /// `body` inside the type-checker's budget): the 1 pt centralized
+    /// panel separator, stretched through the titlebar safe-area gap
+    /// to the very top and bottom, with the centered 12 pt drag hit
+    /// zone that resizes the answer column (left drag grows it,
+    /// right drag shrinks it; live in-memory, one persist on end).
+    private func answerDivider(settings: AppSettings,
+                               effectiveWidth: Double) -> some View {
+        AnswerColumnResizeHandle(
+            displayedWidth: effectiveWidth,
+            language: settings.language,
+            onChange: { width in
+                // The first live change of a drag snapshots the
+                // pre-drag preference (before this write), so the
+                // on-end persist can skip a no-op.
+                if answerDragStartPref == nil {
+                    answerDragStartPref = model.settings.styling.answerColumnWidth
+                }
+                // In-memory only: the column re-lays-out live, the
+                // editor yields/gains the same delta; nothing is
+                // written to disk mid-drag.
+                model.settings.styling.answerColumnWidth = width
+            },
+            onEnd: { finalWidth in
+                // Exactly ONE persist per drag, skipped when the
+                // preference did not actually change.
+                let changed = finalWidth != answerDragStartPref
+                answerDragStartPref = nil
+                if changed { model.persist() }
+            }
+        )
+    }
+
+    /// The answer column (extracted from `body` ONLY to keep the
+    /// detail HStack inside the type-checker's budget — the r43
+    /// pattern used by `editorView`). The tree is identical to the
+    /// inline form: the reference-aware rows, the view's callbacks
+    /// and the r77b motion observation all live here, and the column
+    /// is laid out at `effectiveWidth` (the persisted 140...400 pt
+    /// preference capped by the detail width for the editor minimum).
+    private func answerColumn(settings: AppSettings,
+                              effectiveWidth: Double,
+                              weatherContext: WeatherContext,
+                              geoContext: GeoContext) -> some View {
+        // r37: the hovered token's source line in the CURRENT content
+        // (stable ID → current index; nil when the source no longer
+        // exists).
+        let highlightedSourceLineIndex: Int? = {
+            guard let id = hoveredSourceID,
+                  let sheet = model.selectedSheet else { return nil }
+            return sheet.lineIDs.firstIndex(of: id)
+        }()
+        // Reference-aware rows (same strict 1:1 contract as
+        // evaluateSheet, with token lines resolved to their current
+        // linked values).
+        // r51: per-answer rounding overrides by stable line ID
+        // (sanitized here so the view only ever sees live IDs).
+        let answerSheet = model.selectedSheet
+        let answerLineIDs: [UUID] = answerSheet?.lineIDs ?? []
+        let answerRounding: [UUID: Int] = {
+            guard let s = answerSheet else { return [:] }
+            let clean = AnswerDisplay.sanitize(s.answerDisplay, lineIDs: s.lineIDs)
+            return Dictionary(uniqueKeysWithValues: clean.map { ($0.lineID, $0.decimalPlaces) })
+        }()
+        let rows: [SheetLine] = {
+            let sheet = model.selectedSheet
+            return resolveSheet(
+                content: sheet?.content ?? "",
+                lineIDs: sheet?.lineIDs ?? [],
+                references: sheet?.references ?? [],
+                rates: model.rates,
+                decimalPlaces: settings.decimalPlaces,
+                constants: settings.customConstants,
+                weather: weatherContext,
+                geo: geoContext,
+                context: model.numberContext,
+                unitContext: model.unitContext,
+                preferences: settings.temporal,
+                financial: model.financialContext,
+                random: model.currentRandomContext
+            ).lines
+        }()
+        // r77b: per-line result state for the answer-appearance
+        // motion model, parallel to `rows`: stable line ID + the row's
+        // displayed answer key (the SAME string the answer view
+        // crossfades on), nil for quiet lines (blank, heading, error,
+        // broken token). A quiet→result edge is what starts a fade-in
+        // — reporting from the view (the only place results are known)
+        // after every re-evaluation is what makes the fade trigger on
+        // the FIRST answer of an existing line, not on line creation.
+        let motionEntries: [AnswerMotionEntry] = {
+            guard let sheet = model.selectedSheet else { return [] }
+            var out: [AnswerMotionEntry] = []
+            out.reserveCapacity(rows.count)
+            for line in rows where sheet.lineIDs.indices.contains(line.sourceLineIndex) {
+                let id = sheet.lineIDs[line.sourceLineIndex]
+                // Only real answers get a pass: quiet rows (blanks,
+                // headings, errors, broken tokens) stay key-less, so a
+                // result appearing on any of them is the quiet→result
+                // edge, and errors never dim the column.
+                var key: String?
+                switch line.result {
+                case .number, .variable, .money, .date, .boolean:
+                    let places = AnswerDisplay.effective(
+                        defaultPlaces: settings.decimalPlaces,
+                        override: answerRounding[id])
+                    key = AnswerDisplay.text(
+                        for: line.result,
+                        decimalPlaces: places,
+                        context: model.numberContext)
+                default:
+                    key = nil
+                }
+                out.append(AnswerMotionEntry(id: id, key: key))
+            }
+            return out
+        }()
+        return AnswerColumnView(
+            width: effectiveWidth,
+            rows: rows,
+            metrics: metrics,
+            topOffset: topOffset,
+            onWheelScroll: { event in
+                // Answer column wheel: forward the raw NSEvent to the
+                // editor's scroll view; the editor stays the single
+                // native momentum/elasticity source and its
+                // BoundsDidChange drives topOffset back.
+                editorBridge?.forwardScrollWheel(event)
+            },
+            onAnswerDoubleTap: { lineIndex in
+                answerDoubleTap(lineIndex: lineIndex,
+                                sheetID: model.selectedSheet?.id,
+                                bridge: editorBridge)
+            },
+            onEmptyAnswerDoubleTap: { lineIndex in
+                emptyAnswerDoubleTap(lineIndex: lineIndex,
+                                     sheetID: model.selectedSheet?.id,
+                                     bridge: editorBridge)
+            },
+            sourceLines: model.selectedSheet?.content
+                .components(separatedBy: "\n") ?? [],
+            fontSize: settings.fontSize,
+            lineHeight: settings.lineHeight,
+            decimalPlaces: settings.decimalPlaces,
+            lineIDs: answerLineIDs,
+            roundingOverrides: answerRounding,
+            language: settings.language,
+            onSetRounding: { idx, places in model.setAnswerRounding(at: idx, places: places) },
+            onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
+            onConvertToNormal: { idx in handleConvertToNormal(idx) },
+            fontDesign: settings.styling.fontDesign,
+            totalLabel: footerStatisticLabel(settings.footerStatistic,
+                                             language: settings.language),
+            footerStatistic: settings.footerStatistic,
+            onSetFooterStatistic: { model.setFooterStatistic($0) },
+            showTotalBar: settings.showTotalBar,
+            highlightedSourceLineIndex: highlightedSourceLineIndex,
+            numberContext: model.numberContext,
+            // r77: per-line fade-in opacities of the answer appearance
+            // pass (empty = every row fully opaque).
+            answerOpacities: model.answerOpacities,
+            presentation: settings.presentation,
+            notationOverrides: notationOverrideMap,
+            columnAlignment: settings.styling.answerColumnAlignment,
+            columnSurface: settings.styling.answerColumnSurface,
+            highlightFills: editorHighlightFills,
+            onSetNotation: { idx, notation in
+                model.setAnswerNotation(at: idx, notation: notation)
+            },
+            onRestoreFormatting: { idx in
+                model.resetAnswerFormatting(at: idx)
+            }
+        )
+        // r77b: report the per-line result state to the motion model.
+        // `initial: true` delivers the INITIAL load state on first
+        // appearance (the sheet is seeded pending in AppModel.init, so
+        // this adopts silently — loaded answers never replay); every
+        // later re-evaluation (edits, token insertions, sheet
+        // switches) arrives as a change — the quiet→result edges among
+        // them start the fade-in passes.
+        .onChange(of: motionEntries, initial: true) { _, newEntries in
+            // r77c: record what the observation saw (compact).
+            let desc = newEntries.prefix(8).map {
+                let k = $0.key.map { String($0.prefix(5)) } ?? "q"
+                return $0.id.uuidString.prefix(4) + ":" + k
+            }.joined(separator: " ")
+            Diagnostics.shared?.log("motion.onChange n=\(newEntries.count) \(desc)")
+            model.noteAnswerResultActivity(newEntries)
+        }
     }
 
     var body: some View {
@@ -413,6 +601,14 @@ struct ContentView: View {
                 // r85: ONE geo context per body pass, shared by the
                 // editor and answer evaluations below.
                 let geoContext = model.geoContext
+                // The answer column's EFFECTIVE width: the persisted
+                // preference (140...400) capped by the available detail
+                // width so the editor keeps at least 280 pt. Unknown
+                // detail widths (before first layout) fall back to the
+                // sanitized preference — never negative/NaN.
+                let effectiveAnswerWidth = AnswerColumnGeometry.effectiveWidth(
+                    preference: model.settings.styling.answerColumnWidth,
+                    availableDetailWidth: detailWidth)
                 GeometryReader { _ in
                     let settings = model.settings
                     let sheet = model.selectedSheet
@@ -441,160 +637,36 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Editor|answers hairline: 1 pt in-flow (same footprint
+                // Editor|answers divider: 1 pt in-flow (same footprint
                 // as the old Divider, so editor/answer widths stay
-                // stable), full height to the very top and bottom.
-                editorAnswerDivider
+                // stable) with the centered 12 pt drag hit zone; full
+                // height to the very top and bottom.
+                answerDivider(settings: model.settings,
+                              effectiveWidth: effectiveAnswerWidth)
 
-                let settings = model.settings
-                // r37: the hovered token's source line in the CURRENT
-                // content (stable ID → current index; nil when the
-                // source no longer exists).
-                let highlightedSourceLineIndex: Int? = {
-                    guard let id = hoveredSourceID,
-                          let sheet = model.selectedSheet else { return nil }
-                    return sheet.lineIDs.firstIndex(of: id)
-                }()
-                // Reference-aware rows (same strict 1:1 contract as
-                // evaluateSheet, with token lines resolved to their
-                // current linked values).
-                // r51: per-answer rounding overrides by stable line ID
-                // (sanitized here so the view only ever sees live IDs).
-                let answerSheet = model.selectedSheet
-                let answerLineIDs: [UUID] = answerSheet?.lineIDs ?? []
-                let answerRounding: [UUID: Int] = {
-                    guard let s = answerSheet else { return [:] }
-                    let clean = AnswerDisplay.sanitize(s.answerDisplay, lineIDs: s.lineIDs)
-                    return Dictionary(uniqueKeysWithValues: clean.map { ($0.lineID, $0.decimalPlaces) })
-                }()
-                let rows: [SheetLine] = {
-                    let sheet = model.selectedSheet
-                    return resolveSheet(
-                        content: sheet?.content ?? "",
-                        lineIDs: sheet?.lineIDs ?? [],
-                        references: sheet?.references ?? [],
-                        rates: model.rates,
-                        decimalPlaces: settings.decimalPlaces,
-                        constants: settings.customConstants,
-                        weather: weatherContext,
-                        geo: geoContext,
-                        context: model.numberContext,
-                        unitContext: model.unitContext,
-                        preferences: settings.temporal,
-                        financial: model.financialContext,
-                        random: model.currentRandomContext
-                    ).lines
-                }()
-                // r77b: per-line result state for the answer-appearance
-                // motion model, parallel to `rows`: stable line ID + the
-                // row's displayed answer key (the SAME string the answer
-                // view crossfades on), nil for quiet lines (blank,
-                // heading, error, broken token). A quiet→result edge is
-                // what starts a fade-in — reporting from the view (the
-                // only place results are known) after every re-evaluation
-                // is what makes the fade trigger on the FIRST answer of
-                // an existing line, not on line creation.
-                let motionEntries: [AnswerMotionEntry] = {
-                    guard let sheet = model.selectedSheet else { return [] }
-                    var out: [AnswerMotionEntry] = []
-                    out.reserveCapacity(rows.count)
-                    for line in rows where sheet.lineIDs.indices.contains(line.sourceLineIndex) {
-                        let id = sheet.lineIDs[line.sourceLineIndex]
-                        // Only real answers get a pass: quiet rows
-                        // (blanks, headings, errors, broken tokens) stay
-                        // key-less, so a result appearing on any of them
-                        // is the quiet→result edge, and errors never dim
-                        // the column.
-                        var key: String?
-                        switch line.result {
-                        case .number, .variable, .money, .date, .boolean:
-                            let places = AnswerDisplay.effective(
-                                defaultPlaces: settings.decimalPlaces,
-                                override: answerRounding[id])
-                            key = AnswerDisplay.text(
-                                for: line.result,
-                                decimalPlaces: places,
-                                context: model.numberContext)
-                        default:
-                            key = nil
-                        }
-                        out.append(AnswerMotionEntry(id: id, key: key))
-                    }
-                    return out
-                }()
-                AnswerColumnView(
-                    rows: rows,
-                    metrics: metrics,
-                    topOffset: topOffset,
-                    onWheelScroll: { event in
-                        // Answer column wheel: forward the raw NSEvent to
-                        // the editor's scroll view; the editor stays the
-                        // single native momentum/elasticity source and its
-                        // BoundsDidChange drives topOffset back.
-                        editorBridge?.forwardScrollWheel(event)
-                    },
-                    onAnswerDoubleTap: { lineIndex in
-                        answerDoubleTap(lineIndex: lineIndex,
-                                        sheetID: model.selectedSheet?.id,
-                                        bridge: editorBridge)
-                    },
-                    onEmptyAnswerDoubleTap: { lineIndex in
-                        emptyAnswerDoubleTap(lineIndex: lineIndex,
-                                             sheetID: model.selectedSheet?.id,
-                                             bridge: editorBridge)
-                    },
-                    sourceLines: model.selectedSheet?.content
-                        .components(separatedBy: "\n") ?? [],
-                    fontSize: settings.fontSize,
-                    lineHeight: settings.lineHeight,
-                    decimalPlaces: settings.decimalPlaces,
-                    lineIDs: answerLineIDs,
-                    roundingOverrides: answerRounding,
-                    language: settings.language,
-                    onSetRounding: { idx, places in model.setAnswerRounding(at: idx, places: places) },
-                    onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
-                    onConvertToNormal: { idx in handleConvertToNormal(idx) },
-                    fontDesign: settings.styling.fontDesign,
-                    totalLabel: footerStatisticLabel(settings.footerStatistic,
-                                                     language: settings.language),
-                    footerStatistic: settings.footerStatistic,
-                    onSetFooterStatistic: { model.setFooterStatistic($0) },
-                    showTotalBar: settings.showTotalBar,
-                    highlightedSourceLineIndex: highlightedSourceLineIndex,
-                    numberContext: model.numberContext,
-                    // r77: per-line fade-in opacities of the answer
-                    // appearance pass (empty = every row fully opaque).
-                    answerOpacities: model.answerOpacities,
-                    presentation: settings.presentation,
-                    notationOverrides: notationOverrideMap,
-                    columnAlignment: settings.styling.answerColumnAlignment,
-                    columnSurface: settings.styling.answerColumnSurface,
-                    highlightFills: editorHighlightFills,
-                    onSetNotation: { idx, notation in
-                        model.setAnswerNotation(at: idx, notation: notation)
-                    },
-                    onRestoreFormatting: { idx in
-                        model.resetAnswerFormatting(at: idx)
-                    }
+                // The answer column (identical tree; the initializer is
+                // a method for the type-checker's budget, r43 pattern).
+                answerColumn(
+                    settings: model.settings,
+                    effectiveWidth: effectiveAnswerWidth,
+                    weatherContext: weatherContext,
+                    geoContext: geoContext
                 )
-                // r77b: report the per-line result state to the motion
-                // model. `initial: true` delivers the INITIAL load state
-                // on first appearance (the sheet is seeded pending in
-                // AppModel.init, so this adopts silently — loaded answers
-                // never replay); every later re-evaluation (edits, token
-                // insertions, sheet switches) arrives as a change — the
-                // quiet→result edges among them start the fade-in passes.
-                .onChange(of: motionEntries, initial: true) { _, newEntries in
-                    // r77c: record what the observation saw (compact).
-                    let desc = newEntries.prefix(8).map {
-                        let k = $0.key.map { String($0.prefix(5)) } ?? "q"
-                        return $0.id.uuidString.prefix(4) + ":" + k
-                    }.joined(separator: " ")
-                    Diagnostics.shared?.log("motion.onChange n=\(newEntries.count) \(desc)")
-                    model.noteAnswerResultActivity(newEntries)
-                }
             }
             .toolbar(removing: .title)
+            // Track the ACTUAL detail width (the editor + divider +
+            // answer column) so the answer column's window cap is
+            // computed from real geometry, never a hardcoded panel
+            // width. A zero/unmeasured width disables the cap (the
+            // sanitized preference is used as-is).
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onChange(of: proxy.size.width, initial: true) { _, w in
+                            if w > 0 { detailWidth = w }
+                        }
+                }
+            )
         }
         // r59: the compact content minimum (MainWindowGeometry — the
         // same source of truth the scene root and the WindowConfigurator

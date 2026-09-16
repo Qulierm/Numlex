@@ -11,10 +11,14 @@ import CoreGraphics
 /// rounds the value — the Total's number semantics are unchanged.
 public enum FooterTotalLayout {
 
-    // MARK: geometry (the editor's existing numbers)
+    // MARK: geometry (the answer column's footer design numbers)
 
-    /// The answer panel is a fixed 200 pt column.
-    public static let panelWidth: CGFloat = 200
+    /// Default-width compatibility constant ONLY: the legacy fixed panel
+    /// width. The column is user-adjustable (140...400 pt, see
+    /// `AnswerColumnGeometry`); runtime layout ALWAYS receives the
+    /// actual container width and never reads this value. Kept for
+    /// tests of the 200 pt default behavior.
+    public static let panelWidth: CGFloat = AnswerColumnGeometry.defaultWidth
     /// Outer inset around the glass bubble on every side.
     public static let outerInset: CGFloat = 8
     /// The bubble's own horizontal padding.
@@ -32,9 +36,13 @@ public enum FooterTotalLayout {
     /// label.
     public static let comfortReserve: CGFloat = 22
 
-    /// Full bubble width inside the panel (184 pt).
+    /// Default-width compatibility value ONLY: the full bubble width of
+    /// the legacy 200 pt column (184 pt). Runtime code derives the
+    /// bubble from the ACTUAL container width; tests use this to assert
+    /// the 200 pt default geometry.
     public static var bubbleWidth: CGFloat { panelWidth - 2 * outerInset }
-    /// Full content width inside the bubble (160 pt).
+    /// Default-width compatibility value ONLY: the full content width of
+    /// the legacy 200 pt column (160 pt); see `bubbleWidth`.
     public static var contentWidth: CGFloat { bubbleWidth - 2 * innerPadding }
 
     public struct Result: Equatable, Sendable {
@@ -49,7 +57,9 @@ public enum FooterTotalLayout {
     /// Decides the footer mode for one measurement.
     ///
     /// - Parameters:
-    ///   - containerWidth: the answer panel's width (normally 200).
+    ///   - containerWidth: the answer column's ACTUAL width (the
+    ///     adjusted width; the 200 pt default reproduces the legacy
+    ///     geometry exactly).
     ///   - labelWidth: the measured width of the localized `total` label.
     ///   - valueWidth: the measured width of the formatted Total value.
     /// - Returns: the mode plus the widths the caller should lay out with.
@@ -67,10 +77,11 @@ public enum FooterTotalLayout {
         let valueIsKnown = valueWidth.isFinite && valueWidth > 0
         let value = valueIsKnown ? valueWidth : 0
 
-        // The bubble never exceeds the panel, and the content never exceeds
-        // the bubble: both are clamped so a hostile container can only
-        // shrink the footer, never overflow it.
-        let fullBubble = max(0, min(container - 2 * outerInset, bubbleWidth))
+        // The bubble never exceeds the ACTUAL panel (the adjusted column
+        // width) and the content never exceeds the bubble: both are
+        // clamped so a hostile container can only shrink the footer,
+        // never overflow it.
+        let fullBubble = max(0, container - 2 * outerInset)
         let fullContent = max(0, fullBubble - 2 * innerPadding)
 
         // Expanded requires the label, its gap, the value AND the comfort

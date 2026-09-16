@@ -2044,11 +2044,48 @@ private struct StylingSettingsPage: View {
                 }
             }
 
-            // 2. ANSWER COLUMN (r87) — the 200pt column's surface and
+            // 2. ANSWER COLUMN — the adjustable column (140...400 pt,
+            // default 200; drag the editor|answers divider or set the
+            // exact width here): width first, then the surface and
             // where answers sit inside it.
             SettingsGroup(title: L10n.t("styling.column", language: language)) {
                 SettingsRow(
-                    title: L10n.t("styling.column.alignment", language: language)
+                    title: L10n.t("styling.column.width", language: language),
+                    detail: L10n.t("styling.column.widthCap", language: language)
+                ) {
+                    // Native slider over the hard 140...400 pt range
+                    // with a live `N pt` readout. Moving it updates the
+                    // main window immediately (presentation-only);
+                    // exactly one persist happens when the user lets
+                    // go — never on every tick of the drag.
+                    HStack(spacing: 10) {
+                        Slider(
+                            value: Binding(
+                                get: { model.settings.styling.answerColumnWidth },
+                                set: { model.settings.styling.answerColumnWidth =
+                                        AnswerColumnGeometry.sanitizePreference($0) }
+                            ),
+                            in: AnswerColumnGeometry.minWidth...AnswerColumnGeometry.maxWidth
+                        ) { editing in
+                            if !editing { model.persist() }
+                        }
+                        .frame(width: 150)
+                        .accessibilityLabel(
+                            L10n.t("styling.column.width", language: language))
+                        .accessibilityValue(
+                            Text("\(Int(model.settings.styling.answerColumnWidth)) pt"))
+                        .accessibilityHint(
+                            Text(L10n.t("styling.column.widthCap", language: language)))
+                        Text("\(Int(model.settings.styling.answerColumnWidth)) pt")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(minWidth: 48, alignment: .trailing)
+                            .accessibilityHidden(true)
+                    }
+                    .fixedSize()
+                }
+                SettingsRow(
+                    title: L10n.t("styling.column.alignment", language: language),
+                    divider: true
                 ) {
                     Picker("", selection: Binding(
                         get: { model.settings.styling.answerColumnAlignment },

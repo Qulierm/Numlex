@@ -257,13 +257,19 @@ Sheets are grouped by the one-level folder tabs pinned to the bottom of the side
 the built-in **General** tab plus any custom folders you create. Selecting a tab
 filters the sheet list only — your editor and cursor never jump. The main window
 resizes down to a 260pt content height for compact desks; the default stays
-800×600 and the sidebar and answers keep scrolling safely.
+800×600 and the sidebar and answers keep scrolling safely. The answer column is
+adjustable (140–400 pt, default 200): drag the thin divider between the editor
+and the answers — left grows the column, right shrinks it — or set an exact
+width in Settings → Styling → Answer column. The choice is app-global (it is
+never part of a sheet's `.nlx`), and in a narrow window the column is capped so
+the editor always keeps at least 280 pt.
 
 ## Styling and constants
 
 Choose Auto (follow macOS), Light or Dark for the whole app, pick the
 Dock/App Switcher icon (Dark — the signed bundle icon and the default — or
-Light), then tune font size, font design and role colors, decimal places, input
+Light), then tune font size, font design, role colors and the answer column
+width, decimal places, input
 helpers, line numbers, interface language, the currency display, and an option
 to hide the sidebar button once collapsed —
 reopen it any time with ⌃⌘S (Control-Command-S) or View > Toggle Sidebar. Define up to 100 app-wide constants (`PI = 3.141592653589793`,

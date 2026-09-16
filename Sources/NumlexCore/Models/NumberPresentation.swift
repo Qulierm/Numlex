@@ -209,7 +209,7 @@ public struct NumberPresentationPreferences: Codable, Equatable, Sendable {
 // "color" choice IS the column background; the answer glyph color is
 // resolved centrally for contrast — see the app-side palette).
 
-/// r87: horizontal placement of answer content in the 200pt column.
+/// r87: horizontal placement of answer content in the (adjustable) answer column.
 public enum AnswerColumnAlignment: String, CaseIterable, Codable, Equatable, Sendable {
     case leading, trailing
 

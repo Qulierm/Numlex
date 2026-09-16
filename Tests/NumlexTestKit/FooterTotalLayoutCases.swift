@@ -268,12 +268,16 @@ public let footerTotalLayoutCases: [EngineCase] = [
                    "the shared helper exists")
         try expect(!view.contains("opacity(layout.showsLabel"), "never a hidden label")
         // Geometry invariants: the trailing edge is fixed by an explicit
-        // trailing-aligned slot, and the outer inset is unchanged.
-        try expect(view.contains(".frame(width: FooterTotalLayout.bubbleWidth, alignment: .trailing)"),
-                   "trailing-aligned slot")
+        // trailing-aligned slot derived from the ACTUAL column width
+        // (the legacy 200 pt slot is reproduced at the default), and the
+        // outer inset is unchanged.
+        try expect(view.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
+                   "trailing-aligned slot derived from the actual width")
         try expect(view.contains(".padding(FooterTotalLayout.outerInset)"), "unchanged outer inset")
         try expect(view.contains(".padding(.vertical, 8)"), "unchanged vertical padding")
         try expect(view.contains("RoundedRectangle(cornerRadius: 9"), "unchanged glass radius")
+        try expect(view.contains("FooterTotalLayout.layout(containerWidth: width,"),
+                   "the footer is laid out against the ACTUAL column width")
 
         // The value path is untouched: same font, same colour, same format.
         try expect(view.contains("totalValue(value)"), "the same shared value helper")

@@ -230,6 +230,14 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
     /// role renders its preset; a present block overrides only the roles
     /// whose slot holds a value.
     public var customSyntaxColors: CustomSyntaxColors?
+    /// The user's answer-column width preference (the adjustable
+    /// column), in points. App-global (never per-sheet, never in
+    /// `.nlx`); `AnswerColumnGeometry.defaultWidth` (200) is the
+    /// factory value. Persisted values are sanitized on decode: a
+    /// missing key, a wrong type, a non-finite value or a null all
+    /// resolve to the 200 pt default, finite out-of-range values
+    /// clamp into `AnswerColumnGeometry.minWidth...maxWidth`.
+    public var answerColumnWidth: Double
 
     public init(fontDesign: StylingFontDesign = .system,
                 numbers: RoleColorChoice = .cyan,
@@ -242,7 +250,8 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
                 labels: RoleColorChoice = .standardText,
                 answerColumnAlignment: AnswerColumnAlignment = .leading,
                 answerColumnSurface: AnswerColumnSurface = .neutral,
-                customSyntaxColors: CustomSyntaxColors? = nil) {
+                customSyntaxColors: CustomSyntaxColors? = nil,
+                answerColumnWidth: Double = AnswerColumnGeometry.defaultWidth) {
         self.fontDesign = fontDesign
         self.numbers = numbers
         self.operators = operators
@@ -255,6 +264,7 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
         self.answerColumnAlignment = answerColumnAlignment
         self.answerColumnSurface = answerColumnSurface
         self.customSyntaxColors = customSyntaxColors
+        self.answerColumnWidth = answerColumnWidth
     }
 
     public static let defaults = StylingPreferences()
@@ -280,6 +290,14 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
         // type drops the block (nil), malformed individual entries are
         // already dropped field-by-field inside CustomSyntaxColors.
         customSyntaxColors = try? c.decodeIfPresent(CustomSyntaxColors.self, forKey: .customSyntaxColors)
+        // Tolerant, key-by-key like every other field: a missing key (or
+        // a present value of the wrong type / null, i.e. a serialized
+        // non-finite double) falls back to the 200 pt default; a finite
+        // out-of-range value clamps into the hard 140...400 range.
+        let rawWidth = try? c.decodeIfPresent(Double.self, forKey: .answerColumnWidth)
+        answerColumnWidth = rawWidth == nil
+            ? d.answerColumnWidth
+            : AnswerColumnGeometry.sanitizePreference(rawWidth!)
     }
 }
 

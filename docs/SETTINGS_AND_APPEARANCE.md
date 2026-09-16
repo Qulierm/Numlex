@@ -362,8 +362,19 @@ them, and they can only be edited in Settings.
 
 | Control | Values | Effect |
 | --- | --- | --- |
-| Alignment | Leading / Trailing | Where answers sit inside the fixed-width answer column. |
+| Width | 140–400 pt (default 200) | The column's width, as a precise slider. The same value can be set by dragging the 1 pt divider between the editor and the answers: left grows the column, right shrinks it. |
+| Alignment | Leading / Trailing | Where answers sit inside the adjustable answer column. |
 | Background | Neutral / Sand / Slate / Sage / Blush | The column's surface color. Answer text stays high-contrast on every choice. |
+
+The width is a presentation-only, app-global preference: it is persisted in the
+app's settings store (never per sheet, never in a `.nlx` file) and changing it
+never touches sheet content, line IDs, references, the caret, selection, IME
+marked text, focus, scrolling or the evaluated answers. During a drag the width
+updates live in memory and is written exactly once when the drag ends (or the
+Settings slider is released). The divider keeps its exact 1 pt visual footprint
+with a wider centered hit target and a left-right resize cursor; in a window
+that cannot fit both the editor's 280 pt minimum and the chosen column width,
+the column is capped to what remains so the geometry stays safe.
 
 ### Syntax colors
 
@@ -453,7 +464,7 @@ lines without an answer — headings, comments, prose — can be highlighted too
 
 | Contract | Value |
 | --- | --- |
-| Answer column width | 200 pt |
+| Answer column width | adjustable, 140–400 pt (default 200 pt); capped by the window so the editor keeps at least 280 pt |
 | Line-number gutter | with line numbers on: 54 pt indent (36 pt gutter + 18 pt leading); hidden: 18 pt — the gutter is fully reclaimed, and toggling never accumulates drift |
 | Total bar vs inline `total` | the bottom Total panel is dimension-agnostic: it sums the evaluated magnitude of every ordinary scalar answer row once (unitless numbers, unit-bearing quantities such as `2 kg`, money such as `$3`, named scalars and exact integers) into one plain unitless value — no unit conversion, no FX normalization and no unit/currency suffix — and excludes inline `total` rows so the two never double-count; inline `total` lines are a separate section-scoped command that is always active and still sums only unitless scalars |
 
