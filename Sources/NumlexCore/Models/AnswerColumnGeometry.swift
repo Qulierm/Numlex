@@ -64,6 +64,17 @@ public enum AnswerColumnGeometry {
         return min(pref, max(cap, 0))
     }
 
+    /// Whether a drag translation is MATERIAL: enough movement to count
+    /// as a real drag. Sub-pixel jitter from a simple click (and any
+    /// non-finite translation) is not material — a click on the divider
+    /// must produce no live width change and no persist, so a
+    /// window-capped display width can never replace the stored
+    /// preference by accident.
+    public static func isMaterialDrag(horizontalTranslation: Double) -> Bool {
+        guard horizontalTranslation.isFinite else { return false }
+        return abs(horizontalTranslation) >= 1
+    }
+
     /// The pure drag calculation for the divider handle: a drag to the
     /// LEFT grows the answer column, a drag to the RIGHT shrinks it
     /// (`startWidth - horizontalTranslation`; leftward drags report a

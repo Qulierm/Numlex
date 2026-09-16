@@ -136,6 +136,72 @@ public let answerColumnWidthCases: [EngineCase] = [
         }
     },
 
+    EngineCase("answer-width-material-drag-threshold") {
+        // The core gate that separates a real drag from a click:
+        // zero and sub-pixel jitter are clicks; |t| >= 1 pt is a drag.
+        try expect(!AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: 0), "zero is a click")
+        try expect(!AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: 0.5), "sub-pixel jitter is a click")
+        try expect(!AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: -0.9), "sub-pixel jitter is a click")
+        try expect(AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: 1), "1 pt is material")
+        try expect(AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: -1), "-1 pt is material")
+        try expect(AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: 40), "a real drag is material")
+        for bad in [Double.nan, .infinity, -.infinity] {
+            try expect(!AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: bad),
+                       "hostile \(bad) is not material")
+        }
+    },
+
+    EngineCase("answer-width-click-noop-keeps-stored-preference") {
+        // The delegated edge case, simulated exactly as the handle and
+        // ContentView behave: stored preference 400, window-capped
+        // displayed width 250. A click on the divider (zero / sub-pixel
+        // translation) must not write 250 into the preference and must
+        // persist nothing; a real drag starts from the displayed width
+        // and persists the user-requested width exactly once.
+        let stored: Double = 400
+        let displayed: Double = 250
+        func runSession(_ translations: [Double]) -> (liveWrites: Int, persists: Int, final: Double?) {
+            var liveWrites = 0
+            var persists = 0
+            var final: Double?
+            var dragStart: Double?
+            for t in translations {
+                guard AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: t) else { continue }
+                if dragStart == nil { dragStart = displayed }
+                guard let start = dragStart else { continue }
+                liveWrites += 1
+                final = AnswerColumnGeometry.width(afterDrag: start, horizontalTranslation: t)
+            }
+            if let start = dragStart {
+                final = AnswerColumnGeometry.width(afterDrag: start, horizontalTranslation: translations.last ?? 0)
+                persists += 1
+            }
+            return (liveWrites, persists, final)
+        }
+        // A click: zero and sub-pixel jitter only.
+        let click = runSession([0.0, 0.4, -0.2, 0.6, 0.0])
+        try expectEqual(click.liveWrites, 0, "a click makes no live in-memory write")
+        try expectEqual(click.persists, 0, "a click persists nothing")
+        try expectEqual(stored, 400, "the stored preference is untouched")
+        // A real drag from the capped geometry: the first material tick
+        // starts it, live writes follow, one persist at the end — and
+        // the persisted width is the user-requested formula result,
+        // not the transient cap.
+        let drag = runSession([0.5, -1, -20, -40])
+        try expectEqual(drag.liveWrites, 3, "live writes from the first material tick")
+        try expectEqual(drag.final, 290, "left drag grows: 250 + 40")
+        try expectEqual(drag.persists, 1, "exactly one persist at drag end")
+        // A drag that returns exactly to its start still commits the
+        // user-requested (displayed) end width.
+        let round = runSession([-1, -20, 0])
+        try expectEqual(round.final, 250, "round trip ends at the displayed start")
+        try expectEqual(round.persists, 1, "a material drag commits once")
+        // Hostile translations never start a drag.
+        let hostile = runSession([.nan, .infinity, -.infinity])
+        try expectEqual(hostile.liveWrites, 0, "hostile input writes nothing")
+        try expectEqual(hostile.persists, 0, "hostile input persists nothing")
+    },
+
     // MARK: - store persistence (tolerant, app-global, not .nlx)
 
     EngineCase("answer-width-store-legacy-missing-defaults") {
@@ -326,15 +392,31 @@ public let answerColumnWidthCases: [EngineCase] = [
         try expect(h.contains("static let hitZoneWidth: CGFloat = 12"),
                    "the hit zone is 12 pt wide")
         try expect(h.contains(".contentShape(Rectangle())"), "the zone is hit-testable")
-        // Drag: pure core formula, left grows / right shrinks.
+        // Drag: pure core formula, left grows / right shrinks, and the
+        // core material gate guards every live write (a click never
+        // writes, so a window-capped display width can never replace
+        // the stored preference).
         try expect(h.contains("DragGesture(minimumDistance: 0"), "zero-distance drag start")
         try expect(h.contains("horizontalTranslation: value.translation.width"),
                    "the translation feeds the core formula")
         try expect(h.contains("AnswerColumnGeometry.width("), "the core drag helper is used")
-        // Cursor: pushed on hover, popped on leave/end/disappear (balanced).
+        try expect(h.contains("AnswerColumnGeometry.isMaterialDrag("),
+                   "the material-drag gate guards live writes")
+        // Cursor: hover-driven, NOT popped on drag end (a stationary
+        // pointer over the zone keeps the resize cursor; the next
+        // leave — or disappear — pops it, keeping the stack balanced).
         try expect(h.contains("NSCursor.resizeLeftRight.push()"), "resize cursor pushed")
         try expect(h.contains("NSCursor.pop()"), "resize cursor popped")
-        try expect(h.contains("setCursor(active: false)"), "leave/end/disappear pop")
+        try expect(h.contains("setCursor(active: false)"), "disappear pops")
+        try expect(h.contains("hoverInside"), "explicit hover state drives the cursor")
+        // onEnded must not touch the cursor (no pop while still hovered).
+        guard let ended = h.range(of: ".onEnded { value in") else {
+            throw CaseFailure(message: "onEnded closure not found", location: "AnswerWidth")
+        }
+        let endSlice = String(h[ended.lowerBound..<h.index(ended.lowerBound, offsetBy: 420)])
+        try expect(!endSlice.contains("setCursor("), "drag end does not pop the cursor")
+        try expect(endSlice.contains("guard let start else { return }"),
+                   "onEnd fires only for started (material) drags")
         // Live changes never persist; the handle has no persistence at all.
         try expect(!h.contains("persist("), "the handle itself never persists")
         try expect(h.contains("onChange("), "live in-memory changes are reported")
