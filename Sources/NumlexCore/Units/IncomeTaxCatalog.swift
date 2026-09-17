@@ -86,16 +86,12 @@ public struct IncomeTaxCatalog: Sendable, Equatable {
 
     // MARK: loading
 
+    /// Loads the catalog through the safe `ResourceLocator` with a
+    /// full integrity check; missing/corrupt resources return nil
+    /// (fail closed, never a trap).
     public static func embedded() -> IncomeTaxCatalog? {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let directory = bundle.url(forResource: "NumlexIncomeTax", withExtension: nil)
-                ?? bundle.resourceURL?.appendingPathComponent("NumlexIncomeTax") else {
-            return nil
-        }
+        guard let directory = ResourceLocator.coreDatasetDirectory(named: "NumlexIncomeTax")
+        else { return nil }
         return try? IncomeTaxCatalog(contentsOf: directory)
     }
 

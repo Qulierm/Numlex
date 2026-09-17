@@ -14,7 +14,10 @@
 #     binary (framework, Autoupdate, Updater.app, both XPC services);
 #   - Sparkle 2.9.6 with the canonical HTTPS feed, EdDSA public key,
 #     verify-before-extraction on and system profiling off;
-#   - the five offline resource datasets inside Numlex_NumlexCore.bundle;
+#   - the five offline resource datasets inside Numlex_NumlexCore.bundle
+#     at the STANDARD location the runtime locator reads first
+#     (Contents/Resources); no root-level (app or DMG) bundle may exist —
+#     a root-only bundle would be unreadable by the packaged app;
 #   - packaged Assets.car equals the compiled catalog hash.
 #
 # No Finder, osascript, Pillow or layout coordinates: the plain contract is
@@ -133,6 +136,21 @@ for required in \
   fi
 done
 (( missing_resources )) || ok "five offline resource datasets present"
+
+# --- lookup-compatible resource location (no root-only dependency) --------
+# The production ResourceLocator's first candidate IS this standard
+# location; it never consults a root-level bundle. A root bundle (in the
+# app or at the DMG root) would mean the app depends on a layout the
+# locator does not trust there — fail closed.
+if [ -d "$APP/Numlex_NumlexCore.bundle" ]; then
+  bad "root-level Core bundle inside the app (standard Contents/Resources location is the only trusted layout)"
+else
+  ok "no root-level Core bundle inside the app"
+fi
+APP_ENTRIES="$(ls -A "$APP" | tr '\n' ' ' | sed 's/ $//')"
+[ "$APP_ENTRIES" = "Contents" ] && ok "app root exactly: Contents" || bad "app root '$APP_ENTRIES' != 'Contents'"
+DMG_ROOT_BUNDLES="$(find "$MNT" -maxdepth 1 -name '*.bundle' 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+[ -z "$DMG_ROOT_BUNDLES" ] && ok "no resource bundle at the DMG root" || bad "resource bundle at the DMG root: $DMG_ROOT_BUNDLES"
 
 # --- packaged icon catalog --------------------------------------------------
 CAR="$(shasum -a 256 "$APP/Contents/Resources/Assets.car" 2>/dev/null | cut -d' ' -f1 || true)"

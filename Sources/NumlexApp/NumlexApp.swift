@@ -62,7 +62,6 @@ enum RevealTiming {
     static let travelNanoseconds: UInt64 = 950_000_000
 }
 
-@main
 struct NumlexApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     // Single shared model instance injected into both the main window

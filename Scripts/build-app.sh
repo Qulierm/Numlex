@@ -134,12 +134,20 @@ if [ ! -f "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" ]; then
 fi
 cp "$ROOT/Sources/NumlexApp/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
-# The NumlexCore SwiftPM resource bundle carries the offline timezone
-# catalog. It is REQUIRED: a missing bundle (or a missing data file) fails the
-# build instead of shipping an app whose timezone lookups silently fail.
-CORE_BUNDLE="$(find "$ROOT/.build" -maxdepth 3 -name "Numlex_NumlexCore.bundle" -type d 2>/dev/null | head -1)"
-if [ -z "$CORE_BUNDLE" ] || [ ! -d "$CORE_BUNDLE" ]; then
-  echo "Missing NumlexCore resource bundle (.build/.../Numlex_NumlexCore.bundle)"
+# The NumlexCore SwiftPM resource bundle carries the offline timezone /
+# holiday / income-tax / CPI / tax catalogs. It is REQUIRED: a missing
+# bundle (or a missing data file) fails the build instead of shipping an
+# app whose catalogs silently fail.
+#
+# The bundle for the REQUESTED configuration lives next to the build
+# products in the EXACT bin path SwiftPM reported — never a `find` over
+# .build, which can pick a stale or other-configuration bundle.
+# The runtime locator (NumlexCore ResourceLocator) reads it from the
+# STANDARD location below, so the packaged app is self-contained and can
+# be relocated anywhere.
+CORE_BUNDLE="$BIN_PATH/Numlex_NumlexCore.bundle"
+if [ ! -d "$CORE_BUNDLE" ]; then
+  echo "Missing NumlexCore resource bundle ($BIN_PATH/Numlex_NumlexCore.bundle)"
   exit 1
 fi
 for required in NumlexTimezones/iana-zones.tsv NumlexTimezones/cities.tsv NumlexTimezones/countries.tsv NumlexTimezones/airports.tsv NumlexTimezones/sources.json NumlexHolidays/holidays.tsv NumlexHolidays/sources.json NumlexIncomeTax/income-tax.json NumlexIncomeTax/sources.json NumlexCPI/cpi-u.json NumlexCPI/sources.json NumlexTax/tax-presets.json NumlexTax/sources.json; do
@@ -150,6 +158,14 @@ for required in NumlexTimezones/iana-zones.tsv NumlexTimezones/cities.tsv Numlex
 done
 rm -rf "$RESOURCES_DIR/Numlex_NumlexCore.bundle"
 cp -R "$CORE_BUNDLE" "$RESOURCES_DIR/Numlex_NumlexCore.bundle"
+
+# The app target's SwiftPM bundle (Numlex_NumlexApp.bundle) is DELIBERATELY
+# not packaged: its only runtime consumer (AppIconResources) reads the same
+# three files from the MAIN bundle first (Contents/Resources, where they are
+# hash-verified above) and falls back to a development-bundle sibling that a
+# packaged app never has. Shipping a duplicate root bundle would create
+# drift without any consumer. The no-root-bundle assertion runs at the very
+# end (below), after every copy and signing step.
 
 # ---------------------------------------------------------------------------
 # Alternate app icon (user-selectable Light) + the two Settings preview
@@ -293,6 +309,20 @@ for signed in "$SPARKLE_B/XPCServices/Downloader.xpc" "$SPARKLE_B/XPCServices/In
   }
 done
 echo "Sparkle $EMBEDDED_SPARKLE_VERSION embedded (signed: $SIGN_ID)"
+
+# ---------------------------------------------------------------------------
+# Self-containment assertion (runs LAST, after every copy and signing step):
+# the app root must contain EXACTLY 'Contents'. The runtime locator reads
+# the offline bundle from the standard Contents/Resources location, so a
+# packaged release is relocatable anywhere; any root-level resource bundle
+# would signal the old fatal-accessor layout this fix kills.
+# ---------------------------------------------------------------------------
+APP_ROOT_ENTRIES="$(ls -A "$APP_DIR")"
+if [ "$APP_ROOT_ENTRIES" != "Contents" ]; then
+  echo "App root must contain exactly 'Contents' (got: $(echo "$APP_ROOT_ENTRIES" | tr '\n' ' '))"
+  exit 1
+fi
+echo "Self-contained: app root is exactly 'Contents' (offline bundle in the standard Contents/Resources location)"
 
 echo "Done: $APP_DIR"
 ls -lh "$APP_DIR/Contents/MacOS/Numlex"

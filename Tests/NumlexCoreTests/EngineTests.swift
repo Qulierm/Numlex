@@ -310,4 +310,9 @@ struct EngineTests {
     func answerColumnWidthCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: resourceLocatorCases)
+    func resourceLocatorCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

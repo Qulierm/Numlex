@@ -36,15 +36,8 @@ public struct HolidayCatalog: Sendable {
     // MARK: loading
 
     public static func embedded() -> HolidayCatalog? {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let directory = bundle.url(forResource: "NumlexHolidays", withExtension: nil)
-                ?? bundle.resourceURL?.appendingPathComponent("NumlexHolidays") else {
-            return nil
-        }
+        guard let directory = ResourceLocator.coreDatasetDirectory(named: "NumlexHolidays")
+        else { return nil }
         return try? HolidayCatalog(contentsOf: directory)
     }
 

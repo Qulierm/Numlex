@@ -407,6 +407,32 @@ Package a signed app bundle:
 Scripts/build-app.sh [debug|release]   # produces .build/Numlex.app
 ```
 
+### Packaging and offline resources
+
+The five offline catalogs (timezones, holidays, income tax, CPI, tax
+presets) ship inside the app as one SwiftPM resource bundle at the
+STANDARD location `Numlex.app/Contents/Resources/Numlex_NumlexCore.bundle`.
+`Scripts/build-app.sh` takes that bundle from the exact bin path of the
+requested configuration and fails closed on any missing dataset, so the
+packaged app is fully self-contained and relocatable.
+
+At runtime the catalogs resolve through the centralized `ResourceLocator`
+(`Sources/NumlexCore/Models/ResourceLocator.swift`) in a fixed order:
+standard packaged location first, then the SwiftPM-style layouts a
+`swift build` / `swift run` / test process uses, then the current
+directory. It never touches the SwiftPM-generated resource accessor (whose
+hardcoded developer build path and trap made older packaged builds crash on
+first launch when installed outside the original build directory) and
+contains no developer-absolute path. A missing or corrupt dataset is a
+`nil` catalog — fail closed, never a crash.
+
+Deterministic packaging checks (no GUI required):
+
+```sh
+Scripts/relocated-app-smoke.sh   # copies the app OUTSIDE the repo and proves the copy loads all five catalogs via --validate-packaged-resources
+Scripts/validate-dmg.sh <dmg>    # plain-DMG contract incl. the standard bundle location and no root-level bundles
+```
+
 <details>
 <summary>Architecture</summary>
 

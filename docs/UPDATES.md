@@ -136,7 +136,9 @@ rejects a corrupted copy.
 ## Release workflow
 
 1. Build and package: `Scripts/build-app.sh release`
-   (embeds and signs `Sparkle.framework`, asserts the pinned version).
+   (embeds and signs `Sparkle.framework`, asserts the pinned version,
+   and fails closed on any missing offline-resource dataset; the app root
+   must end up exactly `Contents`).
 2. Build the DMG and upload it as a **new, immutable** release asset.
 3. Generate and sign the feed entry for that exact asset:
 
@@ -169,6 +171,16 @@ Validation helpers:
 Scripts/validate-appcast.sh public/appcast.xml --archive <path-to-dmg> \
   --expect-version <version> --expect-min-os 26.0
 ```
+
+`Scripts/validate-dmg.sh <dmg>` additionally validates the resource
+lookup contract of the plain DMG: the five offline datasets inside
+`Contents/Resources/Numlex_NumlexCore.bundle` (the standard location the
+runtime `ResourceLocator` reads first), no root-level bundle inside the
+app, no bundle at the DMG root, and the exact two-item plain root.
+`Scripts/relocated-app-smoke.sh` runs the packaged binary COPIED outside
+the repository with the opt-in `--validate-packaged-resources` flag and
+requires it to prove the bundle resolves and all five catalogs load.
+Both are mandatory before any release is published.
 
 The validator checks the XML shape, version, HTTPS version-pinned enclosure
 URL, exact length, minimum system version and the EdDSA signature

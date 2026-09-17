@@ -57,18 +57,14 @@ public struct TimezoneCatalog: Sendable {
 
     // MARK: loading
 
-    /// Loads the catalog from the SwiftPM resource bundle with a full
+    /// Loads the catalog through the safe `ResourceLocator` (standard
+    /// packaged location first, then the SwiftPM/dev layouts) with a full
     /// integrity check (required files present + recorded SHA-256).
+    /// A missing bundle or dataset — or any integrity failure — returns
+    /// nil; this path never traps.
     public static func embedded() -> TimezoneCatalog? {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let directory = bundle.url(forResource: "NumlexTimezones", withExtension: nil)
-                ?? bundle.resourceURL?.appendingPathComponent("NumlexTimezones") else {
-            return nil
-        }
+        guard let directory = ResourceLocator.coreDatasetDirectory(named: "NumlexTimezones")
+        else { return nil }
         return try? TimezoneCatalog(contentsOf: directory)
     }
 

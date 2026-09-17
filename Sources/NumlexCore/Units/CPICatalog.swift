@@ -48,15 +48,8 @@ public struct CPICatalog: Sendable, Equatable {
     // MARK: loading
 
     public static func embedded() -> CPICatalog? {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let directory = bundle.url(forResource: "NumlexCPI", withExtension: nil)
-                ?? bundle.resourceURL?.appendingPathComponent("NumlexCPI") else {
-            return nil
-        }
+        guard let directory = ResourceLocator.coreDatasetDirectory(named: "NumlexCPI")
+        else { return nil }
         return try? CPICatalog(contentsOf: directory)
     }
 

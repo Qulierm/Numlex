@@ -30,15 +30,8 @@ public struct TaxPresetCatalog: Sendable, Equatable {
     // MARK: loading
 
     public static func embedded() -> TaxPresetCatalog? {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let directory = bundle.url(forResource: "NumlexTax", withExtension: nil)
-                ?? bundle.resourceURL?.appendingPathComponent("NumlexTax") else {
-            return nil
-        }
+        guard let directory = ResourceLocator.coreDatasetDirectory(named: "NumlexTax")
+        else { return nil }
         return try? TaxPresetCatalog(contentsOf: directory)
     }
 
