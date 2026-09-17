@@ -26,7 +26,7 @@ truth that the website is verified against.
 ## `main` versus releases
 
 All four canonical documents track the current `main` branch. Released builds
-may lag behind it: 4.9.1 is the current release; 4.8.0 was the first one with
+may lag behind it: 4.9.2 is the current release; 4.8.0 was the first one with
 secure in-app updates, so 4.8.0 and later update in-app while 4.7.0 and earlier
 must install the current release manually once. When a guide mentions a
 behaviour newer than the released build, it says so explicitly.
