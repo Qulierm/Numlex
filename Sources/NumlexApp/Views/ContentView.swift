@@ -407,8 +407,11 @@ struct ContentView: View {
                 model.settings.styling.answerColumnWidth = width
             },
             onEnd: { finalWidth in
-                // Exactly ONE persist per drag, skipped when the
-                // preference did not actually change.
+                // Apply the EXACT final computed width in memory first
+                // (the last live write may lag the end tick), then
+                // persist exactly ONCE — and only when the preference
+                // actually changed vs the pre-drag snapshot.
+                model.settings.styling.answerColumnWidth = finalWidth
                 let changed = finalWidth != answerDragStartPref
                 answerDragStartPref = nil
                 if changed { model.persist() }

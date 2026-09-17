@@ -9,17 +9,24 @@ import NumlexCore
 /// 12 pt transparent hit zone that drags the answer column.
 ///
 /// Drag semantics (see `AnswerColumnGeometry.width(afterDrag:
-/// horizontalTranslation:)`): a drag to the LEFT grows the answer
-/// column, a drag to the RIGHT shrinks it. Only MATERIAL movement
+/// horizontalTranslation:)` and `AnswerColumnDragSession`): a drag to
+/// the LEFT grows the answer column, a drag to the RIGHT shrinks it.
+/// Pointer motion is measured in the GLOBAL (window) coordinate space,
+/// never `.local` — the divider view moves as the width updates, so a
+/// local-space translation would feed the applied layout delta back
+/// into the next tick and oscillate. One immutable start (displayed
+/// width + global pointer x at the press) is captured per drag and all
+/// widths derive from it, so the column follows the pointer 1:1 with
+/// no feedback and no animation. Only MATERIAL movement
 /// (`AnswerColumnGeometry.isMaterialDrag`, |t| >= 1 pt) counts: a
 /// simple click makes no live write and no `onEnd`, so a window-capped
 /// display width can never replace the stored preference. Every live
 /// change of a real drag calls `onChange` with the preference-clamped
 /// width (in memory only — nothing is written to disk mid-drag); `onEnd`
-/// fires exactly ONCE when the gesture ends and carries the final
-/// preference-clamped width, so the caller persists exactly once (and
-/// can skip a no-op by comparing against the value captured at drag
-/// start).
+/// fires exactly ONCE when the gesture ends and carries the EXACT final
+/// formula width, which the caller assigns in memory before persisting
+/// exactly once (skipping a no-op by comparing against the value
+/// captured at drag start).
 ///
 /// The resize cursor is hover-driven and deliberately stays up when a
 /// drag ends with the pointer still over the zone (SwiftUI will not
@@ -50,9 +57,15 @@ struct AnswerColumnResizeHandle: View {
     /// layout width — the divider still occupies exactly 1 pt in-flow.
     static let hitZoneWidth: CGFloat = 12
 
-    /// The drag start width (the displayed width when the first MATERIAL
-    /// change of the gesture arrived); nil while not dragging.
-    @State private var dragStart: Double?
+    /// One immutable start per real drag: the displayed width at the
+    /// press plus the pointer position in the STABLE (global) space.
+    /// Later view recomputes — including the divider moving under the
+    /// pointer — cannot change it.
+    @State private var dragSession = AnswerColumnDragSession()
+    /// True once the drag produced a MATERIAL live width. A plain
+    /// click never sets it, so `onEnd` (and therefore any persist)
+    /// fires only for real drags.
+    @State private var hasMaterialDrag = false
     /// The last hover report from the hit zone (explicit state: after a
     /// drag ends SwiftUI does not re-fire onHover(true) for a stationary
     /// pointer, so the cursor decision reads this value, not a transient
@@ -113,13 +126,24 @@ struct AnswerColumnResizeHandle: View {
         onEnd(final)
     }
 
-    /// Left drag grows the answer column, right drag shrinks it
-    /// (`startWidth - horizontalTranslation`, sanitized to the hard
-    /// 140...400 range by the core helper). A simple click or sub-pixel
-    /// jitter is NOT material: until the movement clears the core's
-    /// material threshold the gesture makes no live write at all, so a
-    /// window-capped display width can never replace the stored
-    /// preference by accident, and onEnd fires only for real drags.
+    /// Left drag grows the answer column, right drag shrinks it.
+    ///
+    /// Coordinates are measured in the GLOBAL (window) space — never
+    /// `.local`: the divider view itself moves as the width updates,
+    /// so a local-space translation feeds the applied layout delta
+    /// back into the next gesture tick and the column oscillates. The
+    /// stable delta is `location.x - startPointerX`, where both come
+    /// from that fixed space; the width is `startWidth - delta`,
+    /// clamped by the core helper, 1:1 with the pointer until the
+    /// hard/window bounds, with no animation.
+    ///
+    /// A click or sub-pixel jitter is NOT material: until the movement
+    /// clears the core threshold the gesture makes no live write at
+    /// all and onEnd never fires, so a window-capped display width can
+    /// never replace the stored preference. `onEnd` carries the EXACT
+    /// final formula result, which the caller assigns in memory before
+    /// its single persist (in-memory writes happen live, many times;
+    /// disk exactly once per real drag, zero times for a click).
     ///
     /// The cursor is hover-driven and is deliberately NOT popped on
     /// drag end: while the pointer is still over the zone the resize
@@ -128,36 +152,34 @@ struct AnswerColumnResizeHandle: View {
     /// next move outside re-triggers onHover(false) — or onDisappear
     /// fires — and pops it; every push is matched by exactly one pop.
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
-                guard AnswerColumnGeometry.isMaterialDrag(
-                    horizontalTranslation: value.translation.width)
+                dragSession.beginIfNeeded(
+                    pointerX: value.location.x,
+                    displayedWidth: displayedWidth)
+                guard let width = dragSession.width(pointerX: value.location.x)
                 else { return }
-                if dragStart == nil {
-                    // The drag is measured from the displayed (possibly
-                    // window-capped) width, so relative drags always
-                    // behave against what the user sees.
-                    dragStart = displayedWidth
-                    // Ensure the resize cursor is up for the drag even
-                    // if the hover pass never registered (a click
-                    // straight into the zone); no double push when it
-                    // is already up.
-                    setCursor(active: true)
-                }
-                guard let start = dragStart else { return }
-                onChange(AnswerColumnGeometry.width(
-                    afterDrag: start,
-                    horizontalTranslation: value.translation.width))
+                hasMaterialDrag = true
+                // Ensure the resize cursor is up for the drag even if
+                // the hover pass never registered (a click straight
+                // into the zone); no double push when it is up.
+                setCursor(active: true)
+                onChange(width)
             }
             .onEnded { value in
-                let start = dragStart
-                dragStart = nil
+                // The final width is the exact formula result at the
+                // end pointer position — not "whatever the last
+                // onChanged happened to write" — and only for drags
+                // that were material.
+                let final = hasMaterialDrag
+                    ? dragSession.finalWidth(pointerX: value.location.x)
+                    : nil
+                dragSession.end()
+                hasMaterialDrag = false
                 // No cursor pop here: the pointer is usually still over
                 // the zone and must keep the resize cursor (see above).
-                guard let start else { return }
-                onEnd(AnswerColumnGeometry.width(
-                    afterDrag: start,
-                    horizontalTranslation: value.translation.width))
+                guard let final else { return }
+                onEnd(final)
             }
     }
 

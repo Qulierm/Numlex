@@ -1,6 +1,73 @@
 import Foundation
 import CoreGraphics
 
+/// Pure, injectable drag-session state for the divider handle.
+///
+/// One IMMUTABLE start — the displayed width and the stable pointer
+/// position recorded when the gesture first moves — is captured per
+/// real drag; every subsequent width is derived from that fixed start
+/// (`startWidth - (x - startX)`), so view recomputes and the divider's
+/// own motion mid-drag can never feed back into the measurement (the
+/// oscillation a `.local` coordinate space beneath a moving divider
+/// caused). No process globals, no coordinate-space access: the
+/// caller hands in pointer positions in ANY stable space (the handle
+/// uses `.global`), so the full drag behavior is testable as pure
+/// arithmetic.
+public struct AnswerColumnDragSession {
+    private var start: (width: Double, pointerX: Double)?
+
+    /// A fresh, not-yet-dragging session.
+    public init() {}
+
+    /// True once the gesture has recorded a start (a simple click
+    /// records one too; materiality is decided by the first movement,
+    /// see `width(pointerX:)`).
+    public var hasStarted: Bool { start != nil }
+
+    /// Records the immutable start on the first tick (the press); later
+    /// ticks and every model/layout change afterwards cannot alter it.
+    public mutating func beginIfNeeded(
+        pointerX: Double,
+        displayedWidth: Double
+    ) {
+        if start == nil {
+            start = (displayedWidth, pointerX)
+        }
+    }
+
+    /// The live width for a pointer position in a stable coordinate
+    /// space, clamped to the hard preference range by the core helper.
+    /// `nil` while the movement is not material (click / sub-pixel
+    /// jitter) or non-finite — no live write, so a window-capped
+    /// display width can never replace the stored preference by
+    /// accident.
+    public func width(pointerX: Double) -> Double? {
+        guard let s = start else { return nil }
+        let delta = pointerX - s.pointerX
+        guard AnswerColumnGeometry.isMaterialDrag(horizontalTranslation: delta)
+        else { return nil }
+        return AnswerColumnGeometry.width(
+            afterDrag: s.width, horizontalTranslation: delta)
+    }
+
+    /// The EXACT final width for the drag-end pointer position (the
+    /// caller assigns it to the in-memory preference before its single
+    /// persist). `nil` when no drag started or the end input is
+    /// non-finite.
+    public func finalWidth(pointerX: Double) -> Double? {
+        guard let s = start else { return nil }
+        let delta = pointerX - s.pointerX
+        guard delta.isFinite else { return nil }
+        return AnswerColumnGeometry.width(
+            afterDrag: s.width, horizontalTranslation: delta)
+    }
+
+    /// Forgets the session (drag end, click end, view teardown).
+    public mutating func end() {
+        start = nil
+    }
+}
+
 /// The adjustable answer-column geometry: ONE place owns the default,
 /// the hard preference bounds and the editor's guaranteed minimum.
 ///

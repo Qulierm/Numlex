@@ -392,16 +392,23 @@ public let answerColumnWidthCases: [EngineCase] = [
         try expect(h.contains("static let hitZoneWidth: CGFloat = 12"),
                    "the hit zone is 12 pt wide")
         try expect(h.contains(".contentShape(Rectangle())"), "the zone is hit-testable")
-        // Drag: pure core formula, left grows / right shrinks, and the
-        // core material gate guards every live write (a click never
-        // writes, so a window-capped display width can never replace
-        // the stored preference).
-        try expect(h.contains("DragGesture(minimumDistance: 0"), "zero-distance drag start")
-        try expect(h.contains("horizontalTranslation: value.translation.width"),
-                   "the translation feeds the core formula")
-        try expect(h.contains("AnswerColumnGeometry.width("), "the core drag helper is used")
-        try expect(h.contains("AnswerColumnGeometry.isMaterialDrag("),
-                   "the material-drag gate guards live writes")
+        // Drag: measured in the STABLE global coordinate space (never
+        // .local — the divider moves as the width updates, so a local
+        // translation would feed the layout delta back into the next
+        // tick and oscillate), through the immutable-start
+        // AnswerColumnDragSession; the core material gate guards every
+        // live write (a click never writes, so a window-capped display
+        // width can never replace the stored preference).
+        try expect(h.contains("DragGesture(minimumDistance: 0, coordinateSpace: .global)"),
+                   "the drag measures pointer motion in the stable GLOBAL space")
+        try expect(!h.contains("coordinateSpace: .local"),
+                   "no local coordinate space on a handle whose view moves")
+        try expect(h.contains("AnswerColumnDragSession"),
+                   "one immutable start per drag (stable pointer + displayed width)")
+        try expect(h.contains("beginIfNeeded("), "the start is captured once, at the press")
+        try expect(h.contains("hasMaterialDrag"),
+                   "onEnd is gated on an actual material movement")
+        try expect(h.contains("value.location.x"), "the explicit stable pointer x is used")
         // Cursor: hover-driven, NOT popped on drag end (a stationary
         // pointer over the zone keeps the resize cursor; the next
         // leave — or disappear — pops it, keeping the stack balanced).
@@ -409,14 +416,20 @@ public let answerColumnWidthCases: [EngineCase] = [
         try expect(h.contains("NSCursor.pop()"), "resize cursor popped")
         try expect(h.contains("setCursor(active: false)"), "disappear pops")
         try expect(h.contains("hoverInside"), "explicit hover state drives the cursor")
-        // onEnded must not touch the cursor (no pop while still hovered).
+        // onEnded must not touch the cursor (no pop while still hovered)
+        // and must hand the caller the EXACT final formula width, only
+        // for material drags.
         guard let ended = h.range(of: ".onEnded { value in") else {
             throw CaseFailure(message: "onEnded closure not found", location: "AnswerWidth")
         }
-        let endSlice = String(h[ended.lowerBound..<h.index(ended.lowerBound, offsetBy: 420)])
+        let endSlice = String(h[ended.lowerBound..<h.index(ended.lowerBound, offsetBy: 720)])
         try expect(!endSlice.contains("setCursor("), "drag end does not pop the cursor")
-        try expect(endSlice.contains("guard let start else { return }"),
-                   "onEnd fires only for started (material) drags")
+        try expect(endSlice.contains("hasMaterialDrag"),
+                   "onEnd fires only for material (started) drags")
+        try expect(endSlice.contains("finalWidth(pointerX:"),
+                   "the exact end-position width is committed, not the last tick")
+        try expect(endSlice.contains("guard let final else { return }"),
+                   "a click end produces no onEnd at all")
         // Live changes never persist; the handle has no persistence at all.
         try expect(!h.contains("persist("), "the handle itself never persists")
         try expect(h.contains("onChange("), "live in-memory changes are reported")
@@ -441,13 +454,23 @@ public let answerColumnWidthCases: [EngineCase] = [
                    "no disk write on any onChanged event")
         try expect(changeSlice.contains("model.settings.styling.answerColumnWidth = width"),
                    "the in-memory preference is updated live")
-        // The end path persists EXACTLY once, guarded by the no-op
-        // check against the preference captured at drag start.
+        // The end path applies the exact final width in memory first,
+        // then persists EXACTLY once, guarded by the no-op check
+        // against the preference captured at drag start.
         try expect(c.contains("onEnd: { finalWidth in"), "the drag end closure exists")
+        try expect(c.contains("model.settings.styling.answerColumnWidth = finalWidth"),
+                   "the exact final computed width is applied in memory on end")
         try expect(c.contains("let changed = finalWidth != answerDragStartPref"),
                    "the no-op comparison uses the drag-start preference")
         try expect(c.contains("if changed { model.persist() }"),
                    "one guarded persist on drag end")
+        // The in-memory assignment must precede the persist decision.
+        guard let assignIdx = c.range(of: "model.settings.styling.answerColumnWidth = finalWidth"),
+              let persistIdx = c.range(of: "model.persist()", range: assignIdx.upperBound..<c.endIndex)
+        else {
+            throw CaseFailure(message: "assignment-before-persist order not found", location: "AnswerWidth")
+        }
+        _ = persistIdx
         try expectEqual(c.components(separatedBy: "model.persist()").count - 1, 1,
                         "the drag end is the ONLY persist site in ContentView")
         // The Settings slider persists once on release, never per tick.
@@ -459,6 +482,92 @@ public let answerColumnWidthCases: [EngineCase] = [
         let sliderSlice = String(settings[sliderStart.lowerBound..<settings.index(sliderStart.lowerBound, offsetBy: 300)])
         try expect(sliderSlice.contains("if !editing { model.persist() }"),
                    "the slider persists exactly once, on release")
+        // The slider is NATIVE with a fixed frame: its own geometry
+        // never moves with the value (the value moves the MAIN window's
+        // column, a different window), so it has no moving-origin
+        // feedback path — only the divider handle needed the stable
+        // global-space fix.
+        try expect(settings.contains("Slider("), "the width control is the native Slider")
+        try expect(settings.contains(".frame(width: 150)"), "the slider frame is fixed (no feedback loop)")
+    },
+
+    // MARK: - smooth drag sessions (the 4.9.2 jitter fix)
+
+    EngineCase("answer-width-drag-session-stable-global-delta") {
+        // Fixed GLOBAL pointer start; the divider (and any local
+        // origin) moves under the pointer, but every width derives
+        // from the immutable start — no oscillation.
+        var s = AnswerColumnDragSession()
+        s.beginIfNeeded(pointerX: 1000, displayedWidth: 250)
+        try expect(s.hasStarted, "the press records the start")
+        // The start is IMMUTABLE: later ticks (and any model/layout
+        // change in between) cannot move it.
+        s.beginIfNeeded(pointerX: 1234, displayedWidth: 999)
+        try expectEqual(s.width(pointerX: 1010), 240, "width comes from the ORIGINAL start")
+        // Monotonic right drag (shrinking): 1:1 tracking, no alternation.
+        let right = [1000.0, 1000.4, 1002, 1010, 1030, 1040].compactMap { s.width(pointerX: $0) }
+        try expectEqual(right, [248, 240, 220, 210], "right drag: monotonic decreasing, 1:1")
+        // Monotonic left drag (growing): 1:1 tracking.
+        let left = [990.0, 980, 960, 940].map { s.width(pointerX: $0)! }
+        try expectEqual(left, [260, 270, 290, 310], "left drag: monotonic increasing, 1:1")
+        // Direction reversal retraces EXACTLY (the width is a pure
+        // function of the pointer x, not of the path taken).
+        try expectEqual(s.width(pointerX: 1040), 210, "retracing right: same value as before")
+        try expectEqual(s.width(pointerX: 1010), 240, "retracing back: same value as before")
+        try expect(s.width(pointerX: 1000) == nil, "back to the start: not material -> no write")
+        // Bounds: pinning is STABLE (no oscillation at the edges) and
+        // resuming inside the range is smooth and 1:1.
+        try expectEqual(s.width(pointerX: 2000), 140, "far right clamps to the hard min")
+        try expectEqual(s.width(pointerX: 2001), 140, "still pinned at the min: stable")
+        try expectEqual(s.width(pointerX: 120), 400, "far left clamps to the hard max")
+        try expectEqual(s.width(pointerX: 119), 400, "still pinned at the max: stable")
+        try expectEqual(s.width(pointerX: 1100), 150, "back in from the min: smooth 1:1")
+        // The final value is the exact formula result at the end
+        // pointer position — independent of how many live writes
+        // happened along the way.
+        try expectEqual(s.finalWidth(pointerX: 1030), 220, "final == exact formula result")
+        s.end()
+        try expect(!s.hasStarted, "end() forgets the session")
+        try expect(s.width(pointerX: 1100) == nil, "a finished session reports nothing")
+        try expect(s.finalWidth(pointerX: 1100) == nil, "a finished session commits nothing")
+    },
+
+    EngineCase("answer-width-drag-session-click-noop") {
+        // Stored 400, window-capped displayed 250: a click on the
+        // divider (sub-pixel jitter only) records a start but never a
+        // material width -> no live write, no onEnd, zero persists;
+        // the stored preference is untouched.
+        var s = AnswerColumnDragSession()
+        s.beginIfNeeded(pointerX: 500, displayedWidth: 250)
+        var live = 0
+        var final: Double?
+        for x in [500.0, 500.3, 499.8, 500.6, 500.0] {
+            if let w = s.width(pointerX: x) { live += 1; final = w }
+        }
+        if live > 0 { final = s.finalWidth(pointerX: 500) } // handle gate
+        try expectEqual(live, 0, "no live writes for a click")
+        try expect(final == nil, "no onEnd for a click -> no persist")
+        // A real drag from the same (capped) geometry: the first
+        // material tick starts it; the persisted width is the
+        // user-requested formula result, never the transient cap.
+        var d = AnswerColumnDragSession()
+        d.beginIfNeeded(pointerX: 500, displayedWidth: 250)
+        var writes = [Double]()
+        for x in [500.4, 499.0, 490.0, 460.0] {
+            if let w = d.width(pointerX: x) { writes.append(w) }
+        }
+        try expectEqual(writes, [251, 260, 290], "live writes from the first material tick")
+        try expectEqual(d.finalWidth(pointerX: 460), 290, "exactly one commit: 250 + 40")
+        // Hostile input never starts or ends a drag.
+        var h = AnswerColumnDragSession()
+        h.beginIfNeeded(pointerX: .nan, displayedWidth: 250)
+        try expect(h.width(pointerX: 100) == nil, "non-finite start: no live width")
+        try expect(h.finalWidth(pointerX: 100) == nil, "non-finite start: no final (no accidental 200)")
+        var h2 = AnswerColumnDragSession()
+        h2.beginIfNeeded(pointerX: 100, displayedWidth: 250)
+        try expect(h2.width(pointerX: .infinity) == nil, "hostile tick is ignored")
+        try expect(h2.finalWidth(pointerX: .infinity) == nil, "hostile end is ignored (nil, not 200)")
+        try expectEqual(h2.finalWidth(pointerX: 40), 310, "a sane end after hostile ticks is exact")
     },
 
     EngineCase("answer-width-settings-control-contract") {
