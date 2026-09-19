@@ -291,11 +291,30 @@ the answer column renders error text. Full id-by-id list in
 
 **Surface impact per change.** The row's answer is consumed by the editor
 answer column, the footer Total (a non-`isTotal` ordinary row contributes its
-magnitude — measured: parent `[10]` vs new `[10, 1e-05]` for the carried form,
-matching the typed equivalent in both engines), export (0 divergences), and
-dependent tokens (an error row breaks them; the fixed rows no longer do).
-Inline section totals are unaffected in every case because unit-bearing rows
-are excluded by the documented eligibility rule.
+magnitude), export (0 divergences), and dependent tokens (an error row breaks
+them; the fixed rows no longer do). Inline section totals are unaffected in
+every case because unit-bearing rows are excluded by the documented
+eligibility rule.
+
+The footer Total delta was measured per spelling on the RESOLVED rows with
+both engines (`raw/E-footdelta-new.txt` vs `raw/E-footdelta-parent.txt`):
+
+| Sheet | parent `c1b47f4` | new `d7ac83b` | typed equivalent (both engines) |
+| --- | --- | --- | --- |
+| carried `10 mg` + `￼ to kg` | `[10, 1e-05]` | `[10, 1e-05]` (unchanged) | `[10, 1e-05]` |
+| explicit-source `4673` + `￼ mg to kg` | `[4673]` (row was an error) | `[4673, 0.004673]` | `[4673, 0.004673]` |
+
+So the footer contribution changes ONLY for the newly-converting spelling
+(the row previously errored and contributed nothing); the carried spelling's
+contribution is identical before and after, and in both spellings the new
+value equals the typed equivalent's.
+
+> **Correction (re-verification pass).** An earlier version of this report
+> claimed the delta as "parent `[10]` vs new `[10, 1e-05]` for the carried
+> form". That was wrong: the carried form did NOT change (it worked before the
+> fix). The re-measurement above is authoritative and matches the differential
+> register, where the carried shape sits in the `unchanged` bucket and only the
+> explicit-source shape sits in `newly-converts`.
 
 ## 7. Verified-clean register
 
