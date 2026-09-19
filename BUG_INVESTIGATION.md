@@ -104,11 +104,14 @@ cross-checked against the repo's own pinned expectation):
 | Linked answers and conversions (A) | reported case + neighbours, inch/keyword collisions, marker topology, semantic kinds, conversion classes, numeric formats, junk suffixes | 123 shapes × 2 engines = 246 evaluations (A/B) |
 | Totals, subtotals, tags (B) | `total last N` grammar, window semantics, boundaries, slot kinds, subtotal/grand forms, tag aggregates/lookups, token interaction, engine parity, invariants | 186 shapes (14 through both engines) + 4 footer-API sheets |
 | Typography rules (C) | usableName, isHidden, regularRank, faces, families (including hidden/face-less/case-fold/Unicode/256-257-scalar/substring-rank cases) | 82 rule inputs |
-| Styling persistence (C) | StylingPreferences decode/round-trip/mutation; real StorePayload payload surgery | 56 model + 19 payload checks |
+| Styling persistence (C) | StylingPreferences decode/round-trip/mutation; real StorePayload payload surgery; required-vs-tolerant key probe | 56 model + 19 payload + 10 key-tolerance checks |
 | Cross-cutting (D) | export parity, footer Total, context propagation, source contracts, removed API, doc drift | 23 export/footer checks + 16 context checks + 6 greps + 1 removed-API grep |
 
-**Total executed assertions:** 246 (A) + 186 + 4 (B) + 82 + 56 + 19 (C) +
-23 + 16 (D) = **632**, plus 6 source-contract greps and 1 removed-API grep.
+**Total executed assertions:** 246 (A) + 186 + 4 (B) + 82 + 56 + 19 + 10 (C) +
+23 + 16 (D) = **642**, plus 6 source-contract greps and 1 removed-API grep.
+**Of these, 640 PASS and 2 FAIL** — both failures are harness fixture defects
+(hand-written payloads missing required core keys), diagnosed and superseded by
+the 19/19 real-payload probe; see the note in §7.
 Evidence classes are marked per row below: *executed A/B*, *executed probe*,
 *source-contract case*, *read-only inspection*.
 
@@ -127,6 +130,7 @@ Evidence classes are marked per row below: *executed A/B*, *executed probe*,
 | SUS-03 | Info | Number parsing (out of scope) | Suspected | `1,234` in legacy mode reads as grouping (pre-existing, may be by design) |
 | DRIFT-01 | Medium | Documentation | Confirmed defect (doc) | The Answer Tokens text promises the `in` spelling for a carried `in` unit |
 | DRIFT-02 | Low | Documentation | Confirmed defect (doc) | The same paragraph implies only two spellings exist |
+| DRIFT-03 | Info | Documentation | Confirmed defect (doc) | `AGENTS.md` §2.7 overstates store-decode tolerance |
 | C-01 | Info | Installed fonts | By design | The 256-scalar cap is a persistence rule, not an enumeration rule |
 | C-02 | Info | Installed fonts | By design (harness note) | NFC/NFD names are equal Swift Strings and collapse to one family |
 | B-01 | Info | Totals | By design | A limited total over an all-ineligible window returns 0 |
@@ -337,11 +341,29 @@ value equals the typed equivalent's.
 | 15 | Export row answers equal the live answer column string; export footer over exported rows | executed probe | 8 sheets, 0 diffs |
 | 16 | Context propagation: custom UnitContext, restricted and full rate tables, decimal-comma vs dot, error states | executed probe | 16/16 equal |
 | 17 | `InstalledFontNames` rules (hidden, face-less, control, case-fold, Unicode, 256/257, rank substrings, stability) | executed probe | 82/82 |
-| 18 | Styling persistence: tolerant decode, wrong types, nulls, 256/257, round-trip, unknown raws, width clamping, `currentVersion` 2 | executed probe | 75/75 (56 + 19) |
+| 18 | Styling persistence: tolerant decode, wrong types, nulls, 256/257, round-trip, unknown raws, width clamping, `currentVersion` 2 | executed probe | 73 pass / 2 fail out of 75 — the 2 failures are a HARNESS fixture defect, not a product defect (see the note below); the superseding real-payload probe is 19/19 |
 | 19 | Face-without-family invariant: the face chooser refuses an orphan face and the round-trip stays equal | executed probe | holds |
 | 20 | No `Bundle.module`, no developer paths, no `codesign --deep`, `currentVersion` 2, U+FFFC marker, routes in their files | executed grep | 6/6 |
 | 21 | App-side typography claims (delegation, unavailability, line height, one persist per choice, unavailable label, export inheritance) | read-only inspection + source-contract case | all verified |
 | 22 | `SheetExport` carries no styling (the `.nlx` claim) | read-only inspection | `Sheet.swift:265-280` has no styling key |
+
+**Note on the two harness failures (honest correction).** The first
+persistence probe (`storeprobe.swift`, 56 assertions) has 2 failures — both on
+hand-written payload fixtures that omitted REQUIRED core `AppSettings` keys,
+so decoding legitimately failed. A dedicated probe
+(`raw/E-reqkeys.txt`) establishes which keys are required versus tolerant:
+
+| Key | Behavior when absent |
+| --- | --- |
+| `decimalPlaces`, `fontSizeKey`, `language`, `sheetName`, `lineNumbers`, `fontColor` | REQUIRED — a missing one fails the whole payload decode (evidence: six consecutive `FAILED (missing key '…')` lines) |
+| `styling`, `input`, `customConstants`, `appearance`, `appIcon`, `regional`, `customUnits`, `presentation`, `temporal`, `tax`, footer statistic, `folders` | TOLERANT — missing or malformed falls back to the default (`TOLERANT … decoded` for the full-core payload with no `styling`, with an unknown `fontDesign`, and with only a family) |
+
+That superseding probe (`storeprobe3.swift`, 19 assertions over a REAL payload
+produced by the model) passes 19/19, which is the evidence behind findings
+C's persistence conclusions. So the accurate totals for area C are
+**73 pass / 2 fail of 75**, where the 2 failures are fixture defects, not
+product defects. Recorded here rather than silently dropped, and it is also
+the evidence for DRIFT-03.
 
 ## 8. Suspected leads (evidence insufficient — out of scope, all pre-existing)
 
@@ -388,6 +410,25 @@ The doc lists exactly two forms; the code also accepts `<token> <source> to
 <target>` on a source that already carries a unit, which then errors with the
 misleading `Unknown units` (BUG-02). Undocumented territory, so no promise is
 broken, but the reader gets no guidance. Severity Low: message clarity only.
+
+**DRIFT-03 (Info) — `AGENTS.md` §2.7 overstates store-decode tolerance.**
+
+> «`StorePayload.currentVersion` is **2** … Decoding is additive and key-by-key
+> tolerant — a missing/malformed field falls back to its default without
+> discarding the rest — and never rewrites unchanged user data.»
+> — `AGENTS.md` §2.7
+
+Executed: the sentence is true for every ADDITIVE field (styling, input,
+custom constants, appearance, icon, regional, custom units, presentation,
+temporal, tax, footer statistic, folders — each tolerantly decoded), but SIX
+core `AppSettings` keys are strictly required: `decimalPlaces`, `fontSizeKey`,
+`language`, `sheetName`, `lineNumbers`, `fontColor`. A payload missing any one
+of them fails the WHOLE decode (`raw/E-reqkeys.txt`; the same effect made two
+of my own hand-written fixtures fail). Not a defect — the app always writes
+those keys, and failing closed on a structurally broken store is defensible —
+but a reader could expect tolerance for any missing field. Severity Info:
+wording precision; no user acting on the doc gets a different behaviour, since
+the documented tolerance is exercised only through the additive fields.
 
 **Claims checked and found accurate (no drift):** the reported
 `<token> mg to kg` -> 0.004673 kg; the carried `to` form -> 0.004673 kg; all
