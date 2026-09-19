@@ -459,6 +459,89 @@ checks: `Scripts/verify-sparkle-policy.sh`.
 6. **Verify**: `git diff --check`, focused cases, full suite, debug+release
    builds; packaging changes also run the packaging scripts.
 
+### 3.1.1 Definition of a completed action (completion protocol)
+
+A code, UI or behavior task is **not Done because the source compiles**. Before
+reporting Done, the task must satisfy the whole completion set below: an
+intended diff only (no unrelated files); docs and tests updated for the change;
+focused validation of the changed behavior; the full standalone suite
+(`swift run NumlexTests`) unless the task explicitly justifies a narrower scope
+(state the justification); debug and release builds; one focused commit; a
+rebuilt assembled app at `.build/Numlex.app`; the relevant smoke checks; and a
+final `git status` plus report. Push only after validation and only when it is
+authorized and safe (step 8).
+
+**Required normal order for code work:**
+
+1. Inspect the baseline: `git status`, `git log --oneline -3`,
+   `git rev-parse HEAD && git ls-remote origin main`.
+2. Edit the source and add/update the focused tests.
+3. Run the full standalone suite (`swift run NumlexTests`), `swift build`,
+   `swift build -c release` and `git diff --check`.
+4. Stage the intended files explicitly (never `git add -A`; re-check
+   `git status`) and make one focused, imperative commit.
+5. From the committed, clean tree assemble the release app:
+   `bash Scripts/build-app.sh release` — invoke it with `bash` so the
+   executable bit is irrelevant. This produces/replaces `.build/Numlex.app`.
+6. Verify at minimum that the app exists and its executable runs, plus the
+   packaged version, minOS, architecture, signature and resource contracts
+   where relevant. Packaging/resource changes additionally run
+   `Scripts/relocated-app-smoke.sh`; UI checks may launch the app with an
+   isolated `--data-dir` (never the user's real data).
+7. If post-commit validation fails, fix it in another clear commit (amend ONLY
+   before any push and only when the commit ownership is certain — prefer a
+   follow-up commit), then rebuild the app. Never claim Done with a stale app.
+8. Push only once the commit **and** the assembled-artifact validation are
+   green, then verify `HEAD == origin == ls-remote`. If unrelated local commits
+   exist, do not push them silently: report the blocker and ask for
+   authorization.
+
+**`.build/Numlex.app` is an ephemeral, gitignored local deliverable.** A
+`swift build -c release` alone builds a bare binary, NOT the assembled app;
+`Scripts/build-app.sh release` is what packages the Info.plist, icons, offline
+resource bundle, Sparkle framework and ad-hoc signatures. Any later source
+edit makes the existing app stale — rebuild before handoff or reporting Done.
+
+**Do not install or mutate the user's environment**: never copy the app to
+`/Applications`, run `lsregister`, remove quarantine, replace the user's app,
+or touch Application Support without explicit authorization. Runtime checks
+use a temporary data directory and the `.build` app (or a temporary copy).
+
+**Completion tiers:**
+
+- **Documentation-only** tasks: diff/link/spelling/path audit plus a focused
+  commit; no app build or full suite is required unless the docs change
+  commands/contracts or the user asks.
+- **Tests-only / core-only** changes still count as code and normally assemble
+  the app when they affect a shipped target. If a task reasonably scopes the
+  completion set down, state that scoped exception explicitly in the report.
+- **Packaging changes** additionally run the relocated smoke, build the DMG
+  and validate the DMG — only when the task scope authorizes packaging work.
+  Releasing is the separate, explicitly gated flow in section 3.7.
+
+**Commit convention:** one logical completed action per commit; imperative,
+concise subject (for example `Fix packaged resource lookup`,
+`Document completion workflow`); never mix unrelated files; never
+amend/rewrite another author's or an in-flight commit.
+
+**Final report template** (copyable):
+
+```text
+Status: Done | Blocked | Needs restart | Implemented, not delivered
+Commit: <sha> <subject>
+Files: <changed paths / count>
+Tests: <exact suite counts / focused cases>
+Build: .build/Numlex.app (<configuration>, version <x.y.z>)
+Runtime/packaging validation: <smoke/diagnostic results, or "not run">
+Git state/push: <HEAD vs origin vs ls-remote; push status/blocker>
+Limitations: <host wedge, skipped checks, scoped exceptions>
+```
+
+Never claim a GUI validation you could not perform (the zero-window host wedge
+is the usual case). When commit, app or push requirements are still pending,
+label the task **implemented but not delivered** — honestly, in those words —
+instead of Done.
+
 ## 3.2 Commands
 
 ```sh
