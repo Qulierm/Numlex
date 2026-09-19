@@ -8,9 +8,10 @@ import NumlexCore
 /// can never drift apart.
 ///
 /// Everything here is deterministic:
-/// - families are the system's installed families with empty/whitespace
-///   and hidden names removed, deduplicated, sorted
-///   localized-case-insensitively;
+/// - families are the system's installed families with empty/whitespace,
+///   control-character and hidden dot-prefixed names removed, families
+///   without any usable face omitted (they can never be rendered),
+///   deduplicated, sorted localized-case-insensitively;
 /// - faces keep the exact PostScript name (used to instantiate the font)
 ///   plus the user-facing label, are deduplicated by PostScript name and
 ///   sorted with a deterministic REGULAR preference first (a face whose
@@ -18,6 +19,10 @@ import NumlexCore
 /// - resolution accepts a family only when it is installed and a face
 ///   only when it belongs to that family, so a stale persisted name can
 ///   never leak a face from a different font.
+///
+/// The name/ordering rules themselves live in the dependency-free core
+/// (`InstalledFontNames`) so they are unit-testable; this type adapts
+/// AppKit's member rows to them and owns the AppKit font resolution.
 ///
 /// Every failure path is safe: an unavailable family returns the
 /// caller's fallback font, an unavailable face falls back to the
@@ -47,27 +52,21 @@ final class InstalledFontCatalog: Sendable {
          members: (String) -> [[Any]] = {
              NSFontManager.shared.availableMembers(ofFontFamily: $0) ?? []
          }) {
-        // Deduplicate on the case-folded name (macOS can report the same
-        // family under different spellings) while keeping the FIRST
-        // spelling, which is what the menus show and what gets persisted.
-        var seenFamilies = Set<String>()
-        var resolvedFamilies: [String] = []
-        var table: [String: [Face]] = [:]
-        for raw in rawFamilies {
-            guard let family = Self.usableName(raw) else { continue }
-            guard seenFamilies.insert(family.lowercased()).inserted else { continue }
-            resolvedFamilies.append(family)
-            table[family] = Self.faces(from: members(family))
+        // The name/ordering rules live in the dependency-free core
+        // (`InstalledFontNames`) so they are unit-testable; this type only
+        // adapts AppKit's `[[Any]]` member rows to `[[String]]`. A family
+        // is listed only when it is a usable, non-hidden name AND has at
+        // least one usable face, so `families`, `contains`, `faces` and
+        // the fallback all agree that a face-less family is unavailable.
+        let resolved = InstalledFontNames.families(rawFamilies) { family in
+            members(family).compactMap { member in
+                member.compactMap { $0 as? String }
+            }
         }
-        // Localized case-insensitive order with an exact-name tiebreaker,
-        // so the menu order is fully deterministic even when two names
-        // compare equal case-insensitively.
-        families = resolvedFamilies.sorted {
-            let byName = $0.localizedCaseInsensitiveCompare($1)
-            if byName != .orderedSame { return byName == .orderedAscending }
-            return $0 < $1
-        }
-        facesByFamily = table
+        families = resolved.map(\.name)
+        facesByFamily = Dictionary(uniqueKeysWithValues: resolved.map { family in
+            (family.name, family.faces.map { Face(name: $0.name, label: $0.label) })
+        })
     }
 
     /// The faces of one family in menu order (empty for nil, an unknown
@@ -141,51 +140,13 @@ final class InstalledFontCatalog: Sendable {
         return boldVariant(of: base)
     }
 
-    /// A usable font name: non-empty after trimming, with no control
-    /// characters (macOS occasionally reports placeholder family names).
-    private static func usableName(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard !trimmed.unicodeScalars.contains(where: {
-            CharacterSet.controlCharacters.contains($0)
-        }) else {
-            return nil
-        }
-        return trimmed
-    }
-
-    /// The deterministic face list of one family.
-    private static func faces(from members: [[Any]]) -> [Face] {
-        var seen = Set<String>()
-        var out: [Face] = []
-        for member in members {
-            guard member.count >= 2,
-                  let name = member[0] as? String,
-                  let label = member[1] as? String,
-                  let postScriptName = usableName(name) else { continue }
-            guard seen.insert(postScriptName).inserted else { continue }
-            let faceLabel = usableName(label) ?? postScriptName
-            out.append(Face(name: postScriptName, label: faceLabel))
-        }
-        // Regular/Roman/Book/Normal first (a deterministic base face),
-        // then the remaining faces by label — so the menu, the "Regular"
-        // choice and the persisted nil-face default all agree.
-        return out.enumerated().sorted { lhs, rhs in
-            let l = regularRank(lhs.element.label), r = regularRank(rhs.element.label)
-            if l != r { return l < r }
-            let byLabel = lhs.element.label.localizedCaseInsensitiveCompare(rhs.element.label)
-            if byLabel != .orderedSame { return byLabel == .orderedAscending }
-            return lhs.offset < rhs.offset
-        }.map(\.element)
-    }
-
-    /// Lower is "more regular": 0 for the canonical regular spellings,
-    /// 1 for everything else.
+    /// The canonical regular preference (delegated to the pure core rule).
     static func regularRank(_ label: String) -> Int {
-        let lower = label.lowercased()
-        for token in ["regular", "roman", "book", "normal"] where lower.contains(token) {
-            return 0
-        }
-        return 1
+        InstalledFontNames.regularRank(label)
+    }
+
+    /// Whether a family name is hidden (delegated to the pure core rule).
+    static func isHidden(_ name: String) -> Bool {
+        InstalledFontNames.isHidden(name)
     }
 }

@@ -242,6 +242,84 @@ public let notebookFontCases: [EngineCase] = [
 
     // MARK: - App: one shared catalog
 
+    EngineCase("r91-font-catalog-rejects-hidden-and-faceless-families") {
+        // Synthetic input covering every rejection rule at once: an empty
+        // name, a whitespace-only name, a control character, a HIDDEN
+        // dot-prefixed name, a face-less family, and case-folded
+        // duplicates.
+        let raw = ["", "   ", "Bad\u{0007}Name", ".AppleSystemUIFont",
+                   ".SF NS", "Ghost", "Zed", "alpha", "Alpha"]
+        let members: [String: [[String]]] = [
+            ".AppleSystemUIFont": [["AppleSystemUIFont", "Regular"]],
+            ".SF NS": [["SFNS-Regular", "Regular"]],
+            "Ghost": [],
+            "Zed": [["Zed-Bold", "Bold"], ["Zed", "Regular"], ["Zed", "Regular"]],
+            "alpha": [["Alpha-Roman", "Roman"]],
+            "Alpha": [["AlphaOther-Regular", "Regular"]],
+        ]
+        let families = InstalledFontNames.families(raw) { members[$0] ?? [] }
+        let names = families.map(\.name)
+        try expectEqual(names, ["alpha", "Zed"], "hidden/faceless/empty/control dropped")
+        try expect(!names.contains(".AppleSystemUIFont"), "dot-prefixed hidden family dropped")
+        try expect(!names.contains(".SF NS"), "spaced hidden family dropped")
+        try expect(!names.contains("Ghost"), "face-less family dropped")
+        try expect(!names.contains(where: { $0.contains("\u{0007}") }), "control dropped")
+        try expect(!names.contains(""), "empty dropped")
+        try expectEqual(names.filter { $0.lowercased() == "alpha" }.count, 1,
+                        "case-folded duplicate collapsed")
+        try expectEqual(names.first, "alpha", "first spelling kept")
+        // A face-less family is absent from BOTH enumeration and faces.
+        try expect(!names.contains("Ghost"), "face-less family not enumerated")
+        try expect(InstalledFontNames.families(["Ghost"]) { _ in [] }.isEmpty,
+                   "a lone face-less family yields no families")
+        // Faces stay deduplicated and regular-preferring.
+        let zed = families.first { $0.name == "Zed" }
+        try expectEqual(zed?.faces.map(\.label), ["Regular", "Bold"], "regular first, deduped")
+        try expectEqual(zed?.faces.map(\.name), ["Zed", "Zed-Bold"], "PostScript names kept")
+        try expectEqual(families.first { $0.name == "alpha" }?.faces.map(\.label), ["Roman"],
+                        "Roman ranks as regular")
+        // The rules themselves.
+        try expect(InstalledFontNames.isHidden(".Hidden"), "dot prefix hidden")
+        try expect(InstalledFontNames.isHidden("  .Hidden  "), "trimmed dot prefix hidden")
+        try expect(!InstalledFontNames.isHidden("Visible"), "normal name visible")
+        try expect(!InstalledFontNames.isHidden("mid.dot"), "inner dot is not hidden")
+        try expect(InstalledFontNames.usableName("  ") == nil, "whitespace unusable")
+        try expect(InstalledFontNames.usableName("a\u{0000}b") == nil, "control unusable")
+        try expectEqual(InstalledFontNames.usableName("  Menlo  "), "Menlo", "trims")
+        for token in ["Regular", "Roman", "Book", "Normal", "REGULAR", "book italic"] {
+            try expectEqual(InstalledFontNames.regularRank(token), 0, "\(token) ranks regular")
+        }
+        for token in ["Bold", "Italic", "Light"] {
+            try expectEqual(InstalledFontNames.regularRank(token), 1, "\(token) does not")
+        }
+        // Malformed member rows are skipped, never crash.
+        let malformed = InstalledFontNames.faces(fromMembers: [["OnlyName"], [], ["", "Empty"],
+                                                              ["Ok-Regular", "Regular"]])
+        try expectEqual(malformed.map(\.name), ["Ok-Regular"], "malformed rows skipped")
+    },
+
+    EngineCase("r91-font-catalog-delegates-to-the-pure-rules") {
+        let catalog = try nfRequire("Sources/NumlexApp/InstalledFontCatalog.swift")
+        try expect(catalog.contains("InstalledFontNames.families("),
+                   "families come from the pure core rules")
+        try expect(catalog.contains("InstalledFontNames.regularRank("),
+                   "regular preference delegated")
+        try expect(catalog.contains("InstalledFontNames.isHidden("),
+                   "hidden-name rule delegated")
+        // The rules live in the dependency-free core (no AppKit there).
+        let rules = try nfRequire("Sources/NumlexCore/Models/InstalledFontNames.swift")
+        try expect(!rules.contains("import AppKit"), "core rules stay dependency-free")
+        try expect(rules.contains("public static func isHidden"), "hidden rule present")
+        try expect(rules.contains("guard !faces.isEmpty else { continue }"),
+                   "face-less families omitted")
+        try expect(rules.contains("hasPrefix(\".\")"), "dot-prefix rejection present")
+        // Membership and faces agree by construction: one table.
+        try expect(catalog.contains("facesByFamily = Dictionary(uniqueKeysWithValues:"),
+                   "one table backs families/faces/membership")
+        try expect(catalog.contains("guard let family, contains(family: family) else { return fallback() }"),
+                   "resolution honours membership")
+    },
+
     EngineCase("r90-font-one-shared-installed-catalog") {
         let catalog = try nfRequire("Sources/NumlexApp/InstalledFontCatalog.swift")
         try expect(catalog.contains("static let shared = InstalledFontCatalog()"),
@@ -250,19 +328,23 @@ public let notebookFontCases: [EngineCase] = [
                    "families come from the font manager")
         try expect(catalog.contains("availableMembers(ofFontFamily:"),
                    "faces come from the font manager")
-        try expect(catalog.contains("localizedCaseInsensitiveCompare"),
+        // r91: ordering/name rules live in the pure core rules; the app
+        // type delegates and owns only the AppKit adaptation.
+        let rules = try nfRequire("Sources/NumlexCore/Models/InstalledFontNames.swift")
+        try expect(rules.contains("localizedCaseInsensitiveCompare"),
                    "localized case-insensitive order")
-        try expect(catalog.contains("regularRank"),
+        try expect(rules.contains("regularRank"),
                    "deterministic regular preference")
         for token in ["regular", "roman", "book", "normal"] {
-            try expect(catalog.lowercased().contains("\"\(token)\""),
+            try expect(rules.lowercased().contains("\"\(token)\""),
                        "regular preference covers \(token)")
         }
-        try expect(catalog.contains("facesByFamily[family] != nil")
-                   || catalog.contains("contains(family:"),
-                   "family membership check")
-        try expect(catalog.contains("ControlCharacters") || catalog.contains("controlCharacters"),
+        try expect(rules.contains("ControlCharacters") || rules.contains("controlCharacters"),
                    "control-character names rejected")
+        try expect(catalog.contains("InstalledFontNames.families("),
+                   "the app catalog uses the pure rules")
+        try expect(catalog.contains("contains(family:"),
+                   "family membership check")
         try expect(catalog.contains("boldVariant"), "bold derivation")
         try expect(catalog.contains("familyName == base.familyName"),
                    "derived weight never changes family")
