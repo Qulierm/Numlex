@@ -415,29 +415,37 @@ struct AnswerColumnView: View {
         )
     }
 
-    /// The footer's content: in expanded mode the localized label, its gap
-    /// and the value; in COMPACT mode the value ALONE — no label, no gap and
-    /// no spacer claim, so the value gets its full measured width instead of
-    /// losing the label gap to truncation.
-    @ViewBuilder
+    /// The footer's content — ONE stable tree in both modes, so the glass
+    /// bubble can interpolate a single numeric width instead of swapping
+    /// branches.
+    ///
+    /// The localized label is leading-aligned and the value trailing-aligned
+    /// across the SAME explicitly sized content frame; the label simply fades
+    /// out in compact mode (`opacity` 0). Because the frame is
+    /// `layout.contentWidth` — which in compact mode is exactly the measured
+    /// value width — the hidden label never reserves any width, and no
+    /// spacer or label-gap view is needed in either mode. The pure fit rule
+    /// guarantees the visible separation while expanded (at the exact
+    /// boundary the content width already contains the measured label, the
+    /// 8 pt visual gap, the value and the 2 pt safety reserve), so overlay
+    /// positioning can never make the two texts collide.
+    ///
+    /// `clipped()` keeps the fading label from painting outside the shrinking
+    /// content while the bubble narrows.
     private func footerBarContent(value: String, layout: FooterTotalLayout.Result) -> some View {
-        if layout.showsLabel {
-            HStack(spacing: FooterTotalLayout.labelGap) {
-                Text(totalLabel)
-                    .font(Design.labelSmall)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 0)
-                totalValue(value)
-            }
-            .frame(width: layout.contentWidth, alignment: .leading)
-        } else {
-            HStack(spacing: 0) {
-                totalValue(value)
-            }
-            .frame(width: layout.contentWidth, alignment: .trailing)
+        ZStack(alignment: .leading) {
+            Text(totalLabel)
+                .font(Design.labelSmall)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(layout.showsLabel ? 1 : 0)
+            totalValue(value)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .frame(width: layout.contentWidth, alignment: .leading)
+        .clipped()
     }
 
     /// The Total's displayed value — one definition shared by both modes so
@@ -722,6 +730,10 @@ struct AnswerColumnView: View {
                 footerBarContent(value: s.value, layout: layout)
                     .padding(.horizontal, FooterTotalLayout.innerPadding)
                     .padding(.vertical, 8)
+                    // ONE numeric width for the glass surface itself, so the
+                    // bubble's own geometry interpolates smoothly instead of
+                    // being inferred from the (changing) intrinsic content.
+                    .frame(width: layout.bubbleWidth)
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     // The bubble shrinks from its LEADING edge: the trailing
                     // edge stays put inside the column's inset slot, and the
@@ -751,14 +763,17 @@ struct AnswerColumnView: View {
                             }
                         }
                     }
-                    // The ONE short geometry transition: the bubble's
-                    // intrinsic width animates only when the MODE flips
+                    // The ONE short geometry transition: the bubble's own
+                    // width (the explicit frame above) and the label's fade
+                    // animate together only when the MODE flips
                     // (`showsLabel`), never on the continuously changing
                     // container width or the value text, so dragging the
                     // divider is not animated per pixel and a number change
-                    // keeps its own crossfade. Reduce Motion applies the
-                    // final compact/expanded geometry immediately.
-                    .animation(reduceMotion ? nil : .easeInOut(duration: Motion.footerMode),
+                    // keeps its own crossfade. `smooth` with zero extra
+                    // bounce keeps the move visible but calm. Reduce Motion
+                    // applies the final compact/expanded geometry immediately.
+                    .animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,
+                                                           extraBounce: 0),
                                value: layout.showsLabel)
             }
         }

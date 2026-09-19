@@ -334,10 +334,13 @@ enum Design {
 }
 
 /// r77 — the ONE shared motion policy for the app's micro-animations.
-/// Everything here is a short opacity/color-only pass: no geometry,
+/// MOST of what lives here is a short opacity/color-only pass: no geometry,
 /// no bounces, no numeric tweens. The calm native notebook should feel
-/// alive, not like a demo. Durations are the single source of truth —
-/// SwiftUI (answers, totals, hovers) and the TextKit token pass read
+/// alive, not like a demo. The single narrow exception is `footerMode`
+/// below, which animates the footer Total bubble's own width when the
+/// compact/expanded mode flips — one numeric width, no bounce, no overshoot,
+/// no scale and no tween of the number. Durations are the single source of
+/// truth — SwiftUI (answers, totals, hovers) and the TextKit token pass read
 /// from here; `TokenAppearance.duration` and
 /// `AnswerAppearance.duration` are the AppKit/clock-injected twins of
 /// the two token/answer appearance durations.
@@ -355,16 +358,16 @@ enum Motion {
     /// `TokenAppearance.duration`/`startScale`.
     static let tokenIn: Double = TokenAppearance.duration
     /// The footer Total bar's compact/expanded transition — the ONE short
-    /// GEOMETRY exception to the notebook's opacity/colour-only micro-motion
-    /// policy. The bubble's intrinsic width shrinks to (and grows back from)
-    /// the value-only width from its LEADING edge while the trailing edge
-    /// stays anchored, so the glass surface reads as one calm move rather
-    /// than a jump. It is deliberately non-spring (no bounce, overshoot or
-    /// numeric tween), it is keyed ONLY on the binary mode flip — never on
-    /// the continuously changing container width, so dragging the answer
-    /// column divider is not animated per pixel — and Reduce Motion replaces
-    /// it with the final geometry immediately.
-    static let footerMode: Double = 0.16
+    /// GEOMETRY exception to the notebook's otherwise opacity/colour-only
+    /// micro-motion policy. The glass bubble's own width shrinks to (and
+    /// grows back from) the value-only width from its LEADING edge while the
+    /// trailing edge stays anchored, so the surface reads as one calm move
+    /// rather than a jump. It is deliberately non-spring (no bounce,
+    /// overshoot or numeric tween), it is keyed ONLY on the binary mode flip —
+    /// never on the continuously changing container width, so dragging the
+    /// answer column divider is not animated per pixel — and Reduce Motion
+    /// replaces it with the final geometry immediately.
+    static let footerMode: Double = 0.22
 
     /// Whether the OS Reduce Motion is currently on (live source for
     /// the AppKit passes; SwiftUI reads `\.accessibilityReduceMotion`,

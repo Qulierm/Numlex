@@ -553,11 +553,13 @@ maximum width and one-line overflow behaviour, and the footer is announced once
 to assistive tech as "<label> <value>" in both modes.
 
 Entering and leaving the value-only mode is the one short geometry transition
-in the notebook: the glass bubble's width shrinks from (and grows back to) the
-full width from its leading edge over 0.16 s (`Motion.footerMode`, an
-ease-in-out — never a spring, a bounce or a numeric tween), while the trailing
-edge, height, vertical padding, corner radius and reserved footer space stay
-fixed. Only the binary mode change animates: continuously resizing the answer
+in the notebook, and it is deliberately visible: the glass bubble's own width
+shrinks from (and grows back to) the full width from its leading edge over
+0.22 s with a smooth, zero-bounce curve — never a spring, an overshoot, a
+scale or a numeric tween — while the statistic label fades out in place and
+the number stays exactly where it is, anchored to the fixed trailing edge.
+Height, vertical padding, corner radius and the reserved footer space never
+change. Only the binary mode change animates: continuously resizing the answer
 column never animates the bubble per pixel, and a change of the number itself
 keeps its own short value crossfade without touching the geometry. With
 **Reduce Motion** enabled the compact/expanded geometry is applied
