@@ -118,6 +118,16 @@ struct AnswerColumnView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The footer's PRESENTED mode geometry. The footer's desired layout is
+    /// derived from the live column width on every pass, but a width written
+    /// by the divider drag is a continuous external/model change: an implicit
+    /// `.animation(value:)` on that derived value can be suppressed or
+    /// coalesced, which made compact -> expanded snap while expanding ->
+    /// compact animated. The mode therefore lives in THIS view's own state
+    /// and is mutated inside `withAnimation`, the same pattern
+    /// `LaunchContainer` documents for view-owned state.
+    @State private var footerPresentation: FooterTotalLayout.Result?
+
     /// The result kinds a hovered token may highlight: exactly the
     /// answerable results the token-active semantics resolve to.
     /// Blank/title/skip/error/broken/date never outline.
@@ -415,6 +425,66 @@ struct AnswerColumnView: View {
         )
     }
 
+    /// Which layout the footer renders this pass.
+    ///
+    /// While the presented and desired modes agree the DESIRED layout is
+    /// rendered directly, so ordinary pixel resizing and value-width changes
+    /// never lag behind a stored copy. Only while the two modes differ — the
+    /// single reconciliation pass in which `withAnimation` is adopting the new
+    /// mode — is the stored presentation rendered, so the transition
+    /// interpolates from the geometry the user is actually looking at.
+    private func footerRenderedLayout(desired: FooterTotalLayout.Result) -> FooterTotalLayout.Result {
+        guard let presented = footerPresentation,
+              presented.showsLabel != desired.showsLabel else { return desired }
+        return presented
+    }
+
+    /// Adopts the desired footer layout.
+    ///
+    /// - First appearance (no stored presentation) seeds silently.
+    /// - A same-mode change (width or value metrics moved, mode unchanged)
+    ///   synchronizes silently, so dragging never animates per pixel.
+    /// - A MODE change is the only thing that animates. The decision is the
+    ///   symmetric inequality `presented.showsLabel != desired.showsLabel`,
+    ///   so compact -> expanded and expanded -> compact take the identical
+    ///   path; there is no directional special case. Reduce Motion adopts the
+    ///   new geometry in an explicitly non-animated transaction.
+    private func reconcileFooterPresentation(desired: FooterTotalLayout.Result) {
+        guard let presented = footerPresentation else {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) { footerPresentation = desired }
+            return
+        }
+        guard presented.showsLabel != desired.showsLabel else {
+            if presented != desired {
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) { footerPresentation = desired }
+            }
+            return
+        }
+        if reduceMotion {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) { footerPresentation = desired }
+        } else {
+            withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0)) {
+                footerPresentation = desired
+            }
+        }
+    }
+
+    /// Clears the stored presentation when the footer disappears (disabled,
+    /// or no summary), so a later reappearance seeds the CURRENT sheet's
+    /// geometry instead of animating from a stale mode.
+    private func resetFooterPresentation() {
+        guard footerPresentation != nil else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) { footerPresentation = nil }
+    }
+
     /// The footer's content — ONE stable tree in both modes, so the glass
     /// bubble can interpolate a single numeric width instead of swapping
     /// branches.
@@ -491,6 +561,11 @@ struct AnswerColumnView: View {
         if let unit, !unit.isEmpty { return "\(totalLabel) \(value) \(unit)" }
         return "\(totalLabel) \(value)"
     }
+
+    /// Whether the footer is on screen at all — the stable trigger for
+    /// clearing the presented geometry when the bar is hidden or the sheet
+    /// has no Total to show.
+    private var footerVisible: Bool { showTotalBar && summary != nil }
 
     private var summary: (value: String, unit: String?)? {
         // Package 7: the selected footer statistic over the SAME broad
@@ -724,9 +799,14 @@ struct AnswerColumnView: View {
                 // frames, and the bubble slot is the real inset slot of
                 // the current column (at the 200 pt default it is the
                 // legacy 184 pt full bubble — byte-identical geometry).
-                let layout = FooterTotalLayout.layout(containerWidth: width,
-                                                      labelWidth: metrics.label,
-                                                      valueWidth: metrics.value)
+                let desired = FooterTotalLayout.layout(containerWidth: width,
+                                                       labelWidth: metrics.label,
+                                                       valueWidth: metrics.value)
+                // The rendered geometry comes from the view-owned
+                // presentation (see `footerRenderedLayout`), so a mode change
+                // interpolates from what is on screen while ordinary resizing
+                // renders the live desired layout with no lag.
+                let layout = footerRenderedLayout(desired: desired)
                 footerBarContent(value: s.value, layout: layout)
                     .padding(.horizontal, FooterTotalLayout.innerPadding)
                     .padding(.vertical, 8)
@@ -763,21 +843,27 @@ struct AnswerColumnView: View {
                             }
                         }
                     }
-                    // The ONE short geometry transition: the bubble's own
-                    // width (the explicit frame above) and the label's fade
-                    // animate together only when the MODE flips
-                    // (`showsLabel`), never on the continuously changing
-                    // container width or the value text, so dragging the
-                    // divider is not animated per pixel and a number change
-                    // keeps its own crossfade. `smooth` with zero extra
-                    // bounce keeps the move visible but calm. Reduce Motion
-                    // applies the final compact/expanded geometry immediately.
-                    .animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,
-                                                           extraBounce: 0),
-                               value: layout.showsLabel)
+                    // The ONE short geometry transition is owned by THIS
+                    // view's state, not by an implicit animation on a value
+                    // derived from the dragged width: the reconciliation below
+                    // mutates `footerPresentation` inside `withAnimation` when
+                    // the MODE flips (either direction), and silently
+                    // otherwise — so dragging is never animated per pixel, a
+                    // number change keeps its own crossfade, and compact ->
+                    // expanded animates exactly like expanded -> compact.
+                    .onAppear { reconcileFooterPresentation(desired: desired) }
+                    .onChange(of: desired) { _, newValue in
+                        reconcileFooterPresentation(desired: newValue)
+                    }
             }
         }
         .frame(width: width)
+        // A hidden or summary-less footer clears its presented geometry, so
+        // the next appearance seeds the CURRENT sheet's mode silently instead
+        // of animating from stale sheet/statistic geometry.
+        .onChange(of: footerVisible) { _, visible in
+            if !visible { resetFooterPresentation() }
+        }
         // v2: the answer panel is a DARKER calm gray than the editor
         // (Design.answerPanelBackground: explicit per-appearance sRGB —
         // quiet elevated gray in dark, quiet gray in light), so the

@@ -165,10 +165,12 @@ public let r80Cases: [EngineCase] = [
         // flag.
         let view = try r80ReadSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
         let occurrences = view.components(separatedBy: "showTotalBar").count - 1
-        // 1: the property, 2: the footer gate (the doc comment never
-        // repeats the identifier).
-        try expectEqual(occurrences, 2,
-                        "the flag is consumed once (footer gate) + declared once")
+        // 1: the property, 2: the footer gate, 3: the stable `footerVisible`
+        // flag that clears the footer's presented geometry when the bar is
+        // hidden (the doc comments never repeat the identifier). Nothing
+        // else in the column references it.
+        try expectEqual(occurrences, 3,
+                        "the flag is declared once and consumed by the footer only")
         try expect(view.contains("if showTotalBar, let s = summary {"),
                    "the footer HStack (label + value + glass bar) is the only gated region")
         // No geometry animation on the toggle: the r62 hit surface

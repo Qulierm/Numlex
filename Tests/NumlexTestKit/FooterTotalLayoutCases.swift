@@ -425,12 +425,13 @@ public let footerTotalLayoutCases: [EngineCase] = [
                    "the footer no longer disables geometry animation")
         try expect(!view.contains("Mode changes must not animate"),
                    "and its explanatory comment is gone")
-        // The replacement is the mode-only smooth, zero-bounce transition.
-        try expect(view.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
-                   "smooth with the central footer duration")
-        try expect(view.contains("extraBounce: 0)"), "zero extra bounce")
-        try expect(view.contains("value: layout.showsLabel)"),
-                   "keyed exactly on the mode flip")
+        // The transition is owned by the view's own presentation state and
+        // adopted inside an explicit animation — no implicit modifier on a
+        // value derived from the dragged width.
+        try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
+                   "one explicit smooth, zero-bounce transition")
+        try expect(!view.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
+                   "the implicit derived-layout animation is gone")
         try expect(!view.contains("easeInOut(duration: Motion.footerMode)"),
                    "the old footer curve is gone")
         try expect(!view.contains("extraBounce: 0.1") && !view.contains("extraBounce: 0.2"),
@@ -446,13 +447,14 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(!slot.contains("value: width"), "not keyed on the container width")
         try expect(!slot.contains("value: layout.bubbleWidth"), "not keyed on the bubble width")
         try expect(!slot.contains("value: layout.contentWidth"), "not keyed on the content width")
-        try expect(!slot.contains("withAnimation"), "no imperative animation")
         try expect(!slot.contains(".spring"), "never a spring")
         try expect(!slot.contains("scaleEffect"), "the digits are never scaled")
         try expect(!slot.contains(".bouncy"), "never a bouncy curve")
         try expect(!slot.contains(".offset("), "no numeric tween")
-        // Reduce Motion supplies nil -> the final geometry immediately.
-        try expect(slot.contains("reduceMotion ? nil :"), "Reduce Motion yields nil")
+        // The slot only HOOKS the reconciliation; the transition itself lives
+        // in the view-owned state helper.
+        try expect(slot.contains("reconcileFooterPresentation(desired: desired)"),
+                   "the slot reconciles through the view-owned helper")
         // Geometry and semantics that must NOT move.
         try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
                    "the trailing-anchored slot is unchanged")
@@ -521,18 +523,20 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(bubbleAt < glassAt, "the explicit width precedes the glass surface")
         // The glass width is the ONLY thing that interpolates; the mode key is
         // the only trigger.
-        try expectEqual(slot.components(separatedBy: ".animation(").count - 1, 1,
-                        "exactly one animation modifier in the footer slot")
-        try expect(slot.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
-                   "the smooth footer transition")
-        try expect(slot.contains("extraBounce: 0)"), "zero bounce")
-        try expect(slot.contains("value: layout.showsLabel)"), "keyed on the mode flip only")
+        try expectEqual(slot.components(separatedBy: ".animation(").count - 1, 0,
+                        "no implicit animation modifier in the footer slot")
+        try expect(slot.contains("reconcileFooterPresentation(desired: desired)"),
+                   "the mode is reconciled from view-owned state")
+        try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
+                   "one explicit smooth, zero-bounce transition")
         for banned in ["value: width", "value: layout.bubbleWidth", "value: layout.contentWidth",
-                       "value: layout.showsLabel ? 1 : 0", "value: value", "withAnimation",
+                       "value: layout.showsLabel ? 1 : 0", "value: value",
                        ".spring", "scaleEffect", ".offset(", ".bouncy"] {
             try expect(!slot.contains(banned), "the footer mode path has no \(banned)")
         }
-        try expect(slot.contains("reduceMotion ? nil :"), "Reduce Motion yields nil")
+        // Reduce Motion takes the explicitly non-animated path.
+        try expect(view.contains("if reduceMotion {"),
+                   "Reduce Motion has its own branch")
         // Fixed trailing slot and the untouched surrounding contract.
         try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
                    "the trailing edge stays fixed")
@@ -546,5 +550,111 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(value.contains(".id(value)"), "value identity crossfade kept")
         try expect(value.contains("value: value"), "keyed on the formatted text")
         try expect(!value.contains("bubbleWidth"), "the value helper never touches geometry")
+    },
+
+    EngineCase("total-bar-mode-reconciliation-animates-both-directions") {
+        // THE follow-up regression: expansion used to snap while compaction
+        // animated, because the transition was an implicit `.animation` on a
+        // layout value derived from the continuously dragged width. The mode
+        // now lives in the view's OWN state and is adopted inside one
+        // explicit `withAnimation`, so the decision is a single symmetric
+        // inequality.
+        //
+        // The enumerated transition table this case pins:
+        //   nil -> expanded            seed, NO animation
+        //   nil -> compact             seed, NO animation
+        //   expanded -> expanded       same mode, NO animation
+        //   compact -> compact         same mode, NO animation
+        //   expanded -> compact        MODE FLIP -> animated
+        //   compact -> expanded        MODE FLIP -> animated (the fix)
+        //   either flip, Reduce Motion NO animation
+        //   footer hidden -> shown     reset, then seed, NO animation
+        let view = try footerTotalSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        // 1. View-owned optional presentation state.
+        try expect(view.contains("@State private var footerPresentation: FooterTotalLayout.Result?"),
+                   "the presented geometry is view-owned optional state")
+        // 2. Render selection: desired while the modes agree (no drag lag),
+        //    the stored presentation only during the reconciling pass.
+        try expect(view.contains("private func footerRenderedLayout(desired: FooterTotalLayout.Result) -> FooterTotalLayout.Result"),
+                   "a dedicated render-selection helper")
+        try expect(view.contains("presented.showsLabel != desired.showsLabel else { return desired }"),
+                   "same-mode passes render the live desired layout")
+        // 3. The symmetric predicate, verbatim and free of directional logic.
+        try expect(view.contains("guard presented.showsLabel != desired.showsLabel else {"),
+                   "one symmetric inequality decides the transition")
+        let guardLine = "guard presented.showsLabel != desired.showsLabel else {"
+        for directional in ["== true", "== false", "desired.showsLabel &&", "&& desired.showsLabel",
+                            "if desired.showsLabel {", "if !desired.showsLabel"] {
+            try expect(!view.contains(directional), "no directional special case: \(directional)")
+        }
+        try expect(view.contains(guardLine), "the inequality is the sole directional decision")
+        // 4. Exactly one explicit animated adoption, using the shared curve.
+        try expectEqual(view.components(separatedBy: "withAnimation(").count - 1, 1,
+                        "exactly one withAnimation owns the transition")
+        try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
+                   "the shared 0.22 smooth zero-bounce curve, used by BOTH directions")
+        // 5. Every non-mode path is explicitly un-animated: the seed, the
+        //    same-mode synchronization, the Reduce Motion adoption and the
+        //    visibility reset each set `animation = nil` in their own
+        //    transaction.
+        try expect(view.contains("transaction.animation = nil"), "explicit no-animation transactions")
+        try expectEqual(view.components(separatedBy: "withTransaction(transaction)").count - 1, 4,
+                        "seed, same-mode sync, Reduce Motion and reset are all non-animated")
+        try expect(view.contains("if reduceMotion {"), "Reduce Motion has its own branch")
+        // The Reduce Motion branch must not animate.
+        let reconcile = footerSlice(view, from: "private func reconcileFooterPresentation",
+                                    to: "private func resetFooterPresentation")
+        try expect(!reconcile.isEmpty, "the reconciliation helper exists")
+        guard let rmAt = reconcile.range(of: "if reduceMotion {")?.lowerBound,
+              let animAt = reconcile.range(of: "withAnimation(")?.lowerBound else {
+            throw CaseFailure(message: "reduceMotion or withAnimation missing", location: "FooterTotal")
+        }
+        try expect(rmAt < animAt, "Reduce Motion is decided BEFORE the animated branch")
+        let rmBranch = String(reconcile[rmAt..<animAt])
+        try expect(!rmBranch.contains("withAnimation"), "the Reduce Motion branch never animates")
+        try expect(rmBranch.contains("transaction.animation = nil"),
+                   "Reduce Motion adopts the new geometry in a disabled transaction")
+        // 6. Reset when the footer disappears, and the reset is silent.
+        try expect(view.contains("private var footerVisible: Bool"),
+                   "a stable visibility flag drives the reset")
+        try expect(view.contains(".onChange(of: footerVisible) { _, visible in"),
+                   "the reset is attached at a stable enclosing level")
+        let reset = footerSlice(view, from: "private func resetFooterPresentation",
+                                to: "/// The footer's content")
+        try expect(reset.contains("footerPresentation = nil"), "the reset clears the stored geometry")
+        try expect(!reset.contains("withAnimation"), "the reset is never animated")
+        // 7. The old implicit derived-layout animation is gone, and the slot
+        //    only hooks the reconciliation.
+        try expect(!view.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
+                   "no implicit mode animation remains")
+        try expect(!view.contains("value: layout.showsLabel)"), "no implicit mode key remains")
+        let slot = footerSlice(view, from: "footerBarContent(value: s.value, layout: layout)",
+                               to: "// v2: the answer panel is a DARKER")
+        try expect(slot.contains(".onAppear { reconcileFooterPresentation(desired: desired) }"),
+                   "first appearance seeds through the helper")
+        try expect(slot.contains(".onChange(of: desired) { _, newValue in"),
+                   "later geometry changes reconcile through the helper")
+        try expectEqual(slot.components(separatedBy: ".animation(").count - 1, 0,
+                        "no animation modifier in the footer slot")
+        // 8. The stable overlay and explicit widths from the previous fix.
+        let content = footerSlice(view, from: "private func footerBarContent",
+                                  to: "private func totalValue")
+        try expect(content.contains("ZStack("), "one stable overlay")
+        try expect(!content.contains("if layout.showsLabel {"), "no mode branch")
+        try expectEqual(content.components(separatedBy: "totalValue(value)").count - 1, 1,
+                        "one stable value node")
+        try expect(content.contains(".frame(width: layout.contentWidth, alignment: .leading)"),
+                   "explicit content width")
+        try expect(content.contains(".clipped()"), "clipping kept")
+        try expectEqual(slot.components(separatedBy: ".frame(width: layout.bubbleWidth)").count - 1, 1,
+                        "one explicit bubble width")
+        try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
+                   "fixed trailing slot")
+        // 9. The threshold and the shared duration are untouched.
+        try expectEqual(FooterTotalLayout.safetyReserve, 2, "the 2 pt safety reserve is unchanged")
+        try expectEqual(FooterTotalLayout.labelGap, 8, "the 8 pt visual gap is unchanged")
+        let design = try footerTotalSource("Sources/NumlexApp/Design.swift")
+        try expect(design.contains("static let footerMode: Double = 0.22"),
+                   "the shared 0.22 s duration is unchanged")
     },
 ]
