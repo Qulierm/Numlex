@@ -119,8 +119,8 @@ Evidence classes are marked per row below: *executed A/B*, *executed probe*,
 
 | ID | Severity | Area | Status | Title |
 | --- | --- | --- | --- | --- |
-| BUG-01 | High | Linked conversions | Confirmed defect | A carried `in` (inch) token plus the `in` conversion keyword now fails |
-| BUG-02 | Low | Linked conversions | Confirmed defect | Carried unit + explicit source unit reports a misleading `Unknown units` |
+| BUG-01 | High | Linked conversions | **Open — still unfixed, out of this scope** | A carried `in` (inch) token plus the `in` conversion keyword still fails |
+| BUG-02 | Low | Linked conversions | **Fixed in `2f73506`** | Carried unit + explicit source unit reported a misleading `Unknown units` |
 | BC-01 | — | Linked conversions | Behavior change (regression) | Same as BUG-01; registered here for the differential count |
 | BC-02 | — | Linked conversions | Behavior change (improvement) | 44 shapes that used to error now convert as documented |
 | BC-03 | — | Linked conversions | Behavior change (value correction) | 5 shapes return the full-precision value instead of the display-rounded one |
@@ -128,8 +128,8 @@ Evidence classes are marked per row below: *executed A/B*, *executed probe*,
 | SUS-01 | Info | Expression lane (out of scope) | Suspected | `1e-07` as a standalone line evaluates to `-6` (pre-existing) |
 | SUS-02 | Info | Number parsing (out of scope) | Suspected | `1,125` bare vs `1,125 kg` disagree in decimal-comma mode (pre-existing) |
 | SUS-03 | Info | Number parsing (out of scope) | Suspected | `1,234` in legacy mode reads as grouping (pre-existing, may be by design) |
-| DRIFT-01 | Medium | Documentation | Confirmed defect (doc) | The Answer Tokens text promises the `in` spelling for a carried `in` unit |
-| DRIFT-02 | Low | Documentation | Confirmed defect (doc) | The same paragraph implies only two spellings exist |
+| DRIFT-01 | Medium | Documentation | **Open — still unfixed, out of this scope** | The Answer Tokens text promises the `in` spelling for a carried `in` unit |
+| DRIFT-02 | Low | Documentation | **Resolved in `2f73506`** | The paragraph implied only two spellings exist; the third is now documented |
 | DRIFT-03 | Info | Documentation | Confirmed defect (doc) | `AGENTS.md` §2.7 overstates store-decode tolerance |
 | C-01 | Info | Installed fonts | By design | The 256-scalar cap is a persistence rule, not an enumeration rule |
 | C-02 | Info | Installed fonts | By design (harness note) | NFC/NFD names are equal Swift Strings and collapse to one family |
@@ -239,10 +239,60 @@ checking spelling.
 
 **Workaround.** Use one of the two documented spellings.
 
+#### Post-fix note (BUG-02 status: FIXED in `2f73506`)
+
+Fixed by commit `2f73506` ("Fix redundant source unit in linked
+conversions"), which refines `linkedConversionResult` only: when the suffix
+supplies its own explicit source unit (probed through the engine's own
+`conversionShape` grammar), the repeated unit is compared with the carried
+one by EXACT unit identity — case-insensitive label equality, or identical
+`kind`/`vector`/`family`/`toBase` (the same test `convertValue` uses) — and
+the bridge then converts, reports the documented conflict, or keeps its
+previous behavior. Measured after the fix (executed, `spec-bug02.json`,
+`raw/E-bug02-committed.txt`; the pre-fix baselines come from the frozen
+d7ac83b oracle `raw/E-A-d7ac83b.txt`):
+
+| Shape | before `d7ac83b` | after `2f73506` |
+| --- | --- | --- |
+| `4673 mg` + `<token> mg to kg` | `error(Unknown units)` | `number(0.004673, kg)` |
+| `3 inch` + `<token> inch to cm` (alias) | `error(Unknown units)` | `number(7.62, cm)` |
+| `$5` + `<token> USD to EUR` | `error(Unknown units)` | `number(4.5454545455, EUR)` |
+| `30 minutes` + `<token> minutes to hours` | `error(Unknown units)` | `number(0.5, h)` |
+| `36 km/h` + `<token> km/h to m/s` | `error(Unknown units)` | `number(10, m/s)` |
+| `4673 mg` + `<token> kg to g` (conflict) | `error(Unknown units)` | `error(Incompatible units)` |
+| temperature-carrying token + `<token> C° to K` | `error(Unknown units)` | `error(Incompatible units)` |
+| `$5` + `<token> EUR to USD` (conflict) | `error(Unknown units)` | `error(Incompatible units)` |
+| `4673 mg` + `<token> zzz to kg` (unknown) | `error(Unknown units)` | `error(Unknown units)` (unchanged) |
+
+The linked answer's unit is never silently reinterpreted: a temperature or
+currency conflict reports `Incompatible units`, and an unresolvable unit on
+either side keeps the engine's own message rather than inventing a verdict.
+The documented spellings, the semantic-kind refusals and the reported r91
+case are byte-identical, and `Tests/NumlexTestKit/LinkedConversionCases.swift`
+pins the new rule in 8 `r92-*` cases (suite 1395/1395). The canonical
+`docs/SYNTAX_REFERENCE.md` §Answer Tokens now documents the repeated-unit
+spelling and both error classes, which also resolves DRIFT-02.
+
+**BUG-01 is NOT fixed by `2f73506` and remains OPEN.** The fix deliberately
+does not attempt the inch-keyword disambiguation: `3 in` + `<token> in cm`
+and `3 in` + `<token> in in` still return `error(Invalid expression)`, proven
+byte-identical across the parent, `d7ac83b` and post-fix engines
+(`raw/E-A-postfix.txt` vs `raw/E-A-d7ac83b.txt` vs `raw/E-A-c1b47f4.txt`).
+DRIFT-01 therefore also stays open. One adjacent shape changed as a
+deliberate, measured consequence of the agreement rule rather than a BUG-01
+fix: `3 in` + `<token> in to cm` moved from `error(Unknown units)` to
+`number(7.62, cm)`, because its suffix names `in` before `to`, which the
+documented disambiguation already reads as the inch unit — an agreeing
+source.
+
 ## 6. Behavior-change register for the linked-answer fix
 
 Differential: 123 shapes × 2 engines, all **executed A/B**. Raw:
 `raw/A-new.txt`, `raw/A-parent.txt`, `raw/A-table.txt`, `raw/A-buckets.json`.
+
+The buckets below describe the `d7ac83b` fix. The later BUG-02 fix
+(`2f73506`) was measured separately against a frozen `d7ac83b` oracle and is
+recorded at the end of this section.
 
 | Bucket | Count |
 | --- | --- |
@@ -319,6 +369,37 @@ value equals the typed equivalent's.
 > fix). The re-measurement above is authoritative and matches the differential
 > register, where the carried shape sits in the `unchanged` bucket and only the
 > explicit-source shape sits in `newly-converts`.
+
+### 6.1 Post-fix delta for `2f73506` (the BUG-02 fix)
+
+Measured as a three-way executed differential over the same 123-shape matrix:
+`raw/E-A-postfix.txt` (HEAD after `2f73506`) vs `raw/E-A-d7ac83b.txt` (frozen
+`d7ac83b` oracle) vs `raw/E-A-c1b47f4.txt` (parent oracle). The `d7ac83b`
+oracle reproduces the originally recorded run byte-identically
+(`cmp` against `raw/A-new.txt` is clean), so the comparison is exact.
+
+**117 of 123 shapes are byte-identical to `d7ac83b`.** Exactly 6 changed, all
+in the intended agreeing-source family:
+
+| id | `d7ac83b` | after `2f73506` | classification |
+| --- | --- | --- | --- |
+| `a04-carried-plus-explicit-source` | `error(Unknown units)` | `number(0.004673, kg)` | BUG-02 fixed |
+| `a08-currency-carried-plus-source` | `error(Unknown units)` | `number(100, EUR)` | agreement |
+| `d11-money-explicit-source` | `error(Unknown units)` | `number(4.5454545455, EUR)` | agreement |
+| `b04-carried-in-in-to-cm` | `error(Unknown units)` | `number(7.62, cm)` | measured consequence, not a BUG-01 fix |
+| `a05-carried-plus-wrong-source` | `error(Unknown units)` | `error(Incompatible units)` | accurate conflict |
+| `g20-in-then-to-noninch` | `error(Unknown units)` | `error(Incompatible units)` | accurate conflict |
+
+Recomputed buckets versus the `c1b47f4` parent after this fix: unchanged 50,
+newly-converts 48, error-string-only 18, value-change 5, newly-fails 2 — i.e.
+four ids moved out of `error-string-change` into `newly-converts` (`a04`,
+`a08`, `d11`, `b04`) and two kept their `error-string-change` status with a
+corrected message (`a05`, `g20`).
+
+**BUG-01 is provably untouched by `2f73506`:** `b02-carried-in-in-cm` and
+`b05-carried-in-in-in` are byte-identical between the `d7ac83b` oracle and
+post-fix HEAD (both `error(Invalid expression)`), so the regression those ids
+record is still open and unfixed.
 
 ## 7. Verified-clean register
 
@@ -404,12 +485,26 @@ spelling gives `7.62 cm` (`raw/D-drift.txt`). A user acting on the doc with an
 inch-valued linked answer gets an error. Severity Medium: a documented
 spelling fails on one carried unit, with a workaround (`to`).
 
+**Status: STILL OPEN after `2f73506`.** The BUG-02 fix deliberately does not
+touch the `in`-keyword disambiguation, so the quoted sentence remains partly
+inaccurate: `3 in` + `<token> in cm` and `3 in` + `<token> in in` still return
+`error(Invalid expression)` (verified byte-identical across the parent,
+`d7ac83b` and post-fix engines). This drift closes only when BUG-01 is fixed
+or the sentence is corrected to match the engine.
+
 **DRIFT-02 (Low) — the same paragraph implies only two spellings exist.**
 
 The doc lists exactly two forms; the code also accepts `<token> <source> to
 <target>` on a source that already carries a unit, which then errors with the
 misleading `Unknown units` (BUG-02). Undocumented territory, so no promise is
 broken, but the reader gets no guidance. Severity Low: message clarity only.
+
+**Status: RESOLVED in `2f73506`.** The canonical section now documents the
+repeated agreeing unit (`<token> <та же единица> to|in <unit>`) together with
+both error classes, and the shape it described as undocumented converts or
+reports `Incompatible units` instead of `Unknown units`, so the paragraph no
+longer implies that only two spellings exist. Recorded here rather than
+deleted, so the finding's history stays legible.
 
 **DRIFT-03 (Info) — `AGENTS.md` §2.7 overstates store-decode tolerance.**
 
