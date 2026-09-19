@@ -560,7 +560,11 @@ numeric tween — while the statistic label fades out (and back in) in place and
 the number stays exactly where it is, anchored to the fixed trailing edge.
 Height, vertical padding, corner radius and the reserved footer space never
 change. Dragging the answer column resizes the bubble immediately, pixel by
-pixel; only the moment the threshold is crossed — in either direction — is
-animated, and a change of the number itself keeps its own short value
-crossfade without touching the geometry. With **Reduce Motion** enabled the
+pixel, and those continuous updates never interrupt the transition: while the
+bubble is still growing or shrinking, the widths it moves between keep
+following the cursor, so the animation runs to completion instead of being cut
+short. Only the moment the threshold is crossed — in either direction, whether
+the width comes from the divider or from the Answer column width setting — is
+animated, and a change of the number itself keeps its own short value crossfade
+without touching the geometry. With **Reduce Motion** enabled the
 compact/expanded geometry is applied immediately, with no transition.

@@ -2,6 +2,74 @@ import AppKit
 import SwiftUI
 import NumlexCore
 
+/// The footer bubble's animated surface.
+///
+/// `animatableData` is the mode PROGRESS ONLY (0 = value-only, 1 = label +
+/// value). The compact/expanded endpoint geometries and the measured value
+/// width are ordinary live inputs, NOT part of `animatableData`, so a divider
+/// tick that changes them re-renders the endpoints without touching the
+/// running time-based transition — the animation cannot be cancelled by
+/// dragging.
+private struct FooterBubbleSurface<Label: View, Value: View>: View, @preconcurrency Animatable {
+    /// 0 = compact, 1 = expanded; interpolated by SwiftUI while animating.
+    var progress: CGFloat
+    /// The live endpoint geometry for the CURRENT column width and value.
+    let geometry: FooterTotalLayout.ModeGeometry
+    /// The measured value width, used for the label's collision guard.
+    let valueWidth: CGFloat
+    let label: Label
+    let value: Value
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    private var clamped: CGFloat { min(max(progress, 0), 1) }
+
+    private func mix(_ from: CGFloat, _ to: CGFloat) -> CGFloat {
+        from + (to - from) * clamped
+    }
+
+    /// Interpolated content width between the live endpoints.
+    private var contentWidth: CGFloat {
+        mix(geometry.compact.contentWidth, geometry.expanded.contentWidth)
+    }
+
+    /// Interpolated glass width between the live endpoints. Both endpoints
+    /// keep `bubbleWidth == contentWidth + 2 * innerPadding`, so the padded
+    /// content exactly fills the bubble at every intermediate progress and the
+    /// value stays anchored to the bubble's fixed trailing edge.
+    private var bubbleWidth: CGFloat {
+        mix(geometry.compact.bubbleWidth, geometry.expanded.bubbleWidth)
+    }
+
+    /// How much room the label may actually draw into: never closer to the
+    /// stationary value than the visual gap, so an intermediate width can
+    /// never make the two texts collide.
+    private var labelLimit: CGFloat {
+        max(0, contentWidth - valueWidth - FooterTotalLayout.labelGap)
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            label
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: labelLimit, alignment: .leading)
+                .clipped()
+                .opacity(Double(clamped))
+            value
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .frame(width: contentWidth, alignment: .leading)
+        .clipped()
+        .padding(.horizontal, FooterTotalLayout.innerPadding)
+        .padding(.vertical, 8)
+        .frame(width: bubbleWidth)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
 struct AnswerColumnView: View {
     /// The column's EFFECTIVE width (the persisted 140...400 pt
     /// preference capped by the available detail width so the editor
@@ -118,15 +186,18 @@ struct AnswerColumnView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The footer's PRESENTED mode geometry. The footer's desired layout is
-    /// derived from the live column width on every pass, but a width written
-    /// by the divider drag is a continuous external/model change: an implicit
-    /// `.animation(value:)` on that derived value can be suppressed or
-    /// coalesced, which made compact -> expanded snap while expanding ->
-    /// compact animated. The mode therefore lives in THIS view's own state
-    /// and is mutated inside `withAnimation`, the same pattern
-    /// `LaunchContainer` documents for view-owned state.
-    @State private var footerPresentation: FooterTotalLayout.Result?
+    /// The footer's mode PROGRESS: 0 = value-only, 1 = label + value, nil =
+    /// not yet seeded. Only the mode flip lives here — never the geometry.
+    ///
+    /// A divider drag writes the column width on every cursor tick, so the
+    /// compact and expanded ENDPOINT widths change continuously. Storing the
+    /// geometry in animation state meant the next tick re-synchronized it and
+    /// visually cancelled the transition. Keeping one scalar here (mutated
+    /// inside `withAnimation`, the pattern `LaunchContainer` documents for
+    /// view-owned state) while `FooterBubbleSurface` interpolates between the
+    /// LIVE endpoints means a drag tick can update the endpoints without ever
+    /// touching the running animation.
+    @State private var footerModeProgress: CGFloat?
 
     /// The result kinds a hovered token may highlight: exactly the
     /// answerable results the token-active semantics resolve to.
@@ -425,97 +496,53 @@ struct AnswerColumnView: View {
         )
     }
 
-    /// Which layout the footer renders this pass.
-    ///
-    /// While the presented and desired modes agree the DESIRED layout is
-    /// rendered directly, so ordinary pixel resizing and value-width changes
-    /// never lag behind a stored copy. Only while the two modes differ — the
-    /// single reconciliation pass in which `withAnimation` is adopting the new
-    /// mode — is the stored presentation rendered, so the transition
-    /// interpolates from the geometry the user is actually looking at.
-    private func footerRenderedLayout(desired: FooterTotalLayout.Result) -> FooterTotalLayout.Result {
-        guard let presented = footerPresentation,
-              presented.showsLabel != desired.showsLabel else { return desired }
-        return presented
+    /// The progress the footer renders with: the stored value while a
+    /// transition is in flight (or settled), otherwise the desired mode.
+    private func footerProgress(showsLabel: Bool) -> CGFloat {
+        footerModeProgress ?? (showsLabel ? 1 : 0)
     }
 
-    /// Adopts the desired footer layout.
+    /// Adopts the desired footer MODE.
     ///
-    /// - First appearance (no stored presentation) seeds silently.
-    /// - A same-mode change (width or value metrics moved, mode unchanged)
-    ///   synchronizes silently, so dragging never animates per pixel.
-    /// - A MODE change is the only thing that animates. The decision is the
-    ///   symmetric inequality `presented.showsLabel != desired.showsLabel`,
-    ///   so compact -> expanded and expanded -> compact take the identical
-    ///   path; there is no directional special case. Reduce Motion adopts the
-    ///   new geometry in an explicitly non-animated transaction.
-    private func reconcileFooterPresentation(desired: FooterTotalLayout.Result) {
-        guard let presented = footerPresentation else {
+    /// - First appearance (nothing stored) seeds silently.
+    /// - A same-mode change — a width or value tick whose mode is unchanged —
+    ///   performs NO state write at all, so continuous divider dragging can
+    ///   neither restart nor cancel a transition in flight.
+    /// - A mode flip is the only write, and it animates. The decision is the
+    ///   symmetric inequality `storedMode != desired.showsLabel`, so compact ->
+    ///   expanded and expanded -> compact take the identical path; a reversal
+    ///   mid-flight simply retargets the same scalar, which reverses from the
+    ///   current presentation value. Reduce Motion adopts the target in an
+    ///   explicitly non-animated transaction.
+    private func reconcileFooterMode(showsLabel: Bool) {
+        let target: CGFloat = showsLabel ? 1 : 0
+        guard let stored = footerModeProgress else {
             var transaction = Transaction()
             transaction.animation = nil
-            withTransaction(transaction) { footerPresentation = desired }
+            withTransaction(transaction) { footerModeProgress = target }
             return
         }
-        guard presented.showsLabel != desired.showsLabel else {
-            if presented != desired {
-                var transaction = Transaction()
-                transaction.animation = nil
-                withTransaction(transaction) { footerPresentation = desired }
-            }
-            return
-        }
+        // Same mode: nothing to adopt, and deliberately NO write.
+        guard (stored >= 0.5) != showsLabel else { return }
         if reduceMotion {
             var transaction = Transaction()
             transaction.animation = nil
-            withTransaction(transaction) { footerPresentation = desired }
+            withTransaction(transaction) { footerModeProgress = target }
         } else {
             withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0)) {
-                footerPresentation = desired
+                footerModeProgress = target
             }
         }
     }
 
-    /// Clears the stored presentation when the footer disappears (disabled,
-    /// or no summary), so a later reappearance seeds the CURRENT sheet's
-    /// geometry instead of animating from a stale mode.
-    private func resetFooterPresentation() {
-        guard footerPresentation != nil else { return }
+    /// Clears the stored mode when the footer disappears (disabled, or no
+    /// summary), so a later reappearance seeds the CURRENT sheet's mode
+    /// instead of animating from a stale one.
+    private func resetFooterMode() {
+        guard footerModeProgress != nil else { return }
         var transaction = Transaction()
         transaction.animation = nil
-        withTransaction(transaction) { footerPresentation = nil }
-    }
-
-    /// The footer's content — ONE stable tree in both modes, so the glass
-    /// bubble can interpolate a single numeric width instead of swapping
-    /// branches.
-    ///
-    /// The localized label is leading-aligned and the value trailing-aligned
-    /// across the SAME explicitly sized content frame; the label simply fades
-    /// out in compact mode (`opacity` 0). Because the frame is
-    /// `layout.contentWidth` — which in compact mode is exactly the measured
-    /// value width — the hidden label never reserves any width, and no
-    /// spacer or label-gap view is needed in either mode. The pure fit rule
-    /// guarantees the visible separation while expanded (at the exact
-    /// boundary the content width already contains the measured label, the
-    /// 8 pt visual gap, the value and the 2 pt safety reserve), so overlay
-    /// positioning can never make the two texts collide.
-    ///
-    /// `clipped()` keeps the fading label from painting outside the shrinking
-    /// content while the bubble narrows.
-    private func footerBarContent(value: String, layout: FooterTotalLayout.Result) -> some View {
-        ZStack(alignment: .leading) {
-            Text(totalLabel)
-                .font(Design.labelSmall)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(layout.showsLabel ? 1 : 0)
-            totalValue(value)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .frame(width: layout.contentWidth, alignment: .leading)
-        .clipped()
+        withTransaction(transaction) { footerModeProgress = nil }
     }
 
     /// The Total's displayed value — one definition shared by both modes so
@@ -802,26 +829,21 @@ struct AnswerColumnView: View {
                 let desired = FooterTotalLayout.layout(containerWidth: width,
                                                        labelWidth: metrics.label,
                                                        valueWidth: metrics.value)
-                // The rendered geometry comes from the view-owned
-                // presentation (see `footerRenderedLayout`), so a mode change
-                // interpolates from what is on screen while ordinary resizing
-                // renders the live desired layout with no lag.
-                let layout = footerRenderedLayout(desired: desired)
-                footerBarContent(value: s.value, layout: layout)
-                    .padding(.horizontal, FooterTotalLayout.innerPadding)
-                    .padding(.vertical, 8)
-                    // ONE numeric width for the glass surface itself, so the
-                    // bubble's own geometry interpolates smoothly instead of
-                    // being inferred from the (changing) intrinsic content.
-                    .frame(width: layout.bubbleWidth)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                FooterBubbleSurface(progress: footerProgress(showsLabel: desired.showsLabel),
+                                    geometry: FooterTotalLayout.modeGeometry(
+                                        containerWidth: width,
+                                        valueWidth: metrics.value),
+                                    valueWidth: metrics.value,
+                                    label: Text(totalLabel)
+                                        .font(Design.labelSmall)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1),
+                                    value: totalValue(s.value))
                     // The bubble shrinks from its LEADING edge: the trailing
                     // edge stays put inside the column's inset slot, and the
                     // reserved vertical space is untouched in both modes.
                     .frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)
                     .padding(FooterTotalLayout.outerInset)
-                    // ONE announcement, in both modes: the localized label and
-                    // the exact displayed value, never duplicated children.
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
                                                                       unit: s.unit)))
@@ -843,17 +865,16 @@ struct AnswerColumnView: View {
                             }
                         }
                     }
-                    // The ONE short geometry transition is owned by THIS
-                    // view's state, not by an implicit animation on a value
-                    // derived from the dragged width: the reconciliation below
-                    // mutates `footerPresentation` inside `withAnimation` when
-                    // the MODE flips (either direction), and silently
-                    // otherwise — so dragging is never animated per pixel, a
-                    // number change keeps its own crossfade, and compact ->
-                    // expanded animates exactly like expanded -> compact.
-                    .onAppear { reconcileFooterPresentation(desired: desired) }
-                    .onChange(of: desired) { _, newValue in
-                        reconcileFooterPresentation(desired: newValue)
+                    // The ONE short geometry transition is owned by the
+                    // scalar progress in THIS view's state. Only the MODE is
+                    // observed: a drag tick that changes the width re-renders
+                    // the live endpoints through `FooterBubbleSurface` without
+                    // writing the animation state, so it can neither restart
+                    // nor cancel a transition in flight. A mode flip (either
+                    // direction) is the only write and it animates.
+                    .onAppear { reconcileFooterMode(showsLabel: desired.showsLabel) }
+                    .onChange(of: desired.showsLabel) { _, newValue in
+                        reconcileFooterMode(showsLabel: newValue)
                     }
             }
         }
@@ -862,7 +883,7 @@ struct AnswerColumnView: View {
         // the next appearance seeds the CURRENT sheet's mode silently instead
         // of animating from stale sheet/statistic geometry.
         .onChange(of: footerVisible) { _, visible in
-            if !visible { resetFooterPresentation() }
+            if !visible { resetFooterMode() }
         }
         // v2: the answer panel is a DARKER calm gray than the editor
         // (Design.answerPanelBackground: explicit per-appearance sRGB —

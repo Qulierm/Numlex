@@ -45,6 +45,28 @@ public enum FooterTotalLayout {
     /// the legacy 200 pt column (160 pt); see `bubbleWidth`.
     public static var contentWidth: CGFloat { bubbleWidth - 2 * innerPadding }
 
+    /// Both mode ENDPOINT geometries for one measurement.
+    ///
+    /// The footer's animated transition interpolates between these two, so the
+    /// caller needs them independently of which mode currently wins: the live
+    /// endpoints keep following the cursor while a separate animation progress
+    /// advances. `layout` is expressed in terms of this pair, so the fit
+    /// decision and the endpoints can never drift apart.
+    public struct ModeGeometry: Equatable, Sendable {
+        /// The geometry while the label is drawn beside the value.
+        public let expanded: Result
+        /// The geometry while only the value is drawn.
+        public let compact: Result
+        public init(expanded: Result, compact: Result) {
+            self.expanded = expanded
+            self.compact = compact
+        }
+        /// The endpoint for a mode.
+        public func endpoint(showsLabel: Bool) -> Result {
+            showsLabel ? expanded : compact
+        }
+    }
+
     public struct Result: Equatable, Sendable {
         /// True while the label is drawn beside the value.
         public let showsLabel: Bool
@@ -70,10 +92,31 @@ public enum FooterTotalLayout {
                               valueWidth: CGFloat) -> Result {
         let container = sanitized(containerWidth)
         let label = sanitized(labelWidth)
-        // A hostile value width (NaN / infinite / negative) is treated as
-        // UNKNOWN rather than zero: the footer then keeps the value's full
-        // bubble and drops the label, so a bad measurement can never make the
-        // two texts overlap.
+        let geometry = modeGeometry(containerWidth: container, valueWidth: valueWidth)
+        // Expanded requires the label, its gap, the value AND the small
+        // safety reserve inside the full content width. The reserve is only
+        // collision/subpixel protection on top of the 8 pt visual gap, so the
+        // label survives right up to the measured boundary.
+        let valueIsKnown = valueWidth.isFinite && valueWidth > 0
+        let value = valueIsKnown ? valueWidth : 0
+        let needed = label + (label > 0 ? labelGap : 0) + value + safetyReserve
+        let showsLabel = valueIsKnown && label > 0 && needed <= geometry.expanded.contentWidth
+        return geometry.endpoint(showsLabel: showsLabel)
+    }
+
+    /// The two mode endpoint geometries for one measurement, sanitized and
+    /// clamped exactly once.
+    ///
+    /// This is the ONLY place the footer's widths are derived, so the fit
+    /// decision in `layout` and the animated transition between the endpoints
+    /// share one formula. The caller passes the CURRENT container and value
+    /// measurements; a hostile value width (NaN / infinite / negative) is
+    /// treated as UNKNOWN rather than zero — the compact endpoint then keeps
+    /// the value's full bubble so a bad measurement can never make the two
+    /// texts overlap — and a hostile container can only shrink the footer.
+    public static func modeGeometry(containerWidth: CGFloat,
+                                    valueWidth: CGFloat) -> ModeGeometry {
+        let container = sanitized(containerWidth)
         let valueIsKnown = valueWidth.isFinite && valueWidth > 0
         let value = valueIsKnown ? valueWidth : 0
 
@@ -84,16 +127,9 @@ public enum FooterTotalLayout {
         let fullBubble = max(0, container - 2 * outerInset)
         let fullContent = max(0, fullBubble - 2 * innerPadding)
 
-        // Expanded requires the label, its gap, the value AND the small
-        // safety reserve inside the full content width. The reserve is only
-        // collision/subpixel protection on top of the 8 pt visual gap, so the
-        // label survives right up to the measured boundary.
-        let needed = label + (label > 0 ? labelGap : 0) + value + safetyReserve
-        let showsLabel = valueIsKnown && label > 0 && needed <= fullContent
-
-        if showsLabel {
-            return Result(showsLabel: true, bubbleWidth: fullBubble, contentWidth: fullContent)
-        }
+        let expanded = Result(showsLabel: true,
+                              bubbleWidth: fullBubble,
+                              contentWidth: fullContent)
         // Compact: the bubble shrinks around the value itself, capped to the
         // full bubble so a very long value keeps the existing maximum width
         // and its one-line overflow behaviour.
@@ -101,9 +137,10 @@ public enum FooterTotalLayout {
         // The compact bubble is the value plus its inner padding, but it can
         // never grow past what the container allows.
         let compactBubble = min(compactContent + 2 * innerPadding, fullBubble)
-        return Result(showsLabel: false,
-                      bubbleWidth: compactBubble,
-                      contentWidth: min(compactContent, max(0, compactBubble - 2 * innerPadding)))
+        let compact = Result(showsLabel: false,
+                             bubbleWidth: compactBubble,
+                             contentWidth: min(compactContent, max(0, compactBubble - 2 * innerPadding)))
+        return ModeGeometry(expanded: expanded, compact: compact)
     }
 
     /// Non-finite and negative widths collapse to zero.

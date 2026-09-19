@@ -29,6 +29,20 @@ private func footerTotalSource(_ relative: String) throws -> String {
     throw CaseFailure(message: "source not found: \(relative)", location: "FooterTotal")
 }
 
+/// The animated footer surface (the stable overlay, its interpolated widths
+/// and the label/value children).
+private func footerSurface(_ view: String) -> String {
+    footerSlice(view, from: "private struct FooterBubbleSurface",
+                to: "struct AnswerColumnView: View {")
+}
+
+/// The footer's call site: the surface plus its fixed trailing slot,
+/// accessibility element and statistic menu.
+private func footerSlot(_ view: String) -> String {
+    footerSlice(view, from: "FooterBubbleSurface(progress:",
+                to: "// v2: the answer panel is a DARKER")
+}
+
 private func footerSlice(_ source: String, from: String, to: String) -> String {
     guard let start = source.range(of: from)?.lowerBound,
           let end = source.range(of: to)?.lowerBound, start < end else { return "" }
@@ -263,16 +277,14 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(view.contains("NSFont.systemFont(ofSize: 11)"), "measured localized label font")
         try expect(view.contains("palette.editorFont(size: fontSize)"), "measured editor font")
         try expect(!view.contains("count >"), "no character-count heuristic")
-        // The content is ONE stable tree now, so the "compact branch" is the
-        // same view with the label faded out — no branch, no spacer and no
-        // gap claim can reappear in compact mode.
-        let content = footerSlice(view, from: "private func footerBarContent",
-                                  to: "private func totalValue")
-        try expect(!content.isEmpty, "the content builder exists")
-        try expect(!content.contains("if layout.showsLabel {"), "no mode branch")
-        try expect(!content.contains("Spacer"), "no spacer claim in either mode")
-        try expect(content.contains(".opacity(layout.showsLabel ? 1 : 0)"),
-                   "the label fades instead of being removed")
+        // The animated surface is ONE stable tree: the label fades and is
+        // clipped, the value is a single trailing child, and no spacer or
+        // label-gap claim exists in compact mode.
+        let surface = footerSurface(view)
+        try expect(!surface.isEmpty, "the animated surface exists")
+        try expect(!surface.contains("if layout.showsLabel {"), "no mode branch")
+        try expect(!surface.contains("Spacer"), "no spacer claim in either mode")
+        try expect(surface.contains("label"), "the label is a stable child")
     },
 
     EngineCase("total-bar-compact-loses-no-width-to-the-label-gap") {
@@ -318,53 +330,38 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(view.contains("ceil(width) + 0.5"), "pixel-safe rounding")
         try expect(view.contains("FooterTotalLayout.layout(containerWidth:"), "the helper decides")
         // ONE stable overlay in both modes: the label is leading-aligned and
-        // the value trailing-aligned across the same explicitly sized content
-        // frame, so the compact mode cannot inherit a gap or spacer claim and
-        // the value always keeps its full measured width.
-        func slice(_ text: String, from: String, to: String) -> String {
-            guard let a = text.range(of: from)?.lowerBound,
-                  let b = text.range(of: to, range: a..<text.endIndex)?.lowerBound else { return "" }
-            return String(text[a..<b])
-        }
-        let bar = slice(view, from: "private func footerBarContent", to: "private func totalValue")
-        try expect(!bar.contains("if layout.showsLabel {"),
+        // clipped to its collision-safe limit, the value trailing-aligned
+        // across the same interpolated content frame.
+        let surface = footerSurface(view)
+        try expect(!surface.isEmpty, "the animated surface exists")
+        try expect(!surface.contains("if layout.showsLabel {"),
                    "the content is not a mode branch any more")
-        try expect(bar.contains("ZStack("), "one stable overlay")
-        try expect(bar.contains(".frame(width: layout.contentWidth, alignment: .leading)"),
-                   "explicit content frame")
-        try expect(bar.contains(".clipped()"), "the shrinking content clips")
-        try expect(bar.contains(".opacity(layout.showsLabel ? 1 : 0)"),
-                   "the label fades rather than being removed")
-        try expect(bar.contains(".frame(maxWidth: .infinity, alignment: .leading)"),
-                   "the label is leading-aligned")
-        try expect(bar.contains(".frame(maxWidth: .infinity, alignment: .trailing)"),
+        try expect(surface.contains("ZStack("), "one stable overlay")
+        try expect(surface.contains(".frame(width: labelLimit, alignment: .leading)"),
+                   "the label is clipped to its collision-safe limit")
+        try expect(surface.contains(".clipped()"), "the shrinking content clips")
+        try expect(surface.contains(".opacity(Double(clamped))"),
+                   "the label fades with the interpolated progress")
+        try expect(surface.contains(".frame(maxWidth: .infinity, alignment: .trailing)"),
                    "the value is trailing-aligned")
-        try expect(!bar.contains("Spacer"), "no spacer in either mode")
-        try expect(!bar.contains("labelGap"), "no label-gap claim in the content")
-        // ONE stable value node in the single content tree, and the label is
-        // faded (never removed) so the value keeps its identity across modes.
-        try expectEqual(view.components(separatedBy: "totalValue(value)").count - 1, 1,
+        try expect(!surface.contains("Spacer"), "no spacer in either mode")
+        try expect(!surface.contains("labelGap +"), "no label-gap claim in the content")
+        // ONE stable value node in the single content tree.
+        let slot = footerSlot(view)
+        try expectEqual(slot.components(separatedBy: "value: totalValue(s.value)").count - 1, 1,
                         "one stable value node")
         try expect(view.contains("private func totalValue(_ value: String) -> some View"),
                    "the shared helper exists")
-        try expect(view.contains(".opacity(layout.showsLabel ? 1 : 0)"),
-                   "the label fades in place instead of being swapped out")
         // Geometry invariants: the trailing edge is fixed by an explicit
-        // trailing-aligned slot derived from the ACTUAL column width
-        // (the legacy 200 pt slot is reproduced at the default), and the
-        // outer inset is unchanged.
-        try expect(view.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
+        // trailing-aligned slot derived from the ACTUAL column width.
+        try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
                    "trailing-aligned slot derived from the actual width")
-        try expect(view.contains(".padding(FooterTotalLayout.outerInset)"), "unchanged outer inset")
-        try expect(view.contains(".padding(.vertical, 8)"), "unchanged vertical padding")
-        try expect(view.contains("RoundedRectangle(cornerRadius: 9"), "unchanged glass radius")
-        try expect(view.contains("FooterTotalLayout.layout(containerWidth: width,"),
-                   "the footer is laid out against the ACTUAL column width")
-
+        try expect(slot.contains(".padding(FooterTotalLayout.outerInset)"), "unchanged outer inset")
+        try expect(surface.contains(".padding(.vertical, 8)"), "unchanged vertical padding")
+        try expect(surface.contains("RoundedRectangle(cornerRadius: 9"), "unchanged glass radius")
+        try expect(view.contains("FooterTotalLayout.modeGeometry("),
+                   "the live endpoints come from the pure helper")
         // The value path is untouched: same font, same colour, same format.
-        try expect(view.contains("totalValue(value)"), "the same shared value helper")
-        try expect(view.contains("private func totalValue(_ value: String) -> some View"),
-                   "one value definition")
         try expect(view.contains(".font(palette.swiftUIFont(fontSize))"), "same value font")
         try expect(view.contains("Color(nsColor: Design.baseText)"), "same value colour")
         try expect(view.contains(".lineLimit(1)"), "one line")
@@ -376,8 +373,7 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(view.contains("totalLabel) " + "\\(" + "value) " + "\\(" + "unit)"),
                    "unit when present")
         // No geometry feedback loop: the mode comes from text metrics only.
-        for banned in ["PreferenceKey", "GeometryReader { geo in\n                let metrics",
-                       "onPreferenceChange", "TimelineView", "Timer("] {
+        for banned in ["PreferenceKey", "onPreferenceChange", "TimelineView", "Timer("] {
             try expect(!view.contains(banned), "no \(banned)")
         }
         // The footer's own gate and inertness are unchanged.
@@ -404,7 +400,8 @@ public let footerTotalLayoutCases: [EngineCase] = [
     EngineCase("total-bar-mode-transition-is-one-short-geometry-exception") {
         // The footer's compact/expanded flip is the ONE geometry transition
         // in the notebook's otherwise opacity/colour-only micro-motion
-        // policy: short, non-spring and keyed ONLY on the binary mode.
+        // policy: short, non-spring, keyed ONLY on the binary mode, and owned
+        // by a scalar progress rather than by per-pixel geometry.
         let design = try footerTotalSource("Sources/NumlexApp/Design.swift")
         try expect(design.contains("static let footerMode: Double = 0.22"),
                    "one central 0.22 s footer-mode duration")
@@ -413,8 +410,6 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expect(design.contains("non-spring"), "documented as non-spring")
         try expect(design.contains("LEADING edge"), "documented as leading-edge shrink")
         try expect(design.contains("Reduce Motion"), "documented Reduce Motion behaviour")
-        // The policy header no longer claims ALL motion is geometry-free: it
-        // names footerMode as the single narrow exception.
         try expect(design.contains("MOST of what lives here is a short opacity/color-only pass"),
                    "the categorical no-geometry claim is qualified")
         try expect(design.contains("The single narrow exception is `footerMode`"),
@@ -425,9 +420,7 @@ public let footerTotalLayoutCases: [EngineCase] = [
                    "the footer no longer disables geometry animation")
         try expect(!view.contains("Mode changes must not animate"),
                    "and its explanatory comment is gone")
-        // The transition is owned by the view's own presentation state and
-        // adopted inside an explicit animation — no implicit modifier on a
-        // value derived from the dragged width.
+        // The transition is owned by the view's own scalar progress.
         try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
                    "one explicit smooth, zero-bounce transition")
         try expect(!view.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
@@ -438,110 +431,83 @@ public let footerTotalLayoutCases: [EngineCase] = [
                    "no bounce was smuggled in")
         // Never keyed on a continuously changing measurement: that would
         // animate every pixel of a divider drag.
-        let bar = footerSlice(view, from: "private func footerBarContent", to: "private func totalValue")
-        // The whole footer bubble chain (up to the next section marker), so
-        // the animation modifier that sits after the context menu is covered.
-        let slot = footerSlice(view, from: "footerBarContent(value: s.value, layout: layout)",
-                               to: "// v2: the answer panel is a DARKER")
+        let slot = footerSlot(view)
         try expect(!slot.isEmpty, "the bubble slot exists")
         try expect(!slot.contains("value: width"), "not keyed on the container width")
         try expect(!slot.contains("value: layout.bubbleWidth"), "not keyed on the bubble width")
-        try expect(!slot.contains("value: layout.contentWidth"), "not keyed on the content width")
         try expect(!slot.contains(".spring"), "never a spring")
         try expect(!slot.contains("scaleEffect"), "the digits are never scaled")
         try expect(!slot.contains(".bouncy"), "never a bouncy curve")
         try expect(!slot.contains(".offset("), "no numeric tween")
-        // The slot only HOOKS the reconciliation; the transition itself lives
-        // in the view-owned state helper.
-        try expect(slot.contains("reconcileFooterPresentation(desired: desired)"),
+        // The slot only HOOKS the mode reconciliation; the transition itself
+        // lives in the view-owned scalar.
+        try expect(slot.contains("reconcileFooterMode(showsLabel: desired.showsLabel)"),
                    "the slot reconciles through the view-owned helper")
-        // Geometry and semantics that must NOT move.
-        try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
-                   "the trailing-anchored slot is unchanged")
-        try expect(slot.contains(".padding(FooterTotalLayout.outerInset)"), "outer inset unchanged")
-        try expect(slot.contains(".padding(.vertical, 8)"), "vertical padding unchanged")
-        try expect(slot.contains("RoundedRectangle(cornerRadius: 9"), "glass radius unchanged")
-        try expect(slot.contains("glassEffect"), "the glass surface is kept")
-        try expect(view.contains(".accessibilityElement(children: .ignore)"), "one element")
-        try expect(view.contains("footerAccessibilityLabel(value: s.value,"), "one label builder")
-        try expect(view.contains(".contextMenu {"), "the statistic menu stays")
-        try expect(view.contains("ForEach(FooterStatisticMenu.order"), "its order is unchanged")
-        // The value keeps its OWN crossfade identity, so a number change
-        // never triggers the geometry animation.
-        try expect(view.contains(".id(value)"), "value identity crossfade kept")
-        try expect(view.contains("value: value"), "the crossfade is keyed on the text")
-        try expect(view.contains("reduceMotion ? nil : .easeInOut(duration: Motion.answerChange),"),
-                   "the value crossfade keeps its own duration")
-        // ONE stable content tree: no branch to swap, and the label fades in
-        // place so the value never loses its identity or position.
-        try expect(!bar.contains("if layout.showsLabel {"), "no mode branch")
-        try expect(bar.contains("ZStack("), "one stable overlay")
-        try expect(!bar.contains("Spacer"), "no spacer in either mode")
-        try expect(!bar.contains("labelGap"), "no label-gap claim in the content")
-        try expect(bar.contains(".opacity(layout.showsLabel ? 1 : 0)"), "the label fades")
+        try expect(slot.contains(".onChange(of: desired.showsLabel)"),
+                   "only the MODE is observed")
+        // ONE stable animated surface in both modes.
+        let surface = footerSurface(view)
+        try expect(!surface.contains("if layout.showsLabel {"), "no mode branch")
+        try expect(surface.contains("ZStack("), "one stable overlay")
+        try expect(!surface.contains("Spacer"), "no spacer in either mode")
+        try expect(surface.contains(".opacity(Double(clamped))"), "the label fades")
     },
 
     EngineCase("total-bar-animates-one-explicit-bubble-width-stably") {
-        // The follow-up regression: the earlier branch-swapping animation
-        // could snap or crossfade the whole content because the glass width
-        // was inferred. The footer now keeps ONE stable view tree and gives
-        // the glass surface an EXPLICIT width, so there is exactly one
-        // numeric value for SwiftUI to interpolate — and only the binary mode
-        // flip triggers it.
+        // The earlier branch-swapping animation could snap or crossfade the
+        // whole content because the glass width was inferred. The footer now
+        // keeps ONE stable view tree and gives the glass surface an EXPLICIT,
+        // interpolated width, so there is exactly one numeric value for
+        // SwiftUI to drive — and only the binary mode flip triggers it.
         let view = try footerTotalSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
-        let content = footerSlice(view, from: "private func footerBarContent",
-                                  to: "private func totalValue")
-        let slot = footerSlice(view, from: "footerBarContent(value: s.value, layout: layout)",
-                               to: "// v2: the answer panel is a DARKER")
+        let surface = footerSurface(view)
+        let slot = footerSlot(view)
         // One stable tree: no mode branch, no branch-specific spacing.
-        try expect(!content.contains("if layout.showsLabel {"), "no mode branch in the content")
-        try expect(content.contains("ZStack("), "one stable overlay")
-        try expect(!content.contains("HStack(spacing:"), "no branch-specific stack spacing")
-        try expect(!content.contains("Spacer"), "no spacer claim")
-        try expect(!content.contains("labelGap"), "no label-gap claim in the content")
-        // One label (faded, leading) and one value (trailing) in that tree.
-        try expectEqual(content.components(separatedBy: "Text(totalLabel)").count - 1, 1,
-                        "exactly one label node")
-        try expectEqual(content.components(separatedBy: "totalValue(value)").count - 1, 1,
+        try expect(!surface.contains("if layout.showsLabel {"), "no mode branch in the content")
+        try expect(surface.contains("ZStack("), "one stable overlay")
+        try expect(!surface.contains("HStack(spacing:"), "no branch-specific stack spacing")
+        try expect(!surface.contains("Spacer"), "no spacer claim")
+        // One label (faded, clipped, leading) and one value (trailing).
+        try expectEqual(slot.components(separatedBy: "value: totalValue(s.value)").count - 1, 1,
                         "exactly one stable value node")
-        try expect(content.contains(".opacity(layout.showsLabel ? 1 : 0)"),
-                   "the label fades in place")
-        try expect(content.contains(".frame(maxWidth: .infinity, alignment: .leading)"),
-                   "label leading")
-        try expect(content.contains(".frame(maxWidth: .infinity, alignment: .trailing)"),
+        try expect(surface.contains(".opacity(Double(clamped))"),
+                   "the label fades with the interpolated progress")
+        try expect(surface.contains(".frame(width: labelLimit, alignment: .leading)"),
+                   "the label is clipped to its collision-safe limit")
+        try expect(surface.contains(".frame(maxWidth: .infinity, alignment: .trailing)"),
                    "value trailing")
-        // Explicit content width + clipping, then an explicit bubble width.
-        try expect(content.contains(".frame(width: layout.contentWidth, alignment: .leading)"),
-                   "explicit content width")
-        try expect(content.contains(".clipped()"), "the shrinking content clips")
-        try expectEqual(slot.components(separatedBy: ".frame(width: layout.bubbleWidth)").count - 1, 1,
+        // Explicit interpolated content width + clipping, then an explicit
+        // interpolated bubble width.
+        try expect(surface.contains(".frame(width: contentWidth, alignment: .leading)"),
+                   "explicit interpolated content width")
+        try expect(surface.contains(".clipped()"), "the shrinking content clips")
+        try expectEqual(surface.components(separatedBy: ".frame(width: bubbleWidth)").count - 1, 1,
                         "exactly one explicit bubble width")
-        guard let bubbleAt = slot.range(of: ".frame(width: layout.bubbleWidth)")?.lowerBound,
-              let glassAt = slot.range(of: "glassEffect")?.lowerBound else {
+        guard let bubbleAt = surface.range(of: ".frame(width: bubbleWidth)")?.lowerBound,
+              let glassAt = surface.range(of: "glassEffect")?.lowerBound else {
             throw CaseFailure(message: "bubble width or glassEffect missing", location: "FooterTotal")
         }
         try expect(bubbleAt < glassAt, "the explicit width precedes the glass surface")
+        // The interpolated widths come from the LIVE endpoints.
+        try expect(surface.contains("mix(geometry.compact.contentWidth, geometry.expanded.contentWidth)"),
+                   "content width interpolates the endpoints")
+        try expect(surface.contains("mix(geometry.compact.bubbleWidth, geometry.expanded.bubbleWidth)"),
+                   "bubble width interpolates the endpoints")
         // The glass width is the ONLY thing that interpolates; the mode key is
         // the only trigger.
         try expectEqual(slot.components(separatedBy: ".animation(").count - 1, 0,
                         "no implicit animation modifier in the footer slot")
-        try expect(slot.contains("reconcileFooterPresentation(desired: desired)"),
-                   "the mode is reconciled from view-owned state")
         try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
                    "one explicit smooth, zero-bounce transition")
         for banned in ["value: width", "value: layout.bubbleWidth", "value: layout.contentWidth",
-                       "value: layout.showsLabel ? 1 : 0", "value: value",
-                       ".spring", "scaleEffect", ".offset(", ".bouncy"] {
+                       "value: value", ".spring", "scaleEffect", ".offset(", ".bouncy"] {
             try expect(!slot.contains(banned), "the footer mode path has no \(banned)")
         }
-        // Reduce Motion takes the explicitly non-animated path.
-        try expect(view.contains("if reduceMotion {"),
-                   "Reduce Motion has its own branch")
         // Fixed trailing slot and the untouched surrounding contract.
         try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
                    "the trailing edge stays fixed")
-        try expect(slot.contains(".padding(.vertical, 8)"), "vertical padding unchanged")
-        try expect(slot.contains("RoundedRectangle(cornerRadius: 9"), "radius unchanged")
+        try expect(surface.contains(".padding(.vertical, 8)"), "vertical padding unchanged")
+        try expect(surface.contains("RoundedRectangle(cornerRadius: 9"), "radius unchanged")
         try expect(slot.contains(".accessibilityElement(children: .ignore)"), "one element")
         try expect(slot.contains(".contextMenu {"), "the statistic menu stays")
         // The value keeps its OWN crossfade, keyed on the text, so a number
@@ -553,108 +519,321 @@ public let footerTotalLayoutCases: [EngineCase] = [
     },
 
     EngineCase("total-bar-mode-reconciliation-animates-both-directions") {
-        // THE follow-up regression: expansion used to snap while compaction
-        // animated, because the transition was an implicit `.animation` on a
-        // layout value derived from the continuously dragged width. The mode
-        // now lives in the view's OWN state and is adopted inside one
-        // explicit `withAnimation`, so the decision is a single symmetric
-        // inequality.
+        // The mode transition used to be an implicit `.animation` on a layout
+        // value derived from the continuously dragged width, which made
+        // expansion snap while compaction animated. The mode now lives in the
+        // view's OWN scalar progress and is adopted inside one explicit
+        // `withAnimation`, so the decision is a single symmetric inequality
+        // and a drag tick cannot write the state at all.
         //
         // The enumerated transition table this case pins:
         //   nil -> expanded            seed, NO animation
         //   nil -> compact             seed, NO animation
-        //   expanded -> expanded       same mode, NO animation
-        //   compact -> compact         same mode, NO animation
+        //   expanded -> expanded       same mode, NO state write
+        //   compact -> compact         same mode, NO state write
         //   expanded -> compact        MODE FLIP -> animated
         //   compact -> expanded        MODE FLIP -> animated (the fix)
         //   either flip, Reduce Motion NO animation
         //   footer hidden -> shown     reset, then seed, NO animation
         let view = try footerTotalSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
-        // 1. View-owned optional presentation state.
-        try expect(view.contains("@State private var footerPresentation: FooterTotalLayout.Result?"),
-                   "the presented geometry is view-owned optional state")
-        // 2. Render selection: desired while the modes agree (no drag lag),
-        //    the stored presentation only during the reconciling pass.
-        try expect(view.contains("private func footerRenderedLayout(desired: FooterTotalLayout.Result) -> FooterTotalLayout.Result"),
-                   "a dedicated render-selection helper")
-        try expect(view.contains("presented.showsLabel != desired.showsLabel else { return desired }"),
-                   "same-mode passes render the live desired layout")
-        // 3. The symmetric predicate, verbatim and free of directional logic.
-        try expect(view.contains("guard presented.showsLabel != desired.showsLabel else {"),
+        // 1. View-owned OPTIONAL SCALAR progress, never a stored Result.
+        try expect(view.contains("@State private var footerModeProgress: CGFloat?"),
+                   "the mode progress is view-owned optional scalar state")
+        try expect(!view.contains("@State private var footerPresentation"),
+                   "no full-Result presentation state remains")
+        try expect(!view.contains("footerRenderedLayout"),
+                   "the per-pixel render-selection path is gone")
+        // 2. The symmetric predicate, verbatim and free of directional logic.
+        try expect(view.contains("guard (stored >= 0.5) != showsLabel else { return }"),
                    "one symmetric inequality decides the transition")
-        let guardLine = "guard presented.showsLabel != desired.showsLabel else {"
-        for directional in ["== true", "== false", "desired.showsLabel &&", "&& desired.showsLabel",
-                            "if desired.showsLabel {", "if !desired.showsLabel"] {
+        for directional in ["== true", "== false", "showsLabel &&", "if showsLabel {", "if !showsLabel"] {
             try expect(!view.contains(directional), "no directional special case: \(directional)")
         }
-        try expect(view.contains(guardLine), "the inequality is the sole directional decision")
-        // 4. Exactly one explicit animated adoption, using the shared curve.
+        // 3. Exactly one explicit animated adoption, using the shared curve.
         try expectEqual(view.components(separatedBy: "withAnimation(").count - 1, 1,
                         "exactly one withAnimation owns the transition")
         try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
                    "the shared 0.22 smooth zero-bounce curve, used by BOTH directions")
-        // 5. Every non-mode path is explicitly un-animated: the seed, the
-        //    same-mode synchronization, the Reduce Motion adoption and the
-        //    visibility reset each set `animation = nil` in their own
-        //    transaction.
+        // 4. Every non-mode path is explicitly un-animated: the seed, the
+        //    Reduce Motion adoption and the visibility reset each set
+        //    `animation = nil` in their own transaction. (A same-mode tick
+        //    writes NOTHING, so it needs no transaction at all.)
         try expect(view.contains("transaction.animation = nil"), "explicit no-animation transactions")
-        try expectEqual(view.components(separatedBy: "withTransaction(transaction)").count - 1, 4,
-                        "seed, same-mode sync, Reduce Motion and reset are all non-animated")
+        try expectEqual(view.components(separatedBy: "withTransaction(transaction)").count - 1, 3,
+                        "seed, Reduce Motion and reset are the only silent writes")
         try expect(view.contains("if reduceMotion {"), "Reduce Motion has its own branch")
-        // The Reduce Motion branch must not animate.
-        let reconcile = footerSlice(view, from: "private func reconcileFooterPresentation",
-                                    to: "private func resetFooterPresentation")
+        let reconcile = footerSlice(view, from: "private func reconcileFooterMode",
+                                    to: "private func resetFooterMode")
         try expect(!reconcile.isEmpty, "the reconciliation helper exists")
-        guard let rmAt = reconcile.range(of: "if reduceMotion {")?.lowerBound,
+        // The same-mode tick returns before ANY write.
+        guard let sameMode = reconcile.range(of: "guard (stored >= 0.5) != showsLabel else { return }")?.lowerBound,
               let animAt = reconcile.range(of: "withAnimation(")?.lowerBound else {
-            throw CaseFailure(message: "reduceMotion or withAnimation missing", location: "FooterTotal")
+            throw CaseFailure(message: "same-mode guard or withAnimation missing", location: "FooterTotal")
+        }
+        try expect(sameMode < animAt, "the same-mode guard precedes every write")
+        // Everything from the same-mode guard up to the Reduce Motion branch
+        // IS the same-mode path: it must return without writing the progress.
+        guard let rmAt0 = reconcile.range(of: "if reduceMotion {")?.lowerBound else {
+            throw CaseFailure(message: "reduceMotion branch missing", location: "FooterTotal")
+        }
+        let sameModePath = String(reconcile[sameMode..<rmAt0])
+        try expect(sameModePath.contains("return"),
+                   "a same-mode tick returns without writing the animation state")
+        try expect(!sameModePath.contains("footerModeProgress ="),
+                   "a same-mode tick never writes the progress")
+        // Reduce Motion is decided BEFORE the animated branch and never animates.
+        guard let rmAt = reconcile.range(of: "if reduceMotion {")?.lowerBound else {
+            throw CaseFailure(message: "reduceMotion branch missing", location: "FooterTotal")
         }
         try expect(rmAt < animAt, "Reduce Motion is decided BEFORE the animated branch")
         let rmBranch = String(reconcile[rmAt..<animAt])
         try expect(!rmBranch.contains("withAnimation"), "the Reduce Motion branch never animates")
         try expect(rmBranch.contains("transaction.animation = nil"),
-                   "Reduce Motion adopts the new geometry in a disabled transaction")
-        // 6. Reset when the footer disappears, and the reset is silent.
+                   "Reduce Motion adopts the new mode in a disabled transaction")
+        // 5. Reset when the footer disappears, and the reset is silent.
         try expect(view.contains("private var footerVisible: Bool"),
                    "a stable visibility flag drives the reset")
         try expect(view.contains(".onChange(of: footerVisible) { _, visible in"),
                    "the reset is attached at a stable enclosing level")
-        let reset = footerSlice(view, from: "private func resetFooterPresentation",
-                                to: "/// The footer's content")
-        try expect(reset.contains("footerPresentation = nil"), "the reset clears the stored geometry")
+        let reset = footerSlice(view, from: "private func resetFooterMode",
+                                to: "private func totalValue")
+        try expect(reset.contains("footerModeProgress = nil"), "the reset clears the stored mode")
         try expect(!reset.contains("withAnimation"), "the reset is never animated")
-        // 7. The old implicit derived-layout animation is gone, and the slot
-        //    only hooks the reconciliation.
+        // 6. The old implicit derived-layout animation is gone, and the slot
+        //    observes ONLY the mode.
         try expect(!view.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
                    "no implicit mode animation remains")
         try expect(!view.contains("value: layout.showsLabel)"), "no implicit mode key remains")
-        let slot = footerSlice(view, from: "footerBarContent(value: s.value, layout: layout)",
-                               to: "// v2: the answer panel is a DARKER")
-        try expect(slot.contains(".onAppear { reconcileFooterPresentation(desired: desired) }"),
+        let slot = footerSlot(view)
+        try expect(slot.contains(".onAppear { reconcileFooterMode(showsLabel: desired.showsLabel) }"),
                    "first appearance seeds through the helper")
-        try expect(slot.contains(".onChange(of: desired) { _, newValue in"),
-                   "later geometry changes reconcile through the helper")
+        try expect(slot.contains(".onChange(of: desired.showsLabel) { _, newValue in"),
+                   "later changes observe the MODE only")
+        try expect(!slot.contains(".onChange(of: desired) {"), "never the whole layout")
         try expectEqual(slot.components(separatedBy: ".animation(").count - 1, 0,
                         "no animation modifier in the footer slot")
-        // 8. The stable overlay and explicit widths from the previous fix.
-        let content = footerSlice(view, from: "private func footerBarContent",
-                                  to: "private func totalValue")
-        try expect(content.contains("ZStack("), "one stable overlay")
-        try expect(!content.contains("if layout.showsLabel {"), "no mode branch")
-        try expectEqual(content.components(separatedBy: "totalValue(value)").count - 1, 1,
+        // 7. The stable overlay and explicit widths from the previous fix.
+        let surface = footerSurface(view)
+        try expect(surface.contains("ZStack("), "one stable overlay")
+        try expect(!surface.contains("if layout.showsLabel {"), "no mode branch")
+        try expectEqual(slot.components(separatedBy: "value: totalValue(s.value)").count - 1, 1,
                         "one stable value node")
-        try expect(content.contains(".frame(width: layout.contentWidth, alignment: .leading)"),
-                   "explicit content width")
-        try expect(content.contains(".clipped()"), "clipping kept")
-        try expectEqual(slot.components(separatedBy: ".frame(width: layout.bubbleWidth)").count - 1, 1,
+        try expect(surface.contains(".frame(width: contentWidth, alignment: .leading)"),
+                   "explicit interpolated content width")
+        try expect(surface.contains(".clipped()"), "clipping kept")
+        try expectEqual(surface.components(separatedBy: ".frame(width: bubbleWidth)").count - 1, 1,
                         "one explicit bubble width")
         try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
                    "fixed trailing slot")
-        // 9. The threshold and the shared duration are untouched.
+        // 8. The threshold and the shared duration are untouched.
         try expectEqual(FooterTotalLayout.safetyReserve, 2, "the 2 pt safety reserve is unchanged")
         try expectEqual(FooterTotalLayout.labelGap, 8, "the 8 pt visual gap is unchanged")
         let design = try footerTotalSource("Sources/NumlexApp/Design.swift")
         try expect(design.contains("static let footerMode: Double = 0.22"),
                    "the shared 0.22 s duration is unchanged")
+    },
+
+    EngineCase("total-bar-mode-endpoints-match-the-fit-decision") {
+        // The animated transition interpolates between the two mode ENDPOINT
+        // geometries, so those endpoints must be exactly the geometry the fit
+        // decision selects — for every input, hostile ones included. This
+        // exhaustively re-derives `layout` from `modeGeometry` and compares.
+        let containers: [CGFloat] = [0, 10, 120, 140, 199, 200, 201, 218, 300, 400, 1000]
+        let labels: [CGFloat] = [0, 10, 26.5, 30, 43.5, 53.5, 100]
+        let values: [CGFloat] = [0, 20, 60, 90, 106.5, 124.5, 130, 160, 500, 5000]
+        var compared = 0
+        for container in containers {
+            for label in labels {
+                for value in values {
+                    let g = FooterTotalLayout.modeGeometry(containerWidth: container,
+                                                           valueWidth: value)
+                    let r = FooterTotalLayout.layout(containerWidth: container,
+                                                     labelWidth: label, valueWidth: value)
+                    let expected = r.showsLabel ? g.expanded : g.compact
+                    try expectEqual(r, expected,
+                                    "layout must equal the selected endpoint (\(container)/\(label)/\(value))")
+                    // The selected endpoint's own flag agrees with the decision.
+                    try expectEqual(r.showsLabel, g.endpoint(showsLabel: r.showsLabel).showsLabel,
+                                    "endpoint flag agrees")
+                    // The two endpoints are always internally consistent.
+                    try expect(g.expanded.showsLabel, "the expanded endpoint shows the label")
+                    try expect(!g.compact.showsLabel, "the compact endpoint hides it")
+                    try expect(g.compact.contentWidth <= g.expanded.contentWidth,
+                               "compact content never exceeds the full content")
+                    try expect(g.compact.bubbleWidth <= g.expanded.bubbleWidth,
+                               "compact bubble never exceeds the full bubble")
+                    compared += 1
+                }
+            }
+        }
+        try expect(compared == containers.count * labels.count * values.count,
+                   "every combination compared (\(compared))")
+        // Hostile inputs: the endpoints stay finite and non-negative and the
+        // decision still selects one of them.
+        for badContainer in [CGFloat.nan, .infinity, -.infinity, -100] {
+            let g = FooterTotalLayout.modeGeometry(containerWidth: badContainer, valueWidth: 40)
+            for endpoint in [g.expanded, g.compact] {
+                try expect(endpoint.bubbleWidth.isFinite && endpoint.bubbleWidth >= 0,
+                           "finite bubble for \(badContainer)")
+                try expect(endpoint.contentWidth.isFinite && endpoint.contentWidth >= 0,
+                           "finite content for \(badContainer)")
+            }
+            try expectEqual(g.expanded.bubbleWidth, 0, "a hostile container collapses both endpoints")
+            let r = FooterTotalLayout.layout(containerWidth: badContainer, labelWidth: 30, valueWidth: 40)
+            try expectEqual(r, r.showsLabel ? g.expanded : g.compact, "decision selects an endpoint")
+        }
+        for badValue in [CGFloat.nan, .infinity, -.infinity, -5] {
+            let g = FooterTotalLayout.modeGeometry(containerWidth: 200, valueWidth: badValue)
+            // An unknown value keeps the value's full bubble in compact mode.
+            try expectEqual(g.compact.contentWidth, FooterTotalLayout.contentWidth,
+                            "an unknown value keeps the full content")
+            let r = FooterTotalLayout.layout(containerWidth: 200, labelWidth: 30, valueWidth: badValue)
+            try expect(!r.showsLabel, "an unknown value cannot claim the label fits")
+            try expectEqual(r, g.compact, "and it selects the compact endpoint")
+        }
+        // The reported screenshot boundary, expressed through the endpoints.
+        let label = footerMeasuredWidth("Average", font: NSFont.systemFont(ofSize: 11))
+        let value = footerMeasuredWidth("335892.101",
+                                        font: NSFont.monospacedSystemFont(ofSize: 17, weight: .regular))
+        let atBoundary = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: value)
+        try expect(atBoundary.showsLabel, "200 pt: expanded")
+        try expectEqual(atBoundary, FooterTotalLayout.modeGeometry(containerWidth: 200,
+                                                                  valueWidth: value).expanded,
+                        "200 pt selects the expanded endpoint")
+        let justBelow = FooterTotalLayout.layout(containerWidth: 199, labelWidth: label, valueWidth: value)
+        try expect(!justBelow.showsLabel, "199 pt: compact")
+        try expectEqual(justBelow, FooterTotalLayout.modeGeometry(containerWidth: 199,
+                                                                 valueWidth: value).compact,
+                        "199 pt selects the compact endpoint")
+        // Compact caps survive the refactor.
+        let capped = FooterTotalLayout.modeGeometry(containerWidth: 200, valueWidth: 500)
+        try expectEqual(capped.compact.contentWidth, 160, "long value capped at the content width")
+        try expectEqual(capped.compact.bubbleWidth, 184, "long value capped at the full bubble")
+        try expectEqual(FooterTotalLayout.layout(containerWidth: 200, labelWidth: 30, valueWidth: 500),
+                        capped.compact, "and the decision returns that capped endpoint")
+    },
+
+    EngineCase("total-bar-drag-ticks-do-not-cancel-mode-progress") {
+        // THE regression this task exists for: a divider drag writes the
+        // column width on every cursor tick, so the compact/expanded ENDPOINTS
+        // change continuously. When the animation state stored the geometry,
+        // the tick after a threshold crossing re-synchronized it and visually
+        // cancelled the 0.22 s transition — expansion appeared to snap.
+        //
+        // The animation state is now ONE scalar progress, and a same-mode tick
+        // performs no state write at all, so the endpoints can keep following
+        // the cursor while the transition runs to completion.
+        //
+        // Event sequence this case pins (one mutation per actual mode flip):
+        //   compact seed                                  -> 1 write (seed)
+        //   threshold flip compact -> expanded            -> 1 animated write
+        //   40 expanded endpoint ticks (width drag)       -> 0 writes
+        //   flip expanded -> compact                      -> 1 animated write
+        //   40 compact endpoint ticks                     -> 0 writes
+        let view = try footerTotalSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        // A. Scalar optional progress, never a stored Result.
+        try expect(view.contains("@State private var footerModeProgress: CGFloat?"),
+                   "one optional scalar owns the animation")
+        try expect(!view.contains("footerPresentation"), "no full-Result state remains")
+        try expect(!view.contains("footerRenderedLayout"), "no per-pixel Result synchronization")
+        // B. A custom Animatable whose animatableData IS the scalar.
+        let surface = footerSurface(view)
+        try expect(surface.contains("@preconcurrency Animatable"), "the surface is Animatable")
+        try expect(surface.contains("var animatableData: CGFloat {"), "scalar animatableData")
+        try expect(surface.contains("get { progress }"), "it reads the progress")
+        try expect(surface.contains("set { progress = newValue }"), "and writes it back")
+        // C. The endpoints are ORDINARY live inputs, not animation state.
+        try expect(surface.contains("let geometry: FooterTotalLayout.ModeGeometry"),
+                   "the endpoints are a plain stored input")
+        try expect(!surface.contains("animatableData: AnimatablePair"),
+                   "the endpoints are not part of animatableData")
+        // D. Interpolation of both widths plus progress-driven label visibility.
+        try expect(surface.contains("mix(geometry.compact.contentWidth, geometry.expanded.contentWidth)"),
+                   "content width interpolates the LIVE endpoints")
+        try expect(surface.contains("mix(geometry.compact.bubbleWidth, geometry.expanded.bubbleWidth)"),
+                   "bubble width interpolates the LIVE endpoints")
+        try expect(surface.contains(".opacity(Double(clamped))"),
+                   "the label follows the interpolated progress")
+        try expect(surface.contains("min(max(progress, 0), 1)"), "progress is clamped")
+        // E. The label can never reach the stationary value mid-flight.
+        try expect(surface.contains("max(0, contentWidth - valueWidth - FooterTotalLayout.labelGap)"),
+                   "the label is clipped to its collision-safe limit")
+        try expect(surface.contains(".frame(width: labelLimit, alignment: .leading)"),
+                   "and that limit is applied to the label frame")
+        try expect(surface.contains(".frame(maxWidth: .infinity, alignment: .trailing)"),
+                   "the value stays trailing")
+        try expect(!surface.contains("scaleEffect") && !surface.contains(".offset("),
+                   "the digits are never scaled, moved or tweened")
+        // F. The live endpoints are recomputed on every body pass from the
+        //    CURRENT width and value measurement.
+        let slot = footerSlot(view)
+        try expect(slot.contains("geometry: FooterTotalLayout.modeGeometry("),
+                   "the endpoints are live inputs")
+        try expect(slot.contains("containerWidth: width,"), "from the current column width")
+        try expect(slot.contains("valueWidth: metrics.value"), "and the current measurement")
+        // G. Only the MODE is observed, so a same-mode tick cannot write.
+        try expect(slot.contains(".onChange(of: desired.showsLabel) { _, newValue in"),
+                   "the observation is keyed to the mode only")
+        try expect(!slot.contains(".onChange(of: desired) {"), "never the whole layout")
+        let reconcile = footerSlice(view, from: "private func reconcileFooterMode",
+                                    to: "private func resetFooterMode")
+        try expect(reconcile.contains("guard (stored >= 0.5) != showsLabel else { return }"),
+                   "the same-mode guard returns before any write")
+        guard let sameModeAt = reconcile.range(of: "guard (stored >= 0.5) != showsLabel else { return }")?.lowerBound,
+              let rmAt = reconcile.range(of: "if reduceMotion {")?.lowerBound,
+              let animAt = reconcile.range(of: "withAnimation(")?.lowerBound else {
+            throw CaseFailure(message: "reconcile structure missing", location: "FooterTotal")
+        }
+        let sameModePath = String(reconcile[sameModeAt..<rmAt])
+        try expect(!sameModePath.contains("footerModeProgress ="),
+                   "40 same-mode ticks would perform ZERO progress writes")
+        try expect(!sameModePath.contains("withAnimation"),
+                   "and cannot start, restart or cancel an animation")
+        try expect(sameModePath.contains("return"), "the same-mode path returns immediately")
+        // H. Exactly one animated write, shared by both directions.
+        try expectEqual(view.components(separatedBy: "withAnimation(").count - 1, 1,
+                        "one animated adoption serves both directions")
+        try expect(view.contains("withAnimation(.smooth(duration: Motion.footerMode, extraBounce: 0))"),
+                   "the shared 0.22 smooth zero-bounce curve")
+        try expect(reconcile.contains("let target: CGFloat = showsLabel ? 1 : 0"),
+                   "the scalar target is the mode, not the geometry")
+        // A reversal mid-flight simply retargets the SAME scalar. There are
+        // exactly three target writes — the silent seed, the silent Reduce
+        // Motion adoption, and the ONE animated adoption — and only the last
+        // sits inside `withAnimation`.
+        try expectEqual(reconcile.components(separatedBy: "footerModeProgress = target").count - 1, 3,
+                        "seed, Reduce Motion and the animated branch are the only writes")
+        try expectEqual(reconcile.components(separatedBy: "withAnimation(").count - 1, 1,
+                        "exactly one of them animates")
+        // I. No timers, debounce, throttling or async workaround anywhere.
+        for banned in ["Timer", "DispatchQueue", "Task.sleep", "debounce", "throttle",
+                       "asyncAfter", "deadline", "sleep("] {
+            try expect(!view.contains(banned), "no \(banned) workaround")
+        }
+        try expect(!view.contains(".animation(reduceMotion ? nil : .smooth(duration: Motion.footerMode,"),
+                   "no implicit animation remains")
+        // J. The stable geometry and the value path are unchanged.
+        try expect(surface.contains(".frame(width: contentWidth, alignment: .leading)"),
+                   "explicit content width")
+        try expect(surface.contains(".clipped()"), "clipping kept")
+        try expectEqual(surface.components(separatedBy: ".frame(width: bubbleWidth)").count - 1, 1,
+                        "one explicit bubble width")
+        guard let bubbleAt = surface.range(of: ".frame(width: bubbleWidth)")?.lowerBound,
+              let glassAt = surface.range(of: "glassEffect")?.lowerBound else {
+            throw CaseFailure(message: "bubble width or glassEffect missing", location: "FooterTotal")
+        }
+        try expect(bubbleAt < glassAt, "the explicit width precedes the glass surface")
+        try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
+                   "fixed trailing slot")
+        try expect(slot.contains(".accessibilityElement(children: .ignore)"), "one accessibility element")
+        try expect(slot.contains(".contextMenu {"), "the statistic menu stays")
+        let value = footerSlice(view, from: "private func totalValue", to: "private static func measuredWidth")
+        try expect(value.contains(".id(value)") && value.contains("value: value"),
+                   "the value keeps its own text-keyed crossfade")
+        // K. Threshold and duration unchanged.
+        try expectEqual(FooterTotalLayout.safetyReserve, 2, "2 pt safety reserve")
+        try expectEqual(FooterTotalLayout.labelGap, 8, "8 pt visual gap")
+        let design = try footerTotalSource("Sources/NumlexApp/Design.swift")
+        try expect(design.contains("static let footerMode: Double = 0.22"), "0.22 s duration")
     },
 ]
