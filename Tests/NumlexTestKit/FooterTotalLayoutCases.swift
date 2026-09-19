@@ -14,8 +14,9 @@ func footerMeasuredWidth(_ text: String, font: NSFont) -> CGFloat {
 ///
 /// The decision is driven by ACTUALLY measured text widths (AppKit metrics in
 /// the view), so these cases exercise the pure geometry contract: exact fit,
-/// the safety reserve, a one-point overflow, the long-value cap, short
-/// compact widths, hostile input and the trailing-edge/width invariants.
+/// the small collision-safety reserve, a one-point overflow, the long-value
+/// cap, short compact widths, hostile input and the trailing-edge/width
+/// invariants.
 private func footerTotalSource(_ relative: String) throws -> String {
     var url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     for _ in 0..<6 {
@@ -45,35 +46,65 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expectEqual(FooterTotalLayout.contentWidth, 160, "full content 160")
     },
 
-    EngineCase("total-bar-rendered-screenshot-case-goes-compact") {
-        // The reported regression: with the REAL AppKit metrics the label is
-        // 26.5 pt and this value measures ~105.5-124.5 pt at the default
-        // sizes, so the pair leaves only ~20-33 pt of air inside the 160 pt
-        // content width — inside the raw width, but visibly cramped. The
-        // comfort reserve must send exactly this case compact.
-        let label = footerMeasuredWidth("Total", font: NSFont.systemFont(ofSize: 11))
-        for pointSize in [20.0, 17.0] {
-            let value = footerMeasuredWidth("1335152.55",
+    EngineCase("total-bar-rendered-screenshot-keeps-its-label") {
+        // The reported regression: the label vanished while a large empty gap
+        // remained. The screenshot pair is `Average` / `335892.101`, measured
+        // in the REAL fonts the view uses (`Average` = 43.5 pt at 11 pt;
+        // `335892.101` = 106.5 pt at 17 pt and 124.5 pt at 20 pt).
+        //
+        // At 17 pt the pair needs exactly the default column's content width,
+        // so it sits ON the boundary: the label must stay. The rejected 22 pt
+        // policy hid it with 20 pt of air still visible — precisely the
+        // screenshot.
+        let label = footerMeasuredWidth("Average", font: NSFont.systemFont(ofSize: 11))
+        let gap = FooterTotalLayout.labelGap
+        let reserve = FooterTotalLayout.safetyReserve
+        func required(_ pointSize: CGFloat) -> CGFloat {
+            let value = footerMeasuredWidth("335892.101",
                                             font: NSFont.monospacedSystemFont(ofSize: pointSize, weight: .regular))
-            let raw = label + FooterTotalLayout.labelGap + value
-            try expect(raw <= FooterTotalLayout.contentWidth,
-                       "\(pointSize) pt: the pair is INSIDE the raw content width (no literal collision)")
-            let r = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
-                                             labelWidth: label, valueWidth: value)
-            try expect(!r.showsLabel, "\(pointSize) pt: the cramped pair collapses to the value alone")
-            try expectEqual(r.bubbleWidth, min(value + 24, FooterTotalLayout.bubbleWidth),
-                            "\(pointSize) pt: a narrow right-aligned bubble around the value")
-            try expect(r.bubbleWidth < FooterTotalLayout.bubbleWidth, "\(pointSize) pt: narrower than full")
+            return 2 * FooterTotalLayout.outerInset + 2 * FooterTotalLayout.innerPadding
+                + label + gap + value + reserve
         }
-        // A SMALLER editor font legitimately leaves real air: at 16 pt the
-        // same value is ~99.5 pt, so the pair still has 26 pt of comfort and
-        // keeps the label. The switch is about measured comfort, not size.
-        let smallValue = footerMeasuredWidth("1335152.55",
-                                             font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular))
+        // 17 pt: the boundary lands exactly on the default 200 pt column.
+        let atDefault = required(17)
+        try expectEqual(atDefault, FooterTotalLayout.panelWidth,
+                        "17 pt: the measured pair needs exactly the default column")
+        let value17 = footerMeasuredWidth("335892.101",
+                                          font: NSFont.monospacedSystemFont(ofSize: 17, weight: .regular))
+        let onBoundary = FooterTotalLayout.layout(containerWidth: atDefault,
+                                                  labelWidth: label, valueWidth: value17)
+        try expect(onBoundary.showsLabel, "17 pt: the exact boundary keeps the label")
+        try expectEqual(onBoundary.bubbleWidth, atDefault - 2 * FooterTotalLayout.outerInset,
+                        "17 pt: full bubble at the boundary")
+        try expect(FooterTotalLayout.layout(containerWidth: atDefault + 1,
+                                            labelWidth: label, valueWidth: value17).showsLabel,
+                   "17 pt: one point roomier keeps the label")
+        try expect(!FooterTotalLayout.layout(containerWidth: atDefault - 1,
+                                             labelWidth: label, valueWidth: value17).showsLabel,
+                   "17 pt: one point below the boundary collapses")
+        // The rejected policy is what hid the label here, not a real collision.
+        try expect(label + gap + value17 + 22 > FooterTotalLayout.contentWidth,
+                   "17 pt: the rejected 22 pt policy collapsed this pair")
+        try expect(label + gap + value17 + reserve <= FooterTotalLayout.contentWidth,
+                   "17 pt: the safety reserve leaves it fitting")
+        // 20 pt is a bigger value: it needs a wider column (218 pt), and there
+        // the same boundary rule applies.
+        let at20 = required(20)
+        try expect(at20 > FooterTotalLayout.panelWidth, "20 pt needs a wider column than the default")
+        let value20 = footerMeasuredWidth("335892.101",
+                                          font: NSFont.monospacedSystemFont(ofSize: 20, weight: .regular))
+        try expect(FooterTotalLayout.layout(containerWidth: at20,
+                                            labelWidth: label, valueWidth: value20).showsLabel,
+                   "20 pt: the exact boundary keeps the label")
+        try expect(!FooterTotalLayout.layout(containerWidth: at20 - 1,
+                                             labelWidth: label, valueWidth: value20).showsLabel,
+                   "20 pt: one point below collapses")
+        // And the screenshot's own font size in the default column: the label
+        // is visible again, where the old policy hid it.
         try expect(FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
-                                            labelWidth: label, valueWidth: smallValue).showsLabel,
-                   "a comfortable small-font value keeps the label")
-        // The short value keeps the label: 1.500 is ~62.5 pt at 20 pt.
+                                            labelWidth: label, valueWidth: value17).showsLabel,
+                   "the reported pair keeps its label in the default column")
+        // The short value keeps the label too.
         let shortValue = footerMeasuredWidth("1.500",
                                              font: NSFont.monospacedSystemFont(ofSize: 20, weight: .regular))
         let short = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
@@ -82,9 +113,51 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expectEqual(short.bubbleWidth, FooterTotalLayout.bubbleWidth, "and the full bubble")
     },
 
+    EngineCase("total-bar-safety-reserve-is-collision-only") {
+        // The reserve is collision/subpixel protection, never a comfort
+        // measure: the label survives until the measured pair reaches the
+        // content edge, and a pair that would only have failed under the
+        // rejected 22 pt policy now keeps its label.
+        try expectEqual(FooterTotalLayout.safetyReserve, 2, "the documented 2 pt reserve")
+        let label = footerMeasuredWidth("Average", font: NSFont.systemFont(ofSize: 11))
+        let value = footerMeasuredWidth("335892.101",
+                                        font: NSFont.monospacedSystemFont(ofSize: 20, weight: .regular))
+        let gap = FooterTotalLayout.labelGap
+        let content = FooterTotalLayout.contentWidth
+        // A value sized so the pair has real room but less than 22 pt of air:
+        // under the rejected policy this collapsed; now it must stay expanded.
+        let rawFit = content - label - gap - FooterTotalLayout.safetyReserve
+        let ample = rawFit - 10                      // 10 pt of genuine air left
+        let comfortable = FooterTotalLayout.layout(containerWidth: FooterTotalLayout.panelWidth,
+                                                   labelWidth: label, valueWidth: ample)
+        try expect(comfortable.showsLabel,
+                   "a pair with 10 pt of air keeps the label")
+        try expect(ample + label + gap + 22 > content,
+                   "the same pair would have failed the rejected 22 pt policy")
+        // The same rule is language-independent: a longer localized label uses
+        // exactly the same measured formula and boundary.
+        for localized in ["Mittelwert", "Среднее"] {
+            let longLabel = footerMeasuredWidth(localized, font: NSFont.systemFont(ofSize: 11))
+            try expect(longLabel > label, "\(localized) really is wider than `Average`")
+            let required = 2 * FooterTotalLayout.outerInset + 2 * FooterTotalLayout.innerPadding
+                + longLabel + gap + value + FooterTotalLayout.safetyReserve
+            let atBoundary = FooterTotalLayout.layout(containerWidth: required,
+                                                     labelWidth: longLabel, valueWidth: value)
+            try expect(atBoundary.showsLabel, "\(localized): the exact boundary keeps the label")
+            let tighter = FooterTotalLayout.layout(containerWidth: required - 1,
+                                                  labelWidth: longLabel, valueWidth: value)
+            try expect(!tighter.showsLabel, "\(localized): one point below collapses")
+            // The wider label needs a wider container — proof there is no
+            // English- or string-specific breakpoint.
+            try expect(required > 2 * FooterTotalLayout.outerInset + 2 * FooterTotalLayout.innerPadding
+                       + label + gap + value + FooterTotalLayout.safetyReserve,
+                       "\(localized) shifts the boundary outward by its own measured width")
+        }
+    },
+
     EngineCase("total-bar-shows-the-label-while-it-fits") {
         // label + gap + value + reserve exactly inside 160 -> expanded.
-        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.comfortReserve
+        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.safetyReserve
         let value = FooterTotalLayout.contentWidth - label - gap - reserve
         let exact = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: value)
         try expect(exact.showsLabel, "exact fit keeps the label")
@@ -96,7 +169,7 @@ public let footerTotalLayoutCases: [EngineCase] = [
     },
 
     EngineCase("total-bar-collapses-at-the-safety-reserve") {
-        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.comfortReserve
+        let label: CGFloat = 30, gap = FooterTotalLayout.labelGap, reserve = FooterTotalLayout.safetyReserve
         let boundary = FooterTotalLayout.contentWidth - label - gap - reserve
         // The reserve is what makes the switch happen BEFORE overlap: a value
         // one point past the boundary loses the label.
@@ -174,14 +247,14 @@ public let footerTotalLayoutCases: [EngineCase] = [
         try expectEqual(noLabel.bubbleWidth, 64, "value-only bubble")
     },
 
-    EngineCase("total-bar-comfort-reserve-is-a-design-measure") {
-        try expectEqual(FooterTotalLayout.comfortReserve, 22, "the comfort reserve is 22 pt")
+    EngineCase("total-bar-safety-reserve-is-one-named-constant") {
+        try expectEqual(FooterTotalLayout.safetyReserve, 2, "the safety reserve is 2 pt")
         let source = try footerTotalSource("Sources/NumlexCore/Models/FooterTotalLayout.swift")
-        try expect(source.contains("public static let comfortReserve: CGFloat = 22"),
-                   "one named comfort constant")
-        try expect(!source.contains("safetyReserve"), "the collision-epsilon name is gone")
-        try expect(source.contains("let needed = label + (label > 0 ? labelGap : 0) + value + comfortReserve"),
-                   "the decision uses the comfort reserve")
+        try expect(source.contains("public static let safetyReserve: CGFloat = 2"),
+                   "one named safety constant")
+        try expect(!source.contains("comfortReserve"), "the rejected comfort reserve is gone")
+        try expect(source.contains("let needed = label + (label > 0 ? labelGap : 0) + value + safetyReserve"),
+                   "the decision uses the safety reserve")
         // The VIEW must keep measuring real AppKit text: pixel-safe rounding,
         // the localized label font and the editor font, never a row/character
         // count.
@@ -205,7 +278,7 @@ public let footerTotalLayoutCases: [EngineCase] = [
         let value: CGFloat = 130     // < 160, but label + gap + value collapses
         let r = FooterTotalLayout.layout(containerWidth: 200, labelWidth: label, valueWidth: value)
         try expect(!r.showsLabel, "the label cannot fit beside this value")
-        try expect(label + FooterTotalLayout.labelGap + value + FooterTotalLayout.comfortReserve
+        try expect(label + FooterTotalLayout.labelGap + value + FooterTotalLayout.safetyReserve
                    > FooterTotalLayout.contentWidth, "and the raw pair really is over the line")
         try expectEqual(r.contentWidth, value, "the value keeps its FULL width")
         try expectEqual(r.bubbleWidth, value + 24, "bubble = value + 2 * innerPadding")
@@ -317,5 +390,73 @@ public let footerTotalLayoutCases: [EngineCase] = [
         for banned in ["count", "lines", "rows"] {
             try expect(!source.contains(banned), "no \\(banned)-based heuristic")
         }
-    }
+    },
+
+    EngineCase("total-bar-mode-transition-is-one-short-geometry-exception") {
+        // The footer's compact/expanded flip is the ONE geometry transition
+        // in the notebook's otherwise opacity/colour-only micro-motion
+        // policy: short, non-spring and keyed ONLY on the binary mode.
+        let design = try footerTotalSource("Sources/NumlexApp/Design.swift")
+        try expect(design.contains("static let footerMode: Double = 0.16"),
+                   "one central 0.16 s footer-mode duration")
+        try expect(design.contains("static let answerChange: Double = 0.12"),
+                   "the value crossfade duration is untouched")
+        try expect(design.contains("non-spring"), "documented as non-spring")
+        try expect(design.contains("LEADING edge"), "documented as leading-edge shrink")
+        try expect(design.contains("Reduce Motion"), "documented Reduce Motion behaviour")
+        let view = try footerTotalSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        // The old blanket suppression is gone.
+        try expect(!view.contains(".transaction { if !reduceMotion { $0.animation = nil } }"),
+                   "the footer no longer disables geometry animation")
+        try expect(!view.contains("Mode changes must not animate"),
+                   "and its explanatory comment is gone")
+        // The replacement is the mode-only ease-in-out.
+        try expect(view.contains(".animation(reduceMotion ? nil : .easeInOut(duration: Motion.footerMode),"),
+                   "easeInOut with the central footer duration")
+        try expect(view.contains("value: layout.showsLabel)"),
+                   "keyed exactly on the mode flip")
+        // Never keyed on a continuously changing measurement: that would
+        // animate every pixel of a divider drag.
+        let bar = footerSlice(view, from: "private func footerBarContent", to: "private func totalValue")
+        // The whole footer bubble chain (up to the next section marker), so
+        // the animation modifier that sits after the context menu is covered.
+        let slot = footerSlice(view, from: "footerBarContent(value: s.value, layout: layout)",
+                               to: "// v2: the answer panel is a DARKER")
+        try expect(!slot.isEmpty, "the bubble slot exists")
+        try expect(!slot.contains("value: width"), "not keyed on the container width")
+        try expect(!slot.contains("value: layout.bubbleWidth"), "not keyed on the bubble width")
+        try expect(!slot.contains("value: layout.contentWidth"), "not keyed on the content width")
+        try expect(!slot.contains("withAnimation"), "no imperative animation")
+        try expect(!slot.contains(".spring"), "never a spring")
+        try expect(!slot.contains("scaleEffect"), "the digits are never scaled")
+        try expect(!slot.contains(".offset("), "no numeric tween")
+        // Reduce Motion supplies nil -> the final geometry immediately.
+        try expect(slot.contains("reduceMotion ? nil :"), "Reduce Motion yields nil")
+        // Geometry and semantics that must NOT move.
+        try expect(slot.contains(".frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)"),
+                   "the trailing-anchored slot is unchanged")
+        try expect(slot.contains(".padding(FooterTotalLayout.outerInset)"), "outer inset unchanged")
+        try expect(slot.contains(".padding(.vertical, 8)"), "vertical padding unchanged")
+        try expect(slot.contains("RoundedRectangle(cornerRadius: 9"), "glass radius unchanged")
+        try expect(slot.contains("glassEffect"), "the glass surface is kept")
+        try expect(view.contains(".accessibilityElement(children: .ignore)"), "one element")
+        try expect(view.contains("footerAccessibilityLabel(value: s.value,"), "one label builder")
+        try expect(view.contains(".contextMenu {"), "the statistic menu stays")
+        try expect(view.contains("ForEach(FooterStatisticMenu.order"), "its order is unchanged")
+        // The value keeps its OWN crossfade identity, so a number change
+        // never triggers the geometry animation.
+        try expect(view.contains(".id(value)"), "value identity crossfade kept")
+        try expect(view.contains("value: value"), "the crossfade is keyed on the text")
+        try expect(view.contains("reduceMotion ? nil : .easeInOut(duration: Motion.answerChange),"),
+                   "the value crossfade keeps its own duration")
+        // Both branches keep their pinned shape.
+        let expanded = footerSlice(bar, from: "if layout.showsLabel {", to: "} else {")
+        let compact = footerSlice(bar, from: "} else {", to: "\n    }")
+        try expect(expanded.contains("HStack(spacing: FooterTotalLayout.labelGap)"),
+                   "expanded owns the gap")
+        try expect(compact.contains("HStack(spacing: 0)"), "compact has zero spacing")
+        try expect(!compact.contains("Spacer"), "compact has no spacer")
+        try expect(!compact.contains("labelGap"), "compact never mentions the gap")
+        try expect(!compact.contains("totalLabel"), "compact has no label view")
+    },
 ]

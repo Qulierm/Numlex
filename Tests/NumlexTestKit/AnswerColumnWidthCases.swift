@@ -339,12 +339,18 @@ public let answerColumnWidthCases: [EngineCase] = [
                                             labelWidth: 30, valueWidth: 999)
         try expectEqual(wide.contentWidth, 360, "400 pt: capped content")
         try expectEqual(wide.bubbleWidth, 384, "400 pt: capped bubble")
-        // The narrowest column collapses earlier (smaller content width)
-        // and its compact bubble stays inside the 140 pt panel.
+        // The narrowest column has the smallest content width (100 pt), so a
+        // pair that needs 100 pt fits EXACTLY there under the documented 2 pt
+        // safety reserve, and one point more collapses — the compact bubble
+        // then stays inside the 140 pt panel.
+        let exactNarrow = FooterTotalLayout.layout(containerWidth: 140,
+                                                  labelWidth: 30, valueWidth: 60)
+        try expect(exactNarrow.showsLabel,
+                   "140 pt: a pair needing exactly the 100 pt content keeps the label")
         let narrow = FooterTotalLayout.layout(containerWidth: 140,
-                                              labelWidth: 30, valueWidth: 60)
-        try expect(!narrow.showsLabel, "140 pt: the pair collapses")
-        try expectEqual(narrow.bubbleWidth, 60 + 24, "140 pt: value bubble")
+                                              labelWidth: 30, valueWidth: 61)
+        try expect(!narrow.showsLabel, "140 pt: one point more collapses")
+        try expectEqual(narrow.bubbleWidth, 61 + 24, "140 pt: value bubble")
         try expect(narrow.bubbleWidth <= 124, "140 pt: inside the panel")
         // Hostile containers at the adjustable widths: safe, bounded,
         // never negative/NaN.

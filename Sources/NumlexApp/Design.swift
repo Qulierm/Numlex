@@ -354,6 +354,17 @@ enum Motion {
     /// Token (bubble) appearance pass — the shared twin of
     /// `TokenAppearance.duration`/`startScale`.
     static let tokenIn: Double = TokenAppearance.duration
+    /// The footer Total bar's compact/expanded transition — the ONE short
+    /// GEOMETRY exception to the notebook's opacity/colour-only micro-motion
+    /// policy. The bubble's intrinsic width shrinks to (and grows back from)
+    /// the value-only width from its LEADING edge while the trailing edge
+    /// stays anchored, so the glass surface reads as one calm move rather
+    /// than a jump. It is deliberately non-spring (no bounce, overshoot or
+    /// numeric tween), it is keyed ONLY on the binary mode flip — never on
+    /// the continuously changing container width, so dragging the answer
+    /// column divider is not animated per pixel — and Reduce Motion replaces
+    /// it with the final geometry immediately.
+    static let footerMode: Double = 0.16
 
     /// Whether the OS Reduce Motion is currently on (live source for
     /// the AppKit passes; SwiftUI reads `\.accessibilityReduceMotion`,

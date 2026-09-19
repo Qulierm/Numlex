@@ -25,16 +25,16 @@ public enum FooterTotalLayout {
     public static let innerPadding: CGFloat = 12
     /// The gap between the label and the value.
     public static let labelGap: CGFloat = 8
-    /// The comfort reserve: the label disappears well BEFORE it can collide
-    /// with, or visually crowd, the value. Subpixel rounding is only the
-    /// floor — a label that leaves a sliver of air still reads as cramped, so
-    /// the reserve is a real design measure (22 pt) rather than a collision
-    /// epsilon. Measured default cases: `Total` ≈ 26.5 pt and `1335152.55`
-    /// ≈ 105.5 pt; 26.5 + 8 + 105.5 = 140 leaves only 20 pt inside the 160 pt
-    /// content width, which still LOOKS overlapped, so that value must go
-    /// compact, while short values such as `1.500` (≈ 64 pt total) keep the
-    /// label.
-    public static let comfortReserve: CGFloat = 22
+    /// The collision-safety reserve: on top of the VISUAL separation the
+    /// `labelGap` (8 pt) already provides, the pair must still leave this
+    /// much room inside the content width. It is deliberately small (2 pt)
+    /// and is NOT a design preference: it only covers subpixel rounding and
+    /// antialiasing slack on the measured widths. The label therefore stays
+    /// visible until the measured label + gap + value genuinely reaches the
+    /// content edge, instead of disappearing while a large empty gap remains.
+    /// The caller's widths are already pixel-safe (`ceil(width) + 0.5` in the
+    /// view), so this is the final margin, not the separation itself.
+    public static let safetyReserve: CGFloat = 2
 
     /// Default-width compatibility value ONLY: the full bubble width of
     /// the legacy 200 pt column (184 pt). Runtime code derives the
@@ -84,10 +84,11 @@ public enum FooterTotalLayout {
         let fullBubble = max(0, container - 2 * outerInset)
         let fullContent = max(0, fullBubble - 2 * innerPadding)
 
-        // Expanded requires the label, its gap, the value AND the comfort
-        // reserve inside the full content width, so the label only stays while
-        // it has real air around it (never merely "no literal collision").
-        let needed = label + (label > 0 ? labelGap : 0) + value + comfortReserve
+        // Expanded requires the label, its gap, the value AND the small
+        // safety reserve inside the full content width. The reserve is only
+        // collision/subpixel protection on top of the 8 pt visual gap, so the
+        // label survives right up to the measured boundary.
+        let needed = label + (label > 0 ? labelGap : 0) + value + safetyReserve
         let showsLabel = valueIsKnown && label > 0 && needed <= fullContent
 
         if showsLabel {

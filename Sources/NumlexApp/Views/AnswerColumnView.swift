@@ -751,8 +751,15 @@ struct AnswerColumnView: View {
                             }
                         }
                     }
-                    // Mode changes must not animate the bubble's geometry.
-                    .transaction { if !reduceMotion { $0.animation = nil } }
+                    // The ONE short geometry transition: the bubble's
+                    // intrinsic width animates only when the MODE flips
+                    // (`showsLabel`), never on the continuously changing
+                    // container width or the value text, so dragging the
+                    // divider is not animated per pixel and a number change
+                    // keeps its own crossfade. Reduce Motion applies the
+                    // final compact/expanded geometry immediately.
+                    .animation(reduceMotion ? nil : .easeInOut(duration: Motion.footerMode),
+                               value: layout.showsLabel)
             }
         }
         .frame(width: width)

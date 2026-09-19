@@ -544,8 +544,21 @@ the value (its right edge stays put, its height and the reserved footer space
 never change). The decision uses the actually rendered AppKit text widths —
 the label in the same 11 pt system font `Design.labelSmall` uses, the value in
 the palette's editor font with the live size and typography (built-in design or
-the selected installed family/face) — plus a 2 pt safety
-reserve, so the label disappears one step before any overlap or truncation.
-A very long value keeps the existing maximum width and one-line overflow
-behaviour, and the footer is announced once to assistive tech as
-"<label> <value>" in both modes.
+the selected installed family/face) — plus the visible 8 pt label/value gap and
+a 2 pt collision-safety reserve, so the label stays visible right up to the
+measured boundary and only disappears one step before any overlap or
+truncation; the reserve is subpixel protection, never a reason to hide the
+label while a large empty gap remains. A very long value keeps the existing
+maximum width and one-line overflow behaviour, and the footer is announced once
+to assistive tech as "<label> <value>" in both modes.
+
+Entering and leaving the value-only mode is the one short geometry transition
+in the notebook: the glass bubble's width shrinks from (and grows back to) the
+full width from its leading edge over 0.16 s (`Motion.footerMode`, an
+ease-in-out — never a spring, a bounce or a numeric tween), while the trailing
+edge, height, vertical padding, corner radius and reserved footer space stay
+fixed. Only the binary mode change animates: continuously resizing the answer
+column never animates the bubble per pixel, and a change of the number itself
+keeps its own short value crossfade without touching the geometry. With
+**Reduce Motion** enabled the compact/expanded geometry is applied
+immediately, with no transition.
