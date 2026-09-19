@@ -334,4 +334,9 @@ struct EngineTests {
     func notebookFontCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: linkedConversionCases)
+    func linkedConversionCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

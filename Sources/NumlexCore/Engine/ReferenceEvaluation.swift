@@ -464,25 +464,32 @@ public func resolveSheet(
         }
 
         // Conversion shape: exactly one marker, then `to <unit>` or
-        // `in <unit>` (identical semantics).
+        // `in <unit>` (identical semantics). r91: the linked value is
+        // substituted into an ordinary conversion line and routed through
+        // the ONE conversion engine, so a UNITLESS linked answer may take
+        // an explicitly typed source unit (`<token> mg to kg`) exactly
+        // like a typed literal — while a token that already carries a
+        // unit keeps its `<token> to <target>` form. The document is
+        // never rewritten; only an evaluation copy is built.
         if markerPos.count == 1,
-           let toWord = tokenConversionShape(line: line, markerAt: markerPos[0]),
-           let q = quantities[0] {
-            if let (v, unit) = convertTokenQuantity(value: q.v, fromLabel: q.unit, to: toWord, rates: rates, context: unitContext) {
-                return .number(value: roundResult(v, decimalPlaces: decimalPlaces), unit: unit)
-            }
-            // A currency pair the rate table cannot answer keeps the
-            // explicit white `Rates unavailable` state.
-            let targetIsCurrency = unitContext.resolveExpression(toWord).map { p in
-                if case .currency = p.unit.kind { return true } else { return false }
-            } ?? false
-            let fromIsCurrency = q.unit.flatMap { unitExpr(byLabel: $0, context: unitContext).map { p in
-                if case .currency = p.kind { return true } else { return false }
-            } } ?? false
-            if fromIsCurrency, targetIsCurrency {
-                return .error(message: "Rates unavailable")
-            }
-            return .error(message: "Invalid conversion")
+           let q = quantities[0],
+           q.boolValue == nil,
+           q.v.isFinite,
+           // A unitless token may only acquire a unit here when it is a
+           // PLAIN value: a percent/fraction/multiplier keeps its
+           // semantic kind and can never be relabeled as a physical
+           // unit (`20% mg to kg` is meaningless). A token that already
+           // carries a unit keeps its kind and existing behavior.
+           q.unit != nil || q.kind == .plain,
+           let bridged = linkedConversionResult(line: line,
+                                                markerAt: markerPos[0],
+                                                value: q.v,
+                                                carriedUnit: q.unit,
+                                                rates: rates,
+                                                decimalPlaces: decimalPlaces,
+                                                context: context,
+                                                unitContext: unitContext) {
+            return bridged
         }
 
         // Assignment: `name = <token expression>`.
@@ -870,26 +877,6 @@ public func resolveSheet(
     }
     let tokens = tokenStates.keys.sorted().map { TokenResolution(location: $0, state: tokenStates[$0]!) }
     return (out, tokens)
-}
-
-/// The target unit text of a `<marker> to|in <unit>` conversion line,
-/// or nil when the line does not have exactly that shape (the marker
-/// must stand at the start, followed by the `to` or `in` keyword and a
-/// non-empty unit expression — the unit may be multi-word, slashed or
-/// carry `·`/`²` characters; the unit catalog decides legality).
-private func tokenConversionShape(line: String, markerAt: Int) -> String? {
-    let ns = line as NSString
-    let before = ns.substring(to: markerAt).trimmingCharacters(in: .whitespaces)
-    guard before.isEmpty else { return nil }
-    let after = ns.substring(from: markerAt + 1)
-    let t = after.trimmingCharacters(in: .whitespaces)
-    let lower = t.lowercased()
-    guard lower.hasPrefix("to") || lower.hasPrefix("in") else { return nil }
-    let rest = String(t.dropFirst(2))
-    guard !rest.isEmpty, rest.first!.isWhitespace else { return nil }
-    let unitText = rest.trimmingCharacters(in: .whitespaces)
-    guard !unitText.isEmpty, unitText.contains(where: { $0.isLetter }) else { return nil }
-    return unitText
 }
 
 private func isValidReferenceIdentifier(_ name: String) -> Bool {

@@ -429,22 +429,65 @@ public func convertQuantityUnit(_ value: Double, fromLabel: String, toLabel: Str
     return convertValue(value, from: from, to: to, rates: Rates())?.value
 }
 
-/// Converts a token quantity (the current result of its referenced line,
-/// carrying a display unit label) into the target unit expression of a
-/// `<token> to <unit>` line — the SAME engine the
-/// `<number> <from> to <to>` grammar uses. Returns the unrounded value
-/// and the canonical target label, or nil when the token has no unit or
-/// the pair is unsupported (the caller then reports the generic hidden
-/// error).
-public func convertTokenQuantity(
+// MARK: - Linked-answer conversion bridge
+
+/// r91: substitutes ONE leading linked value (an answer token) into an
+/// ordinary conversion line so the linked answer participates in exactly
+/// the same grammar a typed literal does — `<token> mg to kg` behaves
+/// like `4673 mg to kg`.
+///
+/// This is an EVALUATION-COPY adapter only: the document is never
+/// touched (no source text, marker, reference or line ID is rewritten).
+/// The caller passes the ORIGINAL line, the UTF-16 location of the single
+/// participating marker, the resolved canonical value and the display
+/// unit label the linked answer already carries (nil for a unitless
+/// answer). The bridge builds
+///
+///     <shortest round-trip literal>[ <carried unit>] <user's to|in suffix>
+///
+/// and hands that to `tryConversion` — the ONE conversion engine — so
+/// target shorthand, the inch-vs-`in` disambiguation, error classes,
+/// currency rates and conversion precision all match ordinary lines by
+/// construction. Returns nil when the line is not this shape (so the
+/// caller can fall through to its other routes); otherwise the
+/// conversion result or its error.
+///
+/// The number is written with `String(value)` (shortest round-trip
+/// decimal, never a grouped or rounded display string) and its decimal
+/// point becomes `,` only in decimal-comma modes — a dot would otherwise
+/// be read as a GROUPING separator there and silently change the value.
+public func linkedConversionResult(
+    line: String,
+    markerAt: Int,
     value: Double,
-    fromLabel: String?,
-    to: String,
+    carriedUnit: String?,
     rates: Rates,
-    context: UnitContext = .builtIns
-) -> (value: Double, unit: String)? {
-    guard let fromLabel else { return nil }
-    guard let from = unitExpr(byLabel: fromLabel, context: context),
-          let toExpr = context.resolveExpression(to) else { return nil }
-    return convertValue(value, from: from, to: toExpr.unit, rates: rates)
+    decimalPlaces: Int,
+    context: NumberFormatContext = .legacy,
+    unitContext: UnitContext = .builtIns
+) -> LineResult? {
+    // The marker must be the FIRST non-whitespace content: the synthetic
+    // line puts the number there, and the conversion grammar requires the
+    // number to start the line.
+    let ns = line as NSString
+    guard markerAt >= 0, markerAt < ns.length else { return nil }
+    guard ns.substring(to: markerAt)
+        .trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+    guard value.isFinite else { return nil }
+    // The user's `to|in <target>` suffix, verbatim.
+    let suffix = ns.substring(from: markerAt + 1)
+    guard suffix.trimmingCharacters(in: .whitespaces).contains(where: { $0.isLetter }) else {
+        return nil
+    }
+    var literal = String(value)
+    if context.decimalComma {
+        literal = literal.replacingOccurrences(of: ".", with: ",")
+    }
+    var synthetic = literal
+    if let carriedUnit, !carriedUnit.isEmpty {
+        synthetic += " " + carriedUnit
+    }
+    synthetic += " " + suffix.trimmingCharacters(in: .whitespaces)
+    return tryConversion(synthetic, rates: rates, decimalPlaces: decimalPlaces,
+                         context: context, unitContext: unitContext)
 }
