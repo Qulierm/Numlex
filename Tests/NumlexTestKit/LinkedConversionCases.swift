@@ -25,6 +25,20 @@
 //  the `AnswerReference` identity, the line IDs and the token states are
 //  asserted unchanged, and the token stays LIVE (a source edit changes
 //  the converted answer).
+//
+//  r92: a unit-bearing linked answer may REPEAT its own unit explicitly
+//  (`4673 mg` + `<token> mg to kg`). The repeated unit is compared with
+//  the carried one by EXACT unit identity (label equality, or identical
+//  kind/vector/family/toBase):
+//    - agreement converts, using the user's own text (no duplicated
+//      label is synthesized), so aliases like `inch` for `in` work;
+//    - a known-but-different unit is the documented `Incompatible units`
+//      conflict — the linked answer's own unit is never silently
+//      reinterpreted (a `C°`-carrying answer is not re-based as `F°`);
+//    - an unresolvable unit on either side keeps the previous behavior
+//      and lets the conversion engine report its own message.
+//  BUG-01 (`3 in` + `<token> in cm` / `in in`) is deliberately NOT pinned
+//  here: it is a known open defect, verified with the probe instead.
 
 import Foundation
 import NumlexCore
@@ -381,5 +395,173 @@ public let linkedConversionCases: [EngineCase] = [
         let (proseLines, _, _) = lcResolve(prose, refs: [(0, 1, lcMarkerAt("5"))])
         try expect(lcValue(proseLines[1]) == nil || lcUnit(proseLines[1]) == nil,
                    "non-conversion suffix is not a unit conversion")
+    },
+
+    // MARK: - r92: a repeated, agreeing source unit
+
+    EngineCase("r92-repeated-agreeing-unit-converts") {
+        // The BUG-02 repro: the source already carries `mg`, and the user
+        // repeats that same unit before the keyword. Pre-r92 the bridge
+        // appended the carried label anyway, synthesizing
+        // `4673 mg mg to kg`, which the engine rejected with the
+        // misleading `Unknown units`.
+        let content = "4673 mg\n\(M91) mg to kg"
+        let (lines, tokens, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try lcClose(lcValue(lines[1]), 0.004673, "4673 mg + <token> mg to kg")
+        try expectEqual(lcUnit(lines[1]), "kg", "target unit")
+        // The linked answer keeps its OWN unit — nothing was re-based.
+        guard case .active(let v, let unit, let display) = tokens[0].state else {
+            throw CaseFailure(message: "token state: \(tokens[0].state)",
+                              location: "LinkedConversionCases")
+        }
+        try lcClose(v, 4673, "token value")
+        try expectEqual(unit, "mg", "token keeps its carried unit")
+        try expectEqual(display, "4,673 mg", "token display unchanged")
+        // The document and the reference identity are untouched.
+        try expectEqual(content, "4673 mg\n\(M91) mg to kg", "content unchanged")
+        try expectEqual(lines[1].sourceLineIndex, 1, "source index")
+        try expect(!lines[1].isTotal, "ordinary row")
+    },
+
+    EngineCase("r92-repeated-agreeing-unit-alias") {
+        // `inch` resolves to the SAME unit expression as `in`, so an
+        // explicitly repeated alias agrees. The ordinary-line equivalent
+        // is asserted FIRST, so the linked expectation can never drift
+        // from the engine's own grammar.
+        var vars: [String: Double] = [:]
+        let ordinary = evaluateSheet("3 inch to cm", variables: &vars,
+                                     rates: Rates(), decimalPlaces: 7)[0].result
+        guard case .number(let ordValue, let ordUnit, _, _) = ordinary else {
+            throw CaseFailure(message: "ordinary `3 inch to cm`: \(ordinary)",
+                              location: "LinkedConversionCases")
+        }
+        try lcClose(ordValue, 7.62, "ordinary alias conversion")
+        try expectEqual(ordUnit, "cm", "ordinary alias target unit")
+        // The same alias pair through a linked answer whose source carries
+        // the canonical `in` label.
+        let content = "3 inch\n\(M91) inch to cm"
+        let (lines, tokens, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("3 inch"))])
+        try lcClose(lcValue(lines[1]), 7.62, "linked alias agreement")
+        try expectEqual(lcUnit(lines[1]), "cm", "linked alias target unit")
+        guard case .active(_, let carried, _) = tokens[0].state else {
+            throw CaseFailure(message: "token state: \(tokens[0].state)",
+                              location: "LinkedConversionCases")
+        }
+        try expectEqual(carried, "in", "source carries the canonical `in` label")
+    },
+
+    EngineCase("r92-conflicting-source-unit-is-incompatible") {
+        // A KNOWN but different unit is the documented conflict class —
+        // never `Unknown units`, and never a converted number.
+        for (source, suffix) in [("4673 mg", "kg to g"), ("4673 mg", "g to kg")] {
+            let content = "\(source)\n\(M91) \(suffix)"
+            let (lines, _, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt(source))])
+            try expectEqual(lcError(lines[1]), "Incompatible units",
+                            "\(source) + <token> \(suffix)")
+            try expect(lcError(lines[1]) != "Unknown units",
+                       "\(source) + \(suffix) must not report Unknown units")
+            try expect(lcValue(lines[1]) == nil,
+                       "\(source) + \(suffix) must not produce a number")
+        }
+    },
+
+    EngineCase("r92-temperature-conflict-never-reinterpreted") {
+        // A temperature-carrying linked answer commanded with a DIFFERENT
+        // scale must conflict rather than silently re-base the value.
+        // NOTE: a bare `100 celsius` source line is UNITLESS in this
+        // engine (measured: `number(100, unit: nil)`), so a conversion
+        // RESULT is used as the temperature-carrying source.
+        let content = "100 C to F\n\(M91) C° to K"
+        let (lines, tokens, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("100 C to F"))])
+        guard case .active(_, let carried, _) = tokens[0].state else {
+            throw CaseFailure(message: "token state: \(tokens[0].state)",
+                              location: "LinkedConversionCases")
+        }
+        try expectEqual(carried, "F°", "source carries the F° scale")
+        try expectEqual(lcError(lines[1]), "Incompatible units", "temperature conflict")
+        try expect(lcValue(lines[1]) == nil, "no converted temperature")
+        // The plan's literal shape behaves as its unitless source dictates:
+        // the linked value carries NO unit, so the user's explicit source
+        // defines it and the documented unitless spelling converts.
+        let unitless = "100 celsius\n\(M91) F° to K"
+        let (unitlessLines, _, _) = lcResolve(unitless, refs: [(0, 1, lcMarkerAt("100 celsius"))])
+        try lcClose(lcValue(unitlessLines[1]), 310.9277777778,
+                    "unitless source + explicit F° to K")
+        try expectEqual(lcUnit(unitlessLines[1]), "K°", "kelvin target")
+    },
+
+    EngineCase("r92-unknown-explicit-source-still-unknown") {
+        // Agreement cannot be established: the explicit source does not
+        // resolve, so the previous behavior (and its accurate message)
+        // is kept rather than inventing a verdict.
+        let content = "4673 mg\n\(M91) zzz to kg"
+        let (lines, _, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try expectEqual(lcError(lines[1]), "Unknown units", "unknown explicit source")
+        try expect(lcValue(lines[1]) == nil, "no number for an unknown source")
+    },
+
+    EngineCase("r92-repeat-rule-leaves-documented-spellings-unchanged") {
+        // The two documented spellings and the reported r91 case keep
+        // their pinned values.
+        let carried = "4673 mg\n\(M91) to kg"
+        let (carriedLines, _, _) = lcResolve(carried, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try lcClose(lcValue(carriedLines[1]), 0.004673, "carried `to` spelling")
+        try expectEqual(lcUnit(carriedLines[1]), "kg", "carried target unit")
+        let carriedIn = "4673 mg\n\(M91) in kg"
+        let (carriedInLines, _, _) = lcResolve(carriedIn, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try lcClose(lcValue(carriedInLines[1]), 0.004673, "carried `in` spelling")
+        let unitless = "4673\n\(M91) mg to kg"
+        for dp in [2, 7] {
+            let (lines, _, _) = lcResolve(unitless, refs: [(0, 1, lcMarkerAt("4673"))],
+                                          decimalPlaces: dp)
+            try lcClose(lcValue(lines[1]), 0.004673, "unitless explicit source at dp \(dp)")
+            try expectEqual(lcUnit(lines[1]), "kg", "unitless target unit at dp \(dp)")
+        }
+        // A unitless linked answer with no explicit source still declines
+        // the conversion (no unit to convert from).
+        let noSource = "4673\n\(M91) to kg"
+        let (noSourceLines, _, _) = lcResolve(noSource, refs: [(0, 1, lcMarkerAt("4673"))])
+        try expect(lcValue(noSourceLines[1]) == nil, "unitless `to kg` gives no number")
+    },
+
+    EngineCase("r92-repeated-unit-money-agreement-and-conflict") {
+        let rates = Rates(base: "EUR", rates: ["EUR": 1, "USD": 1.1])
+        // Agreement: the repeated code matches the money token's code.
+        let agree = "$5\n\(M91) USD to EUR"
+        let (agreeLines, agreeTokens, _) = lcResolve(agree, refs: [(0, 1, lcMarkerAt("$5"))],
+                                                     rates: rates)
+        try lcClose(lcValue(agreeLines[1]), 4.5454545455, "repeated USD agrees")
+        try expectEqual(lcUnit(agreeLines[1]), "EUR", "money target unit")
+        guard case .active(_, let code, _) = agreeTokens[0].state else {
+            throw CaseFailure(message: "money token state: \(agreeTokens[0].state)",
+                              location: "LinkedConversionCases")
+        }
+        try expectEqual(code, "USD", "money token keeps its code")
+        // Conflict: a different code is never treated as agreement.
+        let conflict = "$5\n\(M91) EUR to USD"
+        let (conflictLines, _, _) = lcResolve(conflict, refs: [(0, 1, lcMarkerAt("$5"))],
+                                              rates: rates)
+        try expectEqual(lcError(conflictLines[1]), "Incompatible units", "money conflict")
+        try expect(lcValue(conflictLines[1]) == nil, "money conflict produces no number")
+    },
+
+    EngineCase("r92-repeated-unit-other-classes-agree") {
+        // The rule is class-agnostic: duration and compound units agree
+        // when the repeated unit IS the carried unit.
+        let duration = "30 minutes\n\(M91) minutes to hours"
+        let (durationLines, _, _) = lcResolve(duration, refs: [(0, 1, lcMarkerAt("30 minutes"))])
+        try lcClose(lcValue(durationLines[1]), 0.5, "duration agreement")
+        try expectEqual(lcUnit(durationLines[1]), "h", "duration target unit")
+        let compound = "36 km/h\n\(M91) km/h to m/s"
+        let (compoundLines, _, _) = lcResolve(compound, refs: [(0, 1, lcMarkerAt("36 km/h"))])
+        try lcClose(lcValue(compoundLines[1]), 10, "compound agreement")
+        try expectEqual(lcUnit(compoundLines[1]), "m/s", "compound target unit")
+        // A conflicting duration unit conflicts (0.5 hours is not 0.5
+        // minutes) rather than silently reinterpreting the linked answer.
+        let durationConflict = "30 minutes to hours\n\(M91) min to s"
+        let (conflictLines, _, _) = lcResolve(durationConflict,
+                                             refs: [(0, 1, lcMarkerAt("30 minutes to hours"))])
+        try expectEqual(lcError(conflictLines[1]), "Incompatible units",
+                        "duration unit conflict")
     },
 ]

@@ -483,11 +483,98 @@ public func linkedConversionResult(
     if context.decimalComma {
         literal = literal.replacingOccurrences(of: ".", with: ",")
     }
+    // r92: a unit-bearing linked answer may REPEAT its own unit explicitly
+    // (`4673 mg` + `<token> mg to kg`). Appending the carried label to a
+    // suffix that already supplies a source unit would duplicate it
+    // (`4673 mg mg to kg`) and surface the misleading `Unknown units`,
+    // although both units are known. Probe the engine's OWN keyword
+    // grammar for an explicit source and resolve the pair before
+    // synthesizing.
+    let trimmedSuffix = suffix.trimmingCharacters(in: .whitespaces)
+    if let carriedUnit, !carriedUnit.isEmpty,
+       let explicitSource = linkedExplicitSourceUnit(of: trimmedSuffix,
+                                                     context: context) {
+        switch linkedSourceUnitAgreement(explicitSource: explicitSource,
+                                         carriedUnit: carriedUnit,
+                                         unitContext: unitContext) {
+        case .agrees:
+            // The user's own text already names the source unit — use it
+            // verbatim, with no carried label appended.
+            return tryConversion(literal + " " + trimmedSuffix,
+                                 rates: rates, decimalPlaces: decimalPlaces,
+                                 context: context, unitContext: unitContext)
+        case .differs:
+            // Two KNOWN but different units: the documented conflict class.
+            // The linked answer's own unit is never silently re-based.
+            return .error(message: "Incompatible units")
+        case .unknown:
+            // Agreement cannot be established (unknown explicit unit, or a
+            // carried label that no longer resolves, e.g. a deleted custom
+            // unit): keep today's behavior and let `tryConversion` report
+            // its existing verdict rather than inventing one here.
+            break
+        }
+    }
     var synthetic = literal
     if let carriedUnit, !carriedUnit.isEmpty {
         synthetic += " " + carriedUnit
     }
-    synthetic += " " + suffix.trimmingCharacters(in: .whitespaces)
+    synthetic += " " + trimmedSuffix
     return tryConversion(synthetic, rates: rates, decimalPlaces: decimalPlaces,
                          context: context, unitContext: unitContext)
+}
+
+/// r92: the source unit the user typed EXPLICITLY before the `to|in`
+/// keyword, or nil when the suffix supplies none. The suffix is probed
+/// through the engine's own grammar (`conversionShape`, which already
+/// implements the documented keyword rules including the inch-vs-`in`
+/// disambiguation) so this can never drift from `tryConversion`.
+private func linkedExplicitSourceUnit(of trimmedSuffix: String,
+                                      context: NumberFormatContext) -> String? {
+    guard let shape = conversionShape("1 " + trimmedSuffix, context: context),
+          let fromText = shape.fromText,
+          !fromText.isEmpty else { return nil }
+    return fromText
+}
+
+/// r92: how an explicitly typed source unit relates to the unit a linked
+/// answer already carries.
+private enum LinkedSourceUnitAgreement {
+    /// Same unit — the linked answer converts normally.
+    case agrees
+    /// Both units are known and different — a conflict, never a silent
+    /// reinterpretation of the linked answer's unit.
+    case differs
+    /// Agreement cannot be established (one side does not resolve).
+    case unknown
+}
+
+/// r92: classifies an explicitly typed source unit against the carried
+/// label. Agreement is EXACT unit identity: either the labels match
+/// case-insensitively, or both resolve and their `kind`, `vector`,
+/// `family` and `toBase` all match — the same test `convertValue` applies
+/// for a same-unit conversion. Same-kind equality is deliberately NOT
+/// enough: `C°` versus `F°` and `USD` versus `EUR` differ in `kind`, so
+/// they classify as `.differs` and can never be silently re-based.
+private func linkedSourceUnitAgreement(explicitSource: String,
+                                       carriedUnit: String,
+                                       unitContext: UnitContext)
+    -> LinkedSourceUnitAgreement {
+    let explicit = explicitSource.trimmingCharacters(in: .whitespaces)
+    let carried = carriedUnit.trimmingCharacters(in: .whitespaces)
+    guard !explicit.isEmpty, !carried.isEmpty else { return .unknown }
+    if explicit.caseInsensitiveCompare(carried) == .orderedSame {
+        return .agrees
+    }
+    guard let explicitExpr = unitContext.resolveExpression(explicit),
+          let carriedExpr = unitExpr(byLabel: carried, context: unitContext) else {
+        return .unknown
+    }
+    if explicitExpr.unit.kind == carriedExpr.kind,
+       explicitExpr.unit.vector == carriedExpr.vector,
+       explicitExpr.unit.family == carriedExpr.family,
+       explicitExpr.unit.toBase == carriedExpr.toBase {
+        return .agrees
+    }
+    return .differs
 }
