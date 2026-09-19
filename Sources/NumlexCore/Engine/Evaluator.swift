@@ -991,12 +991,21 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
         var isTotalRow = false
         var metadata: SheetLineMetadata = .ordinary
         var isDynamicRow = false
+        // Package 7 (bounded totals): a completed logical row that is
+        // NOT a boundary and NOT a recognized legacy total occupies
+        // exactly ONE legacy-section history slot — the `total last N`
+        // window counts logical lines, so ineligible rows take a slot
+        // with no contribution. `isDerivedRow` keeps derived aggregate
+        // rows out of every section sum while they still take a slot.
+        var occupiesLegacySlot = true
+        var isDerivedRow = false
         switch analysis.kind {
         case .blank, .comment, .tagOnly:
             result = .blank
         case .heading:
             result = .blank
             aggregate.boundary()
+            occupiesLegacySlot = false
         case .commentTitle:
             result = .title(String(analysis.source.dropFirst(2))
                 .trimmingCharacters(in: .whitespaces))
@@ -1005,6 +1014,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
             metadata = .divider
             aggregate.boundary()
             tagAggregates.boundary()
+            occupiesLegacySlot = false
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
             random.beginLine("\(index + 1)")
@@ -1014,14 +1024,19 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                 metadata = .tagAggregate
                 isTotalRow = true
                 isDynamicRow = resolved.isDynamic
-            } else if InlineTotal.isCommand(work, env: env) {
-                let resolved = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+                isDerivedRow = true
+            } else if let inlineCommand = InlineTotal.parse(work, env: env) {
+                let resolved = aggregate.resolveLegacyTotal(inlineCommand,
+                                                            decimalPlaces: decimalPlaces)
                 result = resolved.result
                 if case .number = result {
                     isTotalRow = true
                     metadata = .legacyTotal
                 }
                 isDynamicRow = resolved.isDynamic
+                // The command resolves and RESETS its section: it never
+                // becomes a slot of the section it just closed.
+                occupiesLegacySlot = false
             } else if let command = SheetAggregateCommand.parse(work, env: env,
                                                                 context: context) {
                 let resolved = resolveAggregateCommand(command, env: &env,
@@ -1031,6 +1046,7 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                 metadata = resolved.metadata
                 isTotalRow = true
                 isDynamicRow = resolved.isDynamic
+                isDerivedRow = true
                 // A named derived assignment carries the taint onward.
                 if isDynamicRow {
                     if case .namedSubtotal(let name, _) = command { dynamicNames.insert(name) }
@@ -1059,13 +1075,19 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                 }
                 let eligible = SheetAggregateState.contribution(of: result,
                                                                 projection: work)
-                aggregate.observe(result: result, projection: work, isDerived: false,
-                                  isDynamic: isDynamicRow)
                 tagAggregates.observe(tags: analysis.tags, value: eligible,
                                       isDynamic: isDynamicRow)
             } else {
                 result = .skip
             }
+        }
+        // ONE observation per completed logical row (the tail keeps the
+        // two sheet loops symmetric and makes double-counting
+        // impossible); boundaries and legacy totals reset instead.
+        if occupiesLegacySlot {
+            aggregate.observe(result: result,
+                              projection: analysis.evaluationProjection,
+                              isDerived: isDerivedRow, isDynamic: isDynamicRow)
         }
         rows.append(SheetLine(sourceLineIndex: index, result: result,
                               isTotal: isTotalRow, metadata: metadata,

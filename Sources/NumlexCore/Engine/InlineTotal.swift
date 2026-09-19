@@ -1,10 +1,33 @@
 import Foundation
 
+/// The TYPED inline-total command recognized by the sheet loops.
+/// Bare `total` and `total last N` are the same command family and
+/// share one section boundary contract; only the summed window
+/// differs.
+public enum InlineTotalCommand: Equatable, Sendable {
+    /// Bare `total`: every eligible row of the current legacy section.
+    case section
+    /// `total last N`: the eligible rows among the N immediately
+    /// preceding logical source rows of the current legacy section
+    /// (every row occupies a slot, only eligible rows contribute).
+    case last(lineCount: Int)
+}
+
 /// Inline `total` rows (r57, refined r58): a standalone `total` line
 /// sums the evaluated values of the eligible rows in its SECTION —
 /// the rows since the preceding `total`, or from sheet start when
 /// there is none — and renders its answer semibold with a gray rule
 /// above it.
+///
+/// `total last N` (bounded inline total): the same command family,
+/// restricted to the N immediately preceding LOGICAL source rows of
+/// the current section. `N` counts logical lines, never eligible
+/// results: blank, prose, comment, error, money/unit, bare-token and
+/// derived aggregate rows all occupy one slot and contribute zero.
+/// The command is section-scoped like bare `total` (it can never see
+/// above the nearest prior legacy total/heading/divider) and resets
+/// the whole section afterwards, so section boundaries, shadowing,
+/// metadata and presentation stay identical for both forms.
 ///
 /// Semantics (r58 section subtotals, user-corrected):
 /// - The keyword is exactly ASCII `total`, case-insensitive, with
@@ -49,7 +72,61 @@ import Foundation
 ///   numbers, unit-bearing quantities, money, named scalars and exact
 ///   integers; total rows excluded), so section subtotals never
 ///   double-count.
+///
+/// Grammar of BOTH forms (strict and deterministic; the caller passes
+/// the tag-stripped evaluation projection, so a terminal tag never
+/// changes the command):
+/// - bare `total`, or case-insensitive `total last N` with one or more
+///   spaces/tabs between the tokens, after the outer spaces/tabs are
+///   trimmed;
+/// - `N` is ASCII base-10 only and must parse without overflow into
+///   `1...Int.max`: `total last 0`, `total last -3`,
+///   `total last 3.5`, `total last`, `total last 3 x`,
+///   `total last ٣` and an overflowing count are all ordinary
+///   non-command rows;
+/// - an ACTIVE variable or constant named `total` suppresses BOTH
+///   forms (`total = 5` stays an assignment, and a later
+///   `total last 3` stays an ordinary expression row).
 public enum InlineTotal {
+    /// The strict TYPED inline-total command of one logical line in the
+    /// CURRENT environment, or nil when the line is not a total
+    /// command (`InlineTotalCommand.section` for bare `total`,
+    /// `.last(lineCount:)` for a bounded one).
+    public static func parse(_ line: String, env: TypedEnv) -> InlineTotalCommand? {
+        // Outer spaces/tabs only; the trimmed text must then be exactly
+        // the keyword, optionally followed by `last N`.
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let tokens = trimmed
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        guard let head = tokens.first, head.lowercased() == "total" else { return nil }
+        // `total` is not reserved globally: an active entry of that name
+        // (canonical case/whitespace lookup) suppresses both forms.
+        guard env.entry(display: "total") == nil else { return nil }
+        switch tokens.count {
+        case 1:
+            return .section
+        case 3 where tokens[1].lowercased() == "last":
+            guard let count = positiveLineCount(tokens[2]) else { return nil }
+            return .last(lineCount: count)
+        default:
+            return nil
+        }
+    }
+
+    /// The strict `N` of `total last N`: one or more ASCII decimal
+    /// digits only (no sign, decimal point, exponent or non-ASCII
+    /// digit) that parse without overflow into `1...Int.max`.
+    static func positiveLineCount(_ text: String) -> Int? {
+        guard !text.isEmpty,
+              text.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let value = Int(text), value >= 1 else {
+            return nil
+        }
+        return value
+    }
+
     /// Whether the logical line is a total command in the CURRENT
     /// environment: the strict standalone shape, suppressed whenever
     /// the environment holds an active entry named `total` (variable
@@ -58,11 +135,10 @@ public enum InlineTotal {
     /// recognized only by the sheet loops that own an accumulator —
     /// `evalLineTyped` keeps returning nil here (quiet skip) exactly
     /// as before, and the classifier leaves the keyword base text.
+    /// Compatibility helper: the sheet loops use `parse` and switch on
+    /// the typed command.
     public static func isCommand(_ line: String, env: TypedEnv) -> Bool {
-        guard line.trimmingCharacters(in: .whitespaces).lowercased() == "total" else {
-            return false
-        }
-        return env.entry(display: "total") == nil
+        parse(line, env: env) != nil
     }
 
     /// The eligible contribution of one evaluated row to the SECTION

@@ -419,9 +419,13 @@ public let r57Cases: [EngineCase] = [
         let types = try src("Sources/NumlexCore/Engine/Types.swift")
         try expect(types.contains("isTotal: Bool = false"), "defaulted flag")
         let eval = try src("Sources/NumlexCore/Engine/Evaluator.swift")
-        try expect(eval.contains("InlineTotal.isCommand"), "sheet-loop hook")
+        // Bounded totals renamed the hook to the typed parser; both
+        // loops must still parse AND resolve through the shared state.
+        try expect(eval.contains("InlineTotal.parse"), "sheet-loop hook")
+        try expect(eval.contains("resolveLegacyTotal(inlineCommand"), "sheet-loop resolve")
         let ref = try src("Sources/NumlexCore/Engine/ReferenceEvaluation.swift")
-        try expect(ref.contains("InlineTotal.isCommand"), "resolve-loop hook")
+        try expect(ref.contains("InlineTotal.parse"), "resolve-loop hook")
+        try expect(ref.contains("resolveLegacyTotal(inlineCommand"), "resolve-loop resolve")
         let view = try src("Sources/NumlexApp/Views/AnswerColumnView.swift")
         try expect(view.contains("line.isTotal"), "view trusts metadata")
         try expect(view.contains("Design.panelSeparator"), "neutral rule color")

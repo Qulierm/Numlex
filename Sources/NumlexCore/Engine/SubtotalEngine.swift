@@ -87,7 +87,9 @@ public enum SheetAggregateCommand: Equatable, Sendable {
 
 /// Package 7: the ONE O(n) sheet aggregate state shared by
 /// `evaluateSheet` and `resolveSheet`. It keeps the legacy-total
-/// section, the subtotal section and the grand list in one pass.
+/// section (including one ordered history slot per logical row, the
+/// bounded `total last N` window), the subtotal section and the grand
+/// list in one pass.
 public struct SheetAggregateState: Sendable {
     private var legacySum: Double = 0
     private var legacyOverflow = false
@@ -95,6 +97,12 @@ public struct SheetAggregateState: Sendable {
     /// any observed row whose result depended on rand, so a subtotal /
     /// legacy total/reference fed by a dynamic row is itself dynamic.
     private var legacyDynamic = false
+    /// One slot per logical source row of the CURRENT legacy section,
+    /// in source order (the bounded `total last N` window). A row that
+    /// cannot contribute still occupies its slot with a nil
+    /// contribution, so `N` counts logical lines, never eligible
+    /// results. Cleared by every legacy-boundary reset.
+    private var legacyHistory: [LegacySlot] = []
     private var subtotalSum: Double = 0
     private var subtotalOverflow = false
     private var subtotalDynamic = false
@@ -102,6 +110,15 @@ public struct SheetAggregateState: Sendable {
     /// erased by a divider); each keeps its dynamic taint so `grand
     /// total` is dynamic when any subtotal it sums is dynamic.
     private var grandValues: [(value: Double, dynamic: Bool)] = []
+
+    /// One logical row of the current legacy section: its optional
+    /// eligible contribution (nil for blank/comment/prose/error/
+    /// money-unit/bare-token/derived rows) and whether its EXECUTED
+    /// result was dynamic.
+    struct LegacySlot: Equatable, Sendable {
+        var contribution: Double?
+        var isDynamic: Bool
+    }
 
     public init() {}
 
@@ -140,15 +157,22 @@ public struct SheetAggregateState: Sendable {
         }
     }
 
-    /// Feeds one completed row into both sections. Derived rows
+    /// Feeds one completed row into both sections AND records exactly
+    /// one legacy history slot for it (in source order). Derived rows
     /// (legacy totals, subtotals, grand totals, tag aggregates,
-    /// dividers, dynamic rows) must pass `isDerived: true`.
+    /// dividers, dynamic rows) must pass `isDerived: true`; a row that
+    /// cannot contribute still appends its nil-contribution slot, so a
+    /// bounded total counts logical rows. Heading/divider BOUNDARIES and
+    /// recognized legacy-total rows never reach this call: they reset
+    /// the section instead of occupying a slot.
     public mutating func observe(result: LineResult, projection: String,
                                  isDerived: Bool, isDynamic: Bool = false) {
-        guard !isDerived,
-              let c = Self.contribution(of: result, projection: projection) else {
-            return
-        }
+        let contribution = isDerived
+            ? nil
+            : Self.contribution(of: result, projection: projection)
+        legacyHistory.append(LegacySlot(contribution: contribution,
+                                        isDynamic: isDynamic))
+        guard let c = contribution else { return }
         if isDynamic {
             legacyDynamic = true
             subtotalDynamic = true
@@ -157,33 +181,83 @@ public struct SheetAggregateState: Sendable {
         add(c, to: &subtotalSum, overflow: &subtotalOverflow)
     }
 
-    /// A `# ` heading or an exact `---` divider: both sections restart;
-    /// the grand list is deliberately untouched.
+    /// A `# ` heading or an exact `---` divider: both sections restart
+    /// (history included); the grand list is deliberately untouched.
     public mutating func boundary() {
-        legacySum = 0
-        legacyOverflow = false
-        legacyDynamic = false
+        resetLegacySection()
         subtotalSum = 0
         subtotalOverflow = false
         subtotalDynamic = false
     }
 
-    /// The legacy `total` command: resolves and resets ONLY the legacy
-    /// section (a subtotal is not a legacy boundary).
+    /// The legacy inline-total command, bare or bounded: resolves and
+    /// resets ONLY the legacy section (a subtotal is not a legacy
+    /// boundary). `.section` reports the whole current section with its
+    /// running overflow/dynamic status; `.last(lineCount:)` sums ONLY
+    /// the eligible contributions of the last `lineCount` logical rows
+    /// stored in the current section, so overflow and dynamic taint
+    /// outside that window never reach the result and a window that
+    /// itself overflows is the same quiet generic error. An empty (or
+    /// shorter-than-N) window sums what the section holds — 0 when it
+    /// holds nothing.
+    public mutating func resolveLegacyTotal(_ command: InlineTotalCommand,
+                                            decimalPlaces: Int)
+        -> (result: LineResult, isDynamic: Bool) {
+        let outcome = legacyTotalOutcome(command, decimalPlaces: decimalPlaces)
+        resetLegacySection()
+        return outcome
+    }
+
+    /// Compatibility form of the legacy `total` command resolver: the
+    /// bare, whole-section total.
     public mutating func resolveLegacyTotal(decimalPlaces: Int)
         -> (result: LineResult, isDynamic: Bool) {
-        let dynamic = legacyDynamic
-        defer {
-            legacySum = 0
-            legacyOverflow = false
-            legacyDynamic = false
+        resolveLegacyTotal(.section, decimalPlaces: decimalPlaces)
+    }
+
+    private func legacyTotalOutcome(_ command: InlineTotalCommand,
+                                    decimalPlaces: Int)
+        -> (result: LineResult, isDynamic: Bool) {
+        switch command {
+        case .section:
+            guard !legacyOverflow else {
+                return (.error(message: InlineTotal.overflowMessage), legacyDynamic)
+            }
+            return (.number(value: roundResult(legacySum, decimalPlaces: decimalPlaces),
+                            unit: nil),
+                    legacyDynamic)
+        case .last(let lineCount):
+            var sum = 0.0
+            var overflow = false
+            var dynamic = false
+            // `suffix` clamps itself: a window larger than the section
+            // sums the whole section.
+            for slot in legacyHistory.suffix(max(lineCount, 0)) {
+                guard let c = slot.contribution else { continue }
+                if slot.isDynamic { dynamic = true }
+                guard !overflow else { continue }
+                let next = sum + c
+                if next.isFinite { sum = next } else { overflow = true }
+            }
+            guard !overflow else {
+                return (.error(message: InlineTotal.overflowMessage), dynamic)
+            }
+            return (.number(value: roundResult(sum, decimalPlaces: decimalPlaces),
+                            unit: nil),
+                    dynamic)
         }
-        guard !legacyOverflow else {
-            return (.error(message: InlineTotal.overflowMessage), dynamic)
-        }
-        return (.number(value: roundResult(legacySum, decimalPlaces: decimalPlaces),
-                        unit: nil),
-                dynamic)
+    }
+
+    /// Clears the whole legacy section state — running sum, overflow,
+    /// dynamic taint and the logical-row history. Every legacy total
+    /// (bare or bounded) and every heading/divider boundary resets this
+    /// way, so neither a partial sum nor a stale slot ever crosses a
+    /// boundary.
+    private mutating func resetLegacySection() {
+        legacySum = 0
+        legacyOverflow = false
+        legacyDynamic = false
+        legacyHistory.removeAll(keepingCapacity: true)
     }
 
     /// The `subtotal[ ± P%]` command: resolves and resets the subtotal

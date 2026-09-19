@@ -756,12 +756,20 @@ public func resolveSheet(
         var isTotalRow = false
         var metadata: SheetLineMetadata = .ordinary
         var isDynamicRow = false
+        // Package 7 (bounded totals): evaluator parity — a completed
+        // logical row that is NOT a boundary and NOT a recognized
+        // legacy total occupies exactly ONE legacy-section history slot
+        // (ineligible rows take a nil-contribution slot, so
+        // `total last N` counts logical lines).
+        var occupiesLegacySlot = true
+        var isDerivedRow = false
         switch analysis.kind {
         case .blank, .comment, .tagOnly:
             result = .blank
         case .heading:
             result = .blank
             aggregate.boundary()
+            occupiesLegacySlot = false
         case .commentTitle:
             result = .title(String(analysis.source.dropFirst(2))
                 .trimmingCharacters(in: .whitespaces))
@@ -770,6 +778,7 @@ public func resolveSheet(
             metadata = .divider
             aggregate.boundary()
             tagAggregates.boundary()
+            occupiesLegacySlot = false
         case .totalCommand, .expression:
             let work = analysis.evaluationProjection
             random.beginLine(lineIDs.indices.contains(i)
@@ -780,6 +789,7 @@ public func resolveSheet(
                 metadata = .tagAggregate
                 isTotalRow = true
                 isDynamicRow = resolved.isDynamic
+                isDerivedRow = true
             } else if work.contains(String(answerTokenMarker)) {
                 let tokenResult = evalTokenLine(work, i,
                                                 docOffsets[i] + analysis.projectionOffset,
@@ -799,18 +809,20 @@ public func resolveSheet(
                 // bare-token-only row is not (checked source-aware).
                 let eligible = SheetAggregateState.contribution(of: tokenResult,
                                                                 projection: work)
-                aggregate.observe(result: tokenResult, projection: work,
-                                  isDerived: false, isDynamic: isDynamicRow)
                 tagAggregates.observe(tags: analysis.tags, value: eligible,
                                       isDynamic: isDynamicRow)
-            } else if InlineTotal.isCommand(work, env: env) {
-                let resolved = aggregate.resolveLegacyTotal(decimalPlaces: decimalPlaces)
+            } else if let inlineCommand = InlineTotal.parse(work, env: env) {
+                let resolved = aggregate.resolveLegacyTotal(inlineCommand,
+                                                            decimalPlaces: decimalPlaces)
                 result = resolved.result
                 if case .number = result {
                     isTotalRow = true
                     metadata = .legacyTotal
                 }
                 isDynamicRow = resolved.isDynamic
+                // The command resolves and RESETS its section: it never
+                // becomes a slot of the section it just closed.
+                occupiesLegacySlot = false
             } else if let command = SheetAggregateCommand.parse(work, env: env,
                                                                 context: context) {
                 let resolved = resolveAggregateCommand(command, env: &env,
@@ -820,6 +832,7 @@ public func resolveSheet(
                 metadata = resolved.metadata
                 isTotalRow = true
                 isDynamicRow = resolved.isDynamic
+                isDerivedRow = true
                 if isDynamicRow {
                     if case .namedSubtotal(let name, _) = command { dynamicNames.insert(name) }
                     if case .namedGrandTotal(let name) = command { dynamicNames.insert(name) }
@@ -837,11 +850,17 @@ public func resolveSheet(
                 }
                 let eligible = SheetAggregateState.contribution(of: plainResult,
                                                                 projection: work)
-                aggregate.observe(result: plainResult, projection: work,
-                                  isDerived: false, isDynamic: isDynamicRow)
                 tagAggregates.observe(tags: analysis.tags, value: eligible,
                                       isDynamic: isDynamicRow)
             }
+        }
+        // ONE observation per completed logical row — the exact
+        // evaluator symmetry (boundaries and legacy totals reset
+        // instead of taking a slot; derived rows take a nil one).
+        if occupiesLegacySlot {
+            aggregate.observe(result: result,
+                              projection: analysis.evaluationProjection,
+                              isDerived: isDerivedRow, isDynamic: isDynamicRow)
         }
         if isDynamicRow { dynamicIndices.insert(i) }
         memo[i] = result

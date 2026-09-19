@@ -266,8 +266,17 @@ struct EngineTests {
     }
 
     @Test(arguments: updateCases)
-    @Test(arguments: plainDMGCases)
     func updateCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    // Pre-existing registration repair: `plainDMGCases` was stacked onto
+    // the already-attributed `updateCase`, which Swift Testing rejects
+    // ("Attribute 'Test' cannot be applied to a function more than
+    // once") and which therefore broke the whole Swift Testing target.
+    // Same cases, its own wrapper — nothing is skipped.
+    @Test(arguments: plainDMGCases)
+    func plainDMGCase(`case`: EngineCase) throws {
         try `case`.body()
     }
 
@@ -313,6 +322,11 @@ struct EngineTests {
 
     @Test(arguments: resourceLocatorCases)
     func resourceLocatorCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
+    @Test(arguments: totalLastCases)
+    func totalLastCase(`case`: EngineCase) throws {
         try `case`.body()
     }
 }
