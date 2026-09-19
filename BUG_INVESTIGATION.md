@@ -119,7 +119,7 @@ Evidence classes are marked per row below: *executed A/B*, *executed probe*,
 
 | ID | Severity | Area | Status | Title |
 | --- | --- | --- | --- | --- |
-| BUG-01 | High | Linked conversions | **Open — still unfixed, out of this scope** | A carried `in` (inch) token plus the `in` conversion keyword still fails |
+| BUG-01 | High | Linked conversions | **Fixed in the 4.9.4 pre-release commit** | A carried `in` (inch) token plus the `in` conversion keyword failed |
 | BUG-02 | Low | Linked conversions | **Fixed in `2f73506`** | Carried unit + explicit source unit reported a misleading `Unknown units` |
 | BC-01 | — | Linked conversions | Behavior change (regression) | Same as BUG-01; registered here for the differential count |
 | BC-02 | — | Linked conversions | Behavior change (improvement) | 44 shapes that used to error now convert as documented |
@@ -128,7 +128,7 @@ Evidence classes are marked per row below: *executed A/B*, *executed probe*,
 | SUS-01 | Info | Expression lane (out of scope) | Suspected | `1e-07` as a standalone line evaluates to `-6` (pre-existing) |
 | SUS-02 | Info | Number parsing (out of scope) | Suspected | `1,125` bare vs `1,125 kg` disagree in decimal-comma mode (pre-existing) |
 | SUS-03 | Info | Number parsing (out of scope) | Suspected | `1,234` in legacy mode reads as grouping (pre-existing, may be by design) |
-| DRIFT-01 | Medium | Documentation | **Open — still unfixed, out of this scope** | The Answer Tokens text promises the `in` spelling for a carried `in` unit |
+| DRIFT-01 | Medium | Documentation | **Resolved with BUG-01 in the 4.9.4 pre-release commit** | The Answer Tokens text promised the `in` spelling for a carried `in` unit |
 | DRIFT-02 | Low | Documentation | **Resolved in `2f73506`** | The paragraph implied only two spellings exist; the third is now documented |
 | DRIFT-03 | Info | Documentation | Confirmed defect (doc) | `AGENTS.md` §2.7 overstates store-decode tolerance |
 | C-01 | Info | Installed fonts | By design | The 256-scalar cap is a persistence rule, not an enumeration rule |
@@ -197,8 +197,46 @@ equals the keyword word, emit a disambiguated synthetic line (e.g. `3 in to
 cm`); or keep the parent's two-argument resolution as a fast path whenever the
 carried unit is non-nil.
 
-**Workaround.** Use `to`: `￼ to cm` returns `7.62 cm` (verified, id
-`b01-workaround-to`, unchanged A/B).
+**Workaround (no longer needed).** `to`: `￼ to cm` returns `7.62 cm`
+(verified, id `b01-workaround-to`, unchanged A/B).
+
+#### Post-fix note (BUG-01 status: FIXED in the 4.9.4 pre-release commit)
+
+The 4.9.4 pre-release commit fixes the remaining spelling with an
+**adapter-only** correction in `linkedConversionResult`: a private
+`linkedInchTargetOnlyTarget` helper recognises exactly one ambiguity — the
+carried label resolves to the built-in inch unit by exact
+`kind`/`vector`/`family`/`toBase` identity, the suffix's first
+whitespace-delimited token is `in` (case-insensitive), and a non-empty target
+follows — and the bridge then rewrites that single shape into the documented
+`to` spelling (`3 in to cm`) and still delegates to `tryConversion`.
+`conversionShape` and the ordinary-line grammar are untouched, and no value is
+computed in the adapter.
+
+Measured with the retained harness (executed; `raw/F-bug01-fixed.txt`, and the
+full 123-shape matrix in `raw/F-A-postr93.txt` against the frozen
+`dd95214` oracle `raw/F-A-dd95214.txt`):
+
+| Shape | before (dd95214) | after the fix |
+| --- | --- | --- |
+| `3 in` + `<token> in cm` | `error(Invalid expression)` | `number(7.62, cm)` |
+| `3 in` + `<token> in in` | `error(Invalid expression)` | `number(3, in)` |
+| `3 in` + `<token> IN cm` / `In cm` / `in    cm` / `in\tcm` | `Invalid expression` | `number(7.62, cm)` |
+| `3 in` + `<token> in zzz` | `error(Invalid expression)` | `error(Unknown units)` |
+| `4673 mg` + `<token> in kg` (non-inch carried) | `number(0.004673, kg)` | unchanged |
+| `3 in` + `<token> in to cm` (agreeing source) | `number(7.62, cm)` | unchanged |
+| `3 in` + `<token> to cm` | `number(7.62, cm)` | unchanged |
+
+The change surface is exactly the two BUG-01 ids in the 123-shape matrix —
+`b02-carried-in-in-cm` and `b05-carried-in-in-in` moved from
+`error(Invalid expression)` to `7.62 cm` and `3 in`, and **no other shape
+changed**, so the r92 repeated-source, conflict, alias, temperature, currency
+and unknown-unit rules are provably untouched. An unrelated `in…` word
+(`3 in` + `<token> inx cm`) and a bare keyword with no target are not
+promoted to valid conversions. Pinned in
+`Tests/NumlexTestKit/LinkedConversionCases.swift` by 7 `r93-*` cases, and the
+canonical §Answer Tokens now carries the inch example, which is why DRIFT-01
+also closes.
 
 ### BUG-02 — carried unit + explicit source unit gives a misleading error (Low)
 
@@ -278,9 +316,9 @@ does not attempt the inch-keyword disambiguation: `3 in` + `<token> in cm`
 and `3 in` + `<token> in in` still return `error(Invalid expression)`, proven
 byte-identical across the parent, `d7ac83b` and post-fix engines
 (`raw/E-A-postfix.txt` vs `raw/E-A-d7ac83b.txt` vs `raw/E-A-c1b47f4.txt`).
-DRIFT-01 therefore also stays open. One adjacent shape changed as a
-deliberate, measured consequence of the agreement rule rather than a BUG-01
-fix: `3 in` + `<token> in to cm` moved from `error(Unknown units)` to
+DRIFT-01 therefore also stayed open at that point (it closes with the
+4.9.4 pre-release fix). One adjacent shape changed as a deliberate, measured
+consequence of the agreement rule rather than a BUG-01 fix: `3 in` + `<token> in to cm` moved from `error(Unknown units)` to
 `number(7.62, cm)`, because its suffix names `in` before `to`, which the
 documented disambiguation already reads as the inch unit — an agreeing
 source.
@@ -396,10 +434,11 @@ four ids moved out of `error-string-change` into `newly-converts` (`a04`,
 `a08`, `d11`, `b04`) and two kept their `error-string-change` status with a
 corrected message (`a05`, `g20`).
 
-**BUG-01 is provably untouched by `2f73506`:** `b02-carried-in-in-cm` and
-`b05-carried-in-in-in` are byte-identical between the `d7ac83b` oracle and
-post-fix HEAD (both `error(Invalid expression)`), so the regression those ids
-record is still open and unfixed.
+**BUG-01 was provably untouched by `2f73506`:** `b02-carried-in-in-cm` and
+`b05-carried-in-in-in` were byte-identical between the `d7ac83b` oracle and
+post-`2f73506` HEAD (both `error(Invalid expression)`). (They were fixed
+afterwards by the separate 4.9.4 pre-release commit; see the BUG-01 post-fix
+note above.)
 
 ## 7. Verified-clean register
 
@@ -485,12 +524,14 @@ spelling gives `7.62 cm` (`raw/D-drift.txt`). A user acting on the doc with an
 inch-valued linked answer gets an error. Severity Medium: a documented
 spelling fails on one carried unit, with a workaround (`to`).
 
-**Status: STILL OPEN after `2f73506`.** The BUG-02 fix deliberately does not
-touch the `in`-keyword disambiguation, so the quoted sentence remains partly
-inaccurate: `3 in` + `<token> in cm` and `3 in` + `<token> in in` still return
-`error(Invalid expression)` (verified byte-identical across the parent,
-`d7ac83b` and post-fix engines). This drift closes only when BUG-01 is fixed
-or the sentence is corrected to match the engine.
+**Status: RESOLVED in the 4.9.4 pre-release commit.** Both documented
+spellings now work for an inch-carrying answer: `3 in` + `<token> in cm` ->
+`7.62 cm` and `3 in` + `<token> in in` -> `3 in` (executed,
+`raw/F-bug01-fixed.txt`), and the canonical section additionally carries the
+explicit inch example, so the sentence no longer describes behavior the engine
+rejects. Historical note: after `2f73506` the shapes still returned
+`error(Invalid expression)` (byte-identical across the parent, `d7ac83b` and
+that engine), which is why this drift stayed open until the BUG-01 fix.
 
 **DRIFT-02 (Low) — the same paragraph implies only two spellings exist.**
 

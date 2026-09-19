@@ -515,6 +515,21 @@ public func linkedConversionResult(
             break
         }
     }
+    // r93: target-only `in` on an INCH-carrying answer (`3 in` +
+    // `<token> in cm`). The `in` is the conversion KEYWORD, so the suffix
+    // names no source unit and the branch above declines; appending the
+    // carried label would synthesize the ambiguous `3 in in cm` that the
+    // ordinary shape refuses. Rewrite exactly this ambiguity into the
+    // documented `to` spelling and let `tryConversion` convert it — the
+    // adapter still never computes a value itself.
+    if let carriedUnit, !carriedUnit.isEmpty,
+       let inchTarget = linkedInchTargetOnlyTarget(of: trimmedSuffix,
+                                                   carriedUnit: carriedUnit,
+                                                   unitContext: unitContext) {
+        return tryConversion(literal + " " + carriedUnit + " to " + inchTarget,
+                             rates: rates, decimalPlaces: decimalPlaces,
+                             context: context, unitContext: unitContext)
+    }
     var synthetic = literal
     if let carriedUnit, !carriedUnit.isEmpty {
         synthetic += " " + carriedUnit
@@ -522,6 +537,50 @@ public func linkedConversionResult(
     synthetic += " " + trimmedSuffix
     return tryConversion(synthetic, rates: rates, decimalPlaces: decimalPlaces,
                          context: context, unitContext: unitContext)
+}
+
+/// r93: the target of a TARGET-ONLY `in` suffix on an INCH-carrying linked
+/// answer, or nil when the suffix is not that one ambiguity.
+///
+/// An inch source makes `<token> in cm` genuinely ambiguous: the `in` here
+/// is the conversion KEYWORD, but the bridge would also append the carried
+/// `in` label, synthesizing `3 in in cm` — which the ordinary shape refuses
+/// (two `in` words, no `to`), so the documented `<token> in <unit>`
+/// spelling failed on an inch-carrying answer with a generic
+/// `Invalid expression`.
+///
+/// All three conditions must hold, and nothing is inferred otherwise:
+///  1. the carried label IS the built-in inch unit — exact `kind`,
+///     `vector`, `family` and `toBase` identity, so no other carried unit
+///     can ever take this path;
+///  2. the suffix's first whitespace-delimited token is exactly `in`
+///     (case-insensitive);
+///  3. a non-empty target follows (any spaces/tabs are tolerated).
+///
+/// The caller then rewrites the ambiguity into the documented `to` spelling
+/// and still lets `tryConversion` do the conversion — this adapter never
+/// converts or calculates anything itself, so target shorthand, the error
+/// classes, currency rates and precision stay identical to a typed line.
+private func linkedInchTargetOnlyTarget(of trimmedSuffix: String,
+                                        carriedUnit: String,
+                                        unitContext: UnitContext) -> String? {
+    // (2) The suffix must begin with `in` as its own word.
+    guard let headEnd = trimmedSuffix.firstIndex(where: { $0.isWhitespace }),
+          trimmedSuffix[trimmedSuffix.startIndex..<headEnd]
+              .caseInsensitiveCompare("in") == .orderedSame else { return nil }
+    // (3) A non-empty target must follow.
+    let target = trimmedSuffix[headEnd...].trimmingCharacters(in: .whitespaces)
+    guard !target.isEmpty else { return nil }
+    // (1) The carried label must BE the inch unit.
+    let carried = carriedUnit.trimmingCharacters(in: .whitespaces)
+    guard !carried.isEmpty,
+          let carriedExpr = unitExpr(byLabel: carried, context: unitContext),
+          let inchExpr = unitExpr(byLabel: "in", context: .builtIns),
+          carriedExpr.kind == inchExpr.kind,
+          carriedExpr.vector == inchExpr.vector,
+          carriedExpr.family == inchExpr.family,
+          carriedExpr.toBase == inchExpr.toBase else { return nil }
+    return target
 }
 
 /// r92: the source unit the user typed EXPLICITLY before the `to|in`

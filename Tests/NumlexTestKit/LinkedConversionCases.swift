@@ -37,8 +37,14 @@
 //      reinterpreted (a `C°`-carrying answer is not re-based as `F°`);
 //    - an unresolvable unit on either side keeps the previous behavior
 //      and lets the conversion engine report its own message.
-//  BUG-01 (`3 in` + `<token> in cm` / `in in`) is deliberately NOT pinned
-//  here: it is a known open defect, verified with the probe instead.
+//  r93: an INCH-carrying linked answer followed by the target-only `in`
+//  keyword (`3 in` + `<token> in cm`) is a genuine ambiguity — that `in` is
+//  the KEYWORD, but the bridge would also append the carried `in` label,
+//  synthesizing `3 in in cm`, which the ordinary shape refuses. The adapter
+//  rewrites exactly that ambiguity into the documented `to` spelling
+//  (`3 in to cm`) and still lets the conversion engine convert it, so only
+//  an inch-identical carried unit can take this path; every other shape
+//  keeps its previous route.
 
 import Foundation
 import NumlexCore
@@ -563,5 +569,107 @@ public let linkedConversionCases: [EngineCase] = [
                                              refs: [(0, 1, lcMarkerAt("30 minutes to hours"))])
         try expectEqual(lcError(conflictLines[1]), "Incompatible units",
                         "duration unit conflict")
+    },
+
+    // MARK: - r93: the inch source plus the target-only `in` keyword
+
+    EngineCase("r93-inch-source-with-in-keyword-converts") {
+        // The BUG-01 repro: `3 in` carries inches, and the user writes the
+        // documented `<token> in <unit>` spelling. The `in` here is the
+        // conversion KEYWORD, so the adapter must not append the carried
+        // label twice.
+        let content = "3 in\n\(M91) in cm"
+        let (lines, tokens, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try lcClose(lcValue(lines[1]), 7.62, "3 in + <token> in cm")
+        try expectEqual(lcUnit(lines[1]), "cm", "target unit")
+        // Same unit on both sides stays exact, with no float round-trip.
+        let same = "3 in\n\(M91) in in"
+        let (sameLines, _, _) = lcResolve(same, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try lcClose(lcValue(sameLines[1]), 3, "3 in + <token> in in")
+        try expectEqual(lcUnit(sameLines[1]), "in", "same unit target")
+        // The document, the token identity and the token state are untouched.
+        try expectEqual(content, "3 in\n\(M91) in cm", "content unchanged")
+        guard case .active(let v, let unit, _) = tokens[0].state else {
+            throw CaseFailure(message: "token state: \(tokens[0].state)",
+                              location: "LinkedConversionCases")
+        }
+        try lcClose(v, 3, "token keeps its value")
+        try expectEqual(unit, "in", "token keeps its carried unit")
+    },
+
+    EngineCase("r93-inch-keyword-spelling-variants") {
+        // The keyword is matched as a word, case-insensitively, with any
+        // run of spaces or tabs before the target.
+        for suffix in ["IN cm", "In cm", "iN cm", "in    cm", "in\tcm", "in \t  cm"] {
+            let content = "3 in\n\(M91) \(suffix)"
+            let (lines, _, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("3 in"))])
+            try lcClose(lcValue(lines[1]), 7.62, "suffix `\(suffix)`")
+            try expectEqual(lcUnit(lines[1]), "cm", "target unit for `\(suffix)`")
+        }
+    },
+
+    EngineCase("r93-inch-keyword-unknown-target-stays-unknown") {
+        // The rewrite only renames the keyword; the engine still reports the
+        // documented unknown-unit class, and never invents a value.
+        let content = "3 in\n\(M91) in zzz"
+        let (lines, _, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try expectEqual(lcError(lines[1]), "Unknown units", "unknown inch target")
+        try expect(lcValue(lines[1]) == nil, "no number for an unknown target")
+    },
+
+    EngineCase("r93-non-inch-carried-unit-keeps-in-keyword") {
+        // Only an inch-identical carried unit may take the rewrite; every
+        // other carried unit keeps the ordinary `in` keyword route.
+        let content = "4673 mg\n\(M91) in kg"
+        let (lines, tokens, _) = lcResolve(content, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try lcClose(lcValue(lines[1]), 0.004673, "4673 mg + <token> in kg")
+        try expectEqual(lcUnit(lines[1]), "kg", "mass target unit")
+        guard case .active(_, let carried, _) = tokens[0].state else {
+            throw CaseFailure(message: "token state: \(tokens[0].state)",
+                              location: "LinkedConversionCases")
+        }
+        try expectEqual(carried, "mg", "token keeps `mg`")
+    },
+
+    EngineCase("r93-inch-rewrite-leaves-agreeing-and-to-spellings-unchanged") {
+        // The explicit agreeing source and the plain `to` spelling keep
+        // their r92 values.
+        let agreeing = "3 in\n\(M91) in to cm"
+        let (agreeLines, _, _) = lcResolve(agreeing, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try lcClose(lcValue(agreeLines[1]), 7.62, "3 in + <token> in to cm")
+        try expectEqual(lcUnit(agreeLines[1]), "cm", "agreeing target unit")
+        let plainTo = "3 in\n\(M91) to cm"
+        let (toLines, _, _) = lcResolve(plainTo, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try lcClose(lcValue(toLines[1]), 7.62, "3 in + <token> to cm")
+        // An inch-carrying answer whose suffix does NOT start with the
+        // keyword keeps the ordinary carried route.
+        let carried = "3 in\n\(M91) to in"
+        let (carriedLines, _, _) = lcResolve(carried, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try lcClose(lcValue(carriedLines[1]), 3, "3 in + <token> to in")
+    },
+
+    EngineCase("r93-inch-rewrite-needs-a-word-and-a-target") {
+        // A non-word `in…` suffix is never rewritten, and a bare keyword
+        // with no target keeps its previous (non-conversion) outcome —
+        // malformed input is not promoted to a valid conversion.
+        let wordish = "3 in\n\(M91) inx cm"
+        let (wordishLines, _, _) = lcResolve(wordish, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try expect(lcValue(wordishLines[1]) == nil, "`inx cm` is not the keyword")
+        let bare = "3 in\n\(M91) in"
+        let (bareLines, _, _) = lcResolve(bare, refs: [(0, 1, lcMarkerAt("3 in"))])
+        try expect(lcValue(bareLines[1]) == nil, "bare `in` has no target")
+    },
+
+    EngineCase("r93-r92-agreeing-source-rules-still-hold") {
+        // The r92 agreeing-source rules are untouched by the inch fix.
+        let agree = "4673 mg\n\(M91) mg to kg"
+        let (agreeLines, _, _) = lcResolve(agree, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try lcClose(lcValue(agreeLines[1]), 0.004673, "repeated agreeing source")
+        let conflict = "4673 mg\n\(M91) kg to g"
+        let (conflictLines, _, _) = lcResolve(conflict, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try expectEqual(lcError(conflictLines[1]), "Incompatible units", "conflict")
+        let unknown = "4673 mg\n\(M91) zzz to kg"
+        let (unknownLines, _, _) = lcResolve(unknown, refs: [(0, 1, lcMarkerAt("4673 mg"))])
+        try expectEqual(lcError(unknownLines[1]), "Unknown units", "unknown source")
     },
 ]
