@@ -1995,6 +1995,77 @@ private struct StylingSettingsPage: View {
         model.persist()
     }
 
+    // MARK: r90 installed fonts (one persist per user choice)
+
+    /// The one installed-font catalog the Settings menus, the notebook
+    /// resolver and the export dialog share.
+    private var fontCatalog: InstalledFontCatalog { .shared }
+
+    /// A stored family that is not installed right now (shown explicitly
+    /// while runtime falls back to the retained system design).
+    private var familyUnavailable: Bool {
+        guard let family = styling.fontFamily else { return false }
+        return !fontCatalog.contains(family: family)
+    }
+
+    /// A stored face that the installed family does not provide.
+    private var faceUnavailable: Bool {
+        guard let family = styling.fontFamily, fontCatalog.contains(family: family),
+              let face = styling.fontFace else { return false }
+        return !fontCatalog.faces(for: family).contains { $0.name == face }
+    }
+
+    /// The Font menu label: the built-in design name, or the custom
+    /// family (with an explicit unavailable marker when it is missing).
+    private var fontMenuLabel: String {
+        guard let family = styling.fontFamily else {
+            return L10n.t("styling.font.\(styling.fontDesign.rawValue)", language: language)
+        }
+        if familyUnavailable {
+            return "\(family) — \(L10n.t("styling.font.unavailable", language: language))"
+        }
+        return family
+    }
+
+    /// The Face menu label: the catalog's deterministic regular face for
+    /// nil, otherwise the installed face's label (or an explicit
+    /// unavailable marker).
+    private var faceMenuLabel: String {
+        guard let family = styling.fontFamily else {
+            return L10n.t("styling.font.face.regular", language: language)
+        }
+        guard let face = styling.fontFace else {
+            let regular = fontCatalog.regularFace(for: family)?.label
+                ?? L10n.t("styling.font.face.regular", language: language)
+            return regular
+        }
+        if let match = fontCatalog.faces(for: family).first(where: { $0.name == face }) {
+            return match.label
+        }
+        return "\(face) — \(L10n.t("styling.font.unavailable", language: language))"
+    }
+
+    /// One built-in design: the design becomes the selection AND the
+    /// fallback; custom family/face are cleared. Exactly one persist.
+    private func chooseDesign(_ design: StylingFontDesign) {
+        model.settings.styling.chooseBuiltInDesign(design)
+        model.persist()
+    }
+
+    /// One installed family: stored with the previous face cleared.
+    /// Exactly one persist.
+    private func chooseFamily(_ family: String) {
+        model.settings.styling.chooseFontFamily(family)
+        model.persist()
+    }
+
+    /// One installed face (`nil` = the family's regular face). Exactly
+    /// one persist.
+    private func chooseFace(_ face: String?) {
+        model.settings.styling.chooseFontFace(face)
+        model.persist()
+    }
+
     var body: some View {
         let language = self.language
         return SettingsDetailPage(destination: .styling, language: language) {
@@ -2019,28 +2090,92 @@ private struct StylingSettingsPage: View {
                     .fixedSize()
                 }
 
-                SettingsRow(title: L10n.t("styling.font", language: language)) {
+                SettingsRow(
+                    title: L10n.t("styling.font", language: language),
+                    // r90: an explicit localized note when the stored
+                    // family is not installed right now (runtime keeps
+                    // falling back to the retained system design).
+                    detail: familyUnavailable
+                        ? L10n.t("styling.font.unavailableCap", language: language)
+                        : nil
+                ) {
                     Menu {
+                        // r90: the four built-in designs stay directly in
+                        // the menu (they are the default AND the fallback
+                        // when an installed font disappears); every
+                        // installed family lives in one submenu.
                         ForEach(StylingFontDesign.allCases, id: \.self) { design in
                             Button {
-                                model.settings.styling.fontDesign = design
-                                model.persist()
+                                chooseDesign(design)
                             } label: {
                                 Text(L10n.t("styling.font.\(design.rawValue)",
                                             language: language))
                             }
                         }
+                        Divider()
+                        Menu(L10n.t("styling.font.installed", language: language)) {
+                            ForEach(fontCatalog.families, id: \.self) { family in
+                                Button {
+                                    chooseFamily(family)
+                                } label: {
+                                    Text(family)
+                                }
+                            }
+                        }
                     } label: {
-                        Text(L10n.t("styling.font.\(styling.fontDesign.rawValue)",
-                                    language: language))
+                        Text(fontMenuLabel)
                             .font(.system(size: 13, weight: .medium))
                             .lineLimit(1)
-                            // r75: capped so a long localized font-design
-                            // name can never push the row past the inset.
+                            // r75/r90: capped so a long localized design
+                            // name or an installed family name can never
+                            // push the row past the inset.
+                            .truncationMode(.middle)
                             .frame(maxWidth: 160, alignment: .trailing)
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
+                    .help(familyUnavailable
+                          ? L10n.t("styling.font.unavailableCap", language: language)
+                          : fontMenuLabel)
+                }
+
+                // r90: the Face row appears only for a custom family.
+                // `Regular` maps to nil (the catalog's deterministic
+                // regular face); every other entry is an installed face.
+                if let family = styling.fontFamily {
+                    SettingsRow(
+                        title: L10n.t("styling.font.face", language: language),
+                        detail: faceUnavailable
+                            ? L10n.t("styling.font.unavailableCap", language: language)
+                            : nil
+                    ) {
+                        Menu {
+                            Button {
+                                chooseFace(nil)
+                            } label: {
+                                Text(L10n.t("styling.font.face.regular",
+                                            language: language))
+                            }
+                            ForEach(fontCatalog.faces(for: family)) { face in
+                                Button {
+                                    chooseFace(face.name)
+                                } label: {
+                                    Text(face.label)
+                                }
+                            }
+                        } label: {
+                            Text(faceMenuLabel)
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: 160, alignment: .trailing)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help(faceUnavailable
+                              ? L10n.t("styling.font.unavailableCap", language: language)
+                              : faceMenuLabel)
+                    }
                 }
             }
 
@@ -2146,7 +2281,13 @@ private struct StylingSettingsPage: View {
                           surface: false) {
                 StylingPreview(
                     fontSize: model.settings.fontSize,
-                    lineHeight: model.settings.lineHeight,
+                    // r90: the SAME effective line height the editor and
+                    // the answer column use, so the preview shows the real
+                    // notebook geometry for an installed font.
+                    lineHeight: NotebookPalette.effectiveLineHeight(
+                        styling: styling,
+                        requested: model.settings.lineHeight,
+                        fontSize: model.settings.fontSize),
                     styling: styling,
                     unitContext: model.unitContext
                 )

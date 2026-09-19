@@ -3,57 +3,40 @@ import CoreText
 import NumlexCore
 import SwiftUI
 
-/// The installed-font catalog for the export dialog. Only font FAMILIES
-/// the system reports as installed are offered; resolution has a safe
-/// fallback at every step (missing family/face -> the app's notebook
-/// font, never a crash and never a silently different face).
+/// r90: the export dialog's font resolution. It no longer enumerates
+/// fonts itself — family/face enumeration, the deterministic regular
+/// preference and resolution all come from the ONE shared
+/// `InstalledFontCatalog`, so the export menus and the notebook
+/// typography settings can never disagree. Only font FAMILIES the system
+/// reports as installed are offered; resolution has a safe fallback at
+/// every step (missing family/face -> the app's notebook font, never a
+/// crash and never a silently different face).
 struct ExportFontCatalog {
-    struct Face: Identifiable, Equatable {
-        /// The full font name used to instantiate the face.
-        let name: String
-        /// The human-readable face label (Regular, Bold, Italic…).
-        let label: String
-        var id: String { name }
-    }
+    typealias Face = InstalledFontCatalog.Face
 
-    /// Every installed family, sorted for a stable menu.
+    /// Every installed family, sorted for a stable menu (the shared
+    /// catalog's order).
     let families: [String]
 
     static let shared = ExportFontCatalog(
-        families: NSFontManager.shared.availableFontFamilies.sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        })
+        families: InstalledFontCatalog.shared.families)
 
     /// The faces of one family (empty for nil / an unknown family).
     func faces(for family: String?) -> [Face] {
-        guard let family else { return [] }
-        let members = NSFontManager.shared.availableMembers(ofFontFamily: family) ?? []
-        var out: [Face] = []
-        for member in members {
-            guard member.count >= 2,
-                  let name = member[0] as? String,
-                  let label = member[1] as? String else { continue }
-            guard !name.isEmpty, !out.contains(where: { $0.name == name }) else { continue }
-            out.append(Face(name: name, label: label))
-        }
-        return out
+        InstalledFontCatalog.shared.faces(for: family)
     }
 
     /// Resolves one export face. `family == nil` = the app's notebook
-    /// font (the styling font design at the requested size); a missing
-    /// family falls back to it too. A missing face falls back to the
-    /// family's first available face.
+    /// font — which now naturally INHERITS the persisted custom notebook
+    /// family/face through `NotebookPalette`. A missing family falls back
+    /// to it too. A missing or foreign face falls back to the family's
+    /// deterministic regular face.
     func resolve(family: String?, face: String?, size: Double,
                  styling: StylingPreferences) -> NSFont {
         let notebook = NotebookPalette(styling: styling).editorFont(size: size)
         guard let family, families.contains(family) else { return notebook }
-        if let face, let font = NSFont(name: face, size: size) {
-            return font
-        }
-        if let first = faces(for: family).first, let font = NSFont(name: first.name, size: size) {
-            return font
-        }
-        return notebook
+        return InstalledFontCatalog.shared.font(family: family, face: face,
+                                                size: size, fallback: notebook)
     }
 
     /// The bridge used by the Core renderer. `NSFontDescriptor` and

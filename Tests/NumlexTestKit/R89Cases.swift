@@ -320,14 +320,20 @@ let r89PaletteCases: [EngineCase] = [
     EngineCase("r89.palette-recolor-is-inplace") {
         // A syntax-color-only settings change must recolor in place
         // (needsDisplay) without re-running the layout/metrics pass;
-        // font design (the only layout-affecting styling field) still
-        // re-lays out.
+        // r90: the layout-affecting typography fields are the font design
+        // AND the installed family/face, and any of them re-lays out.
         guard let src = r89AppSource("Sources/NumlexApp/Editor/NotebookEditor.swift")
         else { return }
         try expect(src.contains("var recolorOnly = false"),
                    "color-only update path exists")
-        try expect(src.contains("if fontDesignChanged { needsRelayout = true } else { recolorOnly = true }"),
-                   "only font design re-lays out; colors recolor")
+        try expect(src.contains("let typographyChanged = self.styling.fontDesign != styling.fontDesign"),
+                   "font design is a typography change")
+        try expect(src.contains("|| self.styling.fontFamily != styling.fontFamily"),
+                   "font family is a typography change")
+        try expect(src.contains("|| self.styling.fontFace != styling.fontFace"),
+                   "font face is a typography change")
+        try expect(src.contains("if typographyChanged { needsRelayout = true } else { recolorOnly = true }"),
+                   "only typography re-lays out; colors recolor")
         // The relayout branch is the only one that recomputes metrics
         // after an appearance change.
         let relayout = src.range(of: "if needsRelayout {")

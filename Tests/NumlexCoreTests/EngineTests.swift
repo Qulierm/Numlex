@@ -329,4 +329,9 @@ struct EngineTests {
     func totalLastCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: notebookFontCases)
+    func notebookFontCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

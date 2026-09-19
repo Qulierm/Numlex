@@ -171,6 +171,17 @@ struct ContentView: View {
                                color: payload.color)
     }
 
+    /// r90: THE effective notebook line height for the current typography
+    /// — the legacy `settings.lineHeight` stays the floor, an installed
+    /// font with taller natural metrics raises it. Computed ONCE here and
+    /// handed identically to the editor, the answer column and the
+    /// settings preview so their geometry cannot diverge.
+    private func effectiveLineHeight(_ settings: AppSettings) -> Double {
+        NotebookPalette.effectiveLineHeight(styling: settings.styling,
+                                            requested: settings.lineHeight,
+                                            fontSize: settings.fontSize)
+    }
+
     /// r43: the editor construction for the detail pane, extracted as a
     /// method ONLY to keep `body` inside the type-checker's budget — the
     /// emitted view tree is identical to the inline initializer.
@@ -204,7 +215,8 @@ struct ContentView: View {
             text: binding,
             sheetID: sheet?.id,
             fontSize: settings.fontSize,
-            lineHeight: settings.lineHeight,
+            // r90: the ONE effective line height (see `effectiveLineHeight`).
+            lineHeight: effectiveLineHeight(settings),
             lineNumbers: settings.lineNumbers,
             rates: model.rates,
             decimalPlaces: settings.decimalPlaces,
@@ -528,7 +540,8 @@ struct ContentView: View {
             sourceLines: model.selectedSheet?.content
                 .components(separatedBy: "\n") ?? [],
             fontSize: settings.fontSize,
-            lineHeight: settings.lineHeight,
+            // r90: the SAME effective line height the editor uses.
+            lineHeight: effectiveLineHeight(settings),
             decimalPlaces: settings.decimalPlaces,
             lineIDs: answerLineIDs,
             roundingOverrides: answerRounding,
@@ -536,7 +549,9 @@ struct ContentView: View {
             onSetRounding: { idx, places in model.setAnswerRounding(at: idx, places: places) },
             onDeleteLine: { idx in model.deleteSourceLine(at: idx) },
             onConvertToNormal: { idx in handleConvertToNormal(idx) },
-            fontDesign: settings.styling.fontDesign,
+            // r90: the FULL typography selection (built-in design +
+            // installed family/face), never a design-only reconstruction.
+            styling: settings.styling,
             totalLabel: footerStatisticLabel(settings.footerStatistic,
                                              language: settings.language),
             footerStatistic: settings.footerStatistic,

@@ -353,10 +353,54 @@ them, and they can only be edited in Settings.
 
 ### Typography
 
-- Font size (continuous slider) and font design (System Default, Rounded,
-  Serif, Monospaced). The chosen size is the single source of truth for the
+- **Font size** (continuous slider) — the single source of truth for the
   editor, the answer column and the settings preview, so line-height and
   baseline math always use the real font.
+- **Font** — four built-in system designs (**System Default**, **Rounded**,
+  **Serif**, **Monospaced**) listed directly in the menu, plus an
+  **Installed Fonts** submenu listing every font family macOS reports as
+  installed. Family names come from macOS and are shown verbatim (never
+  translated, never normalized).
+- **Face** — shown only while an installed family is selected. Its first
+  entry is **Regular**, which means "the family's regular face" rather than a
+  specific PostScript name; the remaining entries are that family's installed
+  faces. A new family always starts at Regular.
+
+Selection rules:
+
+- Choosing a built-in design clears the installed family and face — the
+  design is both the selection and the fallback.
+- Choosing an installed family stores its exact name and clears the previous
+  face (it belonged to another font).
+- A persisted face is used only when it belongs to the installed family;
+  otherwise the family's regular face is used. The regular face is picked
+  deterministically (a face labelled Regular/Roman/Book/Normal first, then a
+  stable order), so menus, the Regular entry and the fallback agree.
+- A family that is not installed right now keeps its stored name (so the font
+  recovers when it is installed again) and is marked **Unavailable** in
+  Settings while notebook text falls back to the retained built-in design.
+  Nothing is rewritten in the store and nothing crashes.
+- Persisted names are sanitized: a missing key, a wrong type, an empty or
+  whitespace-only name, a control character or a name longer than 256 Unicode
+  scalars becomes "no custom font", and a face can never survive without a
+  valid family. Unrelated styling fields are unaffected.
+
+The typography selection is **app-global** (settings store only — never per
+sheet, never in `.nlx`, no store-version change) and applies to the editor,
+the answer column (including total rows and the footer value), the settings
+preview, and the export dialog's **Notebook** font choice, which inherits it.
+An explicit family/face chosen in the export dialog stays session-only.
+
+Line height stays the existing `fontSize × 1.6` for the four built-in designs.
+An installed font with taller natural metrics raises it to the tallest natural
+height of the resolved regular/semibold/heavy faces plus 4 pt, so glyphs never
+clip; the same effective value drives the editor, the answer column and the
+preview. A typography change is presentation-only but layout-affecting: it
+reflows and refreshes measured row metrics in place, and never replaces text or
+touches sheet content, line IDs, references, the caret, selection, IME marked
+text, focus, scrolling or evaluation. Syntax-color-only changes keep the
+recolor-in-place path without a relayout, and each typography choice is
+persisted exactly once.
 
 ### Answer column
 
@@ -499,7 +543,8 @@ label, its gap and its spacer claim are removed, and the bubble shrinks around
 the value (its right edge stays put, its height and the reserved footer space
 never change). The decision uses the actually rendered AppKit text widths —
 the label in the same 11 pt system font `Design.labelSmall` uses, the value in
-the palette's editor font with the live size and design — plus a 2 pt safety
+the palette's editor font with the live size and typography (built-in design or
+the selected installed family/face) — plus a 2 pt safety
 reserve, so the label disappears one step before any overlap or truncation.
 A very long value keeps the existing maximum width and one-line overflow
 behaviour, and the footer is announced once to assistive tech as

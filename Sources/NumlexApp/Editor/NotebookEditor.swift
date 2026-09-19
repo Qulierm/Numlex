@@ -748,11 +748,16 @@ final class NotebookEditorCoordinator: NSObject {
         if financial != self.financial { self.financial = financial; needsRelayout = true }
         if decimalPlaces != self.decimalPlaces { self.decimalPlaces = decimalPlaces; needsRelayout = true }
         if styling != self.styling {
-            // Only the font DESIGN moves glyph metrics; role colors and
-            // the answer-column fields are presentation-only.
-            let fontDesignChanged = self.styling.fontDesign != styling.fontDesign
+            // r90: the font DESIGN and the installed FAMILY/FACE all move
+            // glyph metrics (a different family means different advances
+            // and natural heights), so any of the three requires the
+            // in-place typography/metrics relayout. Role colors and the
+            // answer-column fields stay presentation-only.
+            let typographyChanged = self.styling.fontDesign != styling.fontDesign
+                || self.styling.fontFamily != styling.fontFamily
+                || self.styling.fontFace != styling.fontFace
             self.styling = styling
-            if fontDesignChanged { needsRelayout = true } else { recolorOnly = true }
+            if typographyChanged { needsRelayout = true } else { recolorOnly = true }
         }
         // r33: a settings edit changes the constants under an UNCHANGED
         // document: the re-highlight must run here (nothing else re-runs

@@ -12,12 +12,22 @@ import NumlexCore
 /// pieces (money markers, answer tokens, caret, headings marker) stay
 /// hardcoded `Design` tokens.
 ///
-/// Fonts resolve to the same native system design in BOTH renderers:
-/// `NSFont.systemFont(ofSize:weight:design:)` for TextKit/geometry and
-/// `Font.system(size:weight:design:)` for SwiftUI, so the editor, the
+/// Fonts resolve to the same native face in BOTH renderers: the exact
+/// resolved `NSFont` for TextKit/geometry and a fixed-size SwiftUI
+/// `Font` built from that font's PostScript name, so the editor, the
 /// answer column, token capsule labels and the preview always use the
 /// same face, and line-height/baseline math runs on the real font.
+///
+/// r90: the palette carries the FULL styling selection. `fontDesign`
+/// resolves exactly as before when no installed family is selected;
+/// `fontFamily`/`fontFace` resolve through the one shared
+/// `InstalledFontCatalog`, with the system-design font as the fallback
+/// for an unavailable font. Semibold/heavy requests derive their weight
+/// inside the selected family.
 struct NotebookPalette {
+    /// The full styling value this palette was resolved from — the
+    /// editor, answers and preview share one instance.
+    let styling: StylingPreferences
     let fontDesign: StylingFontDesign
     let numbers: NSColor
     let operators: NSColor
@@ -29,6 +39,7 @@ struct NotebookPalette {
     let labels: NSColor
 
     init(styling: StylingPreferences) {
+        self.styling = styling
         fontDesign = styling.fontDesign
         // r89: every role resolves `custom ?? preset` through the ONE
         // sRGB conversion below; the editor (TextKit) and the settings
@@ -97,9 +108,11 @@ struct NotebookPalette {
         }
     }
 
-    // MARK: Fonts (same design in TextKit and SwiftUI)
+    // MARK: Fonts (same face in TextKit and SwiftUI)
 
-    func editorFont(size: Double, weight: NSFont.Weight = .regular) -> NSFont {
+    /// The system-design font for one size/weight — the pre-r90 behavior
+    /// and the fallback for an unavailable installed font.
+    func systemDesignFont(size: Double, weight: NSFont.Weight = .regular) -> NSFont {
         let base = NSFont.systemFont(ofSize: size, weight: weight)
         let design: NSFontDescriptor.SystemDesign
         switch fontDesign {
@@ -119,17 +132,88 @@ struct NotebookPalette {
         return base
     }
 
-    func swiftUIFont(_ size: Double, weight: Font.Weight = .regular) -> Font {
-        Font.system(size: size, weight: weight, design: swiftUIFontDesign)
+    /// The resolved notebook font at one weight: the installed family/face
+    /// when one is selected and available, otherwise the built-in design.
+    /// For a custom family, a semibold/bold request derives the bold trait
+    /// INSIDE that family (the base face when the family has no bold
+    /// member) instead of silently jumping to a system face.
+    func editorFont(size: Double, weight: NSFont.Weight = .regular) -> NSFont {
+        let base = systemDesignFont(size: size, weight: weight)
+        guard let family = styling.fontFamily else { return base }
+        let resolved = InstalledFontCatalog.shared.font(family: family,
+                                                        face: styling.fontFace,
+                                                        size: size,
+                                                        fallback: base)
+        switch weight {
+        case .semibold, .bold, .heavy, .black:
+            return InstalledFontCatalog.boldVariant(of: resolved)
+        default:
+            return resolved
+        }
     }
 
-    private var swiftUIFontDesign: Font.Design {
-        switch fontDesign {
-        case .system: .default
-        case .rounded: .rounded
-        case .serif: .serif
-        case .monospaced: .monospaced
+    /// The semibold companion of the resolved regular font: the bold
+    /// trait derived inside the selected family (headings and subtotal
+    /// rows), or the same system-design semibold as before when no
+    /// installed family is selected.
+    func semiboldFont(size: Double) -> NSFont {
+        guard styling.fontFamily != nil else {
+            return systemDesignFont(size: size, weight: .semibold)
         }
+        return InstalledFontCatalog.boldVariant(of: editorFont(size: size))
+    }
+
+    /// The heavy companion of the resolved regular font (total rows).
+    func heavyFont(size: Double) -> NSFont {
+        guard styling.fontFamily != nil else {
+            return systemDesignFont(size: size, weight: .heavy)
+        }
+        return InstalledFontCatalog.heavyVariant(of: editorFont(size: size))
+    }
+
+    /// The SwiftUI side of one already-resolved font: a FIXED-SIZE custom
+    /// font built from the exact PostScript name, so SwiftUI renders the
+    /// same face TextKit measures (never a re-resolved design that could
+    /// drift).
+    static func swiftUIFont(_ font: NSFont, size: Double) -> Font {
+        Font.custom(font.fontName, fixedSize: size)
+    }
+
+    func swiftUIFont(_ size: Double, weight: Font.Weight = .regular) -> Font {
+        switch weight {
+        case .semibold, .bold:
+            return Self.swiftUIFont(semiboldFont(size: size), size: size)
+        case .heavy, .black:
+            return Self.swiftUIFont(heavyFont(size: size), size: size)
+        default:
+            return Self.swiftUIFont(editorFont(size: size), size: size)
+        }
+    }
+
+    /// r90: the effective notebook line height. The requested line height
+    /// (the legacy `fontSize * 1.6`) stays the FLOOR, so system-font
+    /// geometry is unchanged; an installed font with taller natural
+    /// metrics raises it to `ceil(max natural height of the regular,
+    /// semibold and heavy faces + 4 pt)` so glyphs can never clip.
+    func effectiveLineHeight(requested: Double, fontSize: Double) -> Double {
+        guard styling.fontFamily != nil else { return requested }
+        let faces = [editorFont(size: fontSize),
+                     semiboldFont(size: fontSize),
+                     heavyFont(size: fontSize)]
+        let tallest = faces.reduce(0.0) { partial, font in
+            max(partial, Double(font.ascender - font.descender + font.leading))
+        }
+        return max(requested, (tallest + 4).rounded(.up))
+    }
+
+    /// The line height the app should use for one styling value — the ONE
+    /// call site shape shared by the editor, the answer column and the
+    /// settings preview.
+    static func effectiveLineHeight(styling: StylingPreferences,
+                                    requested: Double,
+                                    fontSize: Double) -> Double {
+        NotebookPalette(styling: styling)
+            .effectiveLineHeight(requested: requested, fontSize: fontSize)
     }
 }
 

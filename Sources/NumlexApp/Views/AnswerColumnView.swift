@@ -63,10 +63,12 @@ struct AnswerColumnView: View {
     var onDeleteLine: (Int) -> Void = { _ in }
     /// Package 7: Convert to Normal Line on subtotal/grand rows.
     var onConvertToNormal: (Int) -> Void = { _ in }
-    /// r21: the selected font design — answers use the centralized dark
-    /// base token (Design.baseText) on the light panel, but the face must
-    /// match the editor exactly (same resolver).
-    var fontDesign: StylingFontDesign = .system
+    /// r21/r90: the FULL notebook typography selection (built-in design
+    /// plus an optional installed family/face). Answers use the
+    /// centralized dark base token (Design.baseText) on the light panel,
+    /// but the face and metrics must match the editor exactly — both
+    /// resolve through the ONE `NotebookPalette`.
+    var styling: StylingPreferences = .defaults
     var totalLabel: String
     /// Package 7: the floating footer statistic and its setter.
     var footerStatistic: FooterStatistic = .sum
@@ -342,8 +344,10 @@ struct AnswerColumnView: View {
 
     /// The r21 palette resolver (only the font side is used here:
     /// answers are the fixed dark base (Design.baseText) by design).
+    /// r90: built from the EXACT styling value the editor receives, so
+    /// an installed family/face resolves to the same face in both.
     private var palette: NotebookPalette {
-        NotebookPalette(styling: StylingPreferences(fontDesign: fontDesign))
+        NotebookPalette(styling: styling)
     }
 
     /// Content-coordinate Y of every total divider (r58): the

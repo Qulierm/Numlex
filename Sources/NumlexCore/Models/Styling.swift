@@ -196,6 +196,33 @@ public struct CustomSyntaxColors: Codable, Equatable, Sendable {
     }
 }
 
+/// r90: the ONE sanitizer for persisted installed-font names (family and
+/// face). Installed font names come from macOS, so the model treats them
+/// as untrusted input: a value is kept only when it is a String that
+/// trims to non-empty text, carries no control/newline characters and
+/// stays within `maxScalars` Unicode scalars. Everything else — a
+/// missing key, a wrong type, an empty or whitespace-only string, a
+/// control character, an overlong name — becomes `nil`, so a malformed
+/// value can only ever drop its own field.
+public enum StylingFontName {
+    /// The persisted-name ceiling (Unicode scalars, not bytes).
+    public static let maxScalars = 256
+
+    /// The sanitized name, or `nil` when the input is unusable.
+    public static func sanitize(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.unicodeScalars.count <= maxScalars else { return nil }
+        guard !trimmed.unicodeScalars.contains(where: {
+            CharacterSet.controlCharacters.contains($0)
+        }) else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 /// r21: the notebook styling section of the settings store.
 ///
 /// Key-by-key optional decode: an old store without the `styling` key,
@@ -207,8 +234,23 @@ public struct CustomSyntaxColors: Codable, Equatable, Sendable {
 /// regular font; cyan numbers, green variables, pink-purple units,
 /// blue `// ` comments; operators, specifiers, heading bodies and prose
 /// labels in the fixed white base text.
+///
+/// r90 installed fonts: `fontDesign` stays the built-in choice AND the
+/// fallback; `fontFamily`/`fontFace` are the optional installed-font
+/// selection on top of it (`nil` family = one of the four built-in
+/// designs). Both are sanitized independently on decode, and a face can
+/// never survive without a family.
 public struct StylingPreferences: Codable, Equatable, Sendable {
     public var fontDesign: StylingFontDesign
+    /// r90: the selected installed font FAMILY, or `nil` for a built-in
+    /// design. The exact macOS family name; unavailable families stay
+    /// persisted (so a temporarily missing font can recover) and fall
+    /// back to `fontDesign` at resolution time.
+    public var fontFamily: String?
+    /// r90: the selected installed FACE (PostScript name) within
+    /// `fontFamily`, or `nil` for the catalog's deterministic regular
+    /// face. Always `nil` when `fontFamily` is `nil`.
+    public var fontFace: String?
     public var numbers: RoleColorChoice
     public var operators: RoleColorChoice
     public var variables: RoleColorChoice
@@ -240,6 +282,8 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
     public var answerColumnWidth: Double
 
     public init(fontDesign: StylingFontDesign = .system,
+                fontFamily: String? = nil,
+                fontFace: String? = nil,
                 numbers: RoleColorChoice = .cyan,
                 operators: RoleColorChoice = .standardText,
                 variables: RoleColorChoice = .green,
@@ -253,6 +297,11 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
                 customSyntaxColors: CustomSyntaxColors? = nil,
                 answerColumnWidth: Double = AnswerColumnGeometry.defaultWidth) {
         self.fontDesign = fontDesign
+        // The initializer applies the same field rules as decoding: both
+        // names are sanitized, and a face without a family is dropped.
+        let family = StylingFontName.sanitize(fontFamily)
+        self.fontFamily = family
+        self.fontFace = family == nil ? nil : StylingFontName.sanitize(fontFace)
         self.numbers = numbers
         self.operators = operators
         self.variables = variables
@@ -276,6 +325,18 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
         // string, wrong type) behaves exactly like a missing key and
         // falls back to the field default instead of failing the store.
         fontDesign = (try? c.decodeIfPresent(StylingFontDesign.self, forKey: .fontDesign)) ?? d.fontDesign
+        // r90: the two installed-font names decode INDEPENDENTLY and
+        // tolerantly (a wrong type drops that field only). A face is
+        // meaningless without a family, so an invalid or absent family
+        // forces the face to nil as well — otherwise a later family
+        // choice could inherit a stale face from a different font.
+        let family = StylingFontName.sanitize(
+            try? c.decodeIfPresent(String.self, forKey: .fontFamily))
+        fontFamily = family
+        fontFace = family == nil
+            ? nil
+            : StylingFontName.sanitize(
+                try? c.decodeIfPresent(String.self, forKey: .fontFace))
         numbers = (try? c.decodeIfPresent(RoleColorChoice.self, forKey: .numbers)) ?? d.numbers
         operators = (try? c.decodeIfPresent(RoleColorChoice.self, forKey: .operators)) ?? d.operators
         variables = (try? c.decodeIfPresent(RoleColorChoice.self, forKey: .variables)) ?? d.variables
@@ -298,6 +359,44 @@ public struct StylingPreferences: Codable, Equatable, Sendable {
         answerColumnWidth = rawWidth == nil
             ? d.answerColumnWidth
             : AnswerColumnGeometry.sanitizePreference(rawWidth!)
+    }
+}
+
+// MARK: - r90: installed-font typography APIs (pure, model-side)
+
+extension StylingPreferences {
+    /// True when an installed font family is selected (so the built-in
+    /// `fontDesign` acts only as the fallback for an unavailable font).
+    public var hasCustomFont: Bool { fontFamily != nil }
+
+    /// Chooses one of the four BUILT-IN system designs: the design
+    /// becomes the selection AND the fallback, and any installed
+    /// family/face selection is cleared.
+    public mutating func chooseBuiltInDesign(_ design: StylingFontDesign) {
+        fontDesign = design
+        fontFamily = nil
+        fontFace = nil
+    }
+
+    /// Chooses an installed font FAMILY (sanitized): the built-in
+    /// `fontDesign` is retained as the fallback and the previous face is
+    /// cleared (it belonged to another family). An unusable name clears
+    /// the family/face selection instead of persisting garbage.
+    public mutating func chooseFontFamily(_ family: String?) {
+        let sanitized = StylingFontName.sanitize(family)
+        fontFamily = sanitized
+        fontFace = nil
+    }
+
+    /// Chooses the FACE within the currently selected family. The face
+    /// is stored only when a valid family exists (and the name is
+    /// usable); `nil` restores the catalog's deterministic regular face.
+    public mutating func chooseFontFace(_ face: String?) {
+        guard fontFamily != nil else {
+            fontFace = nil
+            return
+        }
+        fontFace = StylingFontName.sanitize(face)
     }
 }
 
@@ -347,7 +446,8 @@ extension StylingPreferences {
 
     /// Restores the eight role preset fields to `StylingPreferences`
     /// `.defaults` and drops every custom override. Preserves
-    /// `fontDesign`, the answer-column settings and every other field —
+    /// `fontDesign`, the r90 installed `fontFamily`/`fontFace`
+    /// selection, the answer-column settings and every other field —
     /// colors only.
     public mutating func resetAllSyntaxColors() {
         let d = Self.defaults
