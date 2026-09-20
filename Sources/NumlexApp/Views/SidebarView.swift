@@ -588,7 +588,13 @@ struct SidebarView: View {
                 // Metadata: created time leading, localized line count
                 // trailing, both 11pt secondary; the count keeps its
                 // trailing alignment across every row.
-                HStack(spacing: 8) {
+                //
+                // Spacing 0 with ONE 8 pt minimum Spacer gives exactly an
+                // 8 pt gap. A non-zero HStack spacing would add its own gap
+                // on BOTH sides of the Spacer — an accidental 24 pt minimum
+                // (8 + 8 + 8) that truncated the date while visibly free
+                // room remained.
+                HStack(spacing: 0) {
                     Text(sheet.createdLabel)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)

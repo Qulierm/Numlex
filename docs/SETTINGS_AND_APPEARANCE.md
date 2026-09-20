@@ -233,6 +233,14 @@ formulas (`$300 + VAT`, `$345 - VAT`, `VAT on $300`, `pre-tax price of $345`,
 | Hide sidebar button when collapsed | off | Hides the toolbar button while the sidebar is collapsed; reopen the sidebar with **⌃⌘S** (Control-Command-S) or View → Toggle Sidebar. |
 | Show total bar | on | Hides the sheet's bottom Total panel (the footer that sums the evaluated magnitude of every ordinary scalar answer — unitless, unit-bearing and money rows included — and formats the one unitless result with the global number settings). Inline `total` lines keep evaluating and rendering — the toggle never disables the command. |
 
+Each sidebar row shows the sheet's created time on the left and its line count
+on the right, both in the same 11 pt secondary text on one line. Exactly one
+8 pt minimum gap separates them: the count is the fixed trailing field, and the
+date only ellipsizes when the two measured labels plus that single gap genuinely
+cannot fit the row — never while free room is still visible. Both labels stay
+readable one-liners; scrolling, selection and the row's own gestures are
+unaffected.
+
 ## Editing
 
 Everything here changes the text you type, never an evaluated value.

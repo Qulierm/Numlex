@@ -1,9 +1,38 @@
+import AppKit
 import Foundation
 import NumlexCore
 
 /// Shared test cases for sheet naming, metric-to-answer placement and
 /// backward-compatible store migration. Executed by both the Swift Testing
 /// suite and the standalone `swift run NumlexTests` runner.
+/// Reads a repo source file by walking up from the working directory (the
+/// sidebar view lives in the app target, which the portable runner cannot
+/// import).
+private func sheetSource(_ relative: String) throws -> String {
+    var url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    for _ in 0..<6 {
+        let candidate = url.appendingPathComponent(relative)
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return try String(contentsOf: candidate, encoding: .utf8)
+        }
+        url.deleteLastPathComponent()
+    }
+    throw CaseFailure(message: "source not found: \(relative)", location: "SheetCases")
+}
+
+/// The RAW AppKit advance of one string — what SwiftUI's intrinsic text
+/// layout uses when it decides whether to ellipsize.
+private func sheetRawWidth(_ text: String, font: NSFont) -> CGFloat {
+    (text as NSString).size(withAttributes: [.font: font]).width
+}
+
+/// The same width rounded the way the app's explicit measurement helpers do
+/// (`ceil + 0.5`), used here to show the boundary conclusion is robust to the
+/// rounding rule.
+private func sheetMeasuredWidth(_ text: String, font: NSFont) -> CGFloat {
+    ceil(sheetRawWidth(text, font: font)) + 0.5
+}
+
 public let sheetCases: [EngineCase] = [
     // MARK: Automatic title extraction
 
@@ -345,5 +374,80 @@ public let sheetCases: [EngineCase] = [
         try expectEqual(row1.height, 60, "wrapped block height")
         let row2 = NotebookLayout.answerRow(index: 2, lines: lines, topInset: 12)
         try expectEqual(row2.top, 102, "next line starts after the full block")
+    },
+
+    // MARK: Sidebar sheet-row metadata
+
+    EngineCase("sidebar-metadata-uses-one-eight-point-gap") {
+        // The reported defect: the metadata row looked like it had room but
+        // the date was ellipsized. `HStack(spacing: 8)` inserts its spacing on
+        // BOTH sides of the Spacer, so the real minimum was 8 + 8 + 8 = 24 pt
+        // instead of the intended 8 pt, and the trailing count's layout
+        // priority squeezed the date to preserve that hidden 24 pt.
+        let view = try sheetSource("Sources/NumlexApp/Views/SidebarView.swift")
+        // Isolate the metadata row: from the metadata comment to the end of
+        // its HStack (the next sibling modifier closes the VStack).
+        guard let metaStart = view.range(of: "// Metadata: created time leading")?.lowerBound,
+              let metaEnd = view.range(of: ".frame(maxWidth: .infinity, alignment: .leading)",
+                                       range: metaStart..<view.endIndex)?.lowerBound else {
+            throw CaseFailure(message: "metadata slice not found", location: "SheetCases")
+        }
+        let meta = String(view[metaStart..<metaEnd])
+        try expect(!meta.isEmpty, "the metadata slice exists")
+        // Exactly one gap: zero HStack spacing plus one 8 pt Spacer.
+        try expect(meta.contains("HStack(spacing: 0)"),
+                   "the metadata row uses ZERO inter-child spacing")
+        try expect(!meta.contains("HStack(spacing: 8)"),
+                   "no accidental HStack gap around the Spacer")
+        try expectEqual(meta.components(separatedBy: "Spacer(minLength: 8)").count - 1, 1,
+                        "exactly one 8 pt minimum Spacer")
+        // Date/count styling and the trailing count priority are unchanged.
+        try expectEqual(meta.components(separatedBy: ".font(.system(size: 11))").count - 1, 2,
+                        "both fields keep the 11 pt font")
+        try expectEqual(meta.components(separatedBy: ".foregroundStyle(.secondary)").count - 1, 2,
+                        "both fields stay secondary")
+        try expectEqual(meta.components(separatedBy: ".lineLimit(1)").count - 1, 2,
+                        "both fields stay one line")
+        try expectEqual(meta.components(separatedBy: ".truncationMode(.tail)").count - 1, 2,
+                        "both fields keep tail truncation")
+        try expectEqual(meta.components(separatedBy: ".layoutPriority(1)").count - 1, 1,
+                        "the count keeps its layout priority")
+        try expect(meta.contains("Text(sheet.createdLabel)"), "the date is still first")
+        try expect(meta.contains("Text(count)"), "the count is still the trailing field")
+        // No fixed width or content heuristic was introduced.
+        for banned in ["frame(width:", "count >", "prefix(", "String(", "isEmpty"] {
+            try expect(!meta.contains(banned), "no \(banned) heuristic in the metadata row")
+        }
+        // Real AppKit metrics: the screenshot-like pair at 11 pt. The RAW
+        // advance is what intrinsic text layout uses to decide ellipsizing.
+        let font = NSFont.systemFont(ofSize: 11)
+        let date = sheetRawWidth("Sep 12 at 11:21", font: font)
+        let count = sheetRawWidth("No lines", font: font)
+        try expectClose(date, 77.33, 0.5, "measured date width")
+        try expectClose(count, 42.23, 0.5, "measured count width")
+        let inner: CGFloat = 140          // the reported narrow sidebar row
+        let oneGap = date + count + 8
+        let oldTripleGap = date + count + 24
+        // The NEW layout fits, and the OLD one is what forced the ellipsis.
+        try expect(oneGap <= inner,
+                   "date + count + one 8 pt gap fits in \(inner) pt (\(oneGap))")
+        try expect(oldTripleGap > inner,
+                   "the old 24 pt minimum did NOT fit in \(inner) pt (\(oldTripleGap))")
+        // The fix is exactly the 16 pt of wasted space.
+        try expectClose(oldTripleGap - oneGap, 16, 0.001, "the fix reclaims two HStack gaps")
+        // The conclusion is robust to the rounding rule: even with the app's
+        // pixel-safe `ceil + 0.5` widths the single gap fits and the old
+        // triple gap does not.
+        let safeDate = sheetMeasuredWidth("Sep 12 at 11:21", font: font)
+        let safeCount = sheetMeasuredWidth("No lines", font: font)
+        try expect(safeDate + safeCount + 8 <= inner,
+                   "pixel-safe widths still fit with one gap")
+        try expect(safeDate + safeCount + 24 > inner,
+                   "pixel-safe widths still fail with the old triple gap")
+        // Overflow still truncates safely: past the true limit the pair cannot
+        // fit even with one gap, so the date remains the flexible field.
+        let tooNarrow: CGFloat = 100
+        try expect(oneGap > tooNarrow,
+                   "a genuinely narrow row still cannot fit the pair (date truncates)")
     },
 ]
