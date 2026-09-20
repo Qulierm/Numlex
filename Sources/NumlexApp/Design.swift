@@ -190,7 +190,7 @@ enum Design {
     static let answerHoverLineWidth: CGFloat = 3
     /// Restrained continuous corners: the outline reads as a rounded
     /// rectangle around the answer, never as a pill/capsule.
-    static let answerHoverCornerRadius: CGFloat = 6
+    static let answerHoverCornerRadius: CGFloat = 7
     /// Horizontal inset from the panel edge: near-full-width stroke.
     static let answerHoverEdgeInset: CGFloat = 2
 

@@ -421,7 +421,7 @@ that cannot fit both the editor's 280 pt minimum and the chosen column width,
 the column is capped to what remains so the geometry stays safe.
 
 Hovering an active linked value outlines its **source answer** with a fixed blue
-stroke around a near-full-width rounded rectangle: continuous 6 pt corners, so
+stroke around a near-full-width rounded rectangle: continuous 7 pt corners, so
 the shape reads as a restrained rounded rectangle rather than a pill; it is
 centered on the answer's measured one-line box. The outline is
 presentation-only — it never takes input and never changes the answer's layout,

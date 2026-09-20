@@ -86,15 +86,17 @@ public let r37Cases: [EngineCase] = [
 
     EngineCase("r37-hover-outline-restrained-continuous-corners") {
         // The r37 source-answer outline is a restrained rounded rectangle,
-        // not a capsule: its continuous corner radius is 6 pt while every
+        // not a capsule: its continuous corner radius is 7 pt while every
         // other property of the outline stays exactly as tuned (the source
         // contract exists because the app-only token cannot be imported by
         // the portable runner).
         let design = try r37Source("Sources/NumlexApp/Design.swift")
-        try expect(design.contains("static let answerHoverCornerRadius: CGFloat = 6"),
-                   "the continuous corner radius is 6 pt")
+        try expect(design.contains("static let answerHoverCornerRadius: CGFloat = 7"),
+                   "the continuous corner radius is 7 pt")
         try expect(!design.contains("answerHoverCornerRadius: CGFloat = 10"),
                    "no stale 10 pt radius definition remains")
+        try expect(!design.contains("answerHoverCornerRadius: CGFloat = 6"),
+                   "no stale 6 pt radius definition remains")
         try expect(design.contains("static let answerHoverLineWidth: CGFloat = 3"),
                    "the 3 pt stroke is unchanged")
         try expect(design.contains("static let answerHoverEdgeInset: CGFloat = 2"),
