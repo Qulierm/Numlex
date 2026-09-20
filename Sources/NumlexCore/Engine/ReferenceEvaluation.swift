@@ -253,12 +253,27 @@ public func resolveSheet(
                 let display = formatMoney(v, code: code, context: context)
                 tokenStates[docPos] = .active(value: v, unit: code, display: display)
                 quantities.append(Qty(v: v, unit: code))
-            case .variable(_, let v, _, _) where v.isFinite:
-                // A variable source is a unitless quantity.
-                let display = formatDisplayValue(v, decimalPlaces: decimalPlaces,
-                                                  context: context)
-                tokenStates[docPos] = .active(value: v, unit: nil, display: display)
-                quantities.append(Qty(v: v, unit: nil))
+            case .variable(_, let v, let kind, let fraction) where v.isFinite:
+                // A variable source is a unitless quantity (a named value
+                // can never carry a unit), but it KEEPS its semantic kind:
+                // a token minted from `p = 10% + 20%` must display, copy and
+                // evaluate exactly like the name `p` — otherwise the linked
+                // arithmetic silently loses the contextual percent behaviour
+                // and the kinded strictness guards see a plain number. This
+                // mirrors the `.number` branch above.
+                if kind != .plain {
+                    let display = AnswerDisplay.formatKinded(v, unit: nil,
+                                                              kind: kind, fraction: fraction,
+                                                              decimalPlaces: decimalPlaces,
+                                                              context: context)
+                    tokenStates[docPos] = .activeKinded(value: v, unit: nil, kind: kind,
+                                                        fraction: fraction, display: display)
+                } else {
+                    let display = formatDisplayValue(v, decimalPlaces: decimalPlaces,
+                                                     context: context)
+                    tokenStates[docPos] = .active(value: v, unit: nil, display: display)
+                }
+                quantities.append(Qty(v: v, unit: nil, kind: kind, fraction: fraction))
             case .boolean(let b):
                 // r82: a boolean source is a live BOOLEAN token — a
                 // distinct resolution that shows the lowercase word

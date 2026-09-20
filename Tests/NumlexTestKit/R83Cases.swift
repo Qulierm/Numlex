@@ -77,6 +77,33 @@ private func r83IsFraction(_ r: LineResult, _ num: Int64, _ den: Int64,
     }
 }
 
+/// Resolves one sheet with REAL U+FFFC references at computed offsets, so a
+/// named value can be referenced through a live token exactly as the app does.
+private func r83TokenSheet(_ content: String,
+                           refs: [(source: Int, label: Int)])
+    -> (lines: [SheetLine], tokens: [TokenResolution]) {
+    let sourceLines = content.components(separatedBy: "\n")
+    let ids = sourceLines.map { _ in UUID() }
+    let ns = content as NSString
+    var positions: [Int] = []
+    var p = 0
+    while p < ns.length {
+        if ns.character(at: p) == answerTokenMarkerUTF16 { positions.append(p) }
+        p += 1
+    }
+    let references = refs.enumerated().map { k, r in
+        AnswerReference(sourceLineID: ids[r.source], labelLine: r.label,
+                        location: positions[k])
+    }
+    let out = resolveSheet(content: content, lineIDs: ids, references: references,
+                           rates: Rates(), decimalPlaces: 7)
+    return (out.lines, out.tokens)
+}
+
+/// The literal named reference must be evaluated in the SAME sheet (a fresh
+/// env cannot see the assignment), so this is the fair comparison fixture.
+private func r83Sheet(_ content: String) -> [SheetLine] { r83Lines(content) }
+
 public let r83Cases: [EngineCase] = [
     // MARK: of / on / off
 
@@ -489,6 +516,127 @@ public let r83Cases: [EngineCase] = [
         let prose = r83Lines("15% of fish")
         guard case .error = prose[0].result else {
             throw r83Fail("15% of fish must fail (prose operand)", prose[0].result)
+        }
+    },
+
+    EngineCase("r83-token-named-value-kind-parity") {
+        // A token minted from a NAMED VALUE must carry the same semantic kind
+        // and fraction as the name: the linked form has to be arithmetically,
+        // visually and semantically identical to referencing the name.
+        // Reported defect: `p = 10% + 20%` then `200 + <token>` gave 200.3
+        // while the literal `200 + p` gave 260.
+        let content = "p = 10% + 20%\n200 + \(M83)"
+        let (lines, tokens) = r83TokenSheet(content, refs: [(0, 1)])
+        let literal = r83Sheet("p = 10% + 20%\n200 + p")
+        try expectEqual(lines[1].result, literal[1].result,
+                        "linked arithmetic equals the literal named reference")
+        try r83IsNumber(lines[1].result, 260, "linked `200 + <token>`")
+        // The token state carries the kind and the kinded display.
+        guard case .activeKinded(let v, let unit, let kind, let fraction, let display) = tokens[0].state else {
+            throw r83Fail("the token must be activeKinded", tokens[0].state)
+        }
+        try expect(r83Close(v, 0.3), "token value 0.3")
+        try expect(unit == nil, "a named value never carries a unit")
+        try expectEqual(kind, NumericKind.percent, "token kind")
+        try expect(fraction == nil, "a percent has no fraction payload")
+        try expectEqual(display, "30%", "the token displays its kinded text")
+        // The source rows are untouched and re-resolving is deterministic.
+        let again = r83TokenSheet(content, refs: [(0, 1)])
+        try expectEqual(again.lines[1].result, lines[1].result, "deterministic")
+        // The source row is the assignment itself (a `.variable`), and it
+        // still carries the percent kind.
+        guard case .variable(let name, let svalue, let skind, _) = lines[0].result else {
+            throw r83Fail("the source row is the assignment", lines[0].result)
+        }
+        try expect(name == "p" && r83Close(svalue, 0.3) && skind == .percent,
+                   "the source assignment keeps its kind")
+        // A multiplier keeps its kind and kinded display.
+        let (multLines, multTokens) = r83TokenSheet("z = 1.5x\n\(M83)", refs: [(0, 1)])
+        guard case .activeKinded(let mv, nil, let mk, nil, let mdisplay) = multTokens[0].state else {
+            throw r83Fail("multiplier token must be activeKinded", multTokens[0].state)
+        }
+        try expect(r83Close(mv, 1.5) && mk == .multiplier, "multiplier value/kind")
+        try expectEqual(mdisplay, "1.5x", "multiplier display")
+        guard case .variable(_, let msvalue, let mskind, _) = multLines[0].result else {
+            throw r83Fail("multiplier source row", multLines[0].result)
+        }
+        try expect(r83Close(msvalue, 1.5) && mskind == .multiplier, "multiplier source kind")
+        // A fraction keeps its reduced rational AND its `1/5` display.
+        let (fracLines, fracTokens) = r83TokenSheet("f = 2/10 as fraction\n\(M83)", refs: [(0, 1)])
+        guard case .activeKinded(let fv, nil, let fk, let ff, let fdisplay) = fracTokens[0].state else {
+            throw r83Fail("fraction token must be activeKinded", fracTokens[0].state)
+        }
+        try expect(r83Close(fv, 0.2) && fk == .fraction, "fraction value/kind")
+        try expect(ff?.numerator == 1 && ff?.denominator == 5, "reduced rational 1/5")
+        try expectEqual(fdisplay, "1/5", "fraction display")
+        guard case .variable(_, let fsvalue, let fskind, let fsfraction) = fracLines[0].result else {
+            throw r83Fail("fraction source row", fracLines[0].result)
+        }
+        try expect(r83Close(fsvalue, 0.2) && fskind == .fraction
+                   && fsfraction?.numerator == 1 && fsfraction?.denominator == 5,
+                   "fraction source kind and rational")
+        // A PLAIN named value is byte-identical to before: `.active` with the
+        // plain display, never `.activeKinded`.
+        let (plainLines, plainTokens) = r83TokenSheet("x = 10\n\(M83)", refs: [(0, 1)])
+        guard case .active(let pv, nil, let pdisplay) = plainTokens[0].state else {
+            throw r83Fail("a plain named value keeps its `.active` state", plainTokens[0].state)
+        }
+        try expect(r83Close(pv, 10) && pdisplay == "10", "plain value and display unchanged")
+        guard case .variable(_, let psvalue, let pskind, _) = plainLines[0].result else {
+            throw r83Fail("plain source row", plainLines[0].result)
+        }
+        try expect(r83Close(psvalue, 10) && pskind == .plain, "plain source kind")
+        // And the plain token still evaluates as a plain number.
+        let (plainUse, _) = r83TokenSheet("x = 10\n\(M83) + 5", refs: [(0, 1)])
+        try r83IsNumber(plainUse[1].result, 15, "a plain token still adds plainly")
+    },
+
+    EngineCase("r83-token-named-kind-strictness") {
+        // The kind preservation above also RESTORES two strictness holes: a
+        // named percent/multiplier/fraction token must never acquire a
+        // physical unit and must never fill a date duration magnitude slot.
+        // Both guards already existed (`q.unit != nil || q.kind == .plain`
+        // in the conversion bridge, `q.kind == .plain` in the linked-date
+        // bridge) — the kind was simply lost at minting time, so the guards
+        // saw a plain number. Precedent for the assertions:
+        // `r91-linked-conversion-rejects-semantic-unitless-kinds`.
+        let kinded = [("p = 100%", "a percent"), ("z = 1.5x", "a multiplier"),
+                      ("f = 2/10 as fraction", "a fraction")]
+        for (source, what) in kinded {
+            // Unit acquisition: no number may be produced, and an error must
+            // be present (the exact string is not pinned — the class is).
+            let (unitLines, _) = r83TokenSheet("\(source)\n\(M83) mg to kg", refs: [(0, 1)])
+            if case .number = unitLines[1].result {
+                throw r83Fail("\(what) token must not acquire a unit", unitLines[1].result)
+            }
+            guard case .error = unitLines[1].result else {
+                throw r83Fail("\(what) token in a unit slot must error", unitLines[1].result)
+            }
+            // Date duration magnitude slot: this path is deterministic, so the
+            // generic invalid-expression error is pinned exactly.
+            let (dateLines, _) = r83TokenSheet("\(source)\ntoday + \(M83) days", refs: [(0, 1)])
+            try expectEqual(dateLines[1].result, .error(message: "Invalid expression"),
+                            "\(what) token must not fill a date duration slot")
+        }
+        // The strictness did NOT over-reject: a PLAIN named integer keeps
+        // working in both slots.
+        let (nDate, _) = r83TokenSheet("n = 72\ntoday + \(M83) days", refs: [(0, 1)])
+        let literalDate = r83Sheet("today + 72 days")
+        try expectEqual(nDate[1].result, literalDate[0].result,
+                        "a plain named integer still fills the date duration slot")
+        let (nUnit, _) = r83TokenSheet("n = 4673\n\(M83) mg to kg", refs: [(0, 1)])
+        let literalUnit = r83Sheet("4673 mg to kg")
+        try expectEqual(nUnit[1].result, literalUnit[0].result,
+                        "a plain named integer still converts like the literal")
+        // A plain named value also still renders as a bare token row.
+        let (nBare, _) = r83TokenSheet("n = 72\n\(M83)", refs: [(0, 1)])
+        try r83IsNumber(nBare[1].result, 72, "a plain named token still shows its value")
+        // And the kinded source rows themselves are untouched by the refusals.
+        for (source, _) in kinded {
+            let (rows, _) = r83TokenSheet("\(source)\n\(M83)", refs: [(0, 1)])
+            guard case .variable = rows[0].result else {
+                throw r83Fail("the source assignment is unchanged", rows[0].result)
+            }
         }
     },
 ]
