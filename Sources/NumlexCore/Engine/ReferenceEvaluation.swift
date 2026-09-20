@@ -341,6 +341,18 @@ public func resolveSheet(
             return .error(message: "Invalid reference")
         }
 
+        // Calendar date arithmetic with linked duration MAGNITUDES
+        // (`today + <token> days`). Claimed only when the line is already
+        // date-shaped with the markers standing in as plain integers, so
+        // every other token line keeps its existing route.
+        if let dated = linkedDateArithmeticResult(line: line,
+                                                 markerPositions: markerPos,
+                                                 quantities: quantities,
+                                                 now: now,
+                                                 calendar: calendar) {
+            return dated
+        }
+
         let qtyByPos: [Int: Qty] = Dictionary(
             uniqueKeysWithValues: markerPos.enumerated().compactMap { k, pos in
                 quantities[k].map { (pos, $0) }
@@ -930,6 +942,128 @@ private func typedBoolResult(text: String,
 // MARK: - Quantity expression parser
 
 /// One evaluated operand of a token expression.
+/// Linked duration magnitudes in calendar date arithmetic: `today + <token>
+/// days`.
+///
+/// A linked answer is a live quantity, so it must work exactly like the typed
+/// integer in the SAME duration slot. The bridge builds an evaluation-only
+/// copy with each participating marker replaced by its canonical integer text
+/// and hands that copy to `DateArithmetic.detect` — the ONE date parser — with
+/// the sheet's captured `now` and `calendar`, so the Gregorian component
+/// arithmetic and every bound are shared by construction. The document,
+/// reference sidecars and token states are never touched.
+///
+/// Returns nil when the line is not this shape (so the caller's other routes
+/// still run); otherwise the date result or the generic invalid-expression
+/// error, mirroring the ordinary evaluator's own mapping.
+private func linkedDateArithmeticResult(
+    line: String,
+    markerPositions: [Int],
+    quantities: [Qty?],
+    now: Date,
+    calendar: Calendar
+) -> LineResult? {
+    guard !markerPositions.isEmpty, markerPositions.count == quantities.count else {
+        return nil
+    }
+    // 1. Structural probe: the line must already be DATE-SHAPED once each
+    //    marker stands in as a plain integer. `0` keeps the token count and
+    //    the pairing intact, so a line that is not date arithmetic at all
+    //    (any ordinary token expression) reports `.none` and is left alone.
+    let probe = substitutingMarkers(markerPositions, in: line) { _ in "0" }
+    guard case .none = DateArithmetic.detect(line: probe, now: now, calendar: calendar) else {
+        return linkedDateShapeResult(line: line,
+                                     markerPositions: markerPositions,
+                                     quantities: quantities,
+                                     now: now,
+                                     calendar: calendar)
+    }
+    return nil
+}
+
+/// Claims a date-shaped line: every marker must be a standalone duration
+/// MAGNITUDE (a whitespace-delimited token immediately followed by one of
+/// `DateArithmetic.durationWords`) whose quantity is a plain, finite, unitless,
+/// boolean-free, fraction-free exact integer. Anything else is the same
+/// generic error the ordinary evaluator produces for that date shape — never a
+/// silent coercion, and never a fall-through into numeric token algebra.
+private func linkedDateShapeResult(
+    line: String,
+    markerPositions: [Int],
+    quantities: [Qty?],
+    now: Date,
+    calendar: Calendar
+) -> LineResult? {
+    let ns = line as NSString
+    var integers: [Int64] = []
+    integers.reserveCapacity(markerPositions.count)
+    for (k, pos) in markerPositions.enumerated() {
+        guard markerIsDurationMagnitude(ns: ns, markerAt: pos),
+              let q = quantities[k],
+              q.boolValue == nil,
+              q.unit == nil,
+              q.kind == .plain,
+              q.fraction == nil,
+              q.v.isFinite,
+              let integer = exactLinkedInt64(q.v) else {
+            return .error(message: "Invalid expression")
+        }
+        integers.append(integer)
+    }
+    // 2. Canonical substitution, applied from the END so the earlier UTF-16
+    //    offsets stay valid. `String(Int64)` is locale-independent, never
+    //    grouped and never rounded: the parser sees the full resolved value.
+    let candidate = substitutingMarkers(markerPositions, in: line) { k in
+        String(integers[k])
+    }
+    // 3. The authoritative parser decides, with the sheet's own context.
+    switch DateArithmetic.detect(line: candidate, now: now, calendar: calendar) {
+    case .value(let v):
+        return .date(year: v.year, month: v.month, day: v.day, showYear: v.showYear)
+    case .malformed, .none:
+        return .error(message: "Invalid expression")
+    }
+}
+
+/// True when the marker at `markerAt` is a standalone whitespace-delimited
+/// token immediately followed by a bounded duration word — the only slot this
+/// bridge supports (it never invents tokenized date-prefix grammar).
+private func markerIsDurationMagnitude(ns: NSString, markerAt: Int) -> Bool {
+    // Preceded by the start of the line or whitespace, so the marker is its
+    // own token and never glued to a word or to a sign character.
+    if markerAt > 0 {
+        let before = ns.substring(with: NSRange(location: markerAt - 1, length: 1))
+        guard before == " " || before == "\t" else { return false }
+    }
+    guard markerAt < ns.length else { return false }
+    let after = ns.substring(from: markerAt + 1)
+    let parts = after.split(whereSeparator: { $0 == " " || $0 == "\t" })
+    guard let first = parts.first else { return false }
+    return DateArithmetic.durationWords[String(first).lowercased()] != nil
+}
+
+/// Replaces markers with generated text, walking from the END so earlier
+/// UTF-16 offsets stay valid.
+private func substitutingMarkers(_ markers: [Int],
+                                 in line: String,
+                                 _ text: (Int) -> String) -> String {
+    let result = NSMutableString(string: line)
+    for (k, pos) in markers.enumerated().reversed() {
+        result.replaceCharacters(in: NSRange(location: pos, length: 1), with: text(k))
+    }
+    return result as String
+}
+
+/// The exact `Int64` a quantity represents, or nil when it is not an exact
+/// integer (including outside the representable range).
+private func exactLinkedInt64(_ v: Double) -> Int64? {
+    guard v.rounded() == v,
+          v >= -9_223_372_036_854_775_808.0, v < 9_223_372_036_854_775_808.0 else {
+        return nil
+    }
+    return Int64(v)
+}
+
 struct Qty: Equatable {
     var v: Double
     var unit: String?

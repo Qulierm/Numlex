@@ -189,6 +189,38 @@ private func bodySheetNow() throws {
     } else { try expect(false, "yesterday row") }
 }
 
+/// Resolves a sheet with REAL U+FFFC references at computed offsets and
+/// returns every row plus the token states — the linked-date behaviour runs
+/// through the same `resolveSheet` entry point the app uses.
+private func linkedDateSheet(_ content: String,
+                             refs: [(source: Int, label: Int)],
+                             now: (now: Date, calendar: Calendar))
+    -> (lines: [SheetLine], tokens: [TokenResolution]) {
+    let sourceLines = content.components(separatedBy: "\n")
+    let ids = sourceLines.map { _ in UUID() }
+    let ns = content as NSString
+    var positions: [Int] = []
+    var p = 0
+    while p < ns.length {
+        if ns.character(at: p) == answerTokenMarkerUTF16 { positions.append(p) }
+        p += 1
+    }
+    let references = refs.enumerated().map { k, r in
+        AnswerReference(sourceLineID: ids[r.source], labelLine: r.label,
+                        location: positions[k])
+    }
+    let out = resolveSheet(content: content, lineIDs: ids, references: references,
+                           rates: Rates(), decimalPlaces: 7,
+                           now: now.now, calendar: now.calendar)
+    return (out.lines, out.tokens)
+}
+
+/// The `.date` components of a row, or nil.
+private func dateParts(_ result: LineResult) -> (Int, Int, Int, Bool)? {
+    if case .date(let y, let m, let d, let showYear) = result { return (y, m, d, showYear) }
+    return nil
+}
+
 public let dateCases: [EngineCase] = [
     EngineCase("date-ref-may-5-plus-43") { try bodyRefMay5() },
     EngineCase("date-forms") { try bodyForms() },
@@ -201,4 +233,138 @@ public let dateCases: [EngineCase] = [
     EngineCase("date-malformed-never-numeric-fallback") { try bodyMalformed() },
     EngineCase("date-result-type-and-no-token") { try bodyResultType() },
     EngineCase("date-sheet-captures-one-now") { try bodySheetNow() },
+
+    EngineCase("date-linked-integer-duration-parity") {
+        // A linked unitless integer must occupy a duration magnitude slot
+        // exactly like the typed integer: same parser, same calendar, same
+        // result. The reference date is FIXED here, so the expected dates are
+        // deterministic.
+        let now = ctx(2026, 8, 26)
+        // The reported expression: source 72 into `today + <token> days`.
+        let (lines, tokens) = linkedDateSheet("72\ntoday + \(M) days",
+                                             refs: [(0, 1)], now: now)
+        let literal = dLine("today + 72 days", now: now)
+        try expectEqual(lines[1].result, literal ?? .error(message: ""),
+                        "linked magnitude equals the typed literal")
+        try expectEqual(dateParts(lines[1].result)?.0, 2026, "year")
+        try expectEqual(dateParts(lines[1].result)?.1, 11, "month (Nov: 26 Aug + 72 days)")
+        try expectEqual(dateParts(lines[1].result)?.2, 6, "day (26 Aug 2026 + 72 days)")
+        try expect(dateParts(lines[1].result) != nil, "a real date, not an error")
+        // The source row and its token state are untouched by the bridge.
+        try expectEqual(lines[0].result, LineResult.number(value: 72, unit: nil),
+                        "source row unchanged")
+        try expectEqual(tokens.count, 1, "one token state")
+        if case .active = tokens[0].state {
+            try expect(true, "the token stays active")
+        } else {
+            try expect(false, "token state must stay active, got \(tokens[0].state)")
+        }
+        try expectEqual(lines[1].sourceLineIndex, 1, "one row per logical line")
+        // Subtraction uses the same sign handling as the literal.
+        let (subLines, _) = linkedDateSheet("30\ntoday - \(M) days",
+                                           refs: [(0, 1)], now: now)
+        try expectEqual(subLines[1].result, dLine("today - 30 days", now: now) ?? .error(message: ""),
+                        "linked subtraction equals the literal")
+        try expectEqual(dateParts(subLines[1].result)?.2, 27, "26 Aug 2026 - 30 days lands on 27 Jul")
+        // A NEGATIVE linked magnitude subtracts through the substituted sign.
+        let (negLines, _) = linkedDateSheet("-30\ntoday + \(M) days",
+                                           refs: [(0, 1)], now: now)
+        try expectEqual(negLines[1].result, dLine("today + -30 days", now: now) ?? .error(message: ""),
+                        "negative linked magnitude equals the literal")
+        try expectEqual(dateParts(negLines[1].result)?.1, 7, "negative magnitude moved back to July")
+        // An expression-derived 72 qualifies (ordinary scalar result).
+        let (exprLines, _) = linkedDateSheet("36 * 2\ntoday + \(M) days",
+                                            refs: [(0, 1)], now: now)
+        let expr = dateParts(exprLines[1].result)
+        let direct = dateParts(lines[1].result)
+        try expect(expr != nil && direct != nil, "both are dates")
+        try expect(expr?.0 == direct?.0 && expr?.1 == direct?.1
+                   && expr?.2 == direct?.2 && expr?.3 == direct?.3,
+                   "an expression-derived magnitude behaves identically")
+        // Mixed literal/linked COMPOUND: the parser's compound form is one
+        // leading sign followed by space-separated `<integer> <unit>` pairs
+        // (`today + 1 week 2 days`), so a linked magnitude can sit in any of
+        // those slots while the others stay literal.
+        let (mixLines, _) = linkedDateSheet("2\ntoday + 1 week \(M) days",
+                                           refs: [(0, 1)], now: now)
+        try expectEqual(mixLines[1].result, dLine("today + 1 week 2 days", now: now) ?? .error(message: ""),
+                        "mixed literal/linked compound equals the literal")
+        try expectEqual(dateParts(mixLines[1].result)?.1, 9, "mixed compound lands in September")
+        // TWO linked duration components.
+        let (twoLines, _) = linkedDateSheet("1\n2\ntoday + \(M) week \(M) days",
+                                            refs: [(0, 2), (1, 2)], now: now)
+        try expectEqual(twoLines[2].result, dLine("today + 1 week 2 days", now: now) ?? .error(message: ""),
+                        "two linked components equal the literal compound")
+        // The document and reference inputs are never mutated: re-resolving
+        // the same content yields the same rows.
+        let (again, _) = linkedDateSheet("72\ntoday + \(M) days",
+                                         refs: [(0, 1)], now: now)
+        try expectEqual(again[1].result, lines[1].result, "deterministic and stateless")
+    },
+
+    EngineCase("date-linked-duration-rejects-non-integers-and-units") {
+        // STRICT typing: only an ordinary unitless EXACT INTEGER may occupy a
+        // duration magnitude slot. Every other linked type must produce the
+        // same generic invalid-expression result the ordinary evaluator gives
+        // for that date shape — never a coercion and never a fallback into
+        // numeric token algebra.
+        let now = ctx(2026, 8, 26)
+        func command(_ source: String) -> LineResult {
+            let (rows, _) = linkedDateSheet(source + "\ntoday + \(M) days",
+                                            refs: [(0, 1)], now: now)
+            return rows[1].result
+        }
+        // Types that must be refused.
+        let refused: [(String, String)] = [
+            ("72.5", "a fractional magnitude"),
+            ("20%", "a percent-kind magnitude"),
+            ("1.5x", "a multiplier-kind magnitude"),
+            ("0.25 as fraction", "a fraction-kind magnitude"),
+            ("$5", "a money magnitude"),
+            ("3 kg", "a unit-bearing quantity"),
+            ("30 minutes", "a fixed-duration quantity"),
+            ("2 hours", "another fixed-duration quantity"),
+            ("true", "a boolean magnitude"),
+            ("10 ^ 19", "a magnitude beyond Int64 (and beyond the date bound)"),
+            ("10 ^ 18", "a magnitude beyond the date parser's own duration bound"),
+        ]
+        for (source, why) in refused {
+            try expectEqual(command(source), .error(message: "Invalid expression"),
+                            "\(why) must be refused: \(source)")
+        }
+        // Shapes that must be refused because the marker is not a standalone
+        // duration magnitude.
+        let shapes: [(String, String)] = [
+            ("72\ntoday + \(M) apples", "the marker is not followed by a duration word"),
+            ("72\ntoday + \(M)", "the marker has no duration word at all"),
+            ("72\ntoday + \(M) days extra words", "a dangling tail after the duration"),
+            ("72\ntoday \(M) days", "no sign between the date and the marker"),
+            ("72\ntoday + \(M)days", "the marker is glued to the duration word"),
+        ]
+        for (content, why) in shapes {
+            let (rows, _) = linkedDateSheet(content, refs: [(0, 1)], now: now)
+            try expectEqual(rows[1].result, .error(message: "Invalid expression"),
+                            "refused shape: \(why)")
+        }
+        // A NON-date token line is untouched: the bridge returns nil and the
+        // existing token-expression route still answers.
+        let (arith, _) = linkedDateSheet("72\n\(M) + 1", refs: [(0, 1)], now: now)
+        try expectEqual(arith[1].result, .number(value: 73, unit: nil),
+                        "non-date token arithmetic keeps its TokenExpr semantics")
+        // Nothing is coerced into a date: none of the refused rows produced one.
+        for (source, _) in refused {
+            try expect(dateParts(command(source)) == nil, "no date from \(source)")
+        }
+        // The date parser's own MAX bound is shared with the literal path:
+        // 1,000,000 days is accepted and 1,000,001 is refused, identically to
+        // the typed literal.
+        let (maxLines, _) = linkedDateSheet("1000000\ntoday + \(M) days",
+                                            refs: [(0, 1)], now: now)
+        try expectEqual(maxLines[1].result, dLine("today + 1000000 days", now: now) ?? .error(message: ""),
+                        "the accepted maximum equals the typed literal")
+        let (overLines, _) = linkedDateSheet("1000001\ntoday + \(M) days",
+                                             refs: [(0, 1)], now: now)
+        try expectEqual(overLines[1].result, dLine("today + 1000001 days", now: now) ?? .error(message: ""),
+                        "one past the maximum equals the typed literal")
+    },
 ]
