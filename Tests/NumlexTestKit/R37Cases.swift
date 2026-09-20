@@ -7,6 +7,20 @@ import NumlexCore
 /// answer of a hovered token. The app-side hit-testing/bridge is UI
 /// state (not exercised here, per the no-inflation rule); the baseline
 /// math it feeds is the testable core.
+/// Reads an app-target source file (the design token and the outline view
+/// live in `NumlexApp`, which the portable runner cannot import).
+private func r37Source(_ relative: String) throws -> String {
+    var url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    for _ in 0..<6 {
+        let candidate = url.appendingPathComponent(relative)
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return try String(contentsOf: candidate, encoding: .utf8)
+        }
+        url.deleteLastPathComponent()
+    }
+    throw CaseFailure(message: "source not found: \(relative)", location: "R37")
+}
+
 public let r37Cases: [EngineCase] = [
     EngineCase("r37-hover-outline-ink-centerline") {
         // Fixed 28 pt row, natural glyph box 16.79, cap 11.42:
@@ -68,5 +82,64 @@ public let r37Cases: [EngineCase] = [
             try expect(g.centerY + g.height / 2 <= row + 1.0,
                        "outline bottom stays on the row at \(size) pt")
         }
-    }
+    },
+
+    EngineCase("r37-hover-outline-restrained-continuous-corners") {
+        // The r37 source-answer outline is a restrained rounded rectangle,
+        // not a capsule: its continuous corner radius is 6 pt while every
+        // other property of the outline stays exactly as tuned (the source
+        // contract exists because the app-only token cannot be imported by
+        // the portable runner).
+        let design = try r37Source("Sources/NumlexApp/Design.swift")
+        try expect(design.contains("static let answerHoverCornerRadius: CGFloat = 6"),
+                   "the continuous corner radius is 6 pt")
+        try expect(!design.contains("answerHoverCornerRadius: CGFloat = 10"),
+                   "no stale 10 pt radius definition remains")
+        try expect(design.contains("static let answerHoverLineWidth: CGFloat = 3"),
+                   "the 3 pt stroke is unchanged")
+        try expect(design.contains("static let answerHoverEdgeInset: CGFloat = 2"),
+                   "the 2 pt horizontal edge inset is unchanged")
+        // The prose wraps across comment lines, so compare it with the
+        // doc-comment markers and line breaks collapsed.
+        let prose = design
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { $0.hasPrefix("///") ? String($0.dropFirst(3)) : $0 }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "  ", with: " ")
+        try expect(prose.contains("reads as a rounded rectangle around the answer"),
+                   "documented as a restrained rounded rectangle")
+        try expect(prose.contains("never as a pill/capsule"),
+                   "documented as explicitly not a capsule")
+        // The outline view consumes the centralized token in a continuous,
+        // stroke-only shape — never a Capsule, never a fill.
+        let view = try r37Source("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        let outline = (try? String(view[view.range(of: "private struct AnswerHoverOutline")!.lowerBound...]
+            .prefix(while: { _ in true }))) ?? ""
+        let slice = String(outline.prefix(700))
+        try expect(slice.contains("RoundedRectangle("), "one rounded-rectangle shape")
+        try expect(slice.contains("cornerRadius: Design.answerHoverCornerRadius,"),
+                   "the shape uses the centralized radius token")
+        try expect(slice.contains("style: .continuous"), "continuous corners")
+        try expect(slice.contains("Color(nsColor: Design.caretColor)"), "caret/reference blue")
+        try expect(slice.contains("lineWidth: Design.answerHoverLineWidth"),
+                   "the shared 3 pt stroke width")
+        try expect(slice.contains(".stroke("), "STROKE only")
+        try expect(!slice.contains(".fill("), "no fill")
+        try expect(!slice.contains("Capsule"), "never a capsule")
+        try expect(!slice.contains("scaleEffect"), "never scaled")
+        // Near-full-width, measured geometry, and presentation-only.
+        try expect(slice.contains("width: width - Design.answerHoverEdgeInset * 2"),
+                   "the actual width minus the fixed edge inset")
+        try expect(slice.contains("height: height"), "the measured one-line height")
+        try expect(slice.contains(".position(x: width / 2, y: centerY)"),
+                   "centered on the measured baseline geometry")
+        try expect(slice.contains(".allowsHitTesting(false)"),
+                   "the overlay never intercepts input")
+        // The geometry the outline is fed is still the pure, tested helper.
+        let g = AnswerBaseline.hoverOutline(
+            baseline: 28, rowHeight: 28, naturalHeight: 16.79, capHeight: 11.42)
+        try expectEqual(g.height, 16.79, "the one-line height rule is unchanged")
+        try expectClose(g.centerY, 28 - 11.42 / 2, 0.001, "ink centerline unchanged")
+    },
 ]

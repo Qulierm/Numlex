@@ -188,7 +188,9 @@ enum Design {
     /// geometry constants below are the
     /// ONLY tuning knobs (tuned against the reference screenshot in QA).
     static let answerHoverLineWidth: CGFloat = 3
-    static let answerHoverCornerRadius: CGFloat = 10
+    /// Restrained continuous corners: the outline reads as a rounded
+    /// rectangle around the answer, never as a pill/capsule.
+    static let answerHoverCornerRadius: CGFloat = 6
     /// Horizontal inset from the panel edge: near-full-width stroke.
     static let answerHoverEdgeInset: CGFloat = 2
 
