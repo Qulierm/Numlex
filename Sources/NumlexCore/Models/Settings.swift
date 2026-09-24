@@ -200,6 +200,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// median). Additive and failure-proof: a missing key or a malformed
     /// value falls back to `.sum` and nothing here enters `.nlx`.
     public var footerStatistic: FooterStatistic
+    /// The main window's frame (position AND size) as last left by the
+    /// user. `nil` means "never saved" — a legacy store, or a frame that
+    /// was rejected as unusable/off-screen. Additive and failure-proof: a
+    /// missing key, a malformed block, a wrong JSON type or a
+    /// non-finite/zero/negative size all decode to `nil`, so the app keeps
+    /// its centered 800x600 default. `StorePayload.currentVersion` is NOT
+    /// bumped and nothing is migrated; app-global, never in `.nlx`.
+    public var windowFrame: SavedWindowFrame?
+    /// Whether the main window's sidebar is shown. Defaults to `true`,
+    /// the expanded sidebar every build before this one launched with, so
+    /// a legacy store keeps today's behavior byte-for-byte. Additive and
+    /// failure-proof: a missing key or a malformed value falls back to
+    /// `true`; `StorePayload.currentVersion` is NOT bumped; app-global,
+    /// never in `.nlx`.
+    public var sidebarVisible: Bool
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -210,13 +225,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         hideSidebarButtonWhenCollapsed: false,
         showTotalBar: true,
         fontColor: "white",
-        customUnits: []
+        customUnits: [],
+        windowFrame: nil,
+        sidebarVisible: true
 )
 
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true) {
         self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
@@ -236,6 +253,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.appIcon = appIcon
         self.tax = tax
         self.footerStatistic = footerStatistic
+        self.windowFrame = windowFrame
+        self.sidebarVisible = sidebarVisible
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -301,6 +320,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // default (unknown values decode tolerantly inside the enum).
         footerStatistic = (try? c.decodeIfPresent(FooterStatistic.self,
                                                   forKey: .footerStatistic)) ?? .sum
+        // Window frame and sidebar visibility: additive and
+        // failure-proof — a missing key (a legacy store), a wrong JSON
+        // type or a non-finite/zero/negative size all fall back to
+        // `nil` / `true`, which is exactly the behavior every earlier
+        // build had (centered 800x600, sidebar expanded). StorePayload
+        // version is NOT bumped and nothing is migrated.
+        windowFrame = (try? c.decodeIfPresent(SavedWindowFrame.self, forKey: .windowFrame))
+            .flatMap { $0.hasUsableSize ? $0 : nil }
+        sidebarVisible = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarVisible)) ?? true
     }
 
     public var fontSize: Double {

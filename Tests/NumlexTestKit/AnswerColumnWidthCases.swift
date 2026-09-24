@@ -477,8 +477,34 @@ public let answerColumnWidthCases: [EngineCase] = [
             throw CaseFailure(message: "assignment-before-persist order not found", location: "AnswerWidth")
         }
         _ = persistIdx
-        try expectEqual(c.components(separatedBy: "model.persist()").count - 1, 1,
-                        "the drag end is the ONLY persist site in ContentView")
+        // ContentView has exactly THREE persist sites: this drag end, the
+        // sidebar shown/hidden write-back and the settled-window-frame save
+        // (both added by the window-restore change). NONE is per-frame —
+        // each sits behind its own equality guard, so a no-op change writes
+        // nothing. All three guards are pinned here, which is what the count
+        // exists to protect.
+        let persistSites = c.components(separatedBy: "model.persist()").count - 1
+        try expectEqual(persistSites, 3,
+                        "ContentView has exactly three guarded persist sites")
+        try expect(c.contains("if changed { model.persist() }"),
+                   "the drag-end persist stays behind the drag-start comparison")
+        try expect(c.contains("guard model.settings.sidebarVisible != visible else { return }"),
+                   "the sidebar persist stays behind its own equality guard")
+        try expect(c.contains("guard model.settings.windowFrame != settled else { return }"),
+                   "the frame persist stays behind its own equality guard")
+        try expect(!c.contains("onChange(of: answerColumnWidth)"),
+                   "no per-frame persist on a width change")
+        try expect(!c.contains("onChange(of: answerColumnWidth)"),
+                   "no per-frame persist on a width change")
+        // The move/resize observers only RESCHEDULE the coalescing task —
+        // they never call persist themselves.
+        if let moves = c.range(of: "for name in [NSWindow.didMoveNotification") {
+            let observers = String(c[moves.lowerBound...])
+            try expect(observers.contains("coord.scheduleFrameSettle(window: window, immediate: false)"),
+                       "a move notification only schedules the settled save")
+        } else {
+            throw CaseFailure(message: "the frame observers are missing", location: "AnswerWidth")
+        }
         // The Settings slider persists once on release, never per tick.
         let settings = try answerWidthSource("Sources/NumlexApp/Views/SettingsView.swift")
         guard let sliderStart = settings.range(of: "in: AnswerColumnGeometry.minWidth...AnswerColumnGeometry.maxWidth")

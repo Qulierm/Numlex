@@ -227,8 +227,14 @@ struct NumlexApp: App {
         .windowStyle(.titleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: 800, height: 600)
-        // The window opens at the designed size instead of resurrecting a
-        // stale frame from the previous session's state restoration.
+        // SwiftUI's own state restoration stays DISABLED deliberately:
+        // the frame and sidebar state are restored from the settings store
+        // (`AppSettings.windowFrame` / `.sidebarVisible`) by ContentView's
+        // launch path, and there must be exactly ONE restore source. A
+        // stale SwiftUI-restored frame would compete with it (and could
+        // still sit off-screen). No frame-autosave name is registered on
+        // the window either, for exactly the same reason: the settings
+        // store is the only place a frame is remembered.
         .restorationBehavior(.disabled)
         .commands {
             // Secure in-app updates (Sparkle 2.9.6): the standard

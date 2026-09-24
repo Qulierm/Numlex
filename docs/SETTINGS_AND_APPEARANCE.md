@@ -525,6 +525,7 @@ lines without an answer — headings, comments, prose — can be highlighted too
 | --- | --- |
 | Answer column width | adjustable, 140–400 pt (default 200 pt); capped by the window so the editor keeps at least 280 pt |
 | Line-number gutter | with line numbers on: 54 pt indent (36 pt gutter + 18 pt leading); hidden: 18 pt — the gutter is fully reclaimed, and toggling never accumulates drift |
+| Main window frame and sidebar | the frame (position AND size) and the sidebar's shown/hidden state are restored from the settings store on every launch — the saved frame is applied as-is, and restoring never resizes or shifts the window. It is accepted only when it still overlaps a connected screen's visible area by at least **100 pt in both dimensions**; otherwise the app keeps the centered 800×600 default with an expanded sidebar |
 | Total bar vs inline `total` | the bottom Total panel is dimension-agnostic: it sums the evaluated magnitude of every ordinary scalar answer row once (unitless numbers, unit-bearing quantities such as `2 kg`, money such as `$3`, named scalars and exact integers) into one plain unitless value — no unit conversion, no FX normalization and no unit/currency suffix — and excludes inline `total` rows so the two never double-count; inline `total` lines are a separate section-scoped command that is always active and still sums only unitless scalars |
 
 ## Persistence
@@ -534,6 +535,13 @@ lines without an answer — headings, comments, prose — can be highlighted too
 - Sheet-level data (per-answer overrides, line highlights, sheet content) lives
   with the sheet and its `.nlx` export.
 - Constants and custom units are app-global and are never embedded in `.nlx`.
+- The main window frame and the sidebar's shown/hidden state are app-global
+  persisted values written additively: a store from an earlier build has
+  neither key and behaves exactly as before (centered 800×600, sidebar
+  expanded), the store version is **not** bumped and nothing is migrated.
+  The frame is written only when window motion settles (or on quit) and only
+  when it actually changed; the sidebar state is written once per real
+  change.
 
 While the welcome reveal owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.
 

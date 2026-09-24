@@ -4,6 +4,18 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     var model: AppModel
+
+    /// ContentView is constructed exactly ONCE, as `ContentView(model:)`,
+    /// so this is the only place the restored sidebar visibility can be
+    /// seeded — and it MUST be seeded here. `WindowConfigurator.makeNSView`
+    /// records `lastVisibility = columnVisibility`, so the restored value
+    /// is the FIRST visibility the coordinator ever sees and the first
+    /// `updateNSView` hits its unchanged-visibility guard: a window restored
+    /// with a hidden sidebar is therefore never resized on launch.
+    init(model: AppModel) {
+        self.model = model
+        _columnVisibility = State(initialValue: model.settings.sidebarVisible ? .all : .detailOnly)
+    }
     /// The EFFECTIVE color scheme: `.system` (Auto) follows macOS here,
     /// and the pinned modes are forced by the root's
     /// `preferredColorScheme`, so this single environment read is the
@@ -697,7 +709,8 @@ struct ContentView: View {
             sidebarWidth: sidebarWidth,
             reduceMotion: reduceMotion,
             hideSidebarButtonWhenCollapsed: model.settings.hideSidebarButtonWhenCollapsed,
-            forceHideSidebarButton: sidebarToggleHiddenForWelcome
+            forceHideSidebarButton: sidebarToggleHiddenForWelcome,
+            onWindowFrameSettled: rememberWindowFrame
         ))
         // Reset the editor-bound state when the selected SHEET ID changes,
         // not only the numeric index: deleting the selected non-last row
@@ -798,19 +811,43 @@ struct ContentView: View {
             Task { @MainActor in
                 await model.loadRates()
                 // The main window may not be key during the first layout
-                // pass (and a stale autosaved frame can sit off-screen);
-                // retry a few times so the designed default size and
-                // centered position always apply on launch.
+                // pass, so retry a few times before touching its frame.
+                //
+                // Restore-then-fallback: the frame and the sidebar state
+                // come from the SETTINGS store (the single source — SwiftUI
+                // state restoration stays disabled). When the saved frame
+                // still meaningfully overlaps a connected screen it is
+                // applied AS-IS: no `setContentSize`, no re-centering and
+                // no sidebar-driven resize, so a window left in a corner
+                // comes back exactly where the user put it. Otherwise —
+                // a legacy store with no saved frame, or a frame that is
+                // off-screen/garbage — the long-standing fallback below
+                // runs unchanged (centered 800x600 on the PRIMARY display).
                 for _ in 0..<15 {
                     if let window = NSApp.keyWindow
                         ?? NSApp.windows.first(where: { $0.isVisible }) {
-                        // r59: the designed default CONTENT size
+                        let restoredVisibility = model.settings.sidebarVisible
+                        let minSize = WindowConfigurator.minFrameSize(
+                            for: window, sidebarVisible: restoredVisibility)
+                        let restored = MainWindowGeometry.restoredFrame(
+                            saved: model.settings.windowFrame,
+                            visibleFrames: NSScreen.screens.map(\.visibleFrame),
+                            minimumSize: minSize)
+                        if let restored {
+                            // Floor FIRST, then the frame: a restored
+                            // collapsed window must not be clamped by the
+                            // wider expanded floor on its way in.
+                            window.minSize = minSize
+                            window.setFrame(restored, display: true)
+                            break
+                        }
+                        // r59 fallback: the designed default CONTENT size
                         // (MainWindowGeometry). window.center() is a no-op
                         // when the window is fully off another display
                         // (its screen is nil), so the frame is placed
                         // explicitly in the visible area of the PRIMARY
                         // display (screens.first), never a secondary one a
-                        // stale autosaved frame may have pointed to.
+                        // stale saved frame may have pointed to.
                         window.setContentSize(NSSize(width: MainWindowGeometry.defaultContentWidth,
                                                    height: MainWindowGeometry.defaultContentHeight))
                         let primary = NSScreen.screens.first
@@ -833,6 +870,38 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: columnVisibility) { _, visibility in
+            // Persist the sidebar's shown/hidden state — in memory first,
+            // then ONE store write, and only when it actually differs, so
+            // a no-op change never touches the disk (the answer-column
+            // width drag follows the same discipline). The launch restore
+            // above seeds the state FROM this setting, so it never writes
+            // back the value it just read.
+            let visible = visibility == .all
+            guard model.settings.sidebarVisible != visible else { return }
+            model.settings.sidebarVisible = visible
+            model.persist()
+        }
+    }
+    /// Remember the frame the user left the window in.
+    ///
+    /// Called only when the motion has SETTLED (the coordinator coalesces
+    /// the notification storm) or on termination. Two guards keep writes
+    /// rare: the rect is rounded to whole points so sub-point float churn
+    /// cannot fake a change, and the rounded value is compared against the
+    /// stored one — a settle that reproduces the stored frame writes
+    /// NOTHING. That comparison is also why the launch restore needs no
+    /// suppression flag: the programmatic `setFrame` moves the window to
+    /// the very frame that was just restored from the store, so the
+    /// resulting notification resolves to an equal value and is dropped.
+    private func rememberWindowFrame(_ frame: CGRect) {
+        let settled = SavedWindowFrame(x: frame.origin.x.rounded(),
+                                       y: frame.origin.y.rounded(),
+                                       width: frame.size.width.rounded(),
+                                       height: frame.size.height.rounded())
+        guard model.settings.windowFrame != settled else { return }
+        model.settings.windowFrame = settled
+        model.persist()
     }
 }
 
@@ -865,6 +934,12 @@ private struct WindowConfigurator: NSViewRepresentable {
     /// HIDE the item — never force it visible against the user's setting.
     var forceHideSidebarButton: Bool
 
+    /// Called with the window's frame once a move/resize has SETTLED (or
+    /// on termination). Coalesced by the coordinator — a window move posts
+    /// many notifications and must never persist per frame; ContentView
+    /// deduplicates against the stored value on top of that.
+    var onWindowFrameSettled: (CGRect) -> Void
+
     /// ONE definition of the effective rule, used by every path (make,
     /// update, key re-assert and the toolbar item observer).
     @MainActor
@@ -881,8 +956,8 @@ private struct WindowConfigurator: NSViewRepresentable {
     /// would leave LESS than 260 pt of content. Widths stay the
     /// long-standing frame floors (800 expanded / 600 collapsed).
     @MainActor
-    private static func minFrameSize(for window: NSWindow,
-                                     sidebarVisible: Bool) -> NSSize {
+    static func minFrameSize(for window: NSWindow,
+                             sidebarVisible: Bool) -> NSSize {
         let probe = window.frameRect(forContentRect: NSRect(
             x: 0, y: 0, width: 100,
             height: MainWindowGeometry.minContentHeight))
@@ -908,6 +983,38 @@ private struct WindowConfigurator: NSViewRepresentable {
         /// hidden immediately instead of flashing. Removed in dismantle.
         var itemObserver: NSObjectProtocol?
 
+        /// Latest settle callback (refreshed on every updateNSView, so it
+        /// never captures a stale model).
+        var onFrameSettled: ((CGRect) -> Void)?
+        /// The coalescing task: each new notification cancels and
+        /// reschedules it, so the closure runs once after the motion stops.
+        var frameSettleTask: Task<Void, Never>?
+        /// Observers for the settle sources and the termination backstop.
+        var frameObservers: [NSObjectProtocol] = []
+
+        /// How long the window must be still before a move/resize counts
+        /// as settled. Long enough to swallow the notification storm a
+        /// single drag produces, short enough to beat a quick quit.
+        static let frameSettleDelay: Duration = .milliseconds(400)
+
+        /// Coalesce: cancel the pending settle and schedule a fresh one.
+        @MainActor
+        func scheduleFrameSettle(window: NSWindow, immediate: Bool) {
+            frameSettleTask?.cancel()
+            guard !immediate else {
+                // Termination backstop: the app is going away, so the
+                // frame must be handed over NOW rather than after a delay.
+                frameSettleTask = nil
+                onFrameSettled?(window.frame)
+                return
+            }
+            frameSettleTask = Task { @MainActor [weak window] in
+                try? await Task.sleep(for: Coordinator.frameSettleDelay)
+                guard !Task.isCancelled, let window else { return }
+                onFrameSettled?(window.frame)
+            }
+        }
+
         @MainActor
         func reapply(to window: NSWindow?) {
             guard let window else { return }
@@ -927,7 +1034,11 @@ private struct WindowConfigurator: NSViewRepresentable {
         context.coordinator.forcedHide = forceHideSidebarButton
         Task { @MainActor in
             guard let window = view.window else { return }
-            window.minSize = Self.minFrameSize(for: window, sidebarVisible: true)
+            // The FIRST floor must match the visibility actually being
+            // rendered: a restored-collapsed launch would otherwise clamp
+            // the restored frame against the wider expanded floor.
+            window.minSize = Self.minFrameSize(for: window,
+                                               sidebarVisible: columnVisibility == .all)
             applyNoSeparatorChrome(to: window)
             // r61: the toolbar is installed after this make pass, so
             // apply now (in case it already exists) plus one bounded
@@ -969,6 +1080,28 @@ private struct WindowConfigurator: NSViewRepresentable {
                     coord.reapply(to: view.window)
                 }
             }
+            // Remember the frame the user leaves behind. A drag posts a
+            // long stream of these notifications, so each one only
+            // RESCHEDULES the coalescing task (see `scheduleFrameSettle`);
+            // the closure runs once, after the window is still. The
+            // termination observer is the backstop for a move-and-quit,
+            // where the debounce would never fire. Both are filtered to
+            // THIS window and removed in dismantleNSView.
+            for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification] {
+                coord.frameObservers.append(
+                    NotificationCenter.default.addObserver(forName: name, object: window,
+                                                           queue: .main) { _ in
+                        Task { @MainActor in coord.scheduleFrameSettle(window: window, immediate: false) }
+                    }
+                )
+            }
+            coord.frameObservers.append(
+                NotificationCenter.default.addObserver(
+                    forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+                ) { _ in
+                    Task { @MainActor in coord.scheduleFrameSettle(window: window, immediate: true) }
+                }
+            )
         }
         return view
     }
@@ -982,16 +1115,25 @@ private struct WindowConfigurator: NSViewRepresentable {
         coord.hidePreference = hideSidebarButtonWhenCollapsed
         coord.collapsed = columnVisibility != .all
         coord.forcedHide = forceHideSidebarButton
+        coord.onFrameSettled = onWindowFrameSettled
         if let window = nsView.window {
             let w = window
-            Task { @MainActor in coord.reapply(to: w) }
+            // The ONE authoritative `minSize` assignment. It sits BEFORE
+            // the visibility guard so the floor is always correct — on a
+            // restored-collapsed launch as much as on a toggle — while the
+            // guard below still suppresses the width resize itself.
+            // Recomputing the same size is idempotent, so this is free.
+            Task { @MainActor in
+                window.minSize = Self.minFrameSize(for: window,
+                                                   sidebarVisible: columnVisibility == .all)
+                coord.reapply(to: w)
+            }
         }
         guard coord.lastVisibility != columnVisibility else { return }
         let nowVisible = columnVisibility == .all
         coord.lastVisibility = columnVisibility
         Task { @MainActor in
             guard let window = nsView.window else { return }
-            window.minSize = Self.minFrameSize(for: window, sidebarVisible: nowVisible)
             let frame = window.frame
             let edge = SidebarWindowGeometry.Edge(originX: frame.minX, width: frame.width)
             let screenVisible: ClosedRange<CGFloat>? = window.screen.map {
@@ -1026,6 +1168,12 @@ private struct WindowConfigurator: NSViewRepresentable {
             NotificationCenter.default.removeObserver(obs)
             coordinator.itemObserver = nil
         }
+        for obs in coordinator.frameObservers {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        coordinator.frameObservers.removeAll()
+        coordinator.frameSettleTask?.cancel()
+        coordinator.frameSettleTask = nil
     }
 }
 

@@ -223,4 +223,208 @@ public let r61Cases: [EngineCase] = [
         try expectEqual(MainWindowGeometry.defaultContentHeight, 600,
                         "default height still 600")
     },
+
+    EngineCase("r61-window-restore-launch-contract") {
+        // The launch path restores the SAVED frame from the settings
+        // store (the single restore source) and keeps the long-standing
+        // centered fallback for a legacy store or an unusable frame.
+        let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        let app = try r61ReadSource("Sources/NumlexApp/NumlexApp.swift")
+        // The restored sidebar visibility is the FIRST value the
+        // coordinator sees, so the first updateNSView hits the guard and
+        // performs no launch resize.
+        try expect(view.contains(
+            "_columnVisibility = State(initialValue: model.settings.sidebarVisible ? .all : .detailOnly)"),
+            "ContentView seeds the sidebar visibility from the saved setting")
+        try expect(view.contains("init(model: AppModel) {"),
+                   "the seeding happens in the one explicit initializer")
+        try expect(view.contains("context.coordinator.lastVisibility = columnVisibility"),
+                   "makeNSView records the RESTORED visibility as the first value")
+        // The pure restore rule decides, with the live screens.
+        try expect(view.contains("let restored = MainWindowGeometry.restoredFrame("),
+                   "the launch path calls the pure restore rule")
+        try expect(view.contains("saved: model.settings.windowFrame"),
+                   "the saved frame is the input")
+        try expect(view.contains("visibleFrames: NSScreen.screens.map(\\.visibleFrame)"),
+                   "every connected screen's visible frame is the input")
+        try expect(view.contains("let minSize = WindowConfigurator.minFrameSize("),
+                   "the visibility floor is computed from the restored state")
+        // Saved frame: floor first, then applied AS-IS — no setContentSize,
+        // no centering, no sidebar-driven resize.
+        guard let branch = view.range(of: "if let restored {") else {
+            throw CaseFailure(message: "the saved-frame branch is missing", location: "R61Cases")
+        }
+        let afterBranch = String(view[branch.upperBound...])
+        guard let fallback = afterBranch.range(of: "// r59 fallback:") else {
+            throw CaseFailure(message: "the fallback branch is missing", location: "R61Cases")
+        }
+        let savedBranch = String(afterBranch[..<fallback.lowerBound])
+        try expect(savedBranch.contains("window.minSize = minSize"),
+                   "the restored floor is set BEFORE the frame is applied")
+        try expect(savedBranch.contains("window.setFrame(restored, display: true)"),
+                   "the saved frame is applied as-is")
+        try expect(!savedBranch.contains("setContentSize"),
+                   "the saved frame is never re-sized to the default content size")
+        try expect(!savedBranch.contains("window.center()"),
+                   "the saved frame is never re-centered")
+        // Fallback: today's exact primary-display centering + 800x600.
+        let fallbackBlock = String(afterBranch[fallback.lowerBound...])
+        try expect(fallbackBlock.contains("window.setContentSize(NSSize(width: MainWindowGeometry.defaultContentWidth,"),
+                   "the fallback keeps the designed 800x600 content size")
+        try expect(fallbackBlock.contains("let primary = NSScreen.screens.first"),
+                   "the fallback keeps the PRIMARY display rule")
+        try expect(fallbackBlock.contains("window.center()"),
+                   "the fallback keeps the center() last resort")
+        // Exactly ONE restore source: SwiftUI restoration stays off and no
+        // frame-autosave name is registered anywhere in the app target.
+        try expect(app.contains(".restorationBehavior(.disabled)"),
+                   "SwiftUI state restoration stays disabled")
+        try expect(!app.contains("setFrameAutosaveName"),
+                   "no frame-autosave name competes with the store")
+        try expect(!view.contains("setFrameAutosaveName"),
+                   "no frame-autosave name in ContentView either")
+    },
+    EngineCase("r61-window-frame-floor-precedes-visibility-guard") {
+        // The visibility floor must be correct even when the guard
+        // suppresses the width resize — a restored-collapsed launch
+        // depends on it.
+        let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        guard let floor = view.range(of: "window.minSize = Self.minFrameSize(for: window,"),
+              let guardRange = view.range(
+                of: "guard coord.lastVisibility != columnVisibility else { return }")
+        else {
+            throw CaseFailure(message: "floor or guard missing", location: "R61Cases")
+        }
+        try expect(floor.lowerBound < guardRange.lowerBound,
+                   "minSize is assigned BEFORE the visibility guard")
+        // ...and the post-guard resize block no longer duplicates it.
+        let afterGuard = String(view[guardRange.upperBound...])
+        try expect(!afterGuard.contains("minSize = Self.minFrameSize"),
+                   "the post-guard block has no duplicate minSize assignment")
+        try expect(afterGuard.contains("window.setFrame"),
+                   "the post-guard block still performs the width resize")
+        // makeNSView uses the ACTUAL visibility, not a hard-coded true.
+        try expect(view.contains("sidebarVisible: columnVisibility == .all"),
+                   "both minFrameSize calls use the real visibility")
+        try expect(!view.contains("minFrameSize(for: window, sidebarVisible: true)"),
+                   "the hard-coded expanded floor is gone")
+        // The existing guard line and its ordering with the hidden-state
+        // apply are untouched (r61-configurator-preference-input).
+        guard let apply = view.range(of: "coord.reapply(to: w)") else {
+            throw CaseFailure(message: "the hidden-state apply is missing", location: "R61Cases")
+        }
+        try expect(apply.lowerBound < guardRange.lowerBound,
+                   "the hidden-state apply still precedes the guard")
+    },
+    EngineCase("r61-sidebar-visibility-persists-once-per-change") {
+        // The sidebar's shown/hidden state is persisted with ONE guarded
+        // write — a no-op change never touches the disk.
+        let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        try expect(view.contains(".onChange(of: columnVisibility)"),
+                   "the sidebar state is observed")
+        try expect(view.contains("guard model.settings.sidebarVisible != visible else { return }"),
+                   "the write is behind an equality guard")
+        try expect(view.contains("model.settings.sidebarVisible = visible"),
+                   "the setting is updated in memory first")
+        // Bound the slice at the NEXT member declaration, so the count
+        // below is about the sidebar write-back alone and cannot be
+        // satisfied by an unrelated writer elsewhere in the type.
+        guard let change = view.range(of: ".onChange(of: columnVisibility)"),
+              let end = view.range(of: "/// Remember the frame the user left the window in.",
+                                   range: change.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "the sidebar observer block is not delimited",
+                              location: "R61Cases")
+        }
+        // The observer runs to the end of ContentView's body (the next
+        // file-scope declaration bounds it), so the count below is about
+        // the sidebar write-back specifically — not the whole file.
+        let observer = String(view[change.lowerBound..<end.lowerBound])
+        try expectEqual(observer.components(separatedBy: "model.persist()").count - 1, 1,
+                        "exactly one persist in the sidebar observer")
+        guard let guardRange = observer.range(
+                of: "guard model.settings.sidebarVisible != visible else { return }"),
+              let persistRange = observer.range(of: "model.persist()") else {
+            throw CaseFailure(message: "guard or persist missing from the observer",
+                              location: "R61Cases")
+        }
+        try expect(guardRange.lowerBound < persistRange.lowerBound,
+                   "the equality guard precedes the one persist")
+        try expect(!observer.contains("Task.sleep"),
+                   "the sidebar write is not debounced-per-frame either")
+    },
+
+    EngineCase("r61-window-frame-saved-on-settled-motion") {
+        // A window move posts a long stream of notifications, so the
+        // coordinator only RESCHEDULES a coalescing task and the write
+        // happens once, after the motion stops — the answer-column width
+        // drag discipline, applied to the frame.
+        let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        // The settle callback is an input, refreshed on every update so it
+        // can never capture a stale model.
+        try expect(view.contains("var onWindowFrameSettled: (CGRect) -> Void"),
+                   "the configurator declares the settle callback input")
+        try expect(view.contains("onWindowFrameSettled: rememberWindowFrame"),
+                   "the call site wires the live ContentView handler")
+        try expect(view.contains("coord.onFrameSettled = onWindowFrameSettled"),
+                   "the coordinator is refreshed with the latest callback")
+        // Both motion sources plus the termination backstop.
+        try expect(view.contains("for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification]"),
+                   "moves and live-resize ends are both observed")
+        try expect(view.contains("forName: NSApplication.willTerminateNotification"),
+                   "termination is observed as the move-and-quit backstop")
+        // Coalescing, not per-notification writes.
+        guard let sched = view.range(of: "func scheduleFrameSettle(window: NSWindow, immediate: Bool)") else {
+            throw CaseFailure(message: "the coalescing entry point is missing", location: "R61Cases")
+        }
+        let scheduler = String(view[sched.lowerBound...])
+        guard let nextMember = scheduler.range(of: "\n    }\n") else {
+            throw CaseFailure(message: "the coalescing body is not delimited", location: "R61Cases")
+        }
+        let body = String(scheduler[..<nextMember.upperBound])
+        try expect(body.contains("frameSettleTask?.cancel()"),
+                   "each new notification cancels the pending settle")
+        try expect(body.contains("onFrameSettled?(window.frame)"),
+                   "the pending settle hands over the CURRENT frame")
+        try expectEqual(body.components(separatedBy: "onFrameSettled?(").count - 1, 2,
+                        "handled exactly twice: the immediate path and the settled path")
+        try expect(body.contains("Task.sleep(for: Coordinator.frameSettleDelay)"),
+                   "the settled path is delayed, not immediate")
+        try expect(!body.contains("model.persist()"),
+                   "the scheduler itself never persists")
+        try expect(view.contains("static let frameSettleDelay: Duration = .milliseconds(400)"),
+                   "the debounce window is a named constant")
+        // The observer closures only reschedule.
+        guard let moves = view.range(of: "for name in [NSWindow.didMoveNotification") else {
+            throw CaseFailure(message: "the motion observers are missing", location: "R61Cases")
+        }
+        let observers = String(view[moves.lowerBound...])
+        try expect(observers.contains("coord.scheduleFrameSettle(window: window, immediate: false)"),
+                   "a motion notification only schedules")
+        try expect(observers.contains("coord.scheduleFrameSettle(window: window, immediate: true)"),
+                   "termination schedules immediately")
+        // The write path compares BEFORE persisting, and rounds first.
+        guard let write = view.range(of: "private func rememberWindowFrame(_ frame: CGRect)") else {
+            throw CaseFailure(message: "the write path is missing", location: "R61Cases")
+        }
+        let writer = String(view[write.lowerBound...])
+        guard let compare = writer.range(of: "guard model.settings.windowFrame != settled else { return }"),
+              let persist = writer.range(of: "model.persist()") else {
+            throw CaseFailure(message: "the comparison or the write is missing", location: "R61Cases")
+        }
+        try expect(compare.lowerBound < persist.lowerBound,
+                   "the stored-frame comparison precedes the single persist")
+        try expect(writer.contains("frame.origin.x.rounded()"),
+                   "the settled rect is rounded to whole points first")
+        try expectEqual(writer.components(separatedBy: "model.persist()").count - 1, 1,
+                        "exactly one persist in the write path")
+        // Teardown removes every new observer and cancels the task.
+        guard let dismantle = view.range(of: "func dismantleNSView(") else {
+            throw CaseFailure(message: "dismantleNSView is missing", location: "R61Cases")
+        }
+        let teardown = String(view[dismantle.lowerBound...])
+        try expect(teardown.contains("for obs in coordinator.frameObservers"),
+                   "the new observers are removed on teardown")
+        try expect(teardown.contains("coordinator.frameSettleTask?.cancel()"),
+                   "a pending settle is cancelled on teardown")
+    },
 ]
