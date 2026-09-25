@@ -17,26 +17,26 @@ for its subtree).
 - Prefer existing precedent: most contracts are pinned by tests, usually pure
   engine cases or source-contract cases.
 
-## Snapshot (2026-09-19)
+## Snapshot (2026-09-25)
 
 These facts **age** — re-verify with git and the release endpoints before
 relying on them, especially before any release task.
 
 | Fact | Value |
 | --- | --- |
-| App version (`Sources/NumlexApp/Resources/Info.plist`) | `4.9.4` (`CFBundleShortVersionString` = `CFBundleVersion`) |
-| App release commit | `8a710bb6e5e27bee2fb814367017221741c07531` (release commit of annotated tag `4.9.4`; `main` moves ahead of it with the documentation snapshot commit) |
-| Current release | GitHub [Qulierm/Numlex `4.9.4`](https://github.com/Qulierm/Numlex/releases/tag/4.9.4), annotated tag `4.9.4` (peels to `8a710bb`), release id `RE_kwDOMGYWT84XYE1x`, published `2026-09-19T19:21:19Z` |
-| Release DMG | `Numlex-4.9.4-macOS-arm64.dmg`, 10,755,419 bytes, SHA-256 `bc4f6a9a6cf38df2eb9f712c56922d113a52591655028a898f7dee5a45d1febf` |
-| `SHA256SUMS` asset | 95 bytes, digest `sha256:e6970dab81818207f5d965eb95cc8144c5338c36b39a266b92c94dd30a47058f` |
-| Engine suite | 1402/1402 (observed 2026-09-19; runner output is authoritative) |
-| Website (`../NumlexWeb`) HEAD | `56538d82d752d453e2dd92abec275dfd104bec42` (private repo) |
-| Homebrew tap HEAD | `adbab918f596ebf92003c521e4d5a081a3c5de18` |
-| Release notes / feed | <https://numlex.tech/Numlex-4.9.4-macOS-arm64.md> · <https://numlex.tech/appcast.xml> |
-| Previous release (historical) | `4.9.3` at `2e034c3b915892266782091c471e3050c533f7cb`, DMG `fc48cd3cab9cd00e5f53e19c32380f1255f5765f9f3a4b4e6ade6b4ad7a6f46a` (10,752,649 bytes) — immutable |
+| App version (`Sources/NumlexApp/Resources/Info.plist`) | `4.9.5` (`CFBundleShortVersionString` = `CFBundleVersion`) |
+| App release commit | `43b09398d9d757506946b318145e35ac61c9786c` (release commit of annotated tag `4.9.5`) |
+| Current release | GitHub [Qulierm/Numlex `4.9.5`](https://github.com/Qulierm/Numlex/releases/tag/4.9.5), annotated tag `4.9.5` (peels to `43b0939`), release id `RE_kwDOMGYWT84Xoloc`, published `2026-09-25T10:34:41Z` |
+| Release DMG | `Numlex-4.9.5-macOS-arm64.dmg`, 10,796,720 bytes, SHA-256 `47228bb2ce0e45be294b529a5b879df2b51d07a7d9c34ea898176729c48861b9` |
+| `SHA256SUMS` asset | 95 bytes, digest `sha256:c3506f90aa034013f1f45bc5cc53743020929febd95aa141f9690dfdb2647306` |
+| Engine suite | 1429/1429 (observed 2026-09-25; runner output is authoritative) |
+| Website (`../NumlexWeb`) HEAD | `01d0650822d818fbd669cd54ecd7b9a79d3f1abf` (private repo) |
+| Homebrew tap HEAD | `011bedf8006c9b4766d019efc62e6d814a177584` |
+| Release notes / feed | <https://numlex.tech/Numlex-4.9.5-macOS-arm64.md> · <https://numlex.tech/appcast.xml> |
+| Previous release (historical) | `4.9.4.1` at `92db3d3d5f4a2787610c6d086cbb68927f91db31`, DMG `744fc564df6802db8ebb6fa9d3da5081a28d17b8a73593b5e4b006497ea7b4ee` (10,792,648 bytes) — immutable |
 
 Verify with: `git rev-parse HEAD && git ls-remote origin main`,
-`gh release view 4.9.4 --repo Qulierm/Numlex --json assets`,
+`gh release view 4.9.5 --repo Qulierm/Numlex --json assets`,
 `swift run NumlexTests | tail -1`.
 
 ---
@@ -675,21 +675,23 @@ Immutable history:
 
 ## 3.8 Release snapshot (non-authoritative, time-stamped)
 
-At 2026-09-19: current release **4.9.4** at release commit
-`8a710bb6e5e27bee2fb814367017221741c07531` (annotated tag `4.9.4`); DMG
-`Numlex-4.9.4-macOS-arm64.dmg` (10,755,419 bytes, SHA-256
-`bc4f6a9a6cf38df2eb9f712c56922d113a52591655028a898f7dee5a45d1febf`);
-`SHA256SUMS` digest `e6970dab81818207f5d965eb95cc8144c5338c36b39a266b92c94dd30a47058f`.
-Engine suite 1402/1402. Release:
-<https://github.com/Qulierm/Numlex/releases/tag/4.9.4> · feed:
+At 2026-09-25: current release **4.9.5** at release commit
+`43b09398d9d757506946b318145e35ac61c9786c` (annotated tag `4.9.5`); DMG
+`Numlex-4.9.5-macOS-arm64.dmg` (10,796,720 bytes, SHA-256
+`47228bb2ce0e45be294b529a5b879df2b51d07a7d9c34ea898176729c48861b9`);
+`SHA256SUMS` digest `c3506f90aa034013f1f45bc5cc53743020929febd95aa141f9690dfdb2647306`.
+Engine suite 1429/1429. Release:
+<https://github.com/Qulierm/Numlex/releases/tag/4.9.5> · feed:
 <https://numlex.tech/appcast.xml> · notes:
-<https://numlex.tech/Numlex-4.9.4-macOS-arm64.md> · website:
-`56538d82d752d453e2dd92abec275dfd104bec42` · tap:
-`adbab918f596ebf92003c521e4d5a081a3c5de18`.
+<https://numlex.tech/Numlex-4.9.5-macOS-arm64.md> · website:
+`01d0650822d818fbd669cd54ecd7b9a79d3f1abf` · tap:
+`011bedf8006c9b4766d019efc62e6d814a177584`.
 
-Previous releases 4.9.0/4.9.1/4.9.2/4.9.3 remain immutable and untouched
-(4.9.3 is `2e034c3b915892266782091c471e3050c533f7cb`, DMG
-`fc48cd3cab9cd00e5f53e19c32380f1255f5765f9f3a4b4e6ade6b4ad7a6f46a`).
+Previous releases 4.9.0/4.9.1/4.9.2/4.9.3/4.9.4/4.9.4.1 remain immutable and
+untouched (4.9.4.1 is `92db3d3d5f4a2787610c6d086cbb68927f91db31`, DMG
+`744fc564df6802db8ebb6fa9d3da5081a28d17b8a73593b5e4b006497ea7b4ee`; 4.9.4 is
+`8a710bb6e5e27bee2fb814367017221741c07531`, DMG
+`bc4f6a9a6cf38df2eb9f712c56922d113a52591655028a898f7dee5a45d1febf`).
 
 Re-verify before any release task; these will go stale.
 
