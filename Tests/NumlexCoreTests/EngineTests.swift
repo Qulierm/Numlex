@@ -339,4 +339,9 @@ struct EngineTests {
     func linkedConversionCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: sheetExportCases)
+    func sheetExportCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

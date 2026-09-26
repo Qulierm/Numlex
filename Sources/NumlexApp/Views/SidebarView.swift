@@ -631,10 +631,10 @@ struct SidebarView: View {
             role: glassRole(dropTarget: false, active: isSelected),
             shape: RoundedRectangle(cornerRadius: 11, style: .continuous)))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        // Drag the row onto a bottom tab to move the sheet. The payload
-        // carries only the stable UUID (SheetDragItem), so an external
-        // drag can never move a sheet.
-        .draggable(SheetDragItem(sheetID: sheet.id))
+        // One concrete-sheet snapshot serves both destinations: the private
+        // UUID representation moves onto a Numlex folder tab, while the file
+        // representation lets Finder copy an `.nlx` without mutating Numlex.
+        .draggable(SheetDragItem(source: sheet))
         .contextMenu {
             // Move to Folder: General + every custom folder; the
             // current destination is disabled (native menu affordance).
@@ -682,14 +682,76 @@ struct SidebarView: View {
     }
 }
 
-/// The private in-app drag payload for sheet moves — carries only the
-/// STABLE sheet UUID, so an arbitrary external drag (text, files,
-/// other apps) can never match the type and move a sheet.
-struct SheetDragItem: Codable, Transferable {
+/// One sheet-row drag value with deliberately separate semantics: Numlex
+/// folder tabs consume only the private UUID representation, while Finder
+/// requests a lazily staged portable `.nlx` snapshot. Decoding the private
+/// representation never grants access to file export data.
+struct SheetDragItem: Codable, Transferable, Sendable {
     let sheetID: UUID
+    private let exportSnapshot: SheetExport?
+    /// The ONE suggested `.nlx` name of this drag, computed from the
+    /// captured sheet at drag creation. It names the staged file; the
+    /// extensionless base is what the file representation suggests (Finder
+    /// appends the type's own extension to a suggested name).
+    private let exportFilename: String?
+    private let exportSuggestedName: String?
+
+    init(source sheet: Sheet) {
+        sheetID = sheet.id
+        exportSnapshot = SheetExport(snapshotOf: sheet)
+        let base = SheetExport.suggestedFileBase(for: sheet.title)
+        exportFilename = base + ".nlx"
+        exportSuggestedName = base
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sheetID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sheetID = try container.decode(UUID.self, forKey: .sheetID)
+        exportSnapshot = nil
+        exportFilename = nil
+        exportSuggestedName = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sheetID, forKey: .sheetID)
+    }
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .numlexSheetMove)
+        FileRepresentation(exportedContentType: .nlx) { item in
+            SentTransferredFile(try item.stageExportFile())
+        }
+        .suggestedFileName { $0.exportSuggestedName }
+    }
+
+    /// Creates a unique transfer-owned staging directory only when a file
+    /// receiver asks for the representation. Finder owns the destination copy
+    /// and collision policy; this source never writes there directly.
+    private func stageExportFile() throws -> URL {
+        guard let exportSnapshot, let exportFilename else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        let fileManager = FileManager.default
+        let stagingDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: stagingDirectory,
+                                            withIntermediateDirectories: false)
+            let fileURL = stagingDirectory.appendingPathComponent(exportFilename,
+                                                                   isDirectory: false)
+            let data = try JSONEncoder().encode(exportSnapshot)
+            try data.write(to: fileURL, options: .atomic)
+            return fileURL
+        } catch {
+            try? fileManager.removeItem(at: stagingDirectory)
+            throw error
+        }
     }
 }
 

@@ -786,7 +786,7 @@ struct ContentView: View {
                 model.importSheet(from: url)
             }
         }
-        .fileExporter(isPresented: $showExport, document: NLXDocument(model: model), contentType: .nlx, defaultFilename: "\(model.selectedSheet?.title ?? "Sheet").nlx") { result in
+        .fileExporter(isPresented: $showExport, document: NLXDocument(model: model), contentType: .nlx, defaultFilename: SheetExport.suggestedFilename(for: model.selectedSheet?.title ?? "Sheet")) { result in
             if case .failure(let err) = result { print("export failed \(err)") }
         }
         // r55: weather refresh trigger — selected sheet ID plus the
@@ -1225,14 +1225,7 @@ struct NLXDocument: FileDocument {
     var export: SheetExport
     static var readableContentTypes: [UTType] { [.nlx, .json] }
     init(model: AppModel) {
-        if let s = model.sheets.indices.contains(model.selectedIndex) ? model.sheets[model.selectedIndex] : nil {
-            export = SheetExport(title: s.title, content: s.content,
-                                 isTitleCustom: s.isTitleCustom,
-                                 lineIDs: s.lineIDs, references: s.references,
-                                 answerDisplay: s.answerDisplay, highlights: s.highlights)
-        } else {
-            export = SheetExport(title: "Sheet", content: "")
-        }
+        export = model.exportCurrent() ?? SheetExport(title: "Sheet", content: "")
     }
     init(configuration: ReadConfiguration) throws {
         if let data = configuration.file.regularFileContents,

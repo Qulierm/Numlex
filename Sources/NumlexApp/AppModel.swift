@@ -1277,12 +1277,8 @@ final class AppModel {
     }
 
     func exportCurrent() -> SheetExport? {
-        guard let s = selectedSheet else { return nil }
-        return SheetExport(title: s.title, content: s.content,
-                           isTitleCustom: s.isTitleCustom,
-                           lineIDs: s.lineIDs, references: s.references,
-                           answerDisplay: s.answerDisplay,
-                           highlights: s.highlights)
+        guard let sheet = selectedSheet else { return nil }
+        return SheetExport(snapshotOf: sheet)
     }
 
     private func makeImportedSheet(_ obj: SheetExport) -> Sheet {

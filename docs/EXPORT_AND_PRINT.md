@@ -19,6 +19,27 @@ The File menu owns exactly these sheet commands:
 There is exactly one Print… item, in the standard File-menu position, and it is
 never duplicated by the system. `.nlx` and PDF are distinct, unambiguous items.
 
+### Drag a sheet to export it
+
+Dragging any sheet row from the sidebar to Finder, or to a Finder-backed Dock
+destination such as Downloads, creates an `.nlx` copy. This is non-destructive:
+the dragged sheet remains in Numlex, and its selection, content, folder
+membership, stable line IDs, answer tokens, per-answer formatting and highlights
+are unchanged.
+
+The file contains the same portable `SheetExport` snapshot as **File > Export
+Sheet (.nlx)…**: title and custom-title state, content, line IDs, answer
+references, per-answer display preferences and highlights. App-global settings
+and Numlex sidebar folders are not part of `.nlx` files.
+
+The suggested filename trims surrounding whitespace, avoids a duplicate `.nlx`
+suffix, replaces path separators and control characters, avoids hidden or dot-only
+names, limits the base to 120 extended grapheme clusters, and appends `.nlx`.
+Finder owns destination copying and filename-collision handling.
+
+Dragging a sheet onto a Numlex folder tab is a separate in-app operation: it
+moves that sheet to the folder instead of exporting a copy.
+
 ## One snapshot, one renderer
 
 When the options sheet opens, Numlex captures the selected sheet and **all**

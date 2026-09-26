@@ -293,4 +293,51 @@ public struct SheetExport: Codable, Sendable {
         self.answerDisplay = answerDisplay
         self.highlights = highlights
     }
+
+    /// The portable `.nlx` snapshot of one concrete sheet. App-local folder
+    /// membership, timestamps, title seeds and app-global settings are
+    /// deliberately outside this document boundary.
+    public init(snapshotOf sheet: Sheet) {
+        self.init(title: sheet.title,
+                  content: sheet.content,
+                  isTitleCustom: sheet.isTitleCustom,
+                  lineIDs: sheet.lineIDs,
+                  references: sheet.references,
+                  answerDisplay: sheet.answerDisplay,
+                  highlights: sheet.highlights)
+    }
+
+    /// The sanitized, Finder-safe BASE of a suggested `.nlx` name — one
+    /// non-hidden path component, capped at 120 extended grapheme clusters,
+    /// with no extension. Receivers that append the type's extension
+    /// themselves (Finder does, and `NSItemProvider.suggestedName` is
+    /// documented as extensionless) need exactly this value.
+    public static func suggestedFileBase(for title: String) -> String {
+        var base = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.lowercased().hasSuffix(".nlx") {
+            base.removeLast(4)
+            base = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        base = String(base.map { character in
+            let isControl = character.unicodeScalars.contains {
+                CharacterSet.controlCharacters.contains($0)
+            }
+            return character == "/" || character == ":" || isControl ? "-" : character
+        })
+
+        if base.isEmpty || base == "." || base == ".." {
+            base = "Sheet"
+        } else if base.hasPrefix(".") {
+            base = "-" + base.dropFirst()
+        }
+
+        return String(base.prefix(120))
+    }
+
+    /// A deterministic, Finder-safe suggested name for an `.nlx` snapshot:
+    /// the safe base plus exactly one suffix.
+    public static func suggestedFilename(for title: String) -> String {
+        suggestedFileBase(for: title) + ".nlx"
+    }
 }
