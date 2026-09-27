@@ -38,9 +38,12 @@ private func footerSurface(_ view: String) -> String {
 
 /// The footer's call site: the surface plus its fixed trailing slot,
 /// accessibility element and statistic menu.
+/// The footer's call site INSIDE the shared `footerBar` implementation
+/// (Floating Total: the reserved-space and overlay layouts render the very
+/// same view), ending at the next member so the slice stays scoped.
 private func footerSlot(_ view: String) -> String {
     footerSlice(view, from: "FooterBubbleSurface(progress:",
-                to: "// v2: the answer panel is a DARKER")
+                to: "/// Whether the footer reserves its own vertical space")
 }
 
 private func footerSlice(_ source: String, from: String, to: String) -> String {
@@ -377,7 +380,10 @@ public let footerTotalLayoutCases: [EngineCase] = [
             try expect(!view.contains(banned), "no \(banned)")
         }
         // The footer's own gate and inertness are unchanged.
-        try expect(view.contains("if showTotalBar, let s = summary {"), "the footer gate stays")
+        try expect(view.contains("if reservesFooterSpace, let s = summary {"),
+                   "the footer gate stays (reserved space)")
+        try expect(view.contains("if !reservesFooterSpace, let s = summary {"),
+                   "the overlay layout reuses the same gate")
         try expect(view.contains(".allowsHitTesting(true)"), "the answer catcher is unchanged")
     },
 

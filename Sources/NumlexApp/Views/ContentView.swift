@@ -315,7 +315,13 @@ struct ContentView: View {
             presentation: settings.presentation,
             language: settings.language,
             styling: settings.styling,
-            random: model.currentRandomContext)
+            random: model.currentRandomContext,
+            // Floating Total: the frozen statistic AND contribution
+            // policy travel with the presentation, so a full-range export
+            // prints exactly the total the sheet shows, while a range or
+            // filter applies the policy to the rows it kept.
+            footerStatistic: settings.footerStatistic,
+            footerPolicy: settings.footerContributionPolicy)
         exportOptions = exportOptions.clamped(toLineCount: context.lineCount)
         exportPresentation = ExportPresentation(
             mode: mode,
@@ -568,6 +574,13 @@ struct ContentView: View {
                                              language: settings.language),
             footerStatistic: settings.footerStatistic,
             onSetFooterStatistic: { model.setFooterStatistic($0) },
+            footerAvoidOverlap: settings.footerAvoidOverlap,
+            // Floating Total: the same frozen policy + referenced source
+            // line IDs the export snapshot uses, so the live statistic and
+            // the printed one can never disagree.
+            footerPolicy: settings.footerContributionPolicy,
+            referencedSourceLineIDs: Set((model.selectedSheet?.references ?? [])
+                .map(\.sourceLineID)),
             showTotalBar: settings.showTotalBar,
             highlightedSourceLineIndex: highlightedSourceLineIndex,
             numberContext: model.numberContext,

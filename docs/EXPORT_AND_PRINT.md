@@ -53,7 +53,14 @@ app-global evaluation and presentation contexts in one immutable snapshot:
   (`AnswerDisplay.displayText`), and persistent highlights travel by UUID too;
 - the footer Total uses `SheetFooterTotal.aggregate` over the **exported
   evaluated rows only** — never formatted-string sums, and inline `total` rows
-  are never double-counted. With the full range the Total is the live footer.
+  are never double-counted. With the full range the Total is the live footer;
+- the frozen presentation carries the **same footer statistic and the same
+  Floating Total contribution policy** (referenced source rows and variable
+  declaration rows, plus the sheet's stable line IDs and reference targets) the
+  live panel uses, so a full-range export always prints exactly the total the
+  sheet shows. A range or a filter applies that policy to the rows it kept —
+  the unexported rows can never influence the printed total, and the source
+  line numbers printed beside the rows stay their original 1-based ones.
 
 Both the PDF writer and the print operation draw that one snapshot through one
 deterministic paginated renderer. The editor view is never screenshotted,

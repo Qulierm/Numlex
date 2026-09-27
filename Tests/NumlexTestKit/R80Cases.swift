@@ -165,14 +165,19 @@ public let r80Cases: [EngineCase] = [
         // flag.
         let view = try r80ReadSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
         let occurrences = view.components(separatedBy: "showTotalBar").count - 1
-        // 1: the property, 2: the footer gate, 3: the stable `footerVisible`
-        // flag that clears the footer's presented geometry when the bar is
-        // hidden (the doc comments never repeat the identifier). Nothing
+        // 1: the property, 2: the stable `footerVisible` flag that clears
+        // the footer's presented geometry when the bar is hidden and 3: the
+        // ONE reserved-space authority shared by both Floating Total
+        // layouts (the doc comments never repeat the identifier). Nothing
         // else in the column references it.
         try expectEqual(occurrences, 3,
                         "the flag is declared once and consumed by the footer only")
-        try expect(view.contains("if showTotalBar, let s = summary {"),
-                   "the footer HStack (label + value + glass bar) is the only gated region")
+        try expect(view.contains("private var reservesFooterSpace: Bool { showTotalBar && footerAvoidOverlap }"),
+                   "one reserved-space authority owns the flag")
+        try expect(view.contains("if reservesFooterSpace, let s = summary {"),
+                   "the reserved-space layout is the only gated region")
+        try expect(view.contains("if !reservesFooterSpace, let s = summary {"),
+                   "the overlay layout is the same footer, gated identically")
         // No geometry animation on the toggle: the r62 hit surface
         // (ScrollWheelCatcher lockstep) must never chase an animated
         // frame, so the toggle snaps in a single layout pass.

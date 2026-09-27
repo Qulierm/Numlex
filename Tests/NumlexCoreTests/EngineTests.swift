@@ -349,4 +349,9 @@ struct EngineTests {
     func sheetBehaviorCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: floatingTotalCases)
+    func floatingTotalCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

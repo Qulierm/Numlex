@@ -571,6 +571,27 @@ statistics use the existing global number presentation. Derived aggregate rows
 contribute, and the default **Sum** is byte-for-byte the previous Total. A
 mis-stored or unknown value falls back to Sum.
 
+## Floating Total
+
+The General page's **Floating Total** group owns the bar itself; four controls,
+each additive and failure-proof (a store written by an earlier build has none
+of the keys and keeps the historical behavior byte-for-byte — no migration, no
+version bump, nothing in `.nlx`).
+
+| Control | Default | Behaviour |
+| --- | --- | --- |
+| Show | on | The bar's single visibility owner: OFF removes the panel and its reserved space, and inline `total` lines keep evaluating and rendering as before. |
+| Avoid overlapping answers | on | ON reserves the footer's own space under the answers (the historical layout). OFF gives the answers the full column height and draws the SAME interactive footer over the bottom edge of that viewport — the same bubble, geometry, context menu, accessibility and mode transition, in an overlay that contributes no layout extent. Row geometry, the measured line metrics, the wheel catcher and the single editor scroll source are identical in both modes; the answer pane never gains a scroll view of its own. |
+| Include referenced lines | on | Counts the source row of every answer token. OFF leaves those source rows out of the statistic; the row that SHOWS a token is a consumer, not a reference target, so it still counts. |
+| Include variable declaration lines | on | Counts `.variable` / `.variableInt` declaration rows (`x = 5`, `price = 1250`). OFF counts only the rows that use such names. |
+
+The three inclusion switches form one frozen contribution policy shared by
+**Sum**, **Average**, **Count** and **Median** — they never change which
+result kinds are eligible in the first place (inline totals and the non-scalar
+kinds stay excluded), only which eligible rows enter the set. The same frozen
+policy travels into the export/print snapshot, so a full-range PDF or print
+prints exactly the total the sheet shows.
+
 ## Bottom Total bar
 
 The sheet's bottom Total is a glass bubble in the answer panel. It shows the

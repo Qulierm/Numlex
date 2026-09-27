@@ -696,6 +696,43 @@ private struct GeneralSettingsPage: View {
                 }
             }
 
+            SettingsGroup(title: L10n.t("general.floatingTotal", language: language)) {
+                SettingsRow(
+                    title: L10n.t("showTotalBar", language: language),
+                    symbol: "sum"
+                ) {
+                    SettingsSwitch(title: L10n.t("showTotalBar", language: language),
+                                   isOn: boolBinding(\AppSettings.showTotalBar))
+                }
+                SettingsRow(
+                    title: L10n.t("footerAvoidOverlap", language: language),
+                    detail: L10n.t("footerAvoidOverlapCap", language: language),
+                    symbol: "rectangle.bottomhalf.inset.filled",
+                    divider: true
+                ) {
+                    SettingsSwitch(title: L10n.t("footerAvoidOverlap", language: language),
+                                   isOn: boolBinding(\AppSettings.footerAvoidOverlap))
+                }
+                SettingsRow(
+                    title: L10n.t("footerIncludeReferenced", language: language),
+                    detail: L10n.t("footerIncludeReferencedCap", language: language),
+                    symbol: "link",
+                    divider: true
+                ) {
+                    SettingsSwitch(title: L10n.t("footerIncludeReferenced", language: language),
+                                   isOn: boolBinding(\AppSettings.footerIncludeReferencedLines))
+                }
+                SettingsRow(
+                    title: L10n.t("footerIncludeVariables", language: language),
+                    detail: L10n.t("footerIncludeVariablesCap", language: language),
+                    symbol: "textformat.abc",
+                    divider: true
+                ) {
+                    SettingsSwitch(title: L10n.t("footerIncludeVariables", language: language),
+                                   isOn: boolBinding(\AppSettings.footerIncludeVariableLines))
+                }
+            }
+
             SettingsGroup(title: L10n.t("general.notebook", language: language)) {
                 SettingsRow(
                     title: L10n.t("linenumber", language: language),
@@ -712,14 +749,6 @@ private struct GeneralSettingsPage: View {
                 ) {
                     SettingsSwitch(title: L10n.t("hideSidebarBtn", language: language),
                                    isOn: boolBinding(\AppSettings.hideSidebarButtonWhenCollapsed))
-                }
-                SettingsRow(
-                    title: L10n.t("showTotalBar", language: language),
-                    symbol: "sum",
-                    divider: true,
-                ) {
-                    SettingsSwitch(title: L10n.t("showTotalBar", language: language),
-                                   isOn: boolBinding(\AppSettings.showTotalBar))
                 }
             }
         }

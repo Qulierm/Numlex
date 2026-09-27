@@ -170,11 +170,18 @@ public enum ExportSnapshotBuilder {
         guard hasPrintableContent else { return .failure(.noPrintableRows) }
 
         // Package 7: the footer statistic over the EXPORTED evaluated
-        // rows only, formatted exactly like the live footer.
+        // rows only, formatted exactly like the live footer. Floating
+        // Total: the SAME frozen policy + stable line IDs + referenced
+        // sources the live footer uses, so a full-range export equals the
+        // sheet, while a range/filter projection applies the policy to
+        // exactly the rows it kept.
         var total: Double? = nil
         var totalText: String? = nil
         if options.showTotal,
            let computed = SheetFooterStatistics.compute(exportedLines,
+                                                        lineIDs: rows.map(\.lineID),
+                                                        referencedSourceLineIDs: context.referencedSourceLineIDs,
+                                                        policy: context.footerPolicy,
                                                         statistic: context.footerStatistic) {
             switch computed {
             case .count(let count):

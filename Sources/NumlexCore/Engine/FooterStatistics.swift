@@ -43,10 +43,74 @@ public enum SheetFooterStatistics {
         return out
     }
 
+    /// Whether `result` is a named-scalar declaration row — the
+    /// `.variable` / `.variableInt` results the Floating Total's
+    /// "Include variable declaration lines" preference targets.
+    public static func isVariableDeclaration(_ result: LineResult) -> Bool {
+        switch result {
+        case .variable, .variableInt: return true
+        default: return false
+        }
+    }
+
+    /// The eligible contribution values under a Floating Total policy.
+    ///
+    /// `lines` and `lineIDs` are PARALLEL (one stable UUID per evaluated
+    /// row, the same table tokens and highlights use);
+    /// `referencedSourceLineIDs` is the set of
+    /// `AnswerReference.sourceLineID` values of the sheet. A row is
+    /// skipped when the policy excludes its kind — the source row of a
+    /// token, or a variable declaration. Everything else keeps the
+    /// historical `SheetFooterTotal` eligibility (derived inline total
+    /// rows, blank/title/error/date/location rows and the temporal kinds
+    /// never contribute). A missing or short `lineIDs` entry can never
+    /// crash: that row simply has no identity to match.
+    public static func contributions(_ lines: [SheetLine],
+                                     lineIDs: [UUID],
+                                     referencedSourceLineIDs: Set<UUID>,
+                                     policy: FooterContributionPolicy) -> [Double] {
+        var out: [Double] = []
+        out.reserveCapacity(lines.count)
+        for (index, line) in lines.enumerated() {
+            if !policy.includeReferencedLines,
+               index < lineIDs.count,
+               referencedSourceLineIDs.contains(lineIDs[index]) {
+                continue
+            }
+            if !policy.includeVariableDeclarations,
+               isVariableDeclaration(line.result) {
+                continue
+            }
+            if let c = SheetFooterTotal.contribution(of: line) { out.append(c) }
+        }
+        return out
+    }
+
     /// The statistic, or nil when no row is eligible (nothing to show).
     public static func compute(_ lines: [SheetLine],
                                statistic: FooterStatistic) -> Value? {
-        let values = contributions(lines)
+        statisticValue(over: contributions(lines), statistic: statistic)
+    }
+
+    /// The statistic under a Floating Total policy — the ONE computation
+    /// every control (live footer and export snapshot) shares.
+    public static func compute(_ lines: [SheetLine],
+                               lineIDs: [UUID],
+                               referencedSourceLineIDs: Set<UUID>,
+                               policy: FooterContributionPolicy,
+                               statistic: FooterStatistic) -> Value? {
+        statisticValue(over: contributions(lines,
+                                           lineIDs: lineIDs,
+                                           referencedSourceLineIDs: referencedSourceLineIDs,
+                                           policy: policy),
+                       statistic: statistic)
+    }
+
+    /// The statistic over an already filtered contribution set. Sum and
+    /// Count fold exactly as before (Count is the number of eligible
+    /// rows), Average and Median reuse the shared statistics helpers.
+    public static func statisticValue(over values: [Double],
+                                      statistic: FooterStatistic) -> Value? {
         guard !values.isEmpty else { return nil }
         switch statistic {
         case .count:

@@ -346,8 +346,10 @@ public let footerTotalCases: [EngineCase] = [
         }
         // Package 7: the footer delegates to the ONE footer-statistics
         // entry (sum keeps the legacy aggregate byte-for-byte).
-        try expect(view.contains("SheetFooterStatistics.compute(rows"),
+        try expect(view.contains("SheetFooterStatistics.compute("),
                    "the footer delegates to the core statistics", "wiring")
+        try expect(view.contains("referencedSourceLineIDs: referencedSourceLineIDs"),
+                   "the live footer passes the referenced source set", "wiring")
         // The view no longer encodes eligibility: no unit filter, no
         // result-type switch in the summary property.
         try expect(!view.contains("u == nil"), "no unitless-only filter in the view", "wiring")
@@ -358,8 +360,8 @@ public let footerTotalCases: [EngineCase] = [
         try expect(!view.contains("isTotal else { return nil }"),
                    "total-row exclusion now lives in the core contract", "wiring")
         // Footer geometry/gate/formatting untouched.
-        try expect(view.contains("if showTotalBar, let s = summary {"),
-                   "the showTotalBar gate is unchanged", "wiring")
+        try expect(view.contains("if reservesFooterSpace, let s = summary {"),
+                   "the footer gate is unchanged (one reserved-space authority)", "wiring")
         try expect(view.contains("formatDisplayValue(sum, decimalPlaces: decimalPlaces"),
                    "the shared formatter still renders the value", "wiring")
         guard let core = footerSource("Sources/NumlexCore/Engine/SheetFooterTotal.swift") else {

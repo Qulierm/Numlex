@@ -297,6 +297,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var commandN: CommandNBehavior
     public var newSheetStart: NewSheetStart
     public var sidebarSort: SidebarSortOrder
+    /// Floating Total (General Settings): keep the reserved space under
+    /// the answers (ON, the historical layout) or let the answers own the
+    /// full viewport with the interactive footer overlaid at the bottom
+    /// (OFF). The three inclusion switches are the frozen
+    /// `FooterContributionPolicy`. All additive and failure-proof: a
+    /// missing key or a malformed value falls back to the documented
+    /// default, the payload version stays 2 and nothing here enters
+    /// `.nlx`.
+    public var footerAvoidOverlap: Bool
+    public var footerIncludeReferencedLines: Bool
+    public var footerIncludeVariableLines: Bool
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -313,13 +324,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
         launchBehavior: .lastEdited,
         commandN: .newSheet,
         newSheetStart: .regularLine,
-        sidebarSort: .dateEdited
+        sidebarSort: .dateEdited,
+        footerAvoidOverlap: true,
+        footerIncludeReferencedLines: true,
+        footerIncludeVariableLines: true
 )
 
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true, launchBehavior: LaunchSheetBehavior = .lastEdited, commandN: CommandNBehavior = .newSheet, newSheetStart: NewSheetStart = .regularLine, sidebarSort: SidebarSortOrder = .dateEdited) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true, launchBehavior: LaunchSheetBehavior = .lastEdited, commandN: CommandNBehavior = .newSheet, newSheetStart: NewSheetStart = .regularLine, sidebarSort: SidebarSortOrder = .dateEdited, footerAvoidOverlap: Bool = true, footerIncludeReferencedLines: Bool = true, footerIncludeVariableLines: Bool = true) {
         self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
@@ -345,6 +359,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.commandN = commandN
         self.newSheetStart = newSheetStart
         self.sidebarSort = sidebarSort
+        self.footerAvoidOverlap = footerAvoidOverlap
+        self.footerIncludeReferencedLines = footerIncludeReferencedLines
+        self.footerIncludeVariableLines = footerIncludeVariableLines
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -431,6 +448,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
             (try? c.decodeIfPresent(String.self, forKey: .newSheetStart)) ?? nil)
         sidebarSort = SidebarSortOrder.resolve(
             (try? c.decodeIfPresent(String.self, forKey: .sidebarSort)) ?? nil)
+        // Floating Total: additive and failure-proof — a missing key (every
+        // earlier store) or a wrong JSON type falls back to the historical
+        // behavior (reserved space, referenced lines and variable
+        // declarations included). Version stays 2; nothing is migrated.
+        footerAvoidOverlap = (try? c.decodeIfPresent(Bool.self, forKey: .footerAvoidOverlap)) ?? true
+        footerIncludeReferencedLines = (try? c.decodeIfPresent(Bool.self, forKey: .footerIncludeReferencedLines)) ?? true
+        footerIncludeVariableLines = (try? c.decodeIfPresent(Bool.self, forKey: .footerIncludeVariableLines)) ?? true
+    }
+
+    /// The frozen Floating Total contribution policy of this settings
+    /// snapshot. Pure: the live footer and the export snapshot build it
+    /// from the same source.
+    public var footerContributionPolicy: FooterContributionPolicy {
+        FooterContributionPolicy(includeReferencedLines: footerIncludeReferencedLines,
+                                 includeVariableDeclarations: footerIncludeVariableLines)
     }
 
     public var fontSize: Double {

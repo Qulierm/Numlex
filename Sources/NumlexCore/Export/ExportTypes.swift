@@ -116,6 +116,15 @@ public struct ExportPresentationContext {
     public let random: RandomEvaluationContext?
     /// Package 7: the frozen footer statistic (sum/average/count/median).
     public let footerStatistic: FooterStatistic
+    /// Floating Total: the frozen contribution policy. The default policy
+    /// is the historical footer, so a caller that does not pass one keeps
+    /// byte-for-byte behavior. The exported total is computed from the
+    /// SAME policy + line IDs + references as the live footer, so a
+    /// full-range export always equals what the sheet shows.
+    public let footerPolicy: FooterContributionPolicy
+    /// The source line IDs named by the sheet's answer references, frozen
+    /// with the rest of the presentation (the "referenced lines" filter).
+    public let referencedSourceLineIDs: Set<UUID>
 
     public init(sheetID: UUID,
                 sheetTitle: String,
@@ -139,7 +148,8 @@ public struct ExportPresentationContext {
                 language: AppLanguage,
                 styling: StylingPreferences = .defaults,
                 random: RandomEvaluationContext? = nil,
-                footerStatistic: FooterStatistic = .sum) {
+                footerStatistic: FooterStatistic = .sum,
+                footerPolicy: FooterContributionPolicy = .defaults) {
         self.sheetID = sheetID
         self.sheetTitle = sheetTitle
         self.content = content
@@ -163,6 +173,8 @@ public struct ExportPresentationContext {
         self.styling = styling
         self.random = random
         self.footerStatistic = footerStatistic
+        self.footerPolicy = footerPolicy
+        self.referencedSourceLineIDs = Set(references.map(\.sourceLineID))
     }
 
     /// Logical source lines (the evaluator's exact split).

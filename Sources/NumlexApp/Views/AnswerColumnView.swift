@@ -141,6 +141,18 @@ struct AnswerColumnView: View {
     /// Package 7: the floating footer statistic and its setter.
     var footerStatistic: FooterStatistic = .sum
     var onSetFooterStatistic: (FooterStatistic) -> Void = { _ in }
+    /// Floating Total: ON keeps today's reserved footer space (the footer
+    /// is a VStack sibling of the answers); OFF gives the answers the full
+    /// viewport and overlays the SAME interactive footer at the bottom.
+    /// Either way there is exactly one scroll source (the editor) and the
+    /// row geometry / wheel forwarding are untouched.
+    var footerAvoidOverlap: Bool = true
+    /// Floating Total: the frozen contribution policy (which rows enter
+    /// the statistic) and the sheet's referenced source line IDs. Both are
+    /// presentation-only — the filter never edits a row, a result or the
+    /// text; it only decides which evaluated rows the footer counts.
+    var footerPolicy: FooterContributionPolicy = .defaults
+    var referencedSourceLineIDs: Set<UUID> = []
     /// r80: the sheet's bottom Total panel (footer bar under the
     /// answers). OFF removes the panel AND its reserved space — the
     /// answers viewport above expands to take it; inline total lines
@@ -598,8 +610,15 @@ struct AnswerColumnView: View {
         // Package 7: the selected footer statistic over the SAME broad
         // contribution set the legacy Total used (derived aggregate
         // rows excluded); sums stay byte-for-byte the old value.
-        guard let computed = SheetFooterStatistics.compute(rows,
-                                                           statistic: footerStatistic) else {
+        // Floating Total: the frozen policy narrows exactly which
+        // eligible rows enter that set (token SOURCE rows and variable
+        // declarations), for every statistic alike.
+        guard let computed = SheetFooterStatistics.compute(
+            rows,
+            lineIDs: lineIDs,
+            referencedSourceLineIDs: referencedSourceLineIDs,
+            policy: footerPolicy,
+            statistic: footerStatistic) else {
             return nil
         }
         switch computed {
@@ -819,63 +838,18 @@ struct AnswerColumnView: View {
             .clipped()
             .frame(maxHeight: .infinity)
 
-            if showTotalBar, let s = summary {
-                let metrics = footerTextMetrics(value: s.value)
-                // The footer is laid out against the column's ACTUAL
-                // width: the Result's content width drives the text
-                // frames, and the bubble slot is the real inset slot of
-                // the current column (at the 200 pt default it is the
-                // legacy 184 pt full bubble — byte-identical geometry).
-                let desired = FooterTotalLayout.layout(containerWidth: width,
-                                                       labelWidth: metrics.label,
-                                                       valueWidth: metrics.value)
-                FooterBubbleSurface(progress: footerProgress(showsLabel: desired.showsLabel),
-                                    geometry: FooterTotalLayout.modeGeometry(
-                                        containerWidth: width,
-                                        valueWidth: metrics.value),
-                                    valueWidth: metrics.value,
-                                    label: Text(totalLabel)
-                                        .font(Design.labelSmall)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1),
-                                    value: totalValue(s.value))
-                    // The bubble shrinks from its LEADING edge: the trailing
-                    // edge stays put inside the column's inset slot, and the
-                    // reserved vertical space is untouched in both modes.
-                    .frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)
-                    .padding(FooterTotalLayout.outerInset)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
-                                                                      unit: s.unit)))
-                    // Package 7: the ONE native checked statistic menu
-                    // (order + checked entry from the shared pure
-                    // contract).
-                    .contextMenu {
-                        ForEach(FooterStatisticMenu.order, id: \.self) { statistic in
-                            Button {
-                                onSetFooterStatistic(statistic)
-                            } label: {
-                                if FooterStatisticMenu.isChecked(statistic,
-                                                                 current: footerStatistic) {
-                                    Label(statisticLabel(statistic),
-                                          systemImage: "checkmark")
-                                } else {
-                                    Text(statisticLabel(statistic))
-                                }
-                            }
-                        }
-                    }
-                    // The ONE short geometry transition is owned by the
-                    // scalar progress in THIS view's state. Only the MODE is
-                    // observed: a drag tick that changes the width re-renders
-                    // the live endpoints through `FooterBubbleSurface` without
-                    // writing the animation state, so it can neither restart
-                    // nor cancel a transition in flight. A mode flip (either
-                    // direction) is the only write and it animates.
-                    .onAppear { reconcileFooterMode(showsLabel: desired.showsLabel) }
-                    .onChange(of: desired.showsLabel) { _, newValue in
-                        reconcileFooterMode(showsLabel: newValue)
-                    }
+            if reservesFooterSpace, let s = summary {
+                footerBar(s)
+            }
+        }
+        // Floating Total (Avoid overlapping answers OFF): the answers keep
+        // the FULL column height and the same interactive footer is drawn
+        // over the bottom edge. A SwiftUI overlay contributes no layout
+        // extent, so row geometry, the wheel catcher and the single editor
+        // scroll source stay exactly as they are.
+        .overlay(alignment: .bottom) {
+            if !reservesFooterSpace, let s = summary {
+                footerBar(s)
             }
         }
         .frame(width: width)
@@ -904,6 +878,76 @@ struct AnswerColumnView: View {
                 .ignoresSafeArea(edges: .vertical)
         }
     }
+
+    /// Floating Total: the ONE footer implementation for BOTH layouts —
+    /// the reserved-space VStack sibling (Avoid overlapping answers ON,
+    /// the historical layout) and the bottom overlay (OFF). Identical
+    /// bubble, geometry, context menu, accessibility and mode animation;
+    /// the overlay variant changes no layout, adds no scroll view and
+    /// leaves the rows' hit surface and wheel forwarding untouched.
+    @ViewBuilder
+    private func footerBar(_ s: (value: String, unit: String?)) -> some View {
+        let metrics = footerTextMetrics(value: s.value)
+        // The footer is laid out against the column's ACTUAL
+        // width: the Result's content width drives the text
+        // frames, and the bubble slot is the real inset slot of
+        // the current column (at the 200 pt default it is the
+        // legacy 184 pt full bubble — byte-identical geometry).
+        let desired = FooterTotalLayout.layout(containerWidth: width,
+                                               labelWidth: metrics.label,
+                                               valueWidth: metrics.value)
+        FooterBubbleSurface(progress: footerProgress(showsLabel: desired.showsLabel),
+                            geometry: FooterTotalLayout.modeGeometry(
+                                containerWidth: width,
+                                valueWidth: metrics.value),
+                            valueWidth: metrics.value,
+                            label: Text(totalLabel)
+                                .font(Design.labelSmall)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1),
+                            value: totalValue(s.value))
+            // The bubble shrinks from its LEADING edge: the trailing
+            // edge stays put inside the column's inset slot, and the
+            // reserved vertical space is untouched in both modes.
+            .frame(width: width - 2 * FooterTotalLayout.outerInset, alignment: .trailing)
+            .padding(FooterTotalLayout.outerInset)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(footerAccessibilityLabel(value: s.value,
+                                                              unit: s.unit)))
+            // Package 7: the ONE native checked statistic menu
+            // (order + checked entry from the shared pure
+            // contract).
+            .contextMenu {
+                ForEach(FooterStatisticMenu.order, id: \.self) { statistic in
+                    Button {
+                        onSetFooterStatistic(statistic)
+                    } label: {
+                        if FooterStatisticMenu.isChecked(statistic,
+                                                         current: footerStatistic) {
+                            Label(statisticLabel(statistic),
+                                  systemImage: "checkmark")
+                        } else {
+                            Text(statisticLabel(statistic))
+                        }
+                    }
+                }
+            }
+            // The ONE short geometry transition is owned by the
+            // scalar progress in THIS view's state. Only the MODE is
+            // observed: a drag tick that changes the width re-renders
+            // the live endpoints through `FooterBubbleSurface` without
+            // writing the animation state, so it can neither restart
+            // nor cancel a transition in flight. A mode flip (either
+            // direction) is the only write and it animates.
+            .onAppear { reconcileFooterMode(showsLabel: desired.showsLabel) }
+            .onChange(of: desired.showsLabel) { _, newValue in
+                reconcileFooterMode(showsLabel: newValue)
+            }
+    }
+
+    /// Whether the footer reserves its own vertical space (ON, default) —
+    /// otherwise it is drawn over the full-height answer viewport.
+    private var reservesFooterSpace: Bool { showTotalBar && footerAvoidOverlap }
 
     /// Package 7: the ONE answer-pane representation of an exact `---`
     /// divider — a calm rule inside the row. The row's geometry remains
