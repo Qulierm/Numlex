@@ -107,14 +107,14 @@ public let r59Cases: [EngineCase] = [
         // SettingsGeometry lives in the app target (not importable
         // here), so pin it at the source. r91 narrowed the sidebar while
         // keeping the RIGHT detail width identical (680 - 146 = 534 =
-        // 700 - 166): the compact range is now 640...760 x 500...640 with
-        // the 680x540 ideal and the 140/146/150 pt sidebar — the MAIN
+        // 700 - 166): the compact range is now 520...640 x 625...800 with
+        // the 560x675 ideal and the 140/146/150 pt sidebar — the MAIN
         // window geometry must still not move with the settings change.
         let text = try r59ReadSource("Sources/NumlexApp/Views/SettingsView.swift")
         for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
                     "maxWidth: CGFloat = 640",
-                    "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
-                    "maxHeight: CGFloat = 640",
+                    "minHeight: CGFloat = 625", "idealHeight: CGFloat = 675",
+                    "maxHeight: CGFloat = 800",
                     "pageHorizontalPadding: CGFloat = 19"] {
             try expect(text.contains(pin), "settings keeps \(pin)")
         }

@@ -422,8 +422,8 @@ public let settingsNavigationCases: [EngineCase] = [
         // r91 geometry: narrower sidebar, SAME right detail width.
         for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
                     "maxWidth: CGFloat = 640",
-                    "minHeight: CGFloat = 500", "idealHeight: CGFloat = 540",
-                    "maxHeight: CGFloat = 640",
+                    "minHeight: CGFloat = 625", "idealHeight: CGFloat = 675",
+                    "maxHeight: CGFloat = 800",
                     "pageHorizontalPadding: CGFloat = 19"] {
             try expect(text.contains(pin), "r91 geometry keeps \(pin)")
         }

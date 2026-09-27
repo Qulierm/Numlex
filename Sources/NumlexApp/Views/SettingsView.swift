@@ -9,12 +9,17 @@ import NumlexCore
 ///
 /// r90: the settings window is a native split navigation — a category
 /// sidebar plus ONE focused detail page — so the content is compact
-/// (min 640x500, ideal 680x540, max 760x640) rather than a giant clone
+/// (min 520x625, ideal 560x675, max 640x800) rather than a giant clone
 /// of the reference. Measured on macOS 26: the split view clamps the
 /// width at the declared minimum, while its own sidebar chrome asks
-/// for the IDEAL height (540 pt) as the practical floor — the declared
-/// 500 pt minimum is a lower bound the window never reaches in
-/// practice.
+/// for the IDEAL height as the practical floor — the declared minimum
+/// is a lower bound the window never reaches in practice.
+///
+/// Package 8: every height bound grew by exactly 25% (500/540/640 →
+/// 625/675/800) so the Sheet Behavior, Floating Total and Auto-convert
+/// groups added to General and Numbers fit without scrolling. The three
+/// WIDTH bounds, the navigation tile geometry and the page padding are
+/// untouched.
 ///
 /// r91: the sidebar is narrower (140/146/150 pt) while the RIGHT detail
 /// column keeps its exact width: the total shrinks by the same delta as
@@ -24,9 +29,9 @@ private enum SettingsGeometry {
     static let minWidth: CGFloat = 520
     static let idealWidth: CGFloat = 560
     static let maxWidth: CGFloat = 640
-    static let minHeight: CGFloat = 500
-    static let idealHeight: CGFloat = 540
-    static let maxHeight: CGFloat = 640
+    static let minHeight: CGFloat = 625
+    static let idealHeight: CGFloat = 675
+    static let maxHeight: CGFloat = 800
 
     /// r94/r95: one navigation tile — an equal, near-square slot that
     /// fits the longest localized visible label ("Bearbeiten",
@@ -2716,10 +2721,10 @@ private struct StylingPreview: View {
 
 /// Configures the native Settings scene window (r34, r75): resizability
 /// and the designed CONTENT size range from the single SettingsGeometry
-/// source (520x460 ... 640x540) — applied through `contentMinSize`/
+/// source (520x625 ... 640x800) — applied through `contentMinSize`/
 /// `contentMaxSize` (the titlebar is excluded, unlike the old frame-based
 /// minSize/maxSize mix). The initial open is deterministic: content
-/// 560x460. The title is owned by the native tab view (the active tab's
+/// 560x675 (the 25%-taller Package 8 range). The title is owned by the native tab view (the active tab's
 /// localized name), matching the System Settings convention — exactly
 /// one settings window, exactly one title, no duplicates.
 private struct SettingsWindowConfigurator: NSViewRepresentable {

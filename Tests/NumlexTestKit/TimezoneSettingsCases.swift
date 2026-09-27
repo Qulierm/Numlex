@@ -214,8 +214,8 @@ public let timezoneSettingsCases: [EngineCase] = [
                    "the tile uses the calendar SF Symbol")
         // Geometry source contract (content bounds unchanged).
         for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
-                    "maxWidth: CGFloat = 640", "minHeight: CGFloat = 500",
-                    "idealHeight: CGFloat = 540", "maxHeight: CGFloat = 640",
+                    "maxWidth: CGFloat = 640", "minHeight: CGFloat = 625",
+                    "idealHeight: CGFloat = 675", "maxHeight: CGFloat = 800",
                     "navigationTileWidth: CGFloat = 66",
                     "navigationTileHeight: CGFloat = 50"] {
             try expect(text.contains(pin), "geometry keeps \(pin)")

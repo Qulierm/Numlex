@@ -42,7 +42,7 @@ accessibility label.
 The selected page fills the rest of the window and is the ONLY thing that scrolls. It
 uses the AVAILABLE width with one shared page padding (19 pt), so the cards reach the
 window edges instead of leaving wide unused fields. The window content range is
-520–640 × 500–640 pt (ideal 560 × 540). The selection is session-only, defaults to
+520–640 × 625–800 pt (ideal 560 × 675). The selection is session-only, defaults to
 General and is never persisted into the settings store.
 
 The Settings window carries no toolbar: its empty NSToolbar is hidden through public
