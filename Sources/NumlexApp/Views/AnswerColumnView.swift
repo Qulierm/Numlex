@@ -601,10 +601,18 @@ struct AnswerColumnView: View {
         return "\(totalLabel) \(value)"
     }
 
-    /// Whether the footer is on screen at all — the stable trigger for
-    /// clearing the presented geometry when the bar is hidden or the sheet
-    /// has no Total to show.
-    private var footerVisible: Bool { showTotalBar && summary != nil }
+    /// The ONE Floating Total placement authority. Show off or no eligible
+    /// summary always hides the bar; overlap only chooses reserved versus
+    /// overlay after visibility has been established.
+    private var footerPlacement: FooterTotalPlacement {
+        FooterTotalPlacement.resolve(show: showTotalBar,
+                                     hasSummary: summary != nil,
+                                     avoidOverlap: footerAvoidOverlap)
+    }
+
+    /// Stable visibility trigger for clearing the presented geometry when
+    /// the bar is hidden or the sheet has no Total to show.
+    private var footerVisible: Bool { footerPlacement != .hidden }
 
     private var summary: (value: String, unit: String?)? {
         // Package 7: the selected footer statistic over the SAME broad
@@ -838,7 +846,7 @@ struct AnswerColumnView: View {
             .clipped()
             .frame(maxHeight: .infinity)
 
-            if reservesFooterSpace, let s = summary {
+            if footerPlacement == .reserved, let s = summary {
                 footerBar(s)
             }
         }
@@ -846,9 +854,9 @@ struct AnswerColumnView: View {
         // the FULL column height and the same interactive footer is drawn
         // over the bottom edge. A SwiftUI overlay contributes no layout
         // extent, so row geometry, the wheel catcher and the single editor
-        // scroll source stay exactly as they are.
+        // scroll source stay exactly as they are. `hidden` renders nowhere.
         .overlay(alignment: .bottom) {
-            if !reservesFooterSpace, let s = summary {
+            if footerPlacement == .overlay, let s = summary {
                 footerBar(s)
             }
         }
@@ -944,10 +952,6 @@ struct AnswerColumnView: View {
                 reconcileFooterMode(showsLabel: newValue)
             }
     }
-
-    /// Whether the footer reserves its own vertical space (ON, default) —
-    /// otherwise it is drawn over the full-height answer viewport.
-    private var reservesFooterSpace: Bool { showTotalBar && footerAvoidOverlap }
 
     /// Package 7: the ONE answer-pane representation of an exact `---`
     /// divider — a calm rule inside the row. The row's geometry remains

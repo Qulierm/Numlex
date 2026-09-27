@@ -36,14 +36,11 @@ private func footerSurface(_ view: String) -> String {
                 to: "struct AnswerColumnView: View {")
 }
 
-/// The footer's call site: the surface plus its fixed trailing slot,
-/// accessibility element and statistic menu.
-/// The footer's call site INSIDE the shared `footerBar` implementation
-/// (Floating Total: the reserved-space and overlay layouts render the very
-/// same view), ending at the next member so the slice stays scoped.
+/// The footer's one shared implementation (surface, trailing slot,
+/// accessibility element and statistic menu), ending at the next member.
 private func footerSlot(_ view: String) -> String {
     footerSlice(view, from: "FooterBubbleSurface(progress:",
-                to: "/// Whether the footer reserves its own vertical space")
+                to: "/// Package 7: the ONE answer-pane representation of an exact")
 }
 
 private func footerSlice(_ source: String, from: String, to: String) -> String {
@@ -379,11 +376,11 @@ public let footerTotalLayoutCases: [EngineCase] = [
         for banned in ["PreferenceKey", "onPreferenceChange", "TimelineView", "Timer("] {
             try expect(!view.contains(banned), "no \(banned)")
         }
-        // The footer's own gate and inertness are unchanged.
-        try expect(view.contains("if reservesFooterSpace, let s = summary {"),
-                   "the footer gate stays (reserved space)")
-        try expect(view.contains("if !reservesFooterSpace, let s = summary {"),
-                   "the overlay layout reuses the same gate")
+        // The footer's own Show/overlap gate is the shared placement.
+        try expect(view.contains("if footerPlacement == .reserved, let s = summary {"),
+                   "reserved layout follows placement")
+        try expect(view.contains("if footerPlacement == .overlay, let s = summary {"),
+                   "overlay layout follows placement")
         try expect(view.contains(".allowsHitTesting(true)"), "the answer catcher is unchanged")
     },
 

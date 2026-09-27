@@ -359,9 +359,10 @@ public let footerTotalCases: [EngineCase] = [
                    "no result-type eligibility test in the view", "wiring")
         try expect(!view.contains("isTotal else { return nil }"),
                    "total-row exclusion now lives in the core contract", "wiring")
-        // Footer geometry/gate/formatting untouched.
-        try expect(view.contains("if reservesFooterSpace, let s = summary {"),
-                   "the footer gate is unchanged (one reserved-space authority)", "wiring")
+        // Footer geometry/formatting are untouched; placement is owned by
+        // the pure truth table rather than another view-local Boolean.
+        try expect(view.contains("if footerPlacement == .reserved, let s = summary {"),
+                   "reserved layout follows the placement truth table", "wiring")
         try expect(view.contains("formatDisplayValue(sum, decimalPlaces: decimalPlaces"),
                    "the shared formatter still renders the value", "wiring")
         guard let core = footerSource("Sources/NumlexCore/Engine/SheetFooterTotal.swift") else {

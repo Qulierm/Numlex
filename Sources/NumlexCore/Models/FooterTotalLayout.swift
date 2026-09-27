@@ -149,3 +149,22 @@ public enum FooterTotalLayout {
         return value
     }
 }
+
+/// The authoritative visibility/layout contract for the Floating Total.
+/// Show has absolute precedence: when it is off, the footer is HIDDEN in
+/// both overlap modes (it is never accidentally rendered as an overlay).
+/// A visible footer reserves space only when Avoid overlapping answers is
+/// on; otherwise it overlays the full-height answers viewport.
+public enum FooterTotalPlacement: Equatable, Sendable {
+    case hidden
+    case reserved
+    case overlay
+
+    /// Pure truth table shared by the UI and tests.
+    public static func resolve(show: Bool,
+                               hasSummary: Bool,
+                               avoidOverlap: Bool) -> FooterTotalPlacement {
+        guard show, hasSummary else { return .hidden }
+        return avoidOverlap ? .reserved : .overlay
+    }
+}

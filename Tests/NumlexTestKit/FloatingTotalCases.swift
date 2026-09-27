@@ -47,6 +47,42 @@ private func ftTotalRow(_ value: Double) -> SheetLine {
 }
 
 public let floatingTotalCases: [EngineCase] = [
+    EngineCase("floating-total-show-and-overlap-placement-truth-table") {
+        // Complete truth table: Show=false has ABSOLUTE precedence, the
+        // summary must exist, and only then does Avoid overlap choose a
+        // reserved sibling or an overlay.
+        for avoidOverlap in [false, true] {
+            try expectEqual(FooterTotalPlacement.resolve(show: false, hasSummary: true,
+                                                         avoidOverlap: avoidOverlap), .hidden,
+                            "Show off always hides")
+            try expectEqual(FooterTotalPlacement.resolve(show: false, hasSummary: false,
+                                                         avoidOverlap: avoidOverlap), .hidden,
+                            "Show off + no summary hides")
+            try expectEqual(FooterTotalPlacement.resolve(show: true, hasSummary: false,
+                                                         avoidOverlap: avoidOverlap), .hidden,
+                            "no summary hides even when Show is on")
+        }
+        try expectEqual(FooterTotalPlacement.resolve(show: true, hasSummary: true,
+                                                     avoidOverlap: true), .reserved,
+                        "Show on + Avoid overlap on reserves space")
+        try expectEqual(FooterTotalPlacement.resolve(show: true, hasSummary: true,
+                                                     avoidOverlap: false), .overlay,
+                        "Show on + Avoid overlap off overlays")
+    },
+    EngineCase("floating-total-show-toggle-restores-selected-placement") {
+        // Simulate both overlap settings across Show ON → OFF → ON. The
+        // bar disappears while OFF, then restores exactly the selected
+        // reserved/overlay mode when turned back on.
+        for avoidOverlap in [false, true] {
+            let selected = FooterTotalPlacement.resolve(show: true, hasSummary: true,
+                                                        avoidOverlap: avoidOverlap)
+            try expectEqual(selected, avoidOverlap ? .reserved : .overlay)
+            try expectEqual(FooterTotalPlacement.resolve(show: false, hasSummary: true,
+                                                         avoidOverlap: avoidOverlap), .hidden)
+            try expectEqual(FooterTotalPlacement.resolve(show: true, hasSummary: true,
+                                                         avoidOverlap: avoidOverlap), selected)
+        }
+    },
     EngineCase("floating-total-defaults-and-tolerant-decode") {
         // Every earlier store has none of the three keys: each decodes to
         // the historical behavior without failing the store, and the
@@ -272,12 +308,16 @@ public let floatingTotalCases: [EngineCase] = [
                    "the live statistic passes the stable line IDs")
         // Reserved space vs overlay: ONE footer implementation, no second
         // scroll view, no animation of the answers' hit surface.
-        try expect(column.contains("private var reservesFooterSpace: Bool { showTotalBar && footerAvoidOverlap }"),
-                   "one authority for the reserved-space decision")
-        try expect(column.contains("if reservesFooterSpace, let s = summary {\n                footerBar(s)"),
+        try expect(column.contains("private var footerPlacement: FooterTotalPlacement"),
+                   "one placement authority drives both branches")
+        try expect(column.contains("FooterTotalPlacement.resolve(show: showTotalBar,"),
+                   "Show and overlap go through the pure truth table")
+        try expect(column.contains("if footerPlacement == .reserved, let s = summary {\n                footerBar(s)"),
                    "the reserved-space branch keeps today's VStack sibling")
-        try expect(column.contains(".overlay(alignment: .bottom) {\n            if !reservesFooterSpace, let s = summary {\n                footerBar(s)"),
-                   "the OFF mode overlays the same interactive footer")
+        try expect(column.contains(".overlay(alignment: .bottom) {\n            if footerPlacement == .overlay, let s = summary {\n                footerBar(s)"),
+                   "only the explicit overlay placement renders in the overlay")
+        try expect(column.contains("private var footerVisible: Bool { footerPlacement != .hidden }"),
+                   "hidden clears footer geometry in either layout mode")
         try expect(column.contains("private func footerBar("),
                    "both layouts share one footer implementation")
         try expect(!column.contains("ScrollView {"),
