@@ -143,6 +143,28 @@ public enum SidebarSortOrder: String, Codable, CaseIterable, Sendable, Equatable
     }
 }
 
+/// Settings → Numbers ▸ Auto-convert single units. Additive app-global
+/// preference: `off` (the default) is byte-for-byte the previous
+/// evaluation, `localUnits` converts a strict stand-alone physical
+/// quantity to the local measurement system derived from the macOS
+/// locale. The converted value/unit is what the answer, copy, tokens,
+/// aggregates, footer and export observe; the source text is never
+/// rewritten and nothing here enters `.nlx`.
+public enum AutoConvertUnits: String, Codable, CaseIterable, Sendable, Equatable {
+    case off
+    case localUnits
+
+    /// The Settings picker order (Off first: it is the default).
+    public static let uiOrder: [AutoConvertUnits] = [.off, .localUnits]
+
+    /// Tolerant decode: a missing key (legacy store) or an unknown raw
+    /// value falls back to `off`.
+    public static func resolve(_ raw: String?) -> AutoConvertUnits {
+        guard let raw, let v = AutoConvertUnits(rawValue: raw) else { return .off }
+        return v
+    }
+}
+
 /// The six configurable input behaviors (r19). Nested inside
 /// `AppSettings`; every key is optional on decode, so stores written by
 /// older versions (missing the whole `input` object) fall back to the
@@ -308,6 +330,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var footerAvoidOverlap: Bool
     public var footerIncludeReferencedLines: Bool
     public var footerIncludeVariableLines: Bool
+    /// Numbers ▸ Auto-convert single units. Additive and failure-proof:
+    /// a missing key or a malformed value falls back to `off`, the
+    /// payload version stays 2 and nothing here enters `.nlx`.
+    public var autoConvertUnits: AutoConvertUnits
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -327,13 +353,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         sidebarSort: .dateEdited,
         footerAvoidOverlap: true,
         footerIncludeReferencedLines: true,
-        footerIncludeVariableLines: true
+        footerIncludeVariableLines: true,
+        autoConvertUnits: .off
 )
 
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true, launchBehavior: LaunchSheetBehavior = .lastEdited, commandN: CommandNBehavior = .newSheet, newSheetStart: NewSheetStart = .regularLine, sidebarSort: SidebarSortOrder = .dateEdited, footerAvoidOverlap: Bool = true, footerIncludeReferencedLines: Bool = true, footerIncludeVariableLines: Bool = true) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true, launchBehavior: LaunchSheetBehavior = .lastEdited, commandN: CommandNBehavior = .newSheet, newSheetStart: NewSheetStart = .regularLine, sidebarSort: SidebarSortOrder = .dateEdited, footerAvoidOverlap: Bool = true, footerIncludeReferencedLines: Bool = true, footerIncludeVariableLines: Bool = true, autoConvertUnits: AutoConvertUnits = .off) {
         self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
@@ -362,6 +389,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.footerAvoidOverlap = footerAvoidOverlap
         self.footerIncludeReferencedLines = footerIncludeReferencedLines
         self.footerIncludeVariableLines = footerIncludeVariableLines
+        self.autoConvertUnits = autoConvertUnits
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -455,6 +483,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
         footerAvoidOverlap = (try? c.decodeIfPresent(Bool.self, forKey: .footerAvoidOverlap)) ?? true
         footerIncludeReferencedLines = (try? c.decodeIfPresent(Bool.self, forKey: .footerIncludeReferencedLines)) ?? true
         footerIncludeVariableLines = (try? c.decodeIfPresent(Bool.self, forKey: .footerIncludeVariableLines)) ?? true
+        // Numbers ▸ Auto-convert: additive and failure-proof — a missing
+        // key (every earlier store) or a wrong JSON type falls back to
+        // `off`, the previous evaluation byte-for-byte. Version stays 2.
+        autoConvertUnits = AutoConvertUnits.resolve(
+            (try? c.decodeIfPresent(String.self, forKey: .autoConvertUnits)) ?? nil)
+    }
+
+    /// The resolved auto-conversion target, or nil when the preference is
+    /// Off. The measurement system is injected by the app (the macOS
+    /// locale), so the pure evaluation context stays deterministic.
+    public func localUnitSystem(measurementSystem: Locale.MeasurementSystem) -> LocalUnitSystem? {
+        guard autoConvertUnits == .localUnits else { return nil }
+        return LocalUnitSystem.from(measurementSystem)
     }
 
     /// The frozen Floating Total contribution policy of this settings

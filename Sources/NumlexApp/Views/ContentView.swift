@@ -321,7 +321,10 @@ struct ContentView: View {
             // prints exactly the total the sheet shows, while a range or
             // filter applies the policy to the rows it kept.
             footerStatistic: settings.footerStatistic,
-            footerPolicy: settings.footerContributionPolicy)
+            footerPolicy: settings.footerContributionPolicy,
+            // Numbers ▸ Auto-convert: the frozen measurement system, so
+            // the printed answers/total equal the live ones.
+            localUnits: model.localUnitContext)
         exportOptions = exportOptions.clamped(toLineCount: context.lineCount)
         exportPresentation = ExportPresentation(
             mode: mode,
@@ -495,7 +498,8 @@ struct ContentView: View {
                 unitContext: model.unitContext,
                 preferences: settings.temporal,
                 financial: model.financialContext,
-                random: model.currentRandomContext
+                random: model.currentRandomContext,
+                localUnits: model.localUnitContext
             ).lines
         }()
         // r77b: per-line result state for the answer-appearance
@@ -671,7 +675,8 @@ struct ContentView: View {
                         unitContext: model.unitContext,
                         preferences: settings.temporal,
                         financial: model.financialContext,
-                        random: model.currentRandomContext
+                        random: model.currentRandomContext,
+                        localUnits: model.localUnitContext
                     )
                     // r43: the editor view (identical tree; the
                     // initializer is a method for the type-checker's

@@ -78,14 +78,15 @@ public func resolveSheet(
     unitContext: UnitContext = .builtIns,
     preferences: TemporalPreferences = .defaults,
     financial: FinancialContext = .defaults,
-    random: RandomEvaluationContext? = nil
+    random: RandomEvaluationContext? = nil,
+    localUnits: LocalUnitSystem? = nil
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     resolveSheet(content: content, lineIDs: lineIDs, references: references,
                  rates: rates, decimalPlaces: decimalPlaces,
                  now: Date(), calendar: Calendar.current,
                  constants: constants, weather: weather, geo: geo, context: context,
                  unitContext: unitContext, preferences: preferences,
-                 financial: financial, random: random)
+                 financial: financial, random: random, localUnits: localUnits)
 }
 
 /// Reference-aware sheet evaluation with ONE captured date context per
@@ -108,7 +109,8 @@ public func resolveSheet(
     unitContext: UnitContext = .builtIns,
     preferences: TemporalPreferences = .defaults,
     financial: FinancialContext = .defaults,
-    random: RandomEvaluationContext? = nil
+    random: RandomEvaluationContext? = nil,
+    localUnits: LocalUnitSystem? = nil
 ) -> (lines: [SheetLine], tokens: [TokenResolution]) {
     let lines = content.components(separatedBy: "\n")
     var idToIndex: [UUID: Int] = [:]
@@ -164,7 +166,8 @@ public func resolveSheet(
                                     context: context, unitContext: unitContext,
                                     preferences: preferences,
                                     financial: financial,
-                                    random: random) {
+                                    random: random,
+                                    localUnits: localUnits) {
             return eval
         }
         return .skip

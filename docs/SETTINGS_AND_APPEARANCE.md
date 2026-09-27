@@ -306,6 +306,59 @@ Independent toggles in the same group:
 | Convert foreign numbers on paste | `1,234.56` pasted into a comma-decimal setup becomes the local form (`1.234,56`). Prose and already-local numbers are untouched. |
 | Show thousands separator | Answers display `10000` as `10,000` (or the local form). |
 | Compact large numbers | Answers display `100000` as `100k`. Copied values keep full precision. |
+| Auto-convert single units | Off (the default) or Local units. See below. |
+
+### Auto-convert single units
+
+`Off` is byte-for-byte the evaluation every earlier build performed. With
+**Local units** the app converts a line that is exactly ONE number plus ONE
+measurement unit to the system the macOS locale reports (`metric`, `us` or
+`uk`), e.g. `3 km` becomes `1.86 mi` and `5 kg` becomes `11.02 lb` outside
+metric regions, `3 mi` becomes `4.83 km` inside them.
+
+It is an evaluation-context feature, never text rewriting: the typed text, the
+line IDs, the references, the highlights and the store are untouched, while the
+converted value/unit is what the answer column, Copy, answer tokens, the tag and
+section aggregates, the Floating Total and the PDF/print snapshot all observe
+(one resolved input set per screen and per export). The conversion happens after
+the ordinary typed evaluation of the line and before any aggregate sees it, so
+`3 km` contributes 1.86 to a `total` or to the footer, exactly as displayed.
+
+Eligibility is deliberately strict. A line qualifies only when it is one numeric
+literal (optionally with one leading `+`/`-`) plus one ATOMIC built-in physical
+unit — the atom may itself be a spelled label such as `km/h`, `m/s²`, `kg/m³`
+or `fl oz`. Everything else keeps its typed unit: assignments and named values
+(`distance = 5 km`, `distance`), explicit conversions (`5 kg to lb`), arithmetic
+and rates (`5 kg + 2 kg`, `10 km / 2 h`), compound expressions the user typed,
+money and currency, custom units (they are user definitions, not built-in
+atoms), headlines/comments, answer-token lines and every dimension without a
+locale convention (time and calendar values, angles, data sizes, energy, power,
+torque, luminous/radioactive units).
+
+| Family | metric | US | UK |
+| --- | --- | --- | --- |
+| Length | mm / cm / m / km | in / ft / mi | cm / m / mi |
+| Mass | g / kg | oz / lb | g / kg |
+| Liquid volume | ml / L | fl oz / gal | uk fl oz / uk gal |
+| Area | cm² / m² / km² | in² / ft² / mi² | cm² / m² / mi² |
+| Speed | km/h | mph | mph |
+| Acceleration | m/s² | ft/s² | m/s² |
+| Pressure | kPa | psi | kPa |
+| Density | kg/m³ | lb/ft³ | kg/m³ |
+| Temperature | C° | F° | C° |
+| Fuel economy | L/100km | US mpg | UK mpg |
+
+The smaller or larger target is chosen from the quantity's magnitude in base
+units, so `0.1 in` renders as `2.54 mm` while `0.5 in` renders as `1.27 cm`, and
+an already-local unit is returned unchanged (no floating round-trip). Values use
+the existing conversion engine and the normal decimal precision.
+
+Two families are listed for completeness but are not reachable from a
+stand-alone literal in this engine: bare temperature (`20 C`) and bare fuel
+economy (`8 L/100km`) lines evaluate to a plain number with no unit, and their
+conversion only happens through an explicit phrase (`20 C to F`). Auto-convert
+therefore leaves those lines exactly as they are rather than redefining what
+they mean.
 
 ### Answer display
 

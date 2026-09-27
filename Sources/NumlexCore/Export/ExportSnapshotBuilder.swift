@@ -65,7 +65,8 @@ public enum ExportSnapshotBuilder {
             unitContext: context.unitContext,
             preferences: context.preferences,
             financial: context.financial,
-            random: context.random)
+            random: context.random,
+            localUnits: context.localUnits)
         // The classifier shares the same captured pass (same env flow,
         // same date context, same weather/geo/unit/financial inputs).
         let allSpans = SyntaxClassifier.spans(

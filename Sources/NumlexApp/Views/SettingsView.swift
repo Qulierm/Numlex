@@ -2035,6 +2035,29 @@ private struct NumbersSettingsPage: View {
                 }
             }
 
+            // 5. AUTO-CONVERT — the opt-in conversion of stand-alone
+            // quantities to the local measurement system. Evaluation
+            // context only: the typed text is never rewritten.
+            SettingsGroup(title: L10n.t("numbers.autoConvert", language: language)) {
+                SettingsRow(
+                    title: L10n.t("numbers.autoConvert", language: language),
+                    detail: L10n.t("numbers.autoConvertCap", language: language)
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.autoConvertUnits },
+                        set: { model.setAutoConvertUnits($0) }
+                    )) {
+                        ForEach(AutoConvertUnits.uiOrder, id: \.self) { value in
+                            Text(L10n.t(autoConvertKey(value), language: language)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("numbers.autoConvert", language: language))
+                }
+            }
+
             // r90: the currency-rate attribution lives here — the most
             // relevant home for it (it describes the numbers the answer
             // column shows). ONE understated footer line, no duplicate.
@@ -2922,6 +2945,14 @@ private func newSheetStartKey(_ value: NewSheetStart) -> String {
     switch value {
     case .regularLine: return "newSheetStart.regularLine"
     case .heading: return "newSheetStart.heading"
+    }
+}
+
+/// Numbers ▸ Auto-convert picker labels.
+private func autoConvertKey(_ value: AutoConvertUnits) -> String {
+    switch value {
+    case .off: return "numbers.autoConvert.off"
+    case .localUnits: return "numbers.autoConvert.localUnits"
     }
 }
 

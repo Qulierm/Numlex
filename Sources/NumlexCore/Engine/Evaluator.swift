@@ -519,7 +519,8 @@ func evalLineTyped(_ line: String,
                    unitContext: UnitContext = .builtIns,
                    preferences: TemporalPreferences = .defaults,
                    financial: FinancialContext = .defaults,
-                   random: RandomEvaluationContext? = nil) -> LineResult? {
+                   random: RandomEvaluationContext? = nil,
+                   localUnits: LocalUnitSystem? = nil) -> LineResult? {
     // r55: weather detection runs FIRST so `weather in London` can
     // never be misclassified as conversion or prose — but ONLY the
     // strict grammar activates it, the environment is never mutated,
@@ -751,10 +752,22 @@ func evalLineTyped(_ line: String,
         if let q = MixedUnitLine.evaluate(line, env: env, context: context,
                                           rates: rates, unitContext: unitContext,
                                           now: now, calendar: calendar) {
-            return .number(value: roundResult(q.value,
+            // Auto-convert single units (Settings → Numbers): a strict
+            // stand-alone quantity is converted to the local measurement
+            // system AFTER the ordinary typed evaluation, so the
+            // converted value/unit is what every consumer (answer,
+            // copy, tokens, aggregates, footer, export) observes. The
+            // source text is never touched. `nil` = Off (the default)
+            // returns the quantity unchanged.
+            let q2 = LocalUnitConversion.applied(to: q, line: line,
+                                                localUnits: localUnits,
+                                                context: context,
+                                                unitContext: unitContext,
+                                                env: env)
+            return .number(value: roundResult(q2.value,
                                               decimalPlaces: max(decimalPlaces, 10)),
-                           unit: q.display.label,
-                           kind: q.presentation == .duration ? .duration : .plain,
+                           unit: q2.display.label,
+                           kind: q2.presentation == .duration ? .duration : .plain,
                            fraction: nil)
         }
         return .error(message: "Invalid expression")
@@ -893,13 +906,13 @@ func evalLineTyped(_ line: String,
 
 // MARK: - Backward-compatible public wrappers
 
-public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults, financial: FinancialContext = .defaults) -> LineResult? {
+public func evalLine(_ line: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults, financial: FinancialContext = .defaults, localUnits: LocalUnitSystem? = nil) -> LineResult? {
     // Fresh reference clock/calendar per single-line call; sheet
     // evaluation captures ONE context for the whole sheet.
     evalLine(line, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
              now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
              geo: geo, context: context, unitContext: unitContext, preferences: preferences,
-             financial: financial)
+             financial: financial, localUnits: localUnits)
 }
 
 /// The legacy `[String: Double]` entry point: seeds a typed environment
@@ -916,14 +929,16 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
                      context: NumberFormatContext = .legacy,
                      unitContext: UnitContext = .builtIns,
                      preferences: TemporalPreferences = .defaults,
-                     financial: FinancialContext = .defaults) -> LineResult? {
+                     financial: FinancialContext = .defaults,
+                     localUnits: LocalUnitSystem? = nil) -> LineResult? {
     var env = TypedEnv(seed: variables)
     env.seedConstants(constants)
     let result = evalLineTyped(line, env: &env, rates: rates,
                                decimalPlaces: decimalPlaces,
                                now: now, calendar: calendar, weather: weather, geo: geo,
                                context: context, unitContext: unitContext,
-                               preferences: preferences, financial: financial)
+                               preferences: preferences, financial: financial,
+                               localUnits: localUnits)
     if result != nil {
         for (k, v) in env.scalarDict() { variables[k] = v }
     }
@@ -941,11 +956,11 @@ public func evalLine(_ line: String, variables: inout [String: Double], rates: R
 /// evaluable line is exactly what the per-line evaluator produced.
 /// Consumers must bind output by `sourceLineIndex`, never by position
 /// after any filtering.
-public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults, financial: FinancialContext = .defaults, random: RandomEvaluationContext? = nil) -> [SheetLine] {
+public func evaluateSheet(_ source: String, variables: inout [String: Double], rates: Rates, decimalPlaces: Int, constants: [UserConstant] = [], weather: WeatherContext = .empty, geo: GeoContext = .empty, context: NumberFormatContext = .legacy, unitContext: UnitContext = .builtIns, preferences: TemporalPreferences = .defaults, financial: FinancialContext = .defaults, random: RandomEvaluationContext? = nil, localUnits: LocalUnitSystem? = nil) -> [SheetLine] {
     evaluateSheet(source, variables: &variables, rates: rates, decimalPlaces: decimalPlaces,
                   now: Date(), calendar: Calendar.current, constants: constants, weather: weather,
                   geo: geo, context: context, unitContext: unitContext, preferences: preferences,
-                  financial: financial, random: random)
+                  financial: financial, random: random, localUnits: localUnits)
 }
 
 /// Sheet evaluation with ONE captured date context and ONE shared typed
@@ -960,7 +975,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                           unitContext: UnitContext = .builtIns,
                           preferences: TemporalPreferences = .defaults,
                           financial: FinancialContext = .defaults,
-                          random: RandomEvaluationContext? = nil) -> [SheetLine] {
+                          random: RandomEvaluationContext? = nil,
+                          localUnits: LocalUnitSystem? = nil) -> [SheetLine] {
     var env = TypedEnv(seed: variables)
     // r33: global constants are available BEFORE logical line 1; local
     // values still accumulate strictly top-down.
@@ -1059,7 +1075,8 @@ public func evaluateSheet(_ source: String, variables: inout [String: Double], r
                                                context: context, unitContext: unitContext,
                                                preferences: preferences,
                                                financial: financial,
-                                               random: random) {
+                                               random: random,
+                                               localUnits: localUnits) {
                 result = eval
                 // Package 7 (execution-aware dynamics): the line is
                 // dynamic when the evaluation ACTUALLY consumed a rand

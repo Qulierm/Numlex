@@ -1430,6 +1430,14 @@ final class AppModel {
         }
     }
 
+    /// The resolved auto-conversion target for the ONE evaluation input
+    /// set every screen and export shares: the persisted preference plus
+    /// the macOS measurement system. nil = Off (the default), which keeps
+    /// evaluation byte-for-byte identical to every earlier build.
+    var localUnitContext: LocalUnitSystem? {
+        settings.localUnitSystem(measurementSystem: Locale.current.measurementSystem)
+    }
+
     // MARK: Sheet Behavior (General Settings)
 
     /// The four Sheet Behavior preferences share one tiny write path: one
@@ -1462,6 +1470,15 @@ final class AppModel {
     func setSidebarSort(_ value: SidebarSortOrder) {
         guard value != settings.sidebarSort else { return }
         settings.sidebarSort = value
+        persist()
+    }
+
+    /// Numbers ▸ Auto-convert single units. Evaluation-context only: the
+    /// stored sheets are never rewritten, no line ID/reference/metadata
+    /// changes and nothing enters `.nlx`.
+    func setAutoConvertUnits(_ value: AutoConvertUnits) {
+        guard value != settings.autoConvertUnits else { return }
+        settings.autoConvertUnits = value
         persist()
     }
 

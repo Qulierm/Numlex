@@ -288,7 +288,7 @@ public let floatingTotalCases: [EngineCase] = [
         // to the export presentation.
         try expect(content.contains("footerPolicy: settings.footerContributionPolicy"),
                    "ContentView passes the policy to the column")
-        try expect(content.contains("footerStatistic: settings.footerStatistic,\n            footerPolicy: settings.footerContributionPolicy)"),
+        try expect(content.contains("footerStatistic: settings.footerStatistic,\n            footerPolicy: settings.footerContributionPolicy,"),
                    "the export presentation freezes statistic AND policy")
         try expect(content.contains(".map(\\.sourceLineID)"),
                    "ContentView derives the referenced source set from the sheet")

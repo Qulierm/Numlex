@@ -125,6 +125,11 @@ public struct ExportPresentationContext {
     /// The source line IDs named by the sheet's answer references, frozen
     /// with the rest of the presentation (the "referenced lines" filter).
     public let referencedSourceLineIDs: Set<UUID>
+    /// Numbers ▸ Auto-convert single units: the frozen measurement system
+    /// (nil = Off, the default). The export resolves its rows with the
+    /// SAME value the live editor used, so a printed answer/Total equals
+    /// what the sheet shows.
+    public let localUnits: LocalUnitSystem?
 
     public init(sheetID: UUID,
                 sheetTitle: String,
@@ -149,7 +154,8 @@ public struct ExportPresentationContext {
                 styling: StylingPreferences = .defaults,
                 random: RandomEvaluationContext? = nil,
                 footerStatistic: FooterStatistic = .sum,
-                footerPolicy: FooterContributionPolicy = .defaults) {
+                footerPolicy: FooterContributionPolicy = .defaults,
+                localUnits: LocalUnitSystem? = nil) {
         self.sheetID = sheetID
         self.sheetTitle = sheetTitle
         self.content = content
@@ -175,6 +181,7 @@ public struct ExportPresentationContext {
         self.footerStatistic = footerStatistic
         self.footerPolicy = footerPolicy
         self.referencedSourceLineIDs = Set(references.map(\.sourceLineID))
+        self.localUnits = localUnits
     }
 
     /// Logical source lines (the evaluator's exact split).

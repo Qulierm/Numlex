@@ -354,4 +354,9 @@ struct EngineTests {
     func floatingTotalCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: autoConvertCases)
+    func autoConvertCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }
