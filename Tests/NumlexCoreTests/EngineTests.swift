@@ -359,4 +359,9 @@ struct EngineTests {
     func autoConvertCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: weatherMetricCases)
+    func weatherMetricCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

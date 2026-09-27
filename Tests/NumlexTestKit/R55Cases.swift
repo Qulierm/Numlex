@@ -137,11 +137,39 @@ private func r55GeocodeJSON(name: String = "London",
     """.data(using: .utf8)!
 }
 
-private func r55ForecastJSON(temp: String?, units: String? = "\"°C\"") -> Data {
-    let t = temp.map { "\"temperature_2m\": \($0)" } ?? ""
-    let u = units.map { "\"current_units\": {\"temperature_2m\": \($0)}," } ?? ""
+/// Package 8: the multi-metric forecast payload — current temperature AND
+/// apparent temperature plus the single-day daily high/low. Parameters
+/// let a case break exactly ONE part (wrong unit, missing value, zero or
+/// two daily elements, inverted range).
+private func r55ForecastJSON(temp: String? = "18.5",
+                             apparent: String? = "18.5",
+                             high: String? = "25.1",
+                             low: String? = "12.4",
+                             units: String? = "\"°C\"",
+                             apparentUnits: String? = "\"°C\"",
+                             dailyUnits: String? = "\"°C\"",
+                             dailyCount: Int = 1) -> Data {
+    func pair(_ a: String?, _ b: String?) -> String {
+        [a.map { "\"temperature_2m\": \($0)" }, b.map { "\"apparent_temperature\": \($0)" }]
+            .compactMap { $0 }.joined(separator: ", ")
+    }
+    func unitsPair(_ a: String?, _ b: String?) -> String {
+        "{" + [a.map { "\"temperature_2m\": \($0)" },
+               b.map { "\"apparent_temperature\": \($0)" }]
+            .compactMap { $0 }.joined(separator: ", ") + "}"
+    }
+    func series(_ value: String?) -> String {
+        "[" + Array(repeating: value ?? "null", count: dailyCount).joined(separator: ", ") + "]"
+    }
+    let dailyUnitsBlock = dailyUnits.map {
+        "\"temperature_2m_max\": \($0), \"temperature_2m_min\": \($0)"
+    } ?? ""
     return """
-    {\(u) "current": {\(t)}}
+    {"current_units": \(unitsPair(units, apparentUnits)),
+     "current": {\(pair(temp, apparent))},
+     "daily_units": {\(dailyUnitsBlock)},
+     "daily": {"temperature_2m_max": \(series(high)),
+               "temperature_2m_min": \(series(low))}}
     """.data(using: .utf8)!
 }
 
@@ -255,22 +283,50 @@ public let r55Cases: [EngineCase] = [
         let doc = try JSONDecoder().decode(WeatherForecastDocument.self,
                                            from: r55ForecastJSON(temp: "18.5"))
         try expectClose(doc.celsiusTemperature ?? -999, 18.5, 1e-9, "temperature")
+        guard let metrics = doc.celsiusMetrics else {
+            throw CaseFailure(message: "the full payload must validate")
+        }
+        try expectClose(metrics.current, 18.5, 1e-9, "current")
+        try expectClose(metrics.apparent, 18.5, 1e-9, "apparent")
+        try expectClose(metrics.high, 25.1, 1e-9, "daily high")
+        try expectClose(metrics.low, 12.4, 1e-9, "daily low")
     },
 
     EngineCase("r55-forecast-rejects-bad-payloads") {
-        // Wrong units, missing current/temperature, out-of-range values.
-        for payload in [r55ForecastJSON(temp: "18.5", units: "\"°F\""),
-                        r55ForecastJSON(temp: nil),
-                        "{\"current_units\": {\"temperature_2m\": \"°C\"}}".data(using: .utf8)!,
-                        r55ForecastJSON(temp: "80"),
-                        r55ForecastJSON(temp: "-120")] {
+        // Wrong units, missing values, bad arrays, inverted range and
+        // out-of-range values: every one is rejected whole.
+        let rejected: [(String, Data)] = [
+            ("current units", r55ForecastJSON(temp: "18.5", units: "\"°F\"")),
+            ("apparent units", r55ForecastJSON(apparentUnits: "\"°F\"")),
+            ("daily units", r55ForecastJSON(dailyUnits: "\"°F\"")),
+            ("missing current", r55ForecastJSON(temp: nil)),
+            ("missing apparent", r55ForecastJSON(apparent: nil)),
+            ("missing high", r55ForecastJSON(high: nil)),
+            ("missing low", r55ForecastJSON(low: nil)),
+            ("no daily element", r55ForecastJSON(dailyCount: 0)),
+            ("two daily elements", r55ForecastJSON(dailyCount: 2)),
+            ("inverted range", r55ForecastJSON(high: "10", low: "20")),
+            ("current out of range", r55ForecastJSON(temp: "80")),
+            ("current below range", r55ForecastJSON(temp: "-120")),
+            ("high out of range", r55ForecastJSON(high: "99")),
+            ("no current block",
+             "{\"current_units\": {\"temperature_2m\": \"°C\"}}".data(using: .utf8)!),
+        ]
+        for (label, payload) in rejected {
             let doc = try JSONDecoder().decode(WeatherForecastDocument.self, from: payload)
-            try expect(doc.celsiusTemperature == nil, "rejected: \(String(data: payload, encoding: .utf8) ?? "?")", "nil")
+            try expect(doc.celsiusMetrics == nil, "rejected: \(label)", "nil")
+            try expect(doc.celsiusTemperature == nil, "rejected current: \(label)", "nil")
         }
-        // Missing units block is accepted: the request asked for Celsius.
+        // Missing units blocks are accepted: the request asked for Celsius.
         let bare = try JSONDecoder().decode(WeatherForecastDocument.self,
-                                            from: r55ForecastJSON(temp: "7", units: nil))
+                                            from: r55ForecastJSON(temp: "7", units: nil,
+                                                                  apparentUnits: nil,
+                                                                  dailyUnits: nil))
         try expectClose(bare.celsiusTemperature ?? -999, 7, 1e-9, "units block optional")
+        // Equal high and low is a VALID single-day range.
+        let flat = try JSONDecoder().decode(WeatherForecastDocument.self,
+                                            from: r55ForecastJSON(high: "20", low: "20"))
+        try expectClose(flat.celsiusMetrics?.high ?? -999, 20, 1e-9, "flat range")
     },
 
     EngineCase("r55-endpoint-geocode-url") {
@@ -299,7 +355,11 @@ public let r55Cases: [EngineCase] = [
         func val(_ n: String) -> String? { items.first(where: { $0.name == n })?.value }
         try expectEqual(val("latitude"), "51.5074", "lat item")
         try expectEqual(val("longitude"), "-0.1278", "lon item")
-        try expectEqual(val("current"), "temperature_2m", "current field")
+        try expectEqual(val("current"), "temperature_2m,apparent_temperature",
+                        "current metrics requested")
+        try expectEqual(val("daily"), "temperature_2m_max,temperature_2m_min",
+                        "daily metrics requested")
+        try expectEqual(val("forecast_days"), "1", "exactly today")
         try expectEqual(val("temperature_unit"), "celsius", "celsius requested")
         try expectEqual(val("timezone"), "auto", "timezone")
         try expectEqual(WeatherEndpoints.request(for: url).timeoutInterval, 10, "timeout")

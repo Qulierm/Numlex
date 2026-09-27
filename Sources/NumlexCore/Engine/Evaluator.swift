@@ -483,7 +483,12 @@ private func evalWeatherLine(_ query: WeatherQuery,
                               decimalPlaces: Int) -> LineResult {
     switch weather.lookup(query) {
     case .ready(let snap):
-        return .number(value: roundResult(snap.temperatureCelsius,
+        // The requested metric of the place's ONE snapshot (current /
+        // daily high / daily low / apparent). A snapshot that does not
+        // carry it is not `isValid`, so this cannot happen for a ready
+        // lookup — the guard keeps the contract explicit anyway.
+        guard let value = snap.celsius(for: query.kind) else { return .skip }
+        return .number(value: roundResult(value,
                                           decimalPlaces: max(decimalPlaces, 10)),
                        unit: WeatherQuery.celsiusUnitLabel)
     case .loading:

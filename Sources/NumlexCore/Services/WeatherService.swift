@@ -61,40 +61,101 @@ public struct WeatherGeocodeDocument: Decodable, Sendable {
 public struct WeatherForecastDocument: Decodable, Sendable {
     public struct Current: Decodable, Sendable {
         public let temperature2m: Double?
+        public let apparentTemperature: Double?
 
         private enum CodingKeys: String, CodingKey {
             case temperature2m = "temperature_2m"
+            case apparentTemperature = "apparent_temperature"
         }
     }
 
     public struct CurrentUnits: Decodable, Sendable {
         public let temperature2m: String?
+        public let apparentTemperature: String?
 
         private enum CodingKeys: String, CodingKey {
             case temperature2m = "temperature_2m"
+            case apparentTemperature = "apparent_temperature"
+        }
+    }
+
+    public struct Daily: Decodable, Sendable {
+        public let temperature2mMax: [Double?]?
+        public let temperature2mMin: [Double?]?
+
+        private enum CodingKeys: String, CodingKey {
+            case temperature2mMax = "temperature_2m_max"
+            case temperature2mMin = "temperature_2m_min"
+        }
+    }
+
+    public struct DailyUnits: Decodable, Sendable {
+        public let temperature2mMax: String?
+        public let temperature2mMin: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case temperature2mMax = "temperature_2m_max"
+            case temperature2mMin = "temperature_2m_min"
         }
     }
 
     public let current: Current?
     public let currentUnits: CurrentUnits?
+    public let daily: Daily?
+    public let dailyUnits: DailyUnits?
 
     private enum CodingKeys: String, CodingKey {
         case current
         case currentUnits = "current_units"
+        case daily
+        case dailyUnits = "daily_units"
     }
 
-    /// The validated Celsius temperature, or nil for any document that
-    /// is not a clean Celsius payload: missing `current`/temperature,
-    /// non-finite or out-of-range values, or an explicit non-Celsius
-    /// unit (the request asks for Celsius, so `°F` means the payload
-    /// does not answer this query).
-    public var celsiusTemperature: Double? {
-        guard let t = current?.temperature2m, t.isFinite,
-              t >= WeatherSnapshot.minCelsius, t <= WeatherSnapshot.maxCelsius else {
-            return nil
+    /// The ONE validated payload shape every metric is read from.
+    public struct CelsiusMetrics: Equatable, Sendable {
+        public let current: Double
+        public let apparent: Double
+        public let high: Double
+        public let low: Double
+    }
+
+    /// The validated Celsius metrics, or nil for any document that is not
+    /// a clean Celsius payload: missing `current`/daily values,
+    /// non-finite or out-of-range values, a daily array that does not
+    /// carry exactly one high AND one low, `low > high`, or an explicit
+    /// non-Celsius unit (the request asks for Celsius, so `°F` means the
+    /// payload does not answer this query). Missing unit blocks are
+    /// accepted (the request already asked for Celsius).
+    public var celsiusMetrics: CelsiusMetrics? {
+        guard let currentValue = current?.temperature2m,
+              let apparentValue = current?.apparentTemperature,
+              let current = Self.plausible(currentValue),
+              let apparent = Self.plausible(apparentValue),
+              let high = Self.singlePlausible(daily?.temperature2mMax),
+              let low = Self.singlePlausible(daily?.temperature2mMin),
+              low <= high else { return nil }
+        for unit in [currentUnits?.temperature2m, currentUnits?.apparentTemperature,
+                     dailyUnits?.temperature2mMax, dailyUnits?.temperature2mMin] {
+            if let unit, unit != "°C" { return nil }
         }
-        if let unit = currentUnits?.temperature2m, unit != "°C" { return nil }
-        return t
+        return CelsiusMetrics(current: current, apparent: apparent, high: high, low: low)
+    }
+
+    /// The current Celsius temperature alone (the r55 projection; kept
+    /// for callers that only need it).
+    public var celsiusTemperature: Double? { celsiusMetrics?.current }
+
+    private static func plausible(_ value: Double?) -> Double? {
+        guard let value, value.isFinite,
+              value >= WeatherSnapshot.minCelsius,
+              value <= WeatherSnapshot.maxCelsius else { return nil }
+        return value
+    }
+
+    /// Exactly ONE finite in-range element.
+    private static func singlePlausible(_ values: [Double?]?) -> Double? {
+        guard let values, values.count == 1 else { return nil }
+        return plausible(values[0])
     }
 }
 
@@ -125,8 +186,14 @@ public enum WeatherEndpoints {
         return parts.url
     }
 
+    /// The exact multi-metric request: current temperature AND apparent
+    /// temperature plus the single-day daily high/low, in Celsius, in the
+    /// place's own timezone.
+    ///
     /// `https://api.open-meteo.com/v1/forecast?latitude=…&longitude=…&
-    /// current=temperature_2m&temperature_unit=celsius&timezone=auto`.
+    /// current=temperature_2m,apparent_temperature&
+    /// daily=temperature_2m_max,temperature_2m_min&forecast_days=1&
+    /// temperature_unit=celsius&timezone=auto`.
     public static func forecastURL(latitude: Double, longitude: Double) -> URL? {
         var parts = URLComponents()
         parts.scheme = "https"
@@ -135,7 +202,9 @@ public enum WeatherEndpoints {
         parts.queryItems = [
             URLQueryItem(name: "latitude", value: "\(latitude)"),
             URLQueryItem(name: "longitude", value: "\(longitude)"),
-            URLQueryItem(name: "current", value: "temperature_2m"),
+            URLQueryItem(name: "current", value: "temperature_2m,apparent_temperature"),
+            URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min"),
+            URLQueryItem(name: "forecast_days", value: "1"),
             URLQueryItem(name: "temperature_unit", value: "celsius"),
             URLQueryItem(name: "timezone", value: "auto"),
         ]
@@ -328,11 +397,15 @@ public actor WeatherRefresher {
         guard let (fdata, fresp) = try? await transport(WeatherEndpoints.request(for: fURL)),
               let fbytes = try? WeatherEndpoints.validatedData(fdata, response: fresp),
               let forecast = try? JSONDecoder().decode(WeatherForecastDocument.self, from: fbytes),
-              let temp = forecast.celsiusTemperature else { return nil }
+              let metrics = forecast.celsiusMetrics else { return nil }
         let snap = WeatherSnapshot(queryKey: query.key, displayQuery: query.display,
                                    placeName: place.name, country: place.country,
                                    latitude: place.latitude, longitude: place.longitude,
-                                   temperatureCelsius: temp, fetchedAt: now())
+                                   temperatureCelsius: metrics.current,
+                                   fetchedAt: now(),
+                                   apparentCelsius: metrics.apparent,
+                                   highCelsius: metrics.high,
+                                   lowCelsius: metrics.low)
         return snap.isValid ? snap : nil
     }
 
