@@ -344,4 +344,9 @@ struct EngineTests {
     func sheetExportCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: sheetBehaviorCases)
+    func sheetBehaviorCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

@@ -69,6 +69,80 @@ public enum AppIconChoice: String, Codable, CaseIterable, Sendable, Equatable {
 }
 
 
+/// What the app selects when a window opens onto an existing store.
+/// Additive app-global preference: `lastEdited` (the default) opens the
+/// most recently edited sheet, `newSheet` creates a fresh sheet at launch
+/// instead. Raw values are stable persisted spellings; a missing key, an
+/// unknown raw value or a wrong JSON type falls back to the default
+/// independently, so the store can never fail to decode and the payload
+/// version is NOT bumped.
+public enum LaunchSheetBehavior: String, Codable, CaseIterable, Sendable, Equatable {
+    case lastEdited
+    case newSheet
+
+    /// The Settings picker order.
+    public static let uiOrder: [LaunchSheetBehavior] = [.lastEdited, .newSheet]
+
+    public static func resolve(_ raw: String?) -> LaunchSheetBehavior {
+        guard let raw, let v = LaunchSheetBehavior(rawValue: raw) else { return .lastEdited }
+        return v
+    }
+}
+
+/// What ⌘N does. Additive app-global preference: `newSheet` (the default,
+/// every build before this one) creates a sheet in the current window,
+/// `newWindow` opens another window onto the SAME shared model instead.
+public enum CommandNBehavior: String, Codable, CaseIterable, Sendable, Equatable {
+    case newSheet
+    case newWindow
+
+    /// The Settings picker order.
+    public static let uiOrder: [CommandNBehavior] = [.newSheet, .newWindow]
+
+    public static func resolve(_ raw: String?) -> CommandNBehavior {
+        guard let raw, let v = CommandNBehavior(rawValue: raw) else { return .newSheet }
+        return v
+    }
+}
+
+/// The content a freshly created sheet starts with. Additive app-global
+/// preference; the default `regularLine` reproduces every earlier build
+/// byte-for-byte (an empty document, caret at 0).
+public enum NewSheetStart: String, Codable, CaseIterable, Sendable, Equatable {
+    case regularLine
+    case heading
+
+    /// The Settings picker order.
+    public static let uiOrder: [NewSheetStart] = [.regularLine, .heading]
+
+    public static func resolve(_ raw: String?) -> NewSheetStart {
+        guard let raw, let v = NewSheetStart(rawValue: raw) else { return .regularLine }
+        return v
+    }
+}
+
+/// The sidebar's sheet order inside the active folder. Purely a
+/// PRESENTATION order: the persisted `sheets` array keeps its global
+/// order, so selection, deletion, folder movement and token identity are
+/// untouched. Additive and failure-proof like the other behavior
+/// preferences.
+public enum SidebarSortOrder: String, Codable, CaseIterable, Sendable, Equatable {
+    /// Newest edit first.
+    case dateEdited
+    /// Newest creation first.
+    case dateCreated
+    /// Localized-standard ascending title.
+    case name
+
+    /// The Settings picker order.
+    public static let uiOrder: [SidebarSortOrder] = [.dateEdited, .dateCreated, .name]
+
+    public static func resolve(_ raw: String?) -> SidebarSortOrder {
+        guard let raw, let v = SidebarSortOrder(rawValue: raw) else { return .dateEdited }
+        return v
+    }
+}
+
 /// The six configurable input behaviors (r19). Nested inside
 /// `AppSettings`; every key is optional on decode, so stores written by
 /// older versions (missing the whole `input` object) fall back to the
@@ -215,6 +289,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// `true`; `StorePayload.currentVersion` is NOT bumped; app-global,
     /// never in `.nlx`.
     public var sidebarVisible: Bool
+    /// Sheet Behavior (General Settings): what a launch selects,
+    /// what ⌘N does, the fresh-sheet template and the sidebar order.
+    /// Additive app-global preferences, failure-proof on decode and never
+    /// part of `.nlx`; `StorePayload.currentVersion` stays 2.
+    public var launchBehavior: LaunchSheetBehavior
+    public var commandN: CommandNBehavior
+    public var newSheetStart: NewSheetStart
+    public var sidebarSort: SidebarSortOrder
 
     public static let defaults = AppSettings(
         decimalPlaces: 10,
@@ -227,13 +309,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fontColor: "white",
         customUnits: [],
         windowFrame: nil,
-        sidebarVisible: true
+        sidebarVisible: true,
+        launchBehavior: .lastEdited,
+        commandN: .newSheet,
+        newSheetStart: .regularLine,
+        sidebarSort: .dateEdited
 )
 
     /// r97: a fresh install starts in Auto (`appearance = .system`) and
     /// with the modern Dark app icon; both are only DEFAULTS — a store
     /// that persisted an explicit choice decodes that exact value.
-    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true) {
+    public init(decimalPlaces: Int = 10, fontSizeKey: String = "tf", language: AppLanguage = .en, sheetName: String = "Sheet", lineNumbers: Bool = true, hideSidebarButtonWhenCollapsed: Bool = false, showTotalBar: Bool = true, fontColor: String = "white", input: InputPreferences = .defaults, styling: StylingPreferences = .defaults, customConstants: [UserConstant] = [], appearance: AppAppearance = .system, regional: RegionalNumberPreferences? = nil, customUnits: [UserUnitDefinition] = [], presentation: NumberPresentationPreferences = .defaults, appIcon: AppIconChoice = .dark, temporal: TemporalPreferences = .defaults, tax: TaxPreferences = .defaults, footerStatistic: FooterStatistic = .sum, windowFrame: SavedWindowFrame? = nil, sidebarVisible: Bool = true, launchBehavior: LaunchSheetBehavior = .lastEdited, commandN: CommandNBehavior = .newSheet, newSheetStart: NewSheetStart = .regularLine, sidebarSort: SidebarSortOrder = .dateEdited) {
         self.temporal = temporal
         self.decimalPlaces = decimalPlaces
         self.fontSizeKey = fontSizeKey
@@ -255,6 +341,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.footerStatistic = footerStatistic
         self.windowFrame = windowFrame
         self.sidebarVisible = sidebarVisible
+        self.launchBehavior = launchBehavior
+        self.commandN = commandN
+        self.newSheetStart = newSheetStart
+        self.sidebarSort = sidebarSort
     }
 
     /// Backward-compatible decode: the pre-r19 store has no `input` key
@@ -329,6 +419,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
         windowFrame = (try? c.decodeIfPresent(SavedWindowFrame.self, forKey: .windowFrame))
             .flatMap { $0.hasUsableSize ? $0 : nil }
         sidebarVisible = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarVisible)) ?? true
+        // Sheet Behavior: additive, key-by-key and failure-proof — a
+        // missing key (every earlier store), an unknown raw value or a
+        // wrong JSON type falls back to the documented default without
+        // failing the store. Version stays 2 and nothing is migrated.
+        launchBehavior = LaunchSheetBehavior.resolve(
+            (try? c.decodeIfPresent(String.self, forKey: .launchBehavior)) ?? nil)
+        commandN = CommandNBehavior.resolve(
+            (try? c.decodeIfPresent(String.self, forKey: .commandN)) ?? nil)
+        newSheetStart = NewSheetStart.resolve(
+            (try? c.decodeIfPresent(String.self, forKey: .newSheetStart)) ?? nil)
+        sidebarSort = SidebarSortOrder.resolve(
+            (try? c.decodeIfPresent(String.self, forKey: .sidebarSort)) ?? nil)
     }
 
     public var fontSize: Double {

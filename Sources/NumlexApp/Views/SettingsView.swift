@@ -618,6 +618,84 @@ private struct GeneralSettingsPage: View {
                 }
             }
 
+            SettingsGroup(title: L10n.t("general.sheetBehavior", language: language)) {
+                SettingsRow(
+                    title: L10n.t("launchBehavior", language: language),
+                    detail: L10n.t("launchBehaviorCap", language: language),
+                    symbol: "arrow.uturn.forward"
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.launchBehavior },
+                        set: { model.setLaunchBehavior($0) }
+                    )) {
+                        ForEach(LaunchSheetBehavior.uiOrder, id: \.self) { value in
+                            Text(L10n.t(launchBehaviorKey(value), language: language)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("launchBehavior", language: language))
+                }
+                SettingsRow(
+                    title: L10n.t("commandN", language: language),
+                    detail: L10n.t("commandNCap", language: language),
+                    symbol: "command",
+                    divider: true
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.commandN },
+                        set: { model.setCommandN($0) }
+                    )) {
+                        ForEach(CommandNBehavior.uiOrder, id: \.self) { value in
+                            Text(L10n.t(commandNKey(value), language: language)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("commandN", language: language))
+                }
+                SettingsRow(
+                    title: L10n.t("newSheetStart", language: language),
+                    detail: L10n.t("newSheetStartCap", language: language),
+                    symbol: "text.alignleft",
+                    divider: true
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.newSheetStart },
+                        set: { model.setNewSheetStart($0) }
+                    )) {
+                        ForEach(NewSheetStart.uiOrder, id: \.self) { value in
+                            Text(L10n.t(newSheetStartKey(value), language: language)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("newSheetStart", language: language))
+                }
+                SettingsRow(
+                    title: L10n.t("sidebarSort", language: language),
+                    detail: L10n.t("sidebarSortCap", language: language),
+                    symbol: "arrow.up.arrow.down",
+                    divider: true
+                ) {
+                    Picker("", selection: Binding(
+                        get: { model.settings.sidebarSort },
+                        set: { model.setSidebarSort($0) }
+                    )) {
+                        ForEach(SidebarSortOrder.uiOrder, id: \.self) { value in
+                            Text(L10n.t(sidebarSortKey(value), language: language)).tag(value)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityLabel(L10n.t("sidebarSort", language: language))
+                }
+            }
+
             SettingsGroup(title: L10n.t("general.notebook", language: language)) {
                 SettingsRow(
                     title: L10n.t("linenumber", language: language),
@@ -2792,6 +2870,37 @@ private func appearanceKey(_ a: AppAppearance) -> String {
     case .system: return "appearanceAuto"
     case .light: return "appearanceLight"
     case .dark: return "appearanceDark"
+    }
+}
+
+/// Sheet Behavior picker labels: one stable localization key per enum
+/// case, never a raw value shown to the user.
+private func launchBehaviorKey(_ value: LaunchSheetBehavior) -> String {
+    switch value {
+    case .lastEdited: return "launchBehavior.lastEdited"
+    case .newSheet: return "launchBehavior.newSheet"
+    }
+}
+
+private func commandNKey(_ value: CommandNBehavior) -> String {
+    switch value {
+    case .newSheet: return "commandN.newSheet"
+    case .newWindow: return "commandN.newWindow"
+    }
+}
+
+private func newSheetStartKey(_ value: NewSheetStart) -> String {
+    switch value {
+    case .regularLine: return "newSheetStart.regularLine"
+    case .heading: return "newSheetStart.heading"
+    }
+}
+
+private func sidebarSortKey(_ value: SidebarSortOrder) -> String {
+    switch value {
+    case .dateEdited: return "sidebarSort.dateEdited"
+    case .dateCreated: return "sidebarSort.dateCreated"
+    case .name: return "sidebarSort.name"
     }
 }
 

@@ -501,9 +501,66 @@ final class AppModel {
         // r77: seed the answer appearance state with the loaded sheet's
         // lines — initial load never plays insertion animations.
         noteAnswerActivity()
+        // Sheet Behavior: the launch preference is applied exactly ONCE
+        // here, at the end of model initialization. The model is created
+        // once per process (the App struct's `@State`), so an additional
+        // window opened with ⌘N never re-runs it and never creates a
+        // second launch sheet.
+        applyLaunchBehavior()
         // rates loaded on appear
         // Task { await loadRates() } moved to view onAppear
         _ = 0
+    }
+
+    /// Applies `settings.launchBehavior` once per process:
+    /// `.lastEdited` retargets the restored selection at the newest edit,
+    /// `.newSheet` creates one fresh sheet (using the configured start
+    /// template) in the restored selection's valid folder. The persisted
+    /// index is the tie-breaker for `.lastEdited` and the folder source
+    /// for `.newSheet`.
+    private func applyLaunchBehavior() {
+        switch settings.launchBehavior {
+        case .lastEdited:
+            selectedIndex = SheetLaunch.initialSelection(
+                behavior: .lastEdited, sheets: sheets, persistedIndex: selectedIndex)
+            activeGroup = activeGroup(for: selectedSheet?.folderID)
+        case .newSheet:
+            let folder = validFolderID(sheets.indices.contains(selectedIndex)
+                                       ? sheets[selectedIndex].folderID : nil)
+            insertFreshSheet(in: folder)
+            persist()
+        }
+    }
+
+    /// A folder id that still exists, or nil (General). A stale
+    /// membership never leaks into a newly created sheet.
+    private func validFolderID(_ id: UUID?) -> UUID? {
+        guard let id else { return nil }
+        return folders.contains { $0.id == id } ? id : nil
+    }
+
+    /// The ONE fresh-sheet construction path: the configured start
+    /// template (Regular Line / Heading) plus the seed title. Used by the
+    /// toolbar/menu/folder creation, the launch sheet and the sole-sheet
+    /// replacement — never by sheet imports.
+    private func freshSheet(in folder: UUID?, ordinal: Int) -> Sheet {
+        Sheet(title: "\(settings.sheetName) \(ordinal)",
+              content: NewSheetTemplate.content(for: settings.newSheetStart),
+              createdAt: Date(), modifiedAt: Date(),
+              folderID: folder)
+    }
+
+    /// Inserts a fresh sheet at the TOP of `folder`, selects it and arms
+    /// the one-shot focus request with the template's caret offset.
+    @discardableResult
+    private func insertFreshSheet(in folder: UUID?) -> Int {
+        let sheet = freshSheet(in: folder, ordinal: sheets.count + 1)
+        let idx = SheetOrganization.insertionIndex(forGroup: folder, in: sheets)
+        sheets.insert(sheet, at: idx)
+        selectedIndex = idx
+        focusSheetID = sheet.id
+        focusCaret = NewSheetTemplate.caretOffset(for: settings.newSheetStart)
+        return idx
     }
 
     var selectedSheet: Sheet? {
@@ -961,18 +1018,12 @@ final class AppModel {
         case .general: dest = nil
         case .folder(let id): dest = folders.contains { $0.id == id } ? id : nil
         }
-        let seed = "\(settings.sheetName) \(sheets.count + 1)"
-        let sheet = Sheet(title: seed, content: "", createdAt: Date(), modifiedAt: Date(),
-                          folderID: dest)
-        let idx = SheetOrganization.insertionIndex(forGroup: dest, in: sheets)
-        sheets.insert(sheet, at: idx)
-        selectedIndex = idx
-        focusSheetID = sheet.id
+        let idx = insertFreshSheet(in: dest)
         persist()
         // r77c: the new sheet's full lifecycle marker (id, index,
         // focus request) for the double-click-after-New-Sheet trace.
         dlog(String(
-            "newSheet DONE id=\(sheet.id.uuidString.prefix(4)) idx=\(idx) title=\(sheet.title)"))
+            "newSheet DONE id=\(sheets[idx].id.uuidString.prefix(4)) idx=\(idx) title=\(sheets[idx].title)"))
     }
 
     func renameSheet(id: UUID, to newTitle: String) {
@@ -989,6 +1040,9 @@ final class AppModel {
             sheets[idx].title = trimmed
             sheets[idx].isTitleCustom = true
         }
+        // A rename is an edit: the sidebar's Date Edited order (and every
+        // "newest edit" decision) must see it.
+        sheets[idx].modifiedAt = Date()
         persist()
     }
 
@@ -1003,14 +1057,17 @@ final class AppModel {
         if plan.replacesSoleSheet {
             // r39: the replacement keeps the deleted sheet's group,
             // so deleting the sole sheet of a folder leaves a fresh
-            // empty sheet inside that same folder.
+            // empty sheet inside that same folder. The configured start
+            // template applies here too (the ONE fresh-sheet path).
             let folder = sheets[0].folderID
             // Package 7: the replaced sheet's random epoch store is
             // discarded (no leak, no accidental inheritance).
             randomStores[sheets[0].id] = nil
-            sheets[0] = Sheet(title: "\(settings.sheetName) 1", content: "",
-                              createdAt: Date(), modifiedAt: Date(), folderID: folder)
+            let replacement = freshSheet(in: folder, ordinal: 1)
+            sheets[0] = replacement
             selectedIndex = 0
+            focusSheetID = replacement.id
+            focusCaret = NewSheetTemplate.caretOffset(for: settings.newSheetStart)
         } else {
             let removedID = sheets[index].id
             sheets.remove(at: index)
@@ -1039,13 +1096,16 @@ final class AppModel {
 
     // MARK: Sidebar folders (r39, tab-filtered in r40)
 
-    /// The sheets of one tab (nil == General) in GLOBAL order: the
-    /// stable (global index, sheet) pairs the upper list renders, so
-    /// selection and deletion keep their global-index semantics.
+    /// The sheets of one tab (nil == General) in the order the sidebar
+    /// renders them: the stable (global index, sheet) pairs — so selection
+    /// and deletion keep their global-index semantics — ordered by the
+    /// Sheet Behavior sort preference. The order is PRESENTATION-ONLY:
+    /// `sheets` itself is never reordered.
     func sheets(in groupID: UUID?) -> [(index: Int, sheet: Sheet)] {
-        Array(sheets.enumerated()).compactMap { idx, sheet in
-            sheet.folderID == groupID ? (idx, sheet) : nil
+        let entries = Array(sheets.enumerated()).compactMap { idx, sheet in
+            sheet.folderID == groupID ? (index: idx, sheet: sheet) : nil
         }
+        return SheetSorting.sorted(entries, by: settings.sidebarSort)
     }
 
     /// Creates a folder with the generated localized unique name, inserts
@@ -1368,6 +1428,41 @@ final class AppModel {
         MainActor.assumeIsolated {
             _ = AppIconController.apply(choice)
         }
+    }
+
+    // MARK: Sheet Behavior (General Settings)
+
+    /// The four Sheet Behavior preferences share one tiny write path: one
+    /// observable settings mutation plus one persist, and NO change to any
+    /// sheet, selection, editor state or document byte. Every one is
+    /// app-global, additive and never part of `.nlx`.
+    func setLaunchBehavior(_ value: LaunchSheetBehavior) {
+        guard value != settings.launchBehavior else { return }
+        settings.launchBehavior = value
+        persist()
+    }
+
+    func setCommandN(_ value: CommandNBehavior) {
+        guard value != settings.commandN else { return }
+        settings.commandN = value
+        persist()
+    }
+
+    /// The start template applies to sheets created AFTER the change; an
+    /// existing sheet is never retitled or rewritten.
+    func setNewSheetStart(_ value: NewSheetStart) {
+        guard value != settings.newSheetStart else { return }
+        settings.newSheetStart = value
+        persist()
+    }
+
+    /// Presentation-only: the persisted `sheets` array keeps its global
+    /// order, selection and content — only the sidebar's rendered order
+    /// changes.
+    func setSidebarSort(_ value: SidebarSortOrder) {
+        guard value != settings.sidebarSort else { return }
+        settings.sidebarSort = value
+        persist()
     }
 
     /// Loads (and, when stale, refreshes) the currency table through

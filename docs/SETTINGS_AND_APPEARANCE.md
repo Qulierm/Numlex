@@ -225,6 +225,20 @@ selection, marked text or scroll. See the syntax reference for the exact
 formulas (`$300 + VAT`, `$345 - VAT`, `VAT on $300`, `pre-tax price of $345`,
 `gross price of $300`, `$300 including VAT`).
 
+### Sheet Behavior
+
+The app-global behavior of creating, opening and listing sheets. Every control
+is additive: a store written by an earlier build has none of the four keys and
+decodes each one to the documented default (no migration, no version bump, and
+nothing here ever enters `.nlx`).
+
+| Control | Values | Notes |
+| --- | --- | --- |
+| On launch | Open Last Edited Sheet (default) / New Sheet | **Open Last Edited Sheet** selects the sheet with the greatest `modifiedAt`; an exact timestamp tie keeps the persisted selection when that sheet is among the tied ones and otherwise takes the first tied sheet in stable global order. **New Sheet** creates one fresh sheet at launch (using the start template below) in the restored selection's folder. The decision runs exactly once per process, so opening an additional window never creates a second launch sheet. |
+| Use ⌘N for | New Sheet (default) / New Window | The File ▸ New Item command and its ⌘N shortcut. **New Sheet** keeps the historical behavior (a sheet at the top of the active tab). **New Window** opens another main window instead; every window intentionally shares the ONE model — the same store, the same sheets and the same selection — so no sheet is created, the launch decision is not re-run and the last writer wins for the persisted window frame/sidebar state. Switching the preference takes effect immediately (the command routes at invocation time and its title follows the setting). |
+| Start sheets with | Regular Line (default) / Heading | The first line of every sheet created from now on: an empty document with the caret at 0, or exactly `# ` (one logical line, one stable line ID) with the caret placed at UTF-16 offset 2 so typing continues the heading. One construction path covers the New Sheet button, the folder context menus, ⌘N, the launch sheet and the sole-sheet replacement; imported sheets are never touched. |
+| Sort sheets by | Date Edited (default) / Date Created / Name | The sidebar order INSIDE the active folder only. Date orders are newest first, Name is the localized-standard ascending compare, and every order falls back to the global index as a stable tie-breaker. The order is presentation-only: the persisted sheet array keeps its global order, so selection, deletion, folder movement, tokens, exports and saved indices are unchanged. Renaming a sheet counts as an edit and moves it to the top under Date Edited. |
+
 ### Notebook
 
 | Control | Default | Behaviour |

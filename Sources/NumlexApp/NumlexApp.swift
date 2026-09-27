@@ -201,6 +201,11 @@ struct NumlexApp: App {
     /// Stable structural identity for the production welcome.
     static let productionWelcomeID = "production-welcome"
 
+    /// The main-window scene id. `⌘N ▸ New Window` opens another window of
+    /// this group; every window intentionally shares the ONE `AppModel`
+    /// instance (one store, one selection, one launch decision).
+    static let mainWindowID = "numlex-main-window"
+
     /// True while the production welcome reveal owns the window: the
     /// native sidebar toggle stays hidden until the transition has
     /// finished. Transient view state only — never persisted anywhere.
@@ -209,7 +214,7 @@ struct NumlexApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             themedRoot(launchRoot)
                 .environment(\.sidebarToggleHiddenForWelcome,
                              sidebarToggleHiddenForWelcome)
@@ -250,10 +255,7 @@ struct NumlexApp: App {
                 .disabled(!model.updates.canCheckForUpdates)
             }
             CommandGroup(replacing: .newItem) {
-                Button("New Sheet") {
-                    NotificationCenter.default.post(name: .newSheet, object: nil)
-                }
-                .keyboardShortcut("n", modifiers: .command)
+                NewItemCommand(model: model)
             }
             // Package 7: the subtotal commands. `⌘⇧T` is claimed by the
             // grand total (there is no macOS tab command in this app).
@@ -398,12 +400,46 @@ struct NumlexApp: App {
     }
 }
 
+/// The File ▸ New Item command — the ONE owner of ⌘N. Per the Sheet
+/// Behavior preference it either creates a sheet in the current window
+/// (the default, byte-for-byte the old behavior) or opens another window
+/// on the SAME shared model. The routing happens at INVOCATION time, so
+/// switching the preference takes effect immediately.
+private struct NewItemCommand: View {
+    let model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button(title) { perform() }
+            .keyboardShortcut("n", modifiers: .command)
+    }
+
+    private var title: String {
+        switch model.settings.commandN {
+        case .newSheet: return L10n.t("newSheet", language: model.settings.language)
+        case .newWindow: return L10n.t("newWindow", language: model.settings.language)
+        }
+    }
+
+    /// ⌘N "New Sheet" keeps the existing notification path (the window
+    /// owns the editor and its focus); "New Window" opens another main
+    /// window — no sheet is created and the launch decision is never
+    /// re-run (the model is shared, not rebuilt).
+    private func perform() {
+        switch model.settings.commandN {
+        case .newSheet:
+            NotificationCenter.default.post(name: .newSheet, object: nil)
+        case .newWindow:
+            openWindow(id: NumlexApp.mainWindowID)
+        }
+    }
+}
+
 /// r87: the Format > Highlight command payload (the notification
 /// object; `color == nil` = None, i.e. remove the highlight).
 final class HighlightCommandPayload {
     let color: HighlightColor?
-    init(color: HighlightColor?) { self.color = color }
-}
+    init(color: HighlightColor?) { self.color = color }}
 
 /// The production launch container. The curtain's progress lives in THIS
 /// view's own state, because a state mutation inside `withAnimation` only
