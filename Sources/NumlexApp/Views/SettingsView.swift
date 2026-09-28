@@ -7,26 +7,21 @@ import NumlexCore
 /// titlebar is extra, and the configurator applies these through
 /// contentMinSize / contentMaxSize, never frame minSize/maxSize).
 ///
-/// r90: the settings window is a native split navigation — a category
-/// sidebar plus ONE focused detail page — so the content is compact
-/// (min 520x625, ideal 560x675, max 640x800) rather than a giant clone
-/// of the reference. Measured on macOS 26: the split view clamps the
-/// width at the declared minimum, while its own sidebar chrome asks
-/// for the IDEAL height as the practical floor — the declared minimum
-/// is a lower bound the window never reaches in practice.
+/// r90/r93: the settings window uses horizontal category navigation plus
+/// ONE focused detail page, so the content is compact (min 560x625,
+/// ideal 560x675, max 640x800) rather than a giant clone
+/// of the reference. The minimum accommodates the full navigation row;
+/// the ideal height remains the practical floor requested by native chrome.
 ///
 /// Package 8: every height bound grew by exactly 25% (500/540/640 →
-/// 625/675/800) so the Sheet Behavior, Floating Total and Auto-convert
-/// groups added to General and Numbers fit without scrolling. The three
-/// WIDTH bounds, the navigation tile geometry and the page padding are
-/// untouched.
+/// 625/675/800) so the Settings groups fit without scrolling. Eight 66 pt
+/// navigation tiles plus seven 2 pt gaps need 542 pt, so the minimum width
+/// is 560; ideal/max width and tile geometry remain unchanged.
 ///
-/// r91: the sidebar is narrower (140/146/150 pt) while the RIGHT detail
-/// column keeps its exact width: the total shrinks by the same delta as
-/// the sidebar, so the ideal detail stays 680 - 146 = 534 pt, the same
-/// figure the 700 - 166 window gave before. Height is untouched.
+/// r91: the horizontal navigation tile size and page padding remain
+/// fixed; height bounds are unchanged.
 private enum SettingsGeometry {
-    static let minWidth: CGFloat = 520
+    static let minWidth: CGFloat = 560
     static let idealWidth: CGFloat = 560
     static let maxWidth: CGFloat = 640
     static let minHeight: CGFloat = 625
@@ -46,12 +41,13 @@ private enum SettingsGeometry {
     static let pageHorizontalPadding: CGFloat = 19
 }
 
-/// r90/r91: the SIX settings destinations, in sidebar order. Session-
-/// local navigation state only — never persisted into AppSettings/.nlx.
+/// r90/r91: the Settings destinations in navigation order. Session-local
+/// navigation state only — never persisted into AppSettings/.nlx.
 /// r91 merged the former Appearance page into General (its language,
 /// appearance and icon controls sit together in one place now).
 enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     case general
+    case notebook
     case editing
     case numbers
     case datesTimes
@@ -84,6 +80,7 @@ enum SettingsDestination: String, CaseIterable, Hashable, Identifiable {
     var symbol: String {
         switch self {
         case .general: return "gearshape"
+        case .notebook: return "book.closed"
         case .editing: return "pencil.tip"
         case .numbers: return "number"
         case .datesTimes: return "calendar"
@@ -235,6 +232,7 @@ struct SettingsView: View {
     private var detail: some View {
         switch destination {
         case .general: GeneralSettingsPage(model: model)
+        case .notebook: NotebookSettingsPage(model: model)
         case .editing: EditingSettingsPage(model: model)
         case .numbers: NumbersSettingsPage(model: model)
         case .datesTimes: DatesTimesSettingsPage(model: model)
@@ -448,26 +446,14 @@ private struct SettingsEmptyState: View {
     }
 }
 
-// MARK: - General page (r91: language, appearance, icon + notebook behaviour)
+// MARK: - General page (interface and tax)
 
-/// r91: the single "how Numlex presents itself" page. It owns the
-/// interface language, the Auto/Light/Dark appearance, the application
-/// icon and the notebook behaviour switches — the controls that used to
-/// be split across General and Appearance, now with exactly one home
-/// each and no duplicated page.
+/// General owns the app-wide interface controls and tax configuration;
+/// sheet behavior and notebook preferences live on Notebook.
 private struct GeneralSettingsPage: View {
     @Bindable var model: AppModel
 
     private var language: AppLanguage { model.settings.language }
-
-    /// One persisted boolean binding (every control writes through
-    /// model.persist(), exactly like before).
-    private func boolBinding(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { model.settings[keyPath: keyPath] },
-            set: { model.settings[keyPath: keyPath] = $0; model.persist() }
-        )
-    }
 
     /// Preset selection seeds name/rate through the ONE model API.
     private var taxPresetBinding: Binding<String> {
@@ -623,6 +609,31 @@ private struct GeneralSettingsPage: View {
                 }
             }
 
+        }
+    }
+}
+
+// MARK: - Notebook page (sheet behavior, floating total and notebook preferences)
+
+/// Notebook and sheet-level preferences have one focused home; each control
+/// keeps its existing persisted binding or model setter.
+private struct NotebookSettingsPage: View {
+    @Bindable var model: AppModel
+
+    private var language: AppLanguage { model.settings.language }
+
+    /// One persisted boolean binding (every control writes through
+    /// model.persist(), exactly like before).
+    private func boolBinding(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.settings[keyPath: keyPath] },
+            set: { model.settings[keyPath: keyPath] = $0; model.persist() }
+        )
+    }
+
+    var body: some View {
+        let language = self.language
+        return SettingsDetailPage(destination: .notebook, language: language) {
             SettingsGroup(title: L10n.t("general.sheetBehavior", language: language)) {
                 SettingsRow(
                     title: L10n.t("launchBehavior", language: language),

@@ -5,14 +5,15 @@ current `main` branch. It is written for authors of the published
 documentation: every claim here is pinned by the Swift source and the
 canonical engine tests. Released builds may lag behind `main`.
 
-Settings are organized into **seven categories**, selected from a compact row of
+Settings are organized into **eight categories**, selected from a compact row of
 **icon-over-label tiles across the top of the window**; each page is one readable
 column of grouped rows with native switches, pickers and sliders. Nothing here is cloud-synced; every preference is
 stored on your Mac.
 
 | Category | Icon | Owns |
 | --- | --- | --- |
-| **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon (all three are rows of the Interface group), and notebook window behaviour (line numbers, hide-sidebar button, bottom Total bar) |
+| **General** | gear | Interface language, Auto / Light / Dark appearance, the Dock / App Switcher application icon, and app-global Tax configuration |
+| **Notebook** | closed book | Sheet Behavior, Floating Total and Notebook preferences (line numbers and hide-sidebar button) |
 | **Editing** | pencil tip | Operator helpers and automatic insertions — everything that rewrites text as you type |
 | **Numbers** | number | Regional number format, paste conversion, how answers are displayed and copied, the answer notation (including the custom pattern field) |
 | **Dates & Times** | calendar | The work calendar (holiday region, hours per workday) and custom timezone aliases — app-global, never in `.nlx` |
@@ -20,12 +21,12 @@ stored on your Mac.
 | **Styling** | paintbrush | Typography, answer column, syntax colors, live preview |
 | **About** | info circle | The app icon and version, plus Check for Updates and the automatic-check schedule (never part of `.nlx`) |
 
-The navigation is a compact, centered row of **seven icon-over-label tiles** directly
+The navigation is a compact, centered row of **eight icon-over-label tiles** directly
 below the compact native titlebar (no section title is repeated above it — the active
 tile's visible label names the page, and no page title appears in the scrolling
-detail either). Each tile is
-an equal 66 × 50 pt slot holding its SF Symbol above its concise localized label; there
-is no left sidebar, no split-view container, no full-width tab bar and no divider. The
+detail either). Each tile is an equal 66 × 50 pt slot holding its SF Symbol above its
+concise localized label; the full row and 2 pt gaps need 542 pt. There is no left
+sidebar, no split-view container, no full-width tab bar and no divider. The
 selected tile carries a **calm neutral rounded rectangle** (a subtle theme-aware gray
 with a hairline border) while its icon AND label turn accent-colored — never a solid
 accent block and never a white icon. Unselected tiles are transparent with muted
@@ -33,7 +34,8 @@ content, and hover is a weaker neutral wash that never moves the layout. The sel
 tile is the only one with the `.isSelected` accessibility trait; every tile also
 carries a localized tooltip and accessibility label with its FULL page title. The
 arrow keys move the selection across the row and the focus cue stays on the selected
-tile. Categories, in order: General, Editing, Numbers, Dates, Constants, Styling, About.
+tile. Categories, in order: General, Notebook, Editing, Numbers, Dates & Times,
+Constants & Units, Styling, About.
 Tiles use a concise visible label where the full page title would be too wide
 ("Constants" for Constants & Units, Russian "Стиль" for Styling, Italian "Info" for
 Informazioni); the full page title always appears in the tooltip and the
@@ -42,7 +44,7 @@ accessibility label.
 The selected page fills the rest of the window and is the ONLY thing that scrolls. It
 uses the AVAILABLE width with one shared page padding (19 pt), so the cards reach the
 window edges instead of leaving wide unused fields. The window content range is
-520–640 × 625–800 pt (ideal 560 × 675). The selection is session-only, defaults to
+560–640 × 625–800 pt (ideal 560 × 675). The selection is session-only, defaults to
 General and is never persisted into the settings store.
 
 The Settings window carries no toolbar: its empty NSToolbar is hidden through public
@@ -195,9 +197,9 @@ the first-launch state lives outside the store and `UserDefaults`.
 
 ## General
 
-r91 merged the former Appearance page into General: language, appearance,
-application icon and notebook behaviour are now one page, each control with exactly
-one home.
+General contains the Interface and Tax groups: language, appearance, application
+icon and app-global sales-tax configuration. Sheet Behavior, Floating Total and
+Notebook preferences have their own page immediately after General.
 
 ### Interface
 
@@ -211,7 +213,7 @@ one home.
 
 The app-global sales-tax configuration for the financial tax phrases (it is
 stored in the settings and never exported to `.nlx`). The controls live in a
-localized **Tax** group on the General page; there is no eighth navigation tile.
+localized **Tax** group on the General page.
 
 | Control | Values | Notes |
 | --- | --- | --- |
@@ -224,6 +226,11 @@ sheet's content, line IDs, references, the editor's TextKit identity, caret,
 selection, marked text or scroll. See the syntax reference for the exact
 formulas (`$300 + VAT`, `$345 - VAT`, `VAT on $300`, `pre-tax price of $345`,
 `gross price of $300`, `$300 including VAT`).
+
+## Notebook
+
+The Notebook page sits immediately after General and owns sheet-level behavior,
+the Floating Total controls and notebook preferences.
 
 ### Sheet Behavior
 
@@ -239,13 +246,12 @@ nothing here ever enters `.nlx`).
 | Start sheets with | Regular Line (default) / Heading | The first line of every sheet created from now on: an empty document with the caret at 0, or exactly `# ` (one logical line, one stable line ID) with the caret placed at UTF-16 offset 2 so typing continues the heading. One construction path covers the New Sheet button, the folder context menus, ⌘N, the launch sheet and the sole-sheet replacement; imported sheets are never touched. |
 | Sort sheets by | Date Edited (default) / Date Created / Name | The sidebar order INSIDE the active folder only. Date orders are newest first, Name is the localized-standard ascending compare, and every order falls back to the global index as a stable tie-breaker. The order is presentation-only: the persisted sheet array keeps its global order, so selection, deletion, folder movement, tokens, exports and saved indices are unchanged. Renaming a sheet counts as an edit and moves it to the top under Date Edited. |
 
-### Notebook
+### Notebook preferences
 
 | Control | Default | Behaviour |
 | --- | --- | --- |
 | Line numbers | on | Shows the line number beside each input line. |
 | Hide sidebar button when collapsed | off | Hides the toolbar button while the sidebar is collapsed; reopen the sidebar with **⌃⌘S** (Control-Command-S) or View → Toggle Sidebar. |
-| Show total bar | on | Hides the sheet's bottom Total panel (the footer that sums the evaluated magnitude of every ordinary scalar answer — unitless, unit-bearing and money rows included — and formats the one unitless result with the global number settings). Inline `total` lines keep evaluating and rendering — the toggle never disables the command. |
 
 Each sidebar row shows the sheet's created time on the left and its line count
 on the right, both in the same 11 pt secondary text on one line. Exactly one
@@ -383,8 +389,8 @@ a dependency or a total — only how the value is rendered and copied.
 
 ## Dates & Times
 
-The seventh category owns the app-global temporal preferences, split into two
-groups.
+The Dates & Times category owns the app-global temporal preferences, split into
+two groups.
 
 **Work calendar** — a Holiday region picker (Automatic = the active number
 context's system region, plus the 25 supported ISO country profiles) and an
@@ -626,7 +632,7 @@ mis-stored or unknown value falls back to Sum.
 
 ## Floating Total
 
-The General page's **Floating Total** group owns the bar itself; four controls,
+The Notebook page's **Floating Total** group owns the bar itself; four controls,
 each additive and failure-proof (a store written by an earlier build has none
 of the keys and keeps the historical behavior byte-for-byte — no migration, no
 version bump, nothing in `.nlx`).

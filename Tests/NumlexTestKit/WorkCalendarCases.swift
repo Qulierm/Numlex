@@ -219,7 +219,7 @@ public let workCalendarCases: [EngineCase] = [
         }
     },
 
-    EngineCase("work-calendar-settings-and-seven-tiles") {
+    EngineCase("work-calendar-settings-and-eight-tiles") {
         let view = wcSource("Sources/NumlexApp/Views/SettingsView.swift")
         guard let pageStart = view.range(of: "private struct DatesTimesSettingsPage")?.lowerBound,
               let pageEnd = view.range(of: "// MARK: - Numbers tab")?.lowerBound else {
@@ -247,9 +247,9 @@ public let workCalendarCases: [EngineCase] = [
         }
         try expect(view.contains("HolidayCatalog.shared?.countries"),
                    "the region picker reads the bundled catalog")
-        // Seven tiles × six languages: every destination label exists and
-        // the row still fits the 520 pt minimum (7*66 + 6*2 = 474).
-        let destinations = ["general", "editing", "numbers", "datesTimes",
+        // Eight tiles × six languages: every destination label exists and
+        // the row still fits the 560 pt minimum (8*66 + 7*2 = 542).
+        let destinations = ["general", "notebook", "editing", "numbers", "datesTimes",
                             "constantsUnits", "styling", "about"]
         for lang in AppLanguage.allCases {
             for dest in destinations {
@@ -264,7 +264,7 @@ public let workCalendarCases: [EngineCase] = [
                 try expect(text != key && !text.isEmpty, "\(lang.rawValue): \(key)")
             }
         }
-        try expect(7 * 66 + 6 * 2 <= 520, "seven tiles fit the minimum width")
+        try expect(8 * 66 + 7 * 2 <= 560, "eight tiles fit the minimum width")
     },
 
     EngineCase("work-calendar-hours-presentation") {

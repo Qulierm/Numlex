@@ -352,8 +352,10 @@ public let floatingTotalCases: [EngineCase] = [
                    "the exported total uses the exported rows' stable IDs")
         try expect(builder.contains("policy: context.footerPolicy"),
                    "the exported total uses the frozen policy")
-        // Settings: four switches in ONE group, and the Show control has a
-        // single owner.
+        // Settings: four switches in ONE group on the Notebook page, and
+        // the Show control has a single owner.
+        try expect(settingsView.contains("SettingsDetailPage(destination: .notebook, language: language)"),
+                   "Floating Total belongs to Notebook")
         try expect(settingsView.contains("L10n.t(\"general.floatingTotal\", language: language)"),
                    "the Floating Total group is localized")
         try expectEqual(settingsView.components(separatedBy: "boolBinding(\\AppSettings.showTotalBar)").count - 1, 1,

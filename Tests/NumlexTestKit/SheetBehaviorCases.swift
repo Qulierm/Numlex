@@ -217,11 +217,13 @@ public let sheetBehaviorCases: [EngineCase] = [
                    "New Window opens another main window")
         try expectEqual(sheetBehaviorCount("keyboardShortcut(\"n\", modifiers: .command)", in: app), 1,
                         "exactly one ⌘N owner")
-        // General Settings owns the four pickers through the model setters.
+        // Notebook Settings owns the four pickers through the model setters.
         for setter in ["model.setLaunchBehavior($0)", "model.setCommandN($0)",
                        "model.setNewSheetStart($0)", "model.setSidebarSort($0)"] {
-            try expect(settingsView.contains(setter), "General Settings wires \(setter)")
+            try expect(settingsView.contains(setter), "Notebook Settings wires \(setter)")
         }
+        try expect(settingsView.contains("SettingsDetailPage(destination: .notebook, language: language)"),
+                   "Sheet Behavior is on the Notebook page")
         try expect(settingsView.contains("L10n.t(\"general.sheetBehavior\", language: language)"),
                    "the group is localized")
     },

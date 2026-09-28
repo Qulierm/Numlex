@@ -193,8 +193,8 @@ public let timezoneSettingsCases: [EngineCase] = [
 
     EngineCase("timezone-settings-destination-contract") {
         let text = tzSettingsSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // Exactly SEVEN destinations in the mandated order.
-        let order = ["general", "editing", "numbers", "datesTimes",
+        // Exactly EIGHT destinations in the mandated order.
+        let order = ["general", "notebook", "editing", "numbers", "datesTimes",
                      "constantsUnits", "styling", "about"]
         var last = -1
         for name in order {
@@ -213,15 +213,15 @@ public let timezoneSettingsCases: [EngineCase] = [
         try expect(text.contains("case .datesTimes: return \"calendar\""),
                    "the tile uses the calendar SF Symbol")
         // Geometry source contract (content bounds unchanged).
-        for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
+        for pin in ["minWidth: CGFloat = 560", "idealWidth: CGFloat = 560",
                     "maxWidth: CGFloat = 640", "minHeight: CGFloat = 625",
                     "idealHeight: CGFloat = 675", "maxHeight: CGFloat = 800",
                     "navigationTileWidth: CGFloat = 66",
                     "navigationTileHeight: CGFloat = 50"] {
             try expect(text.contains(pin), "geometry keeps \(pin)")
         }
-        // Seven tiles fit the minimum width: 7 * 66 + 6 * 2 spacing = 474 < 520.
-        try expect(7 * 66 + 6 * 2 <= 520, "seven tiles fit the 520 pt minimum")
+        // Eight tiles fit the minimum width: 8 * 66 + 7 * 2 = 542 < 560.
+        try expect(8 * 66 + 7 * 2 <= 560, "eight tiles fit the 560 pt minimum")
         // No fake chrome on the new page either.
         let code = text
         try expect(!code.contains("NSTitlebarAccessoryViewController"), "no fake titlebar")

@@ -1,8 +1,8 @@
 import Foundation
 import NumlexCore
 
-/// r90: the redesigned Settings window — native split navigation with a
-/// category sidebar and ONE focused detail page per destination.
+/// r93: the redesigned Settings window — horizontal category navigation
+/// and ONE focused detail page per destination.
 ///
 /// The app target is not importable from the test kit, so the layout,
 /// ownership and identity contracts are pinned at the source, exactly
@@ -100,12 +100,11 @@ public let settingsNavigationCases: [EngineCase] = [
         try expectEqual(switches, 2, "general is the first detail branch")
     },
 
-    EngineCase("settings-nav-seven-destinations-in-order") {
+    EngineCase("settings-nav-eight-destinations-in-order") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        // The horizontal bar exposes exactly SEVEN destinations, in this
-        // order, with About last (temporal Task 1 inserted Dates & Times
-        // between Numbers and Constants).
-        let order = ["general", "editing", "numbers", "datesTimes", "constantsUnits", "styling", "about"]
+        // Eight destinations, with Notebook immediately after General and
+        // About last.
+        let order = ["general", "notebook", "editing", "numbers", "datesTimes", "constantsUnits", "styling", "about"]
         var last = -1
         for name in order {
             guard let r = text.range(of: "case \(name)\n") else {
@@ -116,6 +115,10 @@ public let settingsNavigationCases: [EngineCase] = [
             try expect(idx > last, "\(name) appears in navigation order")
             last = idx
         }
+        try expect(text.contains("case .notebook: NotebookSettingsPage(model: model)"),
+                   "Notebook routes to its one focused page")
+        try expect(text.contains("case .notebook: return \"book.closed\""),
+                   "Notebook uses its book symbol")
         try expect(!text.contains("case appearance"), "no appearance destination")
         try expect(!text.contains("case updates"), "no updates destination")
         try expect(!text.contains("UpdatesSettingsPage"), "no updates page")
@@ -158,7 +161,7 @@ public let settingsNavigationCases: [EngineCase] = [
 
     EngineCase("settings-nav-symbols-and-labels") {
         let text = settingsNavSource("Sources/NumlexApp/Views/SettingsView.swift")
-        for symbol in ["gearshape", "pencil.tip",
+        for symbol in ["gearshape", "book.closed", "pencil.tip",
                        "number", "calendar", "function", "paintbrush",
                        "info.circle"] {
             try expect(text.contains("return \"\(symbol)\""),
@@ -218,14 +221,14 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(!text.contains("NSTitlebarAccessoryViewController"),
                    "no duplicate fake titlebar")
         // Every page routes through the scaffold exactly once.
-        for dest in ["general", "about", "editing", "datesTimes",
+        for dest in ["general", "notebook", "about", "editing", "datesTimes",
                      "constantsUnits", "numbers", "styling"] {
             let needle = "SettingsDetailPage(destination: .\(dest), language: language)"
             try expect(text.contains(needle), "\(dest) uses the shared scaffold")
         }
-        // Exactly SEVEN scaffolds — the merged Appearance page is gone.
-        try expectEqual(text.components(separatedBy: "SettingsDetailPage(destination: .").count - 1, 7,
-                        "seven destinations use the shared scaffold")
+        // Exactly EIGHT scaffolds — Appearance remains merged into General.
+        try expectEqual(text.components(separatedBy: "SettingsDetailPage(destination: .").count - 1, 8,
+                        "eight destinations use the shared scaffold")
     },
 
     EngineCase("settings-ownership-no-duplicates") {
@@ -238,19 +241,50 @@ public let settingsNavigationCases: [EngineCase] = [
             }
             return String(text[a.lowerBound..<b.lowerBound])
         }
-        let general = page("GeneralSettingsPage", until: "AboutSettingsPage")
+        let general = page("GeneralSettingsPage", until: "NotebookSettingsPage")
+        let notebook = page("NotebookSettingsPage", until: "AboutSettingsPage")
         let about = page("AboutSettingsPage", until: "EditingSettingsPage")
         let numbers = page("NumbersSettingsPage", until: "StylingSettingsPage")
         // The merged page really is one page: no Appearance struct is left.
         try expect(page("AppearanceSettingsPage", until: "AboutSettingsPage").isEmpty,
                    "no AppearanceSettingsPage remains after the r91 merge")
 
-        // General: language, the Auto/Light/Dark appearance, the icon
-        // chooser AND the three notebook switches — the r91 merge, each
-        // control exactly once.
+        // General: interface language, appearance, icon and tax only.
+        try expect(general.contains("general.interface"), "General owns Interface")
+        try expect(general.contains("tax.group"), "General owns Tax")
+        for movedKey in ["launchBehavior", "commandN", "linenumber", "hideSidebarBtn",
+                         "showTotalBar", "footerAvoidOverlap", "footerIncludeReferenced",
+                         "footerIncludeVariables"] {
+            try expect(!general.contains("L10n.t(\"\(movedKey)\""),
+                       "General does not own moved control \(movedKey)")
+        }
+        // Notebook uniquely owns Sheet Behavior, Floating Total and the
+        // two Notebook switches (four pickers + six switches).
+        for group in ["general.sheetBehavior", "general.floatingTotal", "general.notebook"] {
+            try expect(notebook.contains("L10n.t(\"\(group)\""),
+                       "Notebook owns \(group)")
+            try expect(!general.contains("L10n.t(\"\(group)\""),
+                       "General does not duplicate \(group)")
+        }
         for key in ["language", "linenumber", "hideSidebarBtn", "showTotalBar"] {
-            try expect(general.contains("L10n.t(\"\(key)\"") || general.contains("L10n.t(\"\(key)\","),
-                       "General owns \(key)")
+            let owner = key == "language" ? general : notebook
+            try expect(owner.contains("L10n.t(\"\(key)\""),
+                       "correct page owns \(key)")
+        }
+        let notebookCode = settingsNavWithoutComments(notebook)
+        try expectEqual(notebookCode.components(separatedBy: "SettingsRow(").count - 1, 10,
+                        "Notebook has exactly ten moved rows")
+        try expect(notebook.contains("destination: .notebook"), "Notebook uses its matching scaffold")
+        try expect(notebook.contains("set: { model.settings[keyPath: keyPath] = $0; model.persist() }"),
+                   "Notebook boolean switches persist through the existing binding")
+        for setter in ["model.setLaunchBehavior($0)", "model.setCommandN($0)",
+                       "model.setNewSheetStart($0)", "model.setSidebarSort($0)"] {
+            try expectEqual(notebookCode.components(separatedBy: setter).count - 1, 1,
+                            "Notebook retains one \(setter) path")
+        }
+        for group in ["general.sheetBehavior", "general.floatingTotal", "general.notebook"] {
+            try expectEqual(text.components(separatedBy: "L10n.t(\"\(group)\"").count - 1, 1,
+                            "one owner for \(group)")
         }
         try expect(general.contains("model.setAppearance($0)"), "appearance write path")
         try expect(general.contains("L10n.t(appearanceKey(a)"), "localized theme labels")
@@ -349,7 +383,7 @@ public let settingsNavigationCases: [EngineCase] = [
     EngineCase("settings-navigation-localization-complete") {
         let keys = ["settings.updates",
                     "settings.constantsUnits",
-                    "settings.about",
+                    "settings.about", "settings.notebook",
                     // The merged General page's own labels.
                     "general.interface", "general.notebook", "appearance", "appIcon"]
         for lang in AppLanguage.allCases {
@@ -419,8 +453,8 @@ public let settingsNavigationCases: [EngineCase] = [
         try expect(!text.contains("sidebarIdealWidth"), "no sidebar width constant remains")
         try expect(!text.contains("navigationSplitViewColumnWidth"),
                    "no split-view column width remains")
-        // r91 geometry: narrower sidebar, SAME right detail width.
-        for pin in ["minWidth: CGFloat = 520", "idealWidth: CGFloat = 560",
+        // Eight tiles use 542 pt including gaps; the minimum is 560.
+        for pin in ["minWidth: CGFloat = 560", "idealWidth: CGFloat = 560",
                     "maxWidth: CGFloat = 640",
                     "minHeight: CGFloat = 625", "idealHeight: CGFloat = 675",
                     "maxHeight: CGFloat = 800",
@@ -429,6 +463,8 @@ public let settingsNavigationCases: [EngineCase] = [
         }
         // The invariant that matters to the user now: the page reaches
         // the window edges with only the shared page padding.
+        try expectEqual(8 * 66 + 7 * 2, 542, "all eight tiles and gaps use 542 pt")
+        try expect(8 * 66 + 7 * 2 <= 560, "the navigation fits the minimum window width")
         try expectEqual(560 - 2 * 19, 522,
                         "the ideal page/card width is 522 pt")
         let main = settingsNavSource("Sources/NumlexApp/Views/ContentView.swift")
