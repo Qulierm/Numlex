@@ -633,7 +633,7 @@ version bump, nothing in `.nlx`).
 
 | Control | Default | Behaviour |
 | --- | --- | --- |
-| Show | on | The bar's single visibility owner: OFF removes the panel and its reserved space, and inline `total` lines keep evaluating and rendering as before. |
+| Show | on | The bar's single visibility owner: OFF hides the footer in both placements — neither a reserved bar nor an overlay is rendered, even when **Avoid overlapping answers** is OFF. ON restores the placement selected by **Avoid overlapping answers** (reserved space when ON, overlay when OFF). Inline `total` lines keep evaluating and rendering regardless of this switch. |
 | Avoid overlapping answers | on | ON reserves the footer's own space under the answers (the historical layout). OFF gives the answers the full column height and draws the SAME interactive footer over the bottom edge of that viewport — the same bubble, geometry, context menu, accessibility and mode transition, in an overlay that contributes no layout extent. Row geometry, the measured line metrics, the wheel catcher and the single editor scroll source are identical in both modes; the answer pane never gains a scroll view of its own. |
 | Include referenced lines | on | Counts the source row of every answer token. OFF leaves those source rows out of the statistic; the row that SHOWS a token is a consumer, not a reference target, so it still counts. |
 | Include variable declaration lines | on | Counts `.variable` / `.variableInt` declaration rows (`x = 5`, `price = 1250`). OFF counts only the rows that use such names. |

@@ -95,12 +95,13 @@ public let floatingTotalCases: [EngineCase] = [
         """
         let payload = try JSONDecoder().decode(StorePayload.self, from: Data(json.utf8))
         try expectEqual(payload.version, 2)
+        try expectEqual(payload.settings.showTotalBar, true)
         try expectEqual(payload.settings.footerAvoidOverlap, true)
         try expectEqual(payload.settings.footerIncludeReferencedLines, true)
         try expectEqual(payload.settings.footerIncludeVariableLines, true)
         try expectEqual(payload.settings.footerContributionPolicy, .defaults)
         // Malformed values fall back INDEPENDENTLY: a corrupt
-        // footerAvoidOverlap never disturbs valid siblings.
+        // showTotalBar and footerAvoidOverlap never disturb valid siblings.
         let bad = """
         {"sheets":[],"selectedIndex":0,
          "settings":{"decimalPlaces":7,"fontSizeKey":"ts","language":"en",
@@ -109,12 +110,17 @@ public let floatingTotalCases: [EngineCase] = [
                      "footerIncludeVariableLines":false},
          "version":2}
         """
+        let malformedShow = bad.replacingOccurrences(of: "\"footerAvoidOverlap\"", with: "\"showTotalBar\":\"maybe\", \"footerAvoidOverlap\"")
         let p2 = try JSONDecoder().decode(StorePayload.self, from: Data(bad.utf8))
+        let p3 = try JSONDecoder().decode(StorePayload.self, from: Data(malformedShow.utf8))
+        try expectEqual(p3.settings.showTotalBar, true, "wrong Show type falls back independently")
+        try expectEqual(p3.settings.footerIncludeReferencedLines, false, "valid sibling survives malformed Show")
         try expectEqual(p2.settings.footerAvoidOverlap, true, "wrong type falls back to the default")
         try expectEqual(p2.settings.footerIncludeReferencedLines, false)
         try expectEqual(p2.settings.footerIncludeVariableLines, false)
         // And a full roundtrip keeps an explicit OFF/OFF choice.
         var settings = AppSettings.defaults
+        settings.showTotalBar = false
         settings.footerAvoidOverlap = false
         settings.footerIncludeReferencedLines = false
         settings.footerIncludeVariableLines = false
@@ -122,6 +128,7 @@ public let floatingTotalCases: [EngineCase] = [
             StorePayload.self,
             from: JSONEncoder().encode(StorePayload(sheets: [], selectedIndex: 0,
                                                     settings: settings, version: 2)))
+        try expectEqual(roundtrip.settings.showTotalBar, false, "explicit OFF survives StorePayload JSON roundtrip")
         try expectEqual(roundtrip.settings.footerAvoidOverlap, false)
         try expectEqual(roundtrip.settings.footerContributionPolicy,
                         FooterContributionPolicy(includeReferencedLines: false,
@@ -326,6 +333,10 @@ public let floatingTotalCases: [EngineCase] = [
                    "wheel forwarding is unchanged")
         // ContentView passes the same frozen policy to the live column and
         // to the export presentation.
+        try expect(settingsView.contains("boolBinding(\\AppSettings.showTotalBar)"),
+                   "Settings binds Show to persisted AppSettings")
+        try expect(content.contains("showTotalBar: settings.showTotalBar"),
+                   "ContentView passes persisted Show to the answer column")
         try expect(content.contains("footerPolicy: settings.footerContributionPolicy"),
                    "ContentView passes the policy to the column")
         try expect(content.contains("footerStatistic: settings.footerStatistic,\n            footerPolicy: settings.footerContributionPolicy,"),
