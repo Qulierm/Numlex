@@ -364,17 +364,42 @@ public let floatingTotalCases: [EngineCase] = [
             try expect(settingsView.contains("boolBinding(\\AppSettings.\(field))"),
                        "the \(field) switch is wired")
         }
-        // Localization completeness.
+        // Localization completeness and concise-caption regressions.
+        let captionKeys = ["footerAvoidOverlapCap", "footerIncludeReferencedCap",
+                           "footerIncludeVariablesCap"]
+        // Swift String.count for each former caption, in captionKeys order.
+        let formerCaptionLengths: [AppLanguage: [Int]] = [
+            .en: [140, 137, 124], .ru: [124, 136, 148], .de: [144, 135, 143],
+            .fr: [154, 140, 148], .it: [152, 147, 124], .zh: [37, 39, 48]
+        ]
         for language in AppLanguage.allCases {
-            guard let table = L10n.translations[language] else {
-                throw CaseFailure(message: "missing table for \(language)")
+            guard let table = L10n.translations[language],
+                  let formerLengths = formerCaptionLengths[language] else {
+                throw CaseFailure(message: "missing localization table or caption baseline for \(language)")
             }
             for key in floatingTotalKeys {
                 guard let value = table[key], !value.isEmpty else {
                     throw CaseFailure(message: "\(language) is missing \(key)")
                 }
             }
+            for (index, key) in captionKeys.enumerated() {
+                guard let caption = table[key] else {
+                    throw CaseFailure(message: "\(language) is missing \(key)")
+                }
+                try expect(caption.count <= 75, "\(language.rawValue) \(key) stays concise")
+                try expect(caption.count * 4 <= formerLengths[index] * 3,
+                           "\(language.rawValue) \(key) is at least 25% shorter than before")
+            }
         }
+        let overlapCaption = L10n.t("footerAvoidOverlapCap", language: .en).lowercased()
+        let referencedCaption = L10n.t("footerIncludeReferencedCap", language: .en).lowercased()
+        let variablesCaption = L10n.t("footerIncludeVariablesCap", language: .en).lowercased()
+        try expect(overlapCaption.contains("off") && overlapCaption.contains("overlays"),
+                   "English overlap caption explains OFF overlays answers")
+        try expect(referencedCaption.contains("source") && referencedCaption.contains("answer token"),
+                   "English referenced-lines caption identifies answer-token source rows")
+        try expect(variablesCaption.contains("declaration") && variablesCaption.contains("x = 5"),
+                   "English variables caption identifies declaration rows")
         try expectEqual(L10n.t("general.floatingTotal", language: .ru), "Плавающий итог")
         try expectEqual(L10n.t("footerAvoidOverlap", language: .de), "Antworten nicht überdecken")
         try expectEqual(L10n.t("footerIncludeReferenced", language: .zh), "包含被引用的行")
