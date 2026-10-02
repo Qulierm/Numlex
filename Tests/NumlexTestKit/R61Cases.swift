@@ -108,13 +108,13 @@ public let r61Cases: [EngineCase] = [
             "Sources/NumlexApp/Views/ContentView.swift")
         try expect(view.contains("static func effectiveSidebarButtonHidden(preference: Bool,"),
                    "ONE effective rule")
-        try expect(view.contains("forced || (preference && collapsed)"),
-                   "the rule is forced OR (preference AND collapsed)")
-        try expect(view.contains("coord.hidePreference = hideSidebarButtonWhenCollapsed"),
+        try expect(view.contains("minimalMode || forced || (preference && collapsed)"),
+                   "Minimal Mode ORs with forced OR (preference AND collapsed)")
+        try expect(view.contains("self.hidePreference = hidePreference"),
                    "update refreshes the coordinator preference")
-        try expect(view.contains("coord.collapsed = columnVisibility != .all"),
+        try expect(view.contains("self.collapsed = effectiveVisibility != .all"),
                    "update refreshes the coordinator collapse state")
-        try expect(view.contains("coord.reapply(to: window)"),
+        try expect(view.contains("self.reapply(to: window)"),
                    "key reassertion reads latest coordinator inputs")
         try expect(!view.contains("self.hideSidebarButtonWhenCollapsed"),
                    "no stale struct capture in the observer")
@@ -150,10 +150,9 @@ public let r61Cases: [EngineCase] = [
                    "never reinserts the toolbar item")
     },
     EngineCase("r61-configurator-preference-input") {
-        // The configurator owns the flag end to end: declared input,
-        // live wiring at the call site, hidden-state applied BEFORE the
-        // width-only early return (preference-only toggles apply while
-        // collapsed with no resize).
+        // The configurator owns the flag end to end: declared input, live
+        // call-site wiring, and hidden-state application before a normal
+        // visibility-only resize can early-return.
         let view = try r61ReadSource(
             "Sources/NumlexApp/Views/ContentView.swift")
         try expect(view.contains("var hideSidebarButtonWhenCollapsed: Bool"),
@@ -163,14 +162,22 @@ public let r61Cases: [EngineCase] = [
             "call site wires the live setting")
         try expect(view.contains("forceHideSidebarButton: sidebarToggleHiddenForWelcome"),
                    "call site wires the transient welcome force flag")
-        let applyRange = view.range(of: "coord.reapply(to: w)")
-        let guardRange = view.range(of: "guard coord.lastVisibility != columnVisibility else { return }")
-        try expect(applyRange != nil && guardRange != nil,
-                   "both hidden apply and width guard present")
-        if let a = applyRange, let g = guardRange {
-            try expect(a.lowerBound < g.lowerBound,
-                       "hidden-state applies before the width-only guard")
+        try expect(view.contains("minimalMode: isMinimalMode"),
+                   "the per-window mode state reaches the coordinator")
+        guard let start = view.range(of: "private func applyLatestInputs()"),
+              let end = view.range(of: "private func beginMinimalModeTransition(",
+                                   range: start.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "latest-input application is missing", location: "R61Cases")
         }
+        let applyBlock = String(view[start.lowerBound..<end.lowerBound])
+        guard let applyRange = applyBlock.range(of: "reapply(to: window)"),
+              let guardRange = applyBlock.range(of: "guard visibilityChanged else { return }") else {
+            throw CaseFailure(message: "hidden apply or visibility guard is missing", location: "R61Cases")
+        }
+        try expect(applyRange.lowerBound < guardRange.lowerBound,
+                   "hidden-state applies before the normal visibility guard")
+        try expect(applyBlock.contains("window.minSize = minSize"),
+                   "the latest sidebar-dependent floor is set before the guard")
     },
     EngineCase("r61-single-sidebar-command") {
         // Exactly one system command path — no duplicate Toggle Sidebar
@@ -225,96 +232,254 @@ public let r61Cases: [EngineCase] = [
     },
 
     EngineCase("r61-window-restore-launch-contract") {
-        // The launch path restores the SAVED frame from the settings
-        // store (the single restore source) and keeps the long-standing
-        // centered fallback for a legacy store or an unusable frame.
+        // Restore belongs to each attached NSView.window, not rates loading,
+        // NSApp's key window, or another visible Settings/main window.
         let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
         let app = try r61ReadSource("Sources/NumlexApp/NumlexApp.swift")
-        // The restored sidebar visibility is the FIRST value the
-        // coordinator sees, so the first updateNSView hits the guard and
-        // performs no launch resize.
         try expect(view.contains(
             "_columnVisibility = State(initialValue: model.settings.sidebarVisible ? .all : .detailOnly)"),
-            "ContentView seeds the sidebar visibility from the saved setting")
-        try expect(view.contains("init(model: AppModel) {"),
-                   "the seeding happens in the one explicit initializer")
-        try expect(view.contains("context.coordinator.lastVisibility = columnVisibility"),
-                   "makeNSView records the RESTORED visibility as the first value")
-        // The pure restore rule decides, with the live screens.
-        try expect(view.contains("let restored = MainWindowGeometry.restoredFrame("),
-                   "the launch path calls the pure restore rule")
-        try expect(view.contains("saved: model.settings.windowFrame"),
-                   "the saved frame is the input")
-        try expect(view.contains("visibleFrames: NSScreen.screens.map(\\.visibleFrame)"),
+            "ContentView seeds normal sidebar visibility from the saved setting")
+        try expect(view.contains("override func viewDidMoveToWindow()"),
+                   "an attached-view lifecycle callback detects its native owner")
+        try expect(view.contains("windowAttachmentChanged?(window)"),
+                   "the lifecycle callback passes only view.window")
+        try expect(view.contains("coord.windowAttachmentChanged(window, from: view)"),
+                   "the coordinator receives its owned window")
+        try expect(view.contains("Task { @MainActor in await model.loadRates() }"),
+                   "rates continue loading independently")
+        guard let appear = view.range(of: ".onAppear {"),
+              let sidebarChange = view.range(of: ".onChange(of: columnVisibility)",
+                                             range: appear.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "independent rates onAppear is missing", location: "R61Cases")
+        }
+        let appearBlock = String(view[appear.lowerBound..<sidebarChange.lowerBound])
+        try expect(!appearBlock.contains("MainWindowGeometry.restoredFrame"),
+                   "rate loading no longer owns window restoration")
+
+        guard let initStart = view.range(of: "func initializeAttachedWindow(_ window: NSWindow)"),
+              let nextMethod = view.range(of: "private func installOwnedWindowObservers(",
+                                          range: initStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "owned-window initialization is missing", location: "R61Cases")
+        }
+        let initialize = String(view[initStart.lowerBound..<nextMethod.lowerBound])
+        try expect(!initialize.contains("NSApp.keyWindow")
+                   && !initialize.contains("NSApp.windows.first"),
+                   "the attached owner never targets another AppKit window")
+        try expect(initialize.contains(
+            "guard attachedWindow === window, !didInitializeAttachedWindow else { return }"),
+            "normal restore is exactly once for the attached owner")
+        try expect(initialize.contains("saved: savedNormalFrame"),
+                   "the current saved settings frame is the restore input")
+        try expect(initialize.contains("visibleFrames: NSScreen.screens.map(\\.visibleFrame)"),
                    "every connected screen's visible frame is the input")
-        try expect(view.contains("let minSize = WindowConfigurator.minFrameSize("),
-                   "the visibility floor is computed from the restored state")
-        // Saved frame: floor first, then applied AS-IS — no setContentSize,
-        // no centering, no sidebar-driven resize.
-        guard let branch = view.range(of: "if let restored {") else {
-            throw CaseFailure(message: "the saved-frame branch is missing", location: "R61Cases")
+        guard let floor = initialize.range(of: "window.minSize = minSize"),
+              let restore = initialize.range(of: "let restored = MainWindowGeometry.restoredFrame(") else {
+            throw CaseFailure(message: "restore rule or frame floor is missing", location: "R61Cases")
         }
-        let afterBranch = String(view[branch.upperBound...])
-        guard let fallback = afterBranch.range(of: "// r59 fallback:") else {
-            throw CaseFailure(message: "the fallback branch is missing", location: "R61Cases")
+        try expect(floor.lowerBound < restore.lowerBound,
+                   "the visibility-dependent frame floor is applied first")
+        guard let branch = initialize.range(of: "if let restored {"),
+              let fallback = initialize.range(of: "// Preserve the established centered 800x600 CONTENT fallback",
+                                              range: branch.upperBound..<initialize.endIndex) else {
+            throw CaseFailure(message: "saved-frame or fallback branch is missing", location: "R61Cases")
         }
-        let savedBranch = String(afterBranch[..<fallback.lowerBound])
-        try expect(savedBranch.contains("window.minSize = minSize"),
-                   "the restored floor is set BEFORE the frame is applied")
+        let savedBranch = String(initialize[branch.upperBound..<fallback.lowerBound])
         try expect(savedBranch.contains("window.setFrame(restored, display: true)"),
-                   "the saved frame is applied as-is")
+                   "the accepted saved origin is applied as-is")
         try expect(!savedBranch.contains("setContentSize"),
                    "the saved frame is never re-sized to the default content size")
         try expect(!savedBranch.contains("window.center()"),
                    "the saved frame is never re-centered")
-        // Fallback: today's exact primary-display centering + 800x600.
-        let fallbackBlock = String(afterBranch[fallback.lowerBound...])
+        let fallbackBlock = String(initialize[fallback.lowerBound...])
         try expect(fallbackBlock.contains("window.setContentSize(NSSize(width: MainWindowGeometry.defaultContentWidth,"),
-                   "the fallback keeps the designed 800x600 content size")
+                   "fallback keeps the designed 800x600 content size")
         try expect(fallbackBlock.contains("let primary = NSScreen.screens.first"),
-                   "the fallback keeps the PRIMARY display rule")
+                   "fallback keeps the primary-display rule")
         try expect(fallbackBlock.contains("window.center()"),
-                   "the fallback keeps the center() last resort")
+                   "fallback keeps center() as the last resort")
+        try expect(initialize.contains("didInitializeAttachedWindow = true"),
+                   "the initialization guard is claimed before frame work")
+
         // Exactly ONE restore source: SwiftUI restoration stays off and no
-        // frame-autosave name is registered anywhere in the app target.
+        // frame-autosave name competes with the saved settings frame.
         try expect(app.contains(".restorationBehavior(.disabled)"),
                    "SwiftUI state restoration stays disabled")
         try expect(!app.contains("setFrameAutosaveName"),
                    "no frame-autosave name competes with the store")
         try expect(!view.contains("setFrameAutosaveName"),
-                   "no frame-autosave name in ContentView either")
+                   "no frame-autosave name in ContentView")
+    },
+    EngineCase("r61-minimal-mode-owned-window-transition-safety") {
+        let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        let settings = try r61ReadSource("Sources/NumlexCore/Models/Settings.swift")
+        try expect(view.contains("weak var attachedWindow: NSWindow?"),
+                   "the coordinator weakly owns only its attached window")
+        try expect(view.contains("guard attachedWindow === window, !didInitializeAttachedWindow else { return }"),
+                   "launch restore is exactly once and identity-scoped")
+        try expect(view.contains("if normalFrameSnapshot == nil"),
+                   "entry never overwrites an existing pre-entry snapshot")
+        try expect(view.contains("normalFrameSnapshot = window.frame"),
+                   "entry captures the current owning window frame")
+        try expect(view.contains("onCaptureNormalFrame?(window.frame)"),
+                   "the normal snapshot goes through the existing guarded writer")
+        try expect(view.contains("cachedNormalFrame: normalFrameSnapshot"),
+                   "exit restores the cached normal rectangle")
+        try expect(view.contains("savedNormalFrame: savedNormalFrame"),
+                   "saved normal geometry remains the validated fallback")
+        try expect(view.contains("geometryRequestGeneration &+= 1"),
+                   "every geometry request has a generation")
+        try expect(view.contains("isCurrentGeometryRequest(generation, window: window)"),
+                   "only the latest still-owned-window request may complete")
+        guard let applyStart = view.range(of: "private func applyLatestInputs()"),
+              let applyEnd = view.range(of: "private func beginMinimalModeTransition(",
+                                        range: applyStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "latest-input geometry path is missing", location: "R61Cases")
+        }
+        let apply = String(view[applyStart.lowerBound..<applyEnd.lowerBound])
+        guard let modeChange = apply.range(of: "if modeChanged {"),
+              let consumeVisibility = apply.range(of: "lastVisibility = effectiveVisibility"),
+              let transition = apply.range(of: "beginMinimalModeTransition(to: requestedMinimalMode"),
+              let visibilityGuard = apply.range(of: "guard visibilityChanged else { return }"),
+              let sidebarResize = apply.range(of: "scheduleSidebarResize(window: window,") else {
+            throw CaseFailure(message: "mode/visibility ordering is missing", location: "R61Cases")
+        }
+        try expect(modeChange.lowerBound < visibilityGuard.lowerBound
+                   && consumeVisibility.lowerBound < transition.lowerBound
+                   && transition.lowerBound < visibilityGuard.lowerBound
+                   && visibilityGuard.lowerBound < sidebarResize.lowerBound,
+                   "mode geometry consumes the projected visibility before any ordinary sidebar delta")
+        try expect(view.contains("sidebarResizeTask?.cancel()"),
+                   "mode transitions cancel queued ordinary sidebar work")
+        try expect(view.contains("window.frameRect(forContentRect: contentRect).size"),
+                   "compact geometry uses AppKit's live content-to-frame conversion")
+        try expect(view.contains("MinimalModeGeometry.enteringFrame("),
+                   "entry uses the pure top-right/screen-clamp policy")
+        try expect(view.contains("MinimalModeGeometry.restoringFrame("),
+                   "exit uses the cached-frame restore policy")
+        try expect(view.contains("context.duration = Coordinator.minimalModeAnimationDuration"),
+                   "normal-motion transitions use the restrained native animation")
+        try expect(view.contains("static let minimalModeAnimationDuration: TimeInterval = 0.18"),
+                   "native mode animation is 0.18 seconds")
+        try expect(view.contains("if reduceMotion {\n                window.setFrame(frame, display: true)"),
+                   "Reduce Motion applies the frame immediately")
+        try expect(view.contains("isMinimalMode: requestedMinimalMode || activeMinimalMode"),
+                   "pending and active compact frames cannot be persisted")
+        try expect(view.contains("guard owns(window), isWindowReady, mayPersistNormalFrame else { return }"),
+                   "settled and termination writes are guarded by mode/full-screen state")
+        try expect(view.contains("for name in [NSWindow.willEnterFullScreenNotification"),
+                   "full-screen state observes only the owning NSWindow")
+        try expect(view.contains("private func publishFullscreenAvailability()"),
+                   "the coordinator reports when the titlebar action is available")
+        try expect(view.contains("for observer in frameObservers + fullScreenObservers"),
+                   "owned observers are removed during teardown")
+        try expect(view.contains("toolbarReassertionTask?.cancel()"),
+                   "all bounded asynchronous work is cancelled during teardown")
+        try expect(!settings.contains("minimalMode"),
+                   "Minimal Mode adds no persisted AppSettings key")
+        guard let ownerStart = view.range(of: "private struct WindowConfigurator"),
+              let ownerEnd = view.range(of: "private func applySidebarButtonVisibility(",
+                                        range: ownerStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "owned configurator scope is missing", location: "R61Cases")
+        }
+        let owner = String(view[ownerStart.lowerBound..<ownerEnd.lowerBound])
+        try expect(!owner.contains("NSApp.keyWindow") && !owner.contains("NSApp.windows.first"),
+                   "all new geometry targets come from the attached view")
+    },
+    EngineCase("r61-minimal-mode-titlebar-and-sidebar-command-contract") {
+        let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        try expect(view.contains("@State private var isMinimalMode = false"),
+                   "each ContentView starts in session-only normal mode")
+        try expect(view.contains("@State private var owningWindowReady = false"),
+                   "the owning window begins unavailable until its restore completes")
+        try expect(view.contains("@State private var minimalModeFullscreenAvailable = false"),
+                   "native full-screen availability begins false")
+        try expect(view.contains("NavigationSplitView(columnVisibility: effectiveColumnVisibility)"),
+                   "the split view receives the projected binding")
+        try expect(view.contains("minimalMode: isMinimalMode"),
+                   "the same per-window mode reaches the frame coordinator")
+        try expectEqual(view.components(separatedBy: "effectiveVisibility: minimalMode ? .detailOnly : normalColumnVisibility,").count - 1,
+                        2, "make and update use the same effective visibility")
+        guard let bindingStart = view.range(of: "private var effectiveColumnVisibility: Binding<NavigationSplitViewVisibility>"),
+              let bindingEnd = view.range(of: "/// Live measured width of the sidebar column",
+                                          range: bindingStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "effective visibility binding is missing", location: "R61Cases")
+        }
+        let binding = String(view[bindingStart.lowerBound..<bindingEnd.lowerBound])
+        try expect(binding.contains("if isMinimalMode { return .detailOnly }"),
+                   "Minimal Mode projects detail-only without changing the normal state")
+        try expect(binding.contains("return visible ? .all : columnVisibility"),
+                   "the normal getter preserves the underlying visibility value")
+        try expect(binding.contains("if isMinimalMode && requested == .detailOnly { return }"),
+                   "idempotent collapsed writes do not mutate normal state")
+        try expect(binding.contains("if isMinimalMode { isMinimalMode = false }"),
+                   "a real sidebar request exits Minimal Mode")
+        try expect(binding.contains("guard columnVisibility != requested else { return }"),
+                   "only an actual normal-visibility change updates state")
+        try expect(binding.contains("columnVisibility = requested"),
+                   "the command's requested normal visibility is honored")
+        try expect(view.contains(".onChange(of: columnVisibility)"),
+                   "only normal visibility enters the existing persistence path")
+        try expect(!view.contains(".onChange(of: effectiveColumnVisibility)"),
+                   "the temporary sidebar projection is never persisted")
+
+        guard let toolbarStart = view.range(of: "ToolbarItem(placement: .primaryAction)"),
+              let toolbarEnd = view.range(of: "// r59: the compact content minimum",
+                                          range: toolbarStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "stable primary-action toolbar item is missing", location: "R61Cases")
+        }
+        let toolbar = String(view[toolbarStart.lowerBound..<toolbarEnd.lowerBound])
+        try expect(toolbar.contains("Button {\n                    isMinimalMode.toggle()"),
+                   "the installed button toggles this window's mode")
+        try expect(toolbar.contains("arrow.down.right.and.arrow.up.left"),
+                   "the entry icon is the specified system symbol")
+        try expect(toolbar.contains("arrow.up.left.and.arrow.down.right"),
+                   "the exit icon is the specified system symbol")
+        try expect(toolbar.contains(".help(L10n.t("),
+                   "the icon-only button has a localized tooltip")
+        try expect(toolbar.contains(".accessibilityLabel(L10n.t("),
+                   "the button has a localized action label")
+        try expect(toolbar.contains(".accessibilityValue(L10n.t("),
+                   "the current on/off value is explicitly localized")
+        try expect(toolbar.contains(".accessibilityAddTraits(isMinimalMode ? .isSelected : [])"),
+                   "the selected state is explicit")
+        try expect(toolbar.contains(".disabled(!owningWindowReady || !minimalModeFullscreenAvailable)"),
+                   "the button waits for restore and native full-screen ownership")
+        try expect(view.contains("onWindowReady: { owningWindowReady = $0 }"),
+                   "the owning-window readiness callback is wired")
+        try expect(view.contains("onFullscreenAvailability: { minimalModeFullscreenAvailable = $0 }"),
+                   "full-screen availability updates button state")
+        try expect(view.contains("onMinimalModeRequestRejected: { isMinimalMode = $0 }"),
+                   "rejected geometry requests restore the coordinator's actual mode")
+        try expect(!view.contains(".id(isMinimalMode)"),
+                   "mode changes never reconstruct the editor subtree")
     },
     EngineCase("r61-window-frame-floor-precedes-visibility-guard") {
-        // The visibility floor must be correct even when the guard
-        // suppresses the width resize — a restored-collapsed launch
-        // depends on it.
+        // The normal/sidebar floor is always updated before resize suppression;
+        // Minimal Mode instead uses the requested normal visibility on exit.
         let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
-        guard let floor = view.range(of: "window.minSize = Self.minFrameSize(for: window,"),
-              let guardRange = view.range(
-                of: "guard coord.lastVisibility != columnVisibility else { return }")
-        else {
-            throw CaseFailure(message: "floor or guard missing", location: "R61Cases")
+        guard let start = view.range(of: "private func applyLatestInputs()"),
+              let end = view.range(of: "private func beginMinimalModeTransition(",
+                                   range: start.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "latest-input block is missing", location: "R61Cases")
+        }
+        let block = String(view[start.lowerBound..<end.lowerBound])
+        guard let floor = block.range(of: "window.minSize = minSize"),
+              let apply = block.range(of: "reapply(to: window)"),
+              let guardRange = block.range(of: "guard visibilityChanged else { return }") else {
+            throw CaseFailure(message: "floor, hidden apply, or visibility guard missing", location: "R61Cases")
         }
         try expect(floor.lowerBound < guardRange.lowerBound,
                    "minSize is assigned BEFORE the visibility guard")
-        // ...and the post-guard resize block no longer duplicates it.
-        let afterGuard = String(view[guardRange.upperBound...])
-        try expect(!afterGuard.contains("minSize = Self.minFrameSize"),
-                   "the post-guard block has no duplicate minSize assignment")
-        try expect(afterGuard.contains("window.setFrame"),
-                   "the post-guard block still performs the width resize")
-        // makeNSView uses the ACTUAL visibility, not a hard-coded true.
-        try expect(view.contains("sidebarVisible: columnVisibility == .all"),
-                   "both minFrameSize calls use the real visibility")
-        try expect(!view.contains("minFrameSize(for: window, sidebarVisible: true)"),
-                   "the hard-coded expanded floor is gone")
-        // The existing guard line and its ordering with the hidden-state
-        // apply are untouched (r61-configurator-preference-input).
-        guard let apply = view.range(of: "coord.reapply(to: w)") else {
-            throw CaseFailure(message: "the hidden-state apply is missing", location: "R61Cases")
-        }
         try expect(apply.lowerBound < guardRange.lowerBound,
-                   "the hidden-state apply still precedes the guard")
+                   "hidden-state applies before the visibility guard")
+        try expect(block.contains("let shouldShowSidebar = !requestedMinimalMode && normalVisibility == .all"),
+                   "the floor uses normal visibility but collapses during Minimal Mode")
+        try expect(!block.contains("window.setFrame"),
+                   "frame mutation remains in the separately queued geometry path")
+        try expect(view.contains("sidebarVisible: normalVisibility == .all"),
+                   "exit floor uses the requested normal sidebar visibility")
+        try expect(!view.contains("minFrameSize(for: window, sidebarVisible: true)"),
+                   "the hard-coded expanded floor is absent")
     },
     EngineCase("r61-sidebar-visibility-persists-once-per-change") {
         // The sidebar's shown/hidden state is persisted with ONE guarded
@@ -365,7 +530,7 @@ public let r61Cases: [EngineCase] = [
                    "the configurator declares the settle callback input")
         try expect(view.contains("onWindowFrameSettled: rememberWindowFrame"),
                    "the call site wires the live ContentView handler")
-        try expect(view.contains("coord.onFrameSettled = onWindowFrameSettled"),
+        try expect(view.contains("self.onFrameSettled = onFrameSettled"),
                    "the coordinator is refreshed with the latest callback")
         // Both motion sources plus the termination backstop.
         try expect(view.contains("for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification]"),
@@ -398,10 +563,10 @@ public let r61Cases: [EngineCase] = [
             throw CaseFailure(message: "the motion observers are missing", location: "R61Cases")
         }
         let observers = String(view[moves.lowerBound...])
-        try expect(observers.contains("coord.scheduleFrameSettle(window: window, immediate: false)"),
-                   "a motion notification only schedules")
-        try expect(observers.contains("coord.scheduleFrameSettle(window: window, immediate: true)"),
-                   "termination schedules immediately")
+        try expect(observers.contains("self.scheduleFrameSettle(window: window, immediate: false)"),
+                   "an owned-window motion notification only schedules")
+        try expect(observers.contains("self.scheduleFrameSettle(window: window, immediate: true)"),
+                   "termination schedules immediately for the owned window")
         // The write path compares BEFORE persisting, and rounds first.
         guard let write = view.range(of: "private func rememberWindowFrame(_ frame: CGRect)") else {
             throw CaseFailure(message: "the write path is missing", location: "R61Cases")
@@ -417,14 +582,20 @@ public let r61Cases: [EngineCase] = [
                    "the settled rect is rounded to whole points first")
         try expectEqual(writer.components(separatedBy: "model.persist()").count - 1, 1,
                         "exactly one persist in the write path")
-        // Teardown removes every new observer and cancels the task.
+        // Teardown removes every owned observer and cancels all geometry tasks.
         guard let dismantle = view.range(of: "func dismantleNSView(") else {
             throw CaseFailure(message: "dismantleNSView is missing", location: "R61Cases")
         }
         let teardown = String(view[dismantle.lowerBound...])
-        try expect(teardown.contains("for obs in coordinator.frameObservers"),
-                   "the new observers are removed on teardown")
-        try expect(teardown.contains("coordinator.frameSettleTask?.cancel()"),
-                   "a pending settle is cancelled on teardown")
+        try expect(teardown.contains("coordinator.dismantle(view: view)"),
+                   "the representable tears down its owner coordinator")
+        try expect(view.contains("for observer in frameObservers + fullScreenObservers"),
+                   "window, termination, and full-screen observers are removed")
+        try expect(view.contains("frameSettleTask?.cancel()"),
+                   "a pending normal-frame settle is cancelled")
+        try expect(view.contains("sidebarResizeTask?.cancel()"),
+                   "a queued sidebar geometry task is cancelled")
+        try expect(view.contains("toolbarReassertionTask?.cancel()"),
+                   "bounded toolbar work is cancelled on teardown")
     },
 ]

@@ -364,4 +364,9 @@ struct EngineTests {
     func weatherMetricCase(`case`: EngineCase) throws {
         try `case`.body()
     }
+
+    @Test(arguments: minimalModeCases)
+    func minimalModeCase(`case`: EngineCase) throws {
+        try `case`.body()
+    }
 }

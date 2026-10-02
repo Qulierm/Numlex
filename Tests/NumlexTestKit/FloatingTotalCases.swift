@@ -335,8 +335,10 @@ public let floatingTotalCases: [EngineCase] = [
         // to the export presentation.
         try expect(settingsView.contains("boolBinding(\\AppSettings.showTotalBar)"),
                    "Settings binds Show to persisted AppSettings")
-        try expect(content.contains("showTotalBar: settings.showTotalBar"),
-                   "ContentView passes persisted Show to the answer column")
+        try expect(content.contains("showTotalBar: MinimalModePresentation.showTotalBar("),
+                   "ContentView passes the effective Show projection to the answer column")
+        try expect(content.contains("normalShowTotalBar: settings.showTotalBar"),
+                   "the normal footer preference remains the saved input")
         try expect(content.contains("footerPolicy: settings.footerContributionPolicy"),
                    "ContentView passes the policy to the column")
         try expect(content.contains("footerStatistic: settings.footerStatistic,\n            footerPolicy: settings.footerContributionPolicy,"),

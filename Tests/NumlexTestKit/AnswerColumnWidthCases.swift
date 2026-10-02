@@ -500,7 +500,7 @@ public let answerColumnWidthCases: [EngineCase] = [
         // they never call persist themselves.
         if let moves = c.range(of: "for name in [NSWindow.didMoveNotification") {
             let observers = String(c[moves.lowerBound...])
-            try expect(observers.contains("coord.scheduleFrameSettle(window: window, immediate: false)"),
+            try expect(observers.contains("self.scheduleFrameSettle(window: window, immediate: false)"),
                        "a move notification only schedules the settled save")
         } else {
             throw CaseFailure(message: "the frame observers are missing", location: "AnswerWidth")

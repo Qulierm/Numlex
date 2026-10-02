@@ -253,6 +253,27 @@ nothing here ever enters `.nlx`).
 | Line numbers | on | Shows the line number beside each input line. |
 | Hide sidebar button when collapsed | off | Hides the toolbar button while the sidebar is collapsed; reopen the sidebar with **⌃⌘S** (Control-Command-S) or View → Toggle Sidebar. |
 
+### Minimal Mode
+
+The icon-only button at the trailing end of the main window's titlebar toolbar
+enters or exits **Minimal Mode**. It is a per-window, session-only presentation
+state: every window starts off (including after relaunch), and the mode is not
+a Notebook setting or saved preference. It adds no dedicated menu command or
+keyboard shortcut. The button remains available
+when the native sidebar toggle is hidden by the collapsed-sidebar preference.
+
+Minimal Mode hides only the sidebar and the Floating Total footer (including its
+reserved layout space). Inline `total` rows, answers and the rest of the
+notebook remain present. The mode does not change the saved sidebar or Show
+preferences, sheet text, line IDs, references, highlights, answer overrides,
+evaluation inputs or export/print snapshot. If the Show preference changes in
+Settings while the mode is active, that current choice is honored when the mode
+ends. The cached normal window rectangle and saved normal sidebar visibility
+are restored on exit unless a native Toggle Sidebar command (**⌃⌘S** or View →
+Toggle Sidebar) requests a different normal visibility. That command exits the
+mode and honors its requested state; the titlebar button is an independent
+return path.
+
 Each sidebar row shows the sheet's created time on the left and its line count
 on the right, both in the same 11 pt secondary text on one line. Exactly one
 8 pt minimum gap separates them: the count is the fixed trailing field, and the
@@ -599,7 +620,31 @@ lines without an answer — headings, comments, prose — can be highlighted too
 | Answer column width | adjustable, 140–400 pt (default 200 pt); capped by the window so the editor keeps at least 280 pt |
 | Line-number gutter | with line numbers on: 54 pt indent (36 pt gutter + 18 pt leading); hidden: 18 pt — the gutter is fully reclaimed, and toggling never accumulates drift |
 | Main window frame and sidebar | the frame (position AND size) and the sidebar's shown/hidden state are restored from the settings store on every launch — the saved frame is applied as-is, and restoring never resizes or shifts the window. It is accepted only when it still overlaps a connected screen's visible area by at least **100 pt in both dimensions**; otherwise the app keeps the centered 800×600 default with an expanded sidebar |
+| Minimal Mode | 600×260 pt content, plus the current titlebar/toolbar chrome in the native frame. It is per-window and session-only; a cached normal frame (not compact resizes) is restored on exit. |
 | Total bar vs inline `total` | the bottom Total panel is dimension-agnostic: it sums the evaluated magnitude of every ordinary scalar answer row once (unitless numbers, unit-bearing quantities such as `2 kg`, money such as `$3`, named scalars and exact integers) into one plain unitless value — no unit conversion, no FX normalization and no unit/currency suffix — and excludes inline `total` rows so the two never double-count; inline `total` lines are a separate section-scoped command that is always active and still sums only unitless scalars |
+
+### Minimal Mode and normal window geometry
+
+The compact target is **600×260 pt of content**, not a raw 600×260 pt
+`NSWindow` frame. The titlebar and toolbar contribute additional native chrome;
+the app measures that contribution with AppKit when it creates the compact
+frame. In normal motion the frame change uses a restrained 0.18-second
+animation; with Reduce Motion enabled it applies immediately.
+
+On entry, the owning window captures its current normal rectangle once through
+the existing rounded, equality-guarded frame writer. Settled compact moves and
+resizes are never saved as normal launch geometry, including the termination
+backstop. Exit restores the cached normal rectangle and applies the current
+sidebar-dependent normal minimum; compact resizing does not replace that
+snapshot. If a display was disconnected, the normal frame is clamped to a
+current visible display as needed.
+
+Minimal Mode cannot change a window frame while native full screen or its
+entry/exit transition owns the geometry, so its titlebar action is disabled for
+that interval. A window already in Minimal Mode may enter native full screen;
+macOS owns that frame, and the window returns to its compact rectangle when it
+leaves full screen. The action becomes available again after the native
+transition finishes.
 
 ## Persistence
 

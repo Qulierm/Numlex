@@ -343,11 +343,11 @@ public let welcomeCases: [EngineCase] = [
         // ONE effective rule, honoured by every path.
         try expect(content.contains("static func effectiveSidebarButtonHidden(preference: Bool,"),
                    "one effective rule")
-        try expect(content.contains("forced || (preference && collapsed)"),
-                   "forced OR (preference AND collapsed)")
+        try expect(content.contains("minimalMode || forced || (preference && collapsed)"),
+                   "Minimal Mode OR forced OR (preference AND collapsed)")
         try expect(content.contains("func reapply(to window: NSWindow?)"), "one re-apply helper")
-        try expect(content.components(separatedBy: "coord.reapply(to:").count - 1 >= 3,
-                   "make (retries), update and the observers all re-apply")
+        try expect(content.components(separatedBy: "self.reapply(to:").count - 1 >= 3,
+                   "attached-window initialization, updates and observers all re-apply")
         // Both native identifiers, matched by `isHidden` only.
         try expect(content.contains(".itemIdentifier == .toggleSidebar"), "classic identifier")
         try expect(content.contains("com.apple.SwiftUI.navigationSplitView.toggleSidebar"),
@@ -362,9 +362,9 @@ public let welcomeCases: [EngineCase] = [
                    "bounded next-render-turn retries")
         try expect(!content.contains("Timer("), "no poller")
         try expect(content.contains("NSToolbar.willAddItemNotification"), "toolbar event observer")
-        try expect(content.contains("coordinator.itemObserver = nil"), "observer released")
-        try expect(content.contains("NotificationCenter.default.removeObserver(obs)"),
-                   "observer removed")
+        try expect(content.contains("itemObserver = nil"), "observer released")
+        try expect(content.contains("NotificationCenter.default.removeObserver(observer)"),
+                   "owned observer removed")
         // The sidebar never defines the flag itself.
         try expect(!sidebar.contains("sidebarToggleHiddenForWelcome"),
                    "the sidebar does not gate the toggle")

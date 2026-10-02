@@ -129,12 +129,21 @@ public let r80Cases: [EngineCase] = [
 
     EngineCase("r80-totalbar-localized-six-languages") {
         for lang in AppLanguage.allCases {
-            for key in ["showTotalBar"] {
+            for key in ["showTotalBar", "minimalMode.enter", "minimalMode.exit",
+                        "minimalMode.on", "minimalMode.off"] {
                 let t = L10n.t(key, language: lang)
                 try expect(!t.isEmpty && t != key,
                            "\(lang.rawValue): \"\(key)\" is translated")
             }
         }
+        try expectEqual(L10n.t("minimalMode.enter", language: .en), "Enter Minimal Mode",
+                        "English enter label")
+        try expectEqual(L10n.t("minimalMode.exit", language: .en), "Exit Minimal Mode",
+                        "English exit label")
+        try expectEqual(L10n.t("minimalMode.enter", language: .ru),
+                        "Включить минималистичный режим", "Russian enter label")
+        try expectEqual(L10n.t("minimalMode.exit", language: .ru),
+                        "Выключить минималистичный режим", "Russian exit label")
         // r96: the explanatory caption is gone from every language (the
         // toggle's own label is enough), so the key must not survive.
         for lang in AppLanguage.allCases {
@@ -152,10 +161,24 @@ public let r80Cases: [EngineCase] = [
                    "General tab binds the Show Total bar switch")
         try expect(settings.contains(#"L10n.t("showTotalBar", language: language)"#),
                    "the switch title is localized")
-        // The answer column consumes the flag; the wiring exists once.
+        // The answer column consumes an effective per-window projection;
+        // the saved AppSettings boolean remains the normal-mode input only.
         let view = try r80ReadSource("Sources/NumlexApp/Views/ContentView.swift")
-        try expectEqual(view.components(separatedBy: "showTotalBar: settings.showTotalBar").count - 1,
-                        1, "ContentView threads the flag into the answer column")
+        try expect(view.contains("showTotalBar: MinimalModePresentation.showTotalBar("),
+                   "ContentView applies the pure Minimal Mode footer projection")
+        try expect(view.contains("isMinimalMode: isMinimalMode,"),
+                   "the projection uses this window's session-only mode state")
+        try expect(view.contains("normalShowTotalBar: settings.showTotalBar"),
+                   "the untouched saved preference is the projection input")
+        try expect(!view.contains("showTotalBar: settings.showTotalBar"),
+                   "the raw preference is never wired around the projection")
+        let column = try r80ReadSource("Sources/NumlexApp/Views/AnswerColumnView.swift")
+        try expect(column.contains("FooterTotalPlacement.resolve(show: showTotalBar,"),
+                   "the effective boolean still reaches the unchanged footer-only authority")
+        try expect(column.contains("if footerPlacement == .reserved, let s = summary {"),
+                   "reserved Floating Total space remains gated by placement")
+        try expect(column.contains("if footerPlacement == .overlay, let s = summary {"),
+                   "overlay Floating Total remains gated by placement")
     },
 
     EngineCase("r80-totalbar-footer-gate-only") {
