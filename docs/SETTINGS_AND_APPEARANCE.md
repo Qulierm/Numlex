@@ -620,9 +620,16 @@ lines without an answer — headings, comments, prose — can be highlighted too
 | --- | --- |
 | Answer column width | adjustable, 140–400 pt (default 200 pt); capped by the window so the editor keeps at least 280 pt |
 | Line-number gutter | with line numbers on: 54 pt indent (36 pt gutter + 18 pt leading); hidden: 18 pt — the gutter is fully reclaimed, and toggling never accumulates drift |
-| Main window frame and sidebar | the frame (position AND size) and the sidebar's shown/hidden state are restored from the settings store on every launch — the saved frame is applied as-is, and restoring never resizes or shifts the window. It is accepted only when it still overlaps a connected screen's visible area by at least **100 pt in both dimensions**; otherwise the app keeps the centered 800×600 default with an expanded sidebar |
+| Main window frame and sidebar | Before the main scene first appears, the saved frame is validated and, when usable, supplies its initial position and size. The frame with the largest visible-screen overlap is accepted only with at least **100 pt in both dimensions**; its origin is preserved, while its size may be raised to the sidebar-dependent normal floor or clamped to the chosen screen's visible dimensions (the floor remains on a smaller screen). Otherwise the scene starts at 800×600, centered in the primary visible area when it can fit; if no suitable primary reference exists, SwiftUI centers it on its default display. The saved shown/hidden sidebar choice is preserved independently; a legacy store without that key defaults to the expanded sidebar |
 | Minimal Mode | At least 600×260 pt of usable content, plus the attached window's measured native frame/content-layout chrome. It is per-window and session-only; a cached normal frame (not compact resizes) is restored on exit. |
 | Total bar vs inline `total` | the bottom Total panel is dimension-agnostic: it sums the evaluated magnitude of every ordinary scalar answer row once (unitless numbers, unit-bearing quantities such as `2 kg`, money such as `$3`, named scalars and exact integers) into one plain unitless value — no unit conversion, no FX normalization and no unit/currency suffix — and excludes inline `total` rows so the two never double-count; inline `total` lines are a separate section-scoped command that is always active and still sums only unitless scalars |
+
+The main scene makes this choice synchronously from the current settings and
+connected displays, before its first presentation. A usable saved frame is the
+initial placement itself: the window does not first appear centered at the
+fallback and then move in a later attached-view callback. Currency rates load
+separately after the content appears; neither a request nor its result gates or
+repeats geometry selection.
 
 ### Minimal Mode and normal window geometry
 
@@ -658,13 +665,15 @@ native transition finishes.
 - Sheet-level data (per-answer overrides, line highlights, sheet content) lives
   with the sheet and its `.nlx` export.
 - Constants and custom units are app-global and are never embedded in `.nlx`.
-- The main window frame and the sidebar's shown/hidden state are app-global
-  persisted values written additively: a store from an earlier build has
-  neither key and behaves exactly as before (centered 800×600, sidebar
-  expanded), the store version is **not** bumped and nothing is migrated.
-  The frame is written only when window motion settles (or on quit) and only
-  when it actually changed; the sidebar state is written once per real
-  change.
+- The main window frame and the sidebar's shown/hidden state are separate,
+  app-global persisted values. A legacy store without the frame key uses the
+  800×600 startup fallback; a store without the sidebar key keeps the expanded
+  sidebar. Choosing the scene's initial placement only reads these settings—
+  it adds no persisted field, does not rewrite the store, and does not bump or
+  migrate the store version. The frame is written only when window motion
+  settles (or on quit), only when it actually changed, and not for compact
+  Minimal Mode or full-screen transition geometry; the sidebar state is
+  written once per real change.
 
 While the welcome reveal owns the window the native sidebar toggle is hidden via NSToolbarItem.isHidden, matched by both SwiftUI identifiers, and returns when the transition reaches the app unless the saved collapsed preference keeps it hidden.
 

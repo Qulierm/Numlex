@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import NumlexCore
 
 /// r38: the app-wide appearance follows the PERSISTED Light/Dark
@@ -213,6 +214,24 @@ struct NumlexApp: App {
         revealStage != .app
     }
 
+    /// Sample the shared settings and attached displays when SwiftUI asks for
+    /// the main scene's initial placement, not from an app-init snapshot.
+    @MainActor
+    private func mainWindowStartupPlacement() -> WindowPlacement {
+        let screens = NSScreen.screens
+        let primary = screens.first
+        let result = MainWindowGeometry.startupPlacement(
+            saved: model.settings.windowFrame,
+            visibleFrames: screens.map(\.visibleFrame),
+            primaryScreenFrame: primary?.frame,
+            primaryVisibleFrame: primary?.visibleFrame,
+            sidebarVisible: model.settings.sidebarVisible)
+        if let position = result.position {
+            return WindowPlacement(position, size: result.size)
+        }
+        return WindowPlacement(UnitPoint.center, size: result.size)
+    }
+
     var body: some Scene {
         WindowGroup(id: Self.mainWindowID) {
             themedRoot(launchRoot)
@@ -231,15 +250,12 @@ struct NumlexApp: App {
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentSize)
-        .defaultSize(width: 800, height: 600)
-        // SwiftUI's own state restoration stays DISABLED deliberately:
-        // the frame and sidebar state are restored from the settings store
-        // (`AppSettings.windowFrame` / `.sidebarVisible`) by ContentView's
-        // launch path, and there must be exactly ONE restore source. A
-        // stale SwiftUI-restored frame would compete with it (and could
-        // still sit off-screen). No frame-autosave name is registered on
-        // the window either, for exactly the same reason: the settings
-        // store is the only place a frame is remembered.
+        .defaultWindowPlacement { _, _ in mainWindowStartupPlacement() }
+        // SwiftUI state restoration stays DISABLED deliberately. The main
+        // scene chooses persisted geometry synchronously before its first
+        // presentation; the attached configurator owns live minima/chrome
+        // only, never a late initial-frame correction. No frame-autosave
+        // name competes with the app-global settings store.
         .restorationBehavior(.disabled)
         .commands {
             // Secure in-app updates (Sparkle 2.9.6): the standard

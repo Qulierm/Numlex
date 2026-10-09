@@ -150,6 +150,11 @@ struct EngineTests {
         try `case`.body()
     }
 
+    @Test(arguments: windowStartupCases)
+    func windowStartupLifecycle(`case`: EngineCase) throws {
+        try `case`.body()
+    }
+
     @Test(arguments: stylingCases)
     func stylingStoreBehavior(`case`: EngineCase) throws {
         try `case`.body()

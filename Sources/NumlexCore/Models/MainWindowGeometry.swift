@@ -78,6 +78,22 @@ public enum MainWindowGeometry {
     /// Minimum FRAME width with the sidebar collapsed (unchanged).
     public static let collapsedMinFrameWidth: CGFloat = 600
 
+    /// An immutable scene-placement decision made before the main window's
+    /// first presentation. `position` is in SwiftUI's absolute desktop
+    /// top-left coordinate space; nil asks SwiftUI to center on its default
+    /// display. `isRestoringSavedFrame` is policy metadata, not persisted state.
+    public struct StartupPlacement: Equatable, Sendable {
+        public let position: CGPoint?
+        public let size: CGSize
+        public let isRestoringSavedFrame: Bool
+
+        fileprivate init(position: CGPoint?, size: CGSize, isRestoringSavedFrame: Bool) {
+            self.position = position
+            self.size = size
+            self.isRestoringSavedFrame = isRestoringSavedFrame
+        }
+    }
+
     /// Frame height for a content height given the window's non-client
     /// (titlebar/toolbar/border) contribution: frame = content + chrome.
     public static func frameHeight(contentHeight: CGFloat,
@@ -143,5 +159,83 @@ public enum MainWindowGeometry {
         let width = min(max(rect.width, floorWidth), max(chosen.frame.width, floorWidth))
         let height = min(max(rect.height, floorHeight), max(chosen.frame.height, floorHeight))
         return CGRect(x: rect.origin.x, y: rect.origin.y, width: width, height: height)
+    }
+
+    /// Choose the main scene's initial size and top-left desktop point before
+    /// its first presentation. A saved AppKit frame is accepted only by the
+    /// existing overlap/clamp policy and only when a finite primary full-frame
+    /// reference can convert its bottom-left origin without overflow.
+    public static func startupPlacement(saved: SavedWindowFrame?,
+                                        visibleFrames: [CGRect],
+                                        primaryScreenFrame: CGRect?,
+                                        primaryVisibleFrame: CGRect?,
+                                        sidebarVisible: Bool) -> StartupPlacement {
+        let minimumSize = CGSize(
+            width: sidebarVisible ? expandedMinFrameWidth : collapsedMinFrameWidth,
+            height: minContentHeight)
+
+        if let restored = restoredFrame(saved: saved,
+                                        visibleFrames: visibleFrames,
+                                        minimumSize: minimumSize),
+           isFinitePositiveRect(restored),
+           let primaryScreenFrame,
+           let position = topLeadingPosition(for: restored,
+                                             primaryScreenFrame: primaryScreenFrame) {
+            return StartupPlacement(position: position,
+                                    size: restored.size,
+                                    isRestoringSavedFrame: true)
+        }
+
+        return centeredDefaultPlacement(primaryScreenFrame: primaryScreenFrame,
+                                        primaryVisibleFrame: primaryVisibleFrame)
+    }
+
+    private static func centeredDefaultPlacement(primaryScreenFrame: CGRect?,
+                                                 primaryVisibleFrame: CGRect?) -> StartupPlacement {
+        let size = CGSize(width: defaultContentWidth, height: defaultContentHeight)
+        guard let primaryScreenFrame,
+              isFinitePositiveRect(primaryScreenFrame),
+              let visible = primaryVisibleFrame,
+              isFinitePositiveRect(visible),
+              visible.width >= size.width,
+              visible.height >= size.height else {
+            return StartupPlacement(position: nil, size: size,
+                                    isRestoringSavedFrame: false)
+        }
+
+        let centered = CGRect(
+            x: visible.minX + (visible.width - size.width) / 2,
+            y: visible.minY + (visible.height - size.height) / 2,
+            width: size.width,
+            height: size.height)
+        guard isFinitePositiveRect(centered),
+              let position = topLeadingPosition(for: centered,
+                                                primaryScreenFrame: primaryScreenFrame) else {
+            return StartupPlacement(position: nil, size: size,
+                                    isRestoringSavedFrame: false)
+        }
+        return StartupPlacement(position: position, size: size,
+                                isRestoringSavedFrame: false)
+    }
+
+    /// AppKit frames use a bottom-left origin; SwiftUI's scene placement uses
+    /// desktop coordinates measured down from the primary display's full top.
+    private static func topLeadingPosition(for frame: CGRect,
+                                           primaryScreenFrame: CGRect) -> CGPoint? {
+        guard isFinitePositiveRect(frame),
+              isFinitePositiveRect(primaryScreenFrame) else { return nil }
+        let point = CGPoint(x: frame.minX,
+                            y: primaryScreenFrame.maxY - frame.maxY)
+        guard point.x.isFinite, point.y.isFinite else { return nil }
+        return point
+    }
+
+    private static func isFinitePositiveRect(_ rect: CGRect) -> Bool {
+        let maxX = rect.origin.x + rect.size.width
+        let maxY = rect.origin.y + rect.size.height
+        return rect.origin.x.isFinite && rect.origin.y.isFinite
+            && rect.size.width.isFinite && rect.size.height.isFinite
+            && rect.size.width > 0 && rect.size.height > 0
+            && maxX.isFinite && maxY.isFinite
     }
 }

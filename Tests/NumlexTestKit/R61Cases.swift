@@ -232,8 +232,8 @@ public let r61Cases: [EngineCase] = [
     },
 
     EngineCase("r61-window-restore-launch-contract") {
-        // Restore belongs to each attached NSView.window, not rates loading,
-        // NSApp's key window, or another visible Settings/main window.
+        // The main scene chooses its initial geometry before presentation;
+        // the attached owner only configures live window behavior.
         let view = try r61ReadSource("Sources/NumlexApp/Views/ContentView.swift")
         let app = try r61ReadSource("Sources/NumlexApp/NumlexApp.swift")
         try expect(view.contains(
@@ -245,6 +245,54 @@ public let r61Cases: [EngineCase] = [
                    "the lifecycle callback passes only view.window")
         try expect(view.contains("coord.windowAttachmentChanged(window, from: view)"),
                    "the coordinator receives its owned window")
+
+        try expect(app.contains(".defaultWindowPlacement { _, _ in mainWindowStartupPlacement() }"),
+                   "the main WindowGroup supplies initial placement before first presentation")
+        try expectEqual(app.components(separatedBy: ".defaultWindowPlacement").count - 1, 1,
+                        "only the main scene has a default placement callback")
+        try expect(!app.contains(".defaultSize(width: 800, height: 600)"),
+                   "the main scene has no unconditional default-size placement path")
+        guard let mainSceneStart = app.range(of: "WindowGroup(id: Self.mainWindowID)"),
+              let settingsStart = app.range(of: "Settings {",
+                                            range: mainSceneStart.upperBound..<app.endIndex) else {
+            throw CaseFailure(message: "main or Settings scene is missing", location: "R61Cases")
+        }
+        let mainScene = String(app[mainSceneStart.lowerBound..<settingsStart.lowerBound])
+        let settingsScene = String(app[settingsStart.lowerBound...])
+        try expect(mainScene.contains(".defaultWindowPlacement")
+                   && !mainScene.contains(".defaultSize("),
+                   "only initial scene placement sizes the main window")
+        try expect(!settingsScene.contains("defaultWindowPlacement"),
+                   "the Settings scene remains untouched")
+
+        guard let helperStart = app.range(of: "private func mainWindowStartupPlacement() -> WindowPlacement"),
+              let bodyStart = app.range(of: "var body: some Scene",
+                                        range: helperStart.upperBound..<app.endIndex) else {
+            throw CaseFailure(message: "synchronous app placement helper is missing", location: "R61Cases")
+        }
+        let helper = String(app[helperStart.lowerBound..<bodyStart.lowerBound])
+        try expect(app.contains("@MainActor\n    private func mainWindowStartupPlacement() -> WindowPlacement"),
+                   "display sampling is isolated to the main actor")
+        try expect(helper.contains("let screens = NSScreen.screens")
+                   && helper.contains("let primary = screens.first")
+                   && helper.contains("visibleFrames: screens.map(\\.visibleFrame)")
+                   && helper.contains("primaryScreenFrame: primary?.frame")
+                   && helper.contains("primaryVisibleFrame: primary?.visibleFrame"),
+                   "placement samples current full/visible primary and all visible display frames")
+        try expect(helper.contains("saved: model.settings.windowFrame")
+                   && helper.contains("sidebarVisible: model.settings.sidebarVisible"),
+                   "placement samples current shared geometry and sidebar settings")
+        try expect(helper.contains("WindowPlacement(position, size: result.size)")
+                   && helper.contains("WindowPlacement(UnitPoint.center, size: result.size)"),
+                   "saved points and nil-position fallback bridge to SwiftUI placement")
+        try expect(!helper.contains("sizeThatFits")
+                   && !helper.contains("await")
+                   && !helper.contains("Task")
+                   && !helper.contains("loadRates")
+                   && !helper.contains("persist()")
+                   && !helper.contains("model.settings.windowFrame ="),
+                   "placement is synchronous, rate-independent, and read-only")
+
         try expect(view.contains("Task { @MainActor in await model.loadRates() }"),
                    "rates continue loading independently")
         guard let appear = view.range(of: ".onAppear {"),
@@ -253,8 +301,8 @@ public let r61Cases: [EngineCase] = [
             throw CaseFailure(message: "independent rates onAppear is missing", location: "R61Cases")
         }
         let appearBlock = String(view[appear.lowerBound..<sidebarChange.lowerBound])
-        try expect(!appearBlock.contains("MainWindowGeometry.restoredFrame"),
-                   "rate loading no longer owns window restoration")
+        try expect(!appearBlock.contains("MainWindowGeometry"),
+                   "rate loading never owns or repeats geometry placement")
 
         guard let initStart = view.range(of: "func initializeAttachedWindow(_ window: NSWindow)"),
               let nextMethod = view.range(of: "private func installOwnedWindowObservers(",
@@ -267,41 +315,33 @@ public let r61Cases: [EngineCase] = [
                    "the attached owner never targets another AppKit window")
         try expect(initialize.contains(
             "guard attachedWindow === window, !didInitializeAttachedWindow else { return }"),
-            "normal restore is exactly once for the attached owner")
-        try expect(initialize.contains("saved: savedNormalFrame"),
-                   "the current saved settings frame is the restore input")
-        try expect(initialize.contains("visibleFrames: NSScreen.screens.map(\\.visibleFrame)"),
-                   "every connected screen's visible frame is the input")
-        guard let floor = initialize.range(of: "window.minSize = minSize"),
-              let restore = initialize.range(of: "let restored = MainWindowGeometry.restoredFrame(") else {
-            throw CaseFailure(message: "restore rule or frame floor is missing", location: "R61Cases")
-        }
-        try expect(floor.lowerBound < restore.lowerBound,
-                   "the visibility-dependent frame floor is applied first")
-        guard let branch = initialize.range(of: "if let restored {"),
-              let fallback = initialize.range(of: "// Preserve the established centered 800x600 CONTENT fallback",
-                                              range: branch.upperBound..<initialize.endIndex) else {
-            throw CaseFailure(message: "saved-frame or fallback branch is missing", location: "R61Cases")
-        }
-        let savedBranch = String(initialize[branch.upperBound..<fallback.lowerBound])
-        try expect(savedBranch.contains("window.setFrame(restored, display: true)"),
-                   "the accepted saved origin is applied as-is")
-        try expect(!savedBranch.contains("setContentSize"),
-                   "the saved frame is never re-sized to the default content size")
-        try expect(!savedBranch.contains("window.center()"),
-                   "the saved frame is never re-centered")
-        let fallbackBlock = String(initialize[fallback.lowerBound...])
-        try expect(fallbackBlock.contains("window.setContentSize(NSSize(width: MainWindowGeometry.defaultContentWidth,"),
-                   "fallback keeps the designed 800x600 content size")
-        try expect(fallbackBlock.contains("let primary = NSScreen.screens.first"),
-                   "fallback keeps the primary-display rule")
-        try expect(fallbackBlock.contains("window.center()"),
-                   "fallback keeps center() as the last resort")
+            "non-geometry setup is exactly once for its attached owner")
         try expect(initialize.contains("didInitializeAttachedWindow = true"),
-                   "the initialization guard is claimed before frame work")
+                   "the ownership guard is claimed before initialization")
+        for forbidden in ["MainWindowGeometry.restoredFrame", "window.setFrame(",
+                          "window.setContentSize(", "window.center()", "await ",
+                          "Task.sleep", "NSScreen.screens", "setFrameAutosaveName"] {
+            try expect(!initialize.contains(forbidden),
+                       "attached initialization contains no initial placement setter: \(forbidden)")
+        }
+        try expect(initialize.contains("window.minSize = minSize")
+                   && initialize.contains("WindowConfigurator.minFrameSize(for: window"),
+                   "the attached owner retains the live sidebar-dependent native minimum")
+        try expect(initialize.contains("applyNoSeparatorChrome(to: window)"),
+                   "the attached owner retains its native chrome configuration")
+        try expect(initialize.contains("lastVisibility = effectiveVisibility")
+                   && initialize.contains("hasVisibilityBaseline = true")
+                   && initialize.contains("isWindowReady = true")
+                   && initialize.contains("onWindowReady?(true)"),
+                   "visibility baseline and ready callbacks remain owned-window scoped")
+        try expect(initialize.contains("publishMinimalModeCommandAvailability()")
+                   && initialize.contains("reapply(to: window)")
+                   && initialize.contains("scheduleToolbarReassertions(on: window)")
+                   && initialize.contains("applyLatestInputs()"),
+                   "menu eligibility, chrome, toolbar, and latest inputs are still initialized")
 
-        // Exactly ONE restore source: SwiftUI restoration stays off and no
-        // frame-autosave name competes with the saved settings frame.
+        // Exactly ONE startup placement source: SwiftUI restoration remains
+        // disabled and no frame-autosave name competes with the settings store.
         try expect(app.contains(".restorationBehavior(.disabled)"),
                    "SwiftUI state restoration stays disabled")
         try expect(!app.contains("setFrameAutosaveName"),
@@ -315,7 +355,7 @@ public let r61Cases: [EngineCase] = [
         try expect(view.contains("weak var attachedWindow: NSWindow?"),
                    "the coordinator weakly owns only its attached window")
         try expect(view.contains("guard attachedWindow === window, !didInitializeAttachedWindow else { return }"),
-                   "launch restore is exactly once and identity-scoped")
+                   "attached-window initialization is exactly once and identity-scoped")
         try expect(view.contains("if normalFrameSnapshot == nil"),
                    "entry never overwrites an existing pre-entry snapshot")
         try expect(view.contains("let normalFrame = window.frame")

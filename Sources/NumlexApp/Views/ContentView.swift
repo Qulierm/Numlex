@@ -1103,8 +1103,9 @@ private struct WindowConfigurator: NSViewRepresentable {
             initializeAttachedWindow(newWindow)
         }
 
-        /// Exactly-once restore/fallback for the attached owner. Rate loading
-        /// and NSApp's key/visible-window state are deliberately irrelevant.
+        /// Exactly-once non-geometry setup for the attached owner. The main
+        /// scene has already chosen its initial placement before presentation;
+        /// this lifecycle callback only configures live window behavior.
         func initializeAttachedWindow(_ window: NSWindow) {
             guard attachedWindow === window, !didInitializeAttachedWindow else { return }
             didInitializeAttachedWindow = true
@@ -1113,34 +1114,6 @@ private struct WindowConfigurator: NSViewRepresentable {
                                                           sidebarVisible: sidebarVisible)
             window.minSize = minSize
             applyNoSeparatorChrome(to: window)
-
-            let restored = MainWindowGeometry.restoredFrame(
-                saved: savedNormalFrame,
-                visibleFrames: NSScreen.screens.map(\.visibleFrame),
-                minimumSize: minSize)
-            if let restored {
-                // Floor first; MainWindowGeometry keeps an accepted saved
-                // origin as-is and rejects frames with less than 100 pt overlap.
-                window.setFrame(restored, display: true)
-            } else {
-                // Preserve the established centered 800x600 CONTENT fallback
-                // on the primary display, with center() as the small-screen
-                // last resort. SwiftUI frame restoration remains disabled.
-                window.setContentSize(NSSize(width: MainWindowGeometry.defaultContentWidth,
-                                             height: MainWindowGeometry.defaultContentHeight))
-                let primary = NSScreen.screens.first
-                if let visible = (primary ?? NSScreen.main)?.visibleFrame,
-                   visible.width >= MainWindowGeometry.defaultContentWidth,
-                   visible.height >= MainWindowGeometry.defaultContentHeight {
-                    let x = visible.minX + (visible.width - window.frame.width) / 2
-                    let y = visible.minY + (visible.height - window.frame.height) / 2
-                    window.setFrame(NSRect(x: x, y: y,
-                                           width: window.frame.width,
-                                           height: window.frame.height), display: true)
-                } else {
-                    window.center()
-                }
-            }
 
             lastVisibility = effectiveVisibility
             hasVisibilityBaseline = true
