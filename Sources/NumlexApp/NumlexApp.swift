@@ -373,6 +373,9 @@ struct NumlexApp: App {
             // Control-Command-S responder). This is the keyboard-only
             // reopening path when the toolbar button is hidden.
             SidebarCommands()
+            // The focused main-window scene owns this checked View command;
+            // Settings and welcome scenes intentionally publish no target.
+            MinimalModeCommands(language: model.settings.language)
             // The system registers the single Settings… item (⌘,) from the
             // Settings scene automatically; replacing the group here makes
             // macOS 26 render a SECOND item with the same shortcut, which

@@ -255,12 +255,13 @@ nothing here ever enters `.nlx`).
 
 ### Minimal Mode
 
-The icon-only button at the trailing end of the main window's titlebar toolbar
-enters or exits **Minimal Mode**. It is a per-window, session-only presentation
-state: every window starts off (including after relaunch), and the mode is not
-a Notebook setting or saved preference. It adds no dedicated menu command or
-keyboard shortcut. The button remains available
-when the native sidebar toggle is hidden by the collapsed-sidebar preference.
+Choose **View → Minimal Mode** or press **⌘⇧M**. The checked menu item belongs
+to the focused, ready main-window scene; it is disabled in Settings, during the
+welcome/reveal, in native full screen, and while a native mode transition is in
+progress. The focused binding changes only that window's presentation state.
+Minimal Mode has no titlebar toolbar button. It starts off independently in
+every main window, including after relaunch, and is never a Notebook setting or
+saved preference.
 
 Minimal Mode hides only the sidebar and the Floating Total footer (including its
 reserved layout space). Inline `total` rows, answers and the rest of the
@@ -269,10 +270,10 @@ preferences, sheet text, line IDs, references, highlights, answer overrides,
 evaluation inputs or export/print snapshot. If the Show preference changes in
 Settings while the mode is active, that current choice is honored when the mode
 ends. The cached normal window rectangle and saved normal sidebar visibility
-are restored on exit unless a native Toggle Sidebar command (**⌃⌘S** or View →
+are restored on exit unless the native Toggle Sidebar command (**⌃⌘S** or View →
 Toggle Sidebar) requests a different normal visibility. That command exits the
-mode and honors its requested state; the titlebar button is an independent
-return path.
+mode and honors its requested state; it remains the keyboard escape path when
+the sidebar toolbar toggle is hidden.
 
 Each sidebar row shows the sheet's created time on the left and its line count
 on the right, both in the same 11 pt secondary text on one line. Exactly one
@@ -620,31 +621,35 @@ lines without an answer — headings, comments, prose — can be highlighted too
 | Answer column width | adjustable, 140–400 pt (default 200 pt); capped by the window so the editor keeps at least 280 pt |
 | Line-number gutter | with line numbers on: 54 pt indent (36 pt gutter + 18 pt leading); hidden: 18 pt — the gutter is fully reclaimed, and toggling never accumulates drift |
 | Main window frame and sidebar | the frame (position AND size) and the sidebar's shown/hidden state are restored from the settings store on every launch — the saved frame is applied as-is, and restoring never resizes or shifts the window. It is accepted only when it still overlaps a connected screen's visible area by at least **100 pt in both dimensions**; otherwise the app keeps the centered 800×600 default with an expanded sidebar |
-| Minimal Mode | 600×260 pt content, plus the current titlebar/toolbar chrome in the native frame. It is per-window and session-only; a cached normal frame (not compact resizes) is restored on exit. |
+| Minimal Mode | At least 600×260 pt of usable content, plus the attached window's measured native frame/content-layout chrome. It is per-window and session-only; a cached normal frame (not compact resizes) is restored on exit. |
 | Total bar vs inline `total` | the bottom Total panel is dimension-agnostic: it sums the evaluated magnitude of every ordinary scalar answer row once (unitless numbers, unit-bearing quantities such as `2 kg`, money such as `$3`, named scalars and exact integers) into one plain unitless value — no unit conversion, no FX normalization and no unit/currency suffix — and excludes inline `total` rows so the two never double-count; inline `total` lines are a separate section-scoped command that is always active and still sums only unitless scalars |
 
 ### Minimal Mode and normal window geometry
 
-The compact target is **600×260 pt of content**, not a raw 600×260 pt
-`NSWindow` frame. The titlebar and toolbar contribute additional native chrome;
-the app measures that contribution with AppKit when it creates the compact
-frame. In normal motion the frame change uses a restrained 0.18-second
-animation; with Reduce Motion enabled it applies immediately.
+The target is at least **600×260 pt in the usable content layout**, not a raw
+600×260 pt `NSWindow` frame. After one bounded layout turn, the owning window
+measures its live `frame.size` and `contentLayoutRect.size`; their nonnegative
+difference is the native chrome contribution added to the compact frame. No
+titlebar height is hard-coded. That measured frame is also the active mode's
+minimum, so the native viewport retains the full usable target without clipping.
+In normal motion the frame change uses a restrained 0.18-second animation;
+with Reduce Motion enabled it applies immediately.
 
 On entry, the owning window captures its current normal rectangle once through
 the existing rounded, equality-guarded frame writer. Settled compact moves and
 resizes are never saved as normal launch geometry, including the termination
 backstop. Exit restores the cached normal rectangle and applies the current
 sidebar-dependent normal minimum; compact resizing does not replace that
-snapshot. If a display was disconnected, the normal frame is clamped to a
-current visible display as needed.
+snapshot. Saved sidebar and Floating Total preferences remain unchanged. If a
+display was disconnected, the normal frame is clamped to a current visible
+display as needed.
 
 Minimal Mode cannot change a window frame while native full screen or its
-entry/exit transition owns the geometry, so its titlebar action is disabled for
-that interval. A window already in Minimal Mode may enter native full screen;
-macOS owns that frame, and the window returns to its compact rectangle when it
-leaves full screen. The action becomes available again after the native
-transition finishes.
+entry/exit transition owns the geometry, so **View → Minimal Mode** is disabled
+for that interval. A window already in Minimal Mode may enter native full
+screen; macOS owns that frame, and the window returns to its compact rectangle
+when it leaves full screen. The command becomes available again after the
+native transition finishes.
 
 ## Persistence
 

@@ -1,13 +1,35 @@
 import Foundation
 
 /// Pure window-frame arithmetic for Minimal Mode. The AppKit owner supplies
-/// the actual frame size returned by `frameRect(forContentRect:)`; no chrome
-/// estimate, screen query, persistence, or global window lookup lives here.
+/// the live window-frame and content-layout sizes; this layer derives their
+/// nonnegative chrome delta without estimates, screen queries, persistence, or
+/// global window lookup.
 public enum MinimalModeGeometry {
     /// The content target is sourced from the existing main-window minima.
     public static var compactContentSize: CGSize {
         CGSize(width: MainWindowGeometry.contentMinWidth,
                height: MainWindowGeometry.minContentHeight)
+    }
+
+    /// Convert the required usable content target to a native frame size using
+    /// the attached window's current live frame/content-layout delta. Chrome
+    /// smaller than the layout rect contributes zero; no titlebar height is
+    /// assumed. Reject invalid source sizes or overflow in the derived target.
+    public static func compactFrameSize(currentFrameSize: CGSize,
+                                        currentContentLayoutSize: CGSize) -> CGSize? {
+        guard isValidSize(currentFrameSize), isValidSize(currentContentLayoutSize) else {
+            return nil
+        }
+        let chromeWidth = max(0, currentFrameSize.width - currentContentLayoutSize.width)
+        let chromeHeight = max(0, currentFrameSize.height - currentContentLayoutSize.height)
+        guard chromeWidth.isFinite, chromeHeight.isFinite else { return nil }
+        let result = CGSize(width: compactContentSize.width + chromeWidth,
+                            height: compactContentSize.height + chromeHeight)
+        let resultRect = CGRect(origin: .zero, size: result)
+        guard isValidSize(result), resultRect.maxX.isFinite, resultRect.maxY.isFinite else {
+            return nil
+        }
+        return result
     }
 
     /// Enter Minimal Mode, preserving the normal window's top-right corner

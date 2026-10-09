@@ -13,8 +13,27 @@ private func minimalModeReadSource(_ relativePath: String) throws -> String {
     return source
 }
 
-/// Pure, per-window Minimal Mode policy and geometry cases. AppKit supplies
-/// its actual content-to-frame conversion and connected screen rectangles.
+private func minimalModeAppSourceCount(_ marker: String) throws -> Int {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent() // NumlexTestKit
+        .deletingLastPathComponent() // Tests
+        .deletingLastPathComponent() // repository root
+    let sourceRoot = root.appendingPathComponent("Sources/NumlexApp", isDirectory: true)
+    guard let enumerator = FileManager.default.enumerator(
+        at: sourceRoot, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+        throw CaseFailure(message: "cannot enumerate NumlexApp sources", location: "MinimalModeCases")
+    }
+    var count = 0
+    while let url = enumerator.nextObject() as? URL {
+        guard url.pathExtension == "swift" else { continue }
+        let source = try String(contentsOf: url, encoding: .utf8)
+        count += source.components(separatedBy: marker).count - 1
+    }
+    return count
+}
+
+/// Pure Minimal Mode policy and geometry cases. The native coordinator supplies
+/// live frame/contentLayoutRect measurements and connected screen rectangles.
 public let minimalModeCases: [EngineCase] = [
     EngineCase("minimal-mode-content-target-uses-existing-main-minima") {
         try expectEqual(MinimalModeGeometry.compactContentSize,
@@ -94,19 +113,36 @@ public let minimalModeCases: [EngineCase] = [
     EngineCase("minimal-mode-enter-retains-actual-native-chrome-contribution") {
         let screen = CGRect(x: 0, y: 0, width: 1512, height: 944)
         let normal = CGRect(x: 100, y: 100, width: 900, height: 700)
-        for chromeHeight in [0.0, 28.0, 54.0] as [CGFloat] {
-            let measuredFrameSize = CGSize(
-                width: MainWindowGeometry.contentMinWidth,
-                height: MainWindowGeometry.frameHeight(
-                    contentHeight: MainWindowGeometry.minContentHeight,
-                    chromeHeight: chromeHeight))
+        for chromeHeight in [0.0, 26.0, 52.0, 54.0] as [CGFloat] {
+            let liveFrameSize = CGSize(width: 900, height: 700)
+            let liveContentLayoutSize = CGSize(width: 900, height: 700 - chromeHeight)
+            guard let measuredFrameSize = MinimalModeGeometry.compactFrameSize(
+                currentFrameSize: liveFrameSize,
+                currentContentLayoutSize: liveContentLayoutSize) else {
+                throw CaseFailure(message: "live chrome conversion rejected valid sizes", location: "MinimalModeCases")
+            }
+            try expectEqual(measuredFrameSize,
+                            CGSize(width: 600, height: 260 + chromeHeight),
+                            "derive the compact frame from live chrome for \(chromeHeight) pt")
             let compact = MinimalModeGeometry.enteringFrame(
                 from: normal, compactFrameSize: measuredFrameSize,
                 visibleFrames: [screen])
             try expectEqual(compact?.size, measuredFrameSize,
-                            "use the native content-to-frame conversion for \(chromeHeight) pt chrome")
+                            "the clamp uses the measured frame target")
             try expectEqual(compact?.maxY, normal.maxY,
                             "measured chrome preserves the top edge")
+        }
+        let fullSizeHostingSamples: [(CGFloat, CGFloat, CGFloat)] = [
+            (600, 548, 312), (600, 574, 286), (600, 600, 260)
+        ]
+        for (frameHeight, layoutHeight, targetHeight) in fullSizeHostingSamples {
+            guard let measured = MinimalModeGeometry.compactFrameSize(
+                currentFrameSize: CGSize(width: 600, height: frameHeight),
+                currentContentLayoutSize: CGSize(width: 600, height: layoutHeight)) else {
+                throw CaseFailure(message: "full-size hosting measurement rejected", location: "MinimalModeCases")
+            }
+            try expectEqual(measured, CGSize(width: 600, height: targetHeight),
+                            "usable 600 x 260 content plus measured native chrome")
         }
     },
 
@@ -195,6 +231,29 @@ public let minimalModeCases: [EngineCase] = [
                 visibleFrames: [goodScreen]) == nil,
                        "invalid native compact size is rejected")
         }
+        let invalidMeasurements: [(CGSize, CGSize, String)] = [
+            (.zero, CGSize(width: 600, height: 548), "zero native frame"),
+            (CGSize(width: 600, height: 600), .zero, "zero contentLayoutRect"),
+            (CGSize(width: CGFloat.infinity, height: 600), CGSize(width: 600, height: 548),
+             "infinite native frame"),
+            (CGSize(width: 600, height: 600), CGSize(width: 600, height: CGFloat.nan),
+             "NaN contentLayoutRect"),
+            (CGSize(width: -1, height: 600), CGSize(width: 600, height: 548),
+             "negative native frame"),
+            (CGSize(width: 600, height: 600), CGSize(width: 600, height: -1),
+             "negative contentLayoutRect")
+        ]
+        for (frameSize, layoutSize, label) in invalidMeasurements {
+            try expect(MinimalModeGeometry.compactFrameSize(
+                currentFrameSize: frameSize,
+                currentContentLayoutSize: layoutSize) == nil,
+                       "invalid live geometry is rejected: \(label)")
+        }
+        let noPositiveChrome = MinimalModeGeometry.compactFrameSize(
+            currentFrameSize: CGSize(width: 600, height: 600),
+            currentContentLayoutSize: CGSize(width: 620, height: 620))
+        try expectEqual(noPositiveChrome, CGSize(width: 600, height: 260),
+                        "negative frame/layout deltas contribute no assumed chrome")
         try expect(MinimalModeGeometry.enteringFrame(
             from: goodNormal, compactFrameSize: CGSize(width: 600, height: 314),
             visibleFrames: [CGRect.zero]) == nil,
@@ -407,33 +466,179 @@ public let minimalModeCases: [EngineCase] = [
                         "a visible-sidebar request expands to its current normal floor")
     },
 
-    EngineCase("minimal-mode-source-toolbar-localization-and-no-persisted-mode-key") {
+    EngineCase("minimal-mode-source-view-menu-localization-and-no-persisted-mode-key") {
         let view = try minimalModeReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        let commands = try minimalModeReadSource("Sources/NumlexApp/MinimalModeCommands.swift")
         let settings = try minimalModeReadSource("Sources/NumlexCore/Models/Settings.swift")
         let localization = try minimalModeReadSource("Sources/NumlexCore/Localization.swift")
+        let app = try minimalModeReadSource("Sources/NumlexApp/NumlexApp.swift")
+        let appModel = try minimalModeReadSource("Sources/NumlexApp/AppModel.swift")
+        let settingsView = try minimalModeReadSource("Sources/NumlexApp/Views/SettingsView.swift")
+        let welcomeView = try minimalModeReadSource("Sources/NumlexApp/Views/WelcomeView.swift")
+        let persistence = try minimalModeReadSource("Sources/NumlexCore/Services/Persistence.swift")
+        let export = try minimalModeReadSource("Sources/NumlexCore/Export/ExportSnapshotBuilder.swift")
+        let standaloneRunner = try minimalModeReadSource("Tests/NumlexTests/main.swift")
+        let swiftTestingRunner = try minimalModeReadSource("Tests/NumlexCoreTests/EngineTests.swift")
         try expect(view.contains("@State private var isMinimalMode = false"),
                    "the mode is an initially-off ContentView/window state")
-        try expect(view.components(separatedBy: "ToolbarItem(placement: .primaryAction)").count - 1 == 1,
-                   "there is one stable trailing titlebar action")
-        try expect(view.contains("arrow.down.right.and.arrow.up.left")
-                   && view.contains("arrow.up.left.and.arrow.down.right"),
-                   "one button switches between the specified native symbols")
-        try expect(view.contains(".disabled(!owningWindowReady || !minimalModeFullscreenAvailable)"),
-                   "the action waits for restore and native-fullscreen ownership")
+        try expect(view.components(separatedBy: "ToolbarItem(placement: .primaryAction)").count - 1 == 0,
+                   "the titlebar no longer has a Minimal Mode toolbar action")
+        try expect(view.components(separatedBy: "ToolbarItem(placement: .primaryAction)").count - 1 == 0
+                   && commands.components(separatedBy: "Toggle(").count - 1 == 1,
+                   "the one checked menu toggle replaces the titlebar control")
+        try expect(view.contains(".focusedSceneValue(\\.minimalModeCommandContext, minimalModeCommandContext)"),
+                   "only this main ContentView scene publishes the command context")
+        try expect(commands.contains("CommandGroup(after: .sidebar)"),
+                   "the command is inserted into the existing View menu")
+        try expect(commands.contains(#"Toggle(L10n.t("minimalMode.menu""#),
+                   "the item is a localized checked Toggle")
+        try expect(commands.contains(#".keyboardShortcut("m", modifiers: [.command, .shift])"#),
+                   "the menu item owns Command-Shift-M")
+        try expect(commands.contains(#"@FocusedValue(\.minimalModeCommandContext)"#),
+                   "the command reads its focused scene context")
+        try expect(commands.contains("isOn: context?.isOn ?? .constant(false)")
+                   && commands.contains(".disabled(context?.isEnabled != true)"),
+                   "missing or unavailable contexts render disabled/off")
+
+
+        try expectEqual(app.components(separatedBy: "MinimalModeCommands(language:").count - 1,
+                        1, "the focused command collection is registered once")
+        guard let settingsSceneStart = app.range(of: "        Settings {") else {
+            throw CaseFailure(message: "Settings scene registration is missing", location: "MinimalModeCases")
+        }
+        let settingsScene = String(app[settingsSceneStart.lowerBound...])
+        try expect(!settingsScene.contains("MinimalModeCommands")
+                   && !settingsScene.contains("focusedSceneValue(\\.minimalModeCommandContext"),
+                   "the Settings scene publishes no Minimal Mode command target")
+        try expect(!settingsView.contains("minimalModeCommandContext")
+                   && !welcomeView.contains("minimalModeCommandContext"),
+                   "Settings and welcome views have no focused command publisher")
+        try expect(view.contains("guard owningWindowReady && minimalModeCommandAvailable")
+                   && view.contains("requested != isMinimalMode"),
+                   "the live per-window binding rechecks key-window eligibility and ignores no-ops")
         try expect(!settings.contains("minimalMode"),
                    "AppSettings has no persisted mode key")
         try expect(!view.contains("setFrameAutosaveName"),
                    "no competing frame-autosave source is added")
-        for key in ["minimalMode.enter", "minimalMode.exit", "minimalMode.on", "minimalMode.off"] {
-            try expectEqual(localization.components(separatedBy: "\"\(key)\":").count - 1,
-                            AppLanguage.allCases.count,
-                            "\(key) is present in every language dictionary")
-            for language in AppLanguage.allCases {
-                let value = L10n.t(key, language: language)
-                try expect(!value.isEmpty && value != key,
-                           "\(language.rawValue): \(key) resolves to localized text")
+        try expectEqual(commands.components(separatedBy: "CommandGroup(after: .sidebar)").count - 1,
+                        1, "exactly one Minimal Mode View command group")
+        try expectEqual(commands.components(separatedBy: "Toggle(").count - 1,
+                        1, "the View group owns exactly one checked mode item")
+        try expectEqual(try minimalModeAppSourceCount(#".keyboardShortcut("m", modifiers: [.command, .shift])"#),
+                        1, "Command-Shift-M is unique across the app")
+        try expectEqual(try minimalModeAppSourceCount(#".focusedSceneValue(\.minimalModeCommandContext, minimalModeCommandContext)"#),
+                        1, "the focused Minimal Mode scene target has one publisher")
+        try expect(standaloneRunner.contains("+ minimalModeCases"),
+                   "the standalone runner includes the shared Minimal Mode cases")
+        try expect(swiftTestingRunner.contains("@Test(arguments: minimalModeCases)"),
+                   "the Swift Testing runner includes the same cases")
+        let expectedMenuLabels: [String: String] = [
+            "en": "Minimal Mode",
+            "ru": "Минималистичный режим",
+            "de": "Minimalmodus",
+            "fr": "Mode minimaliste",
+            "it": "Modalità minimalista",
+            "zh": "极简模式"
+        ]
+        try expectEqual(localization.components(separatedBy: "\"minimalMode.menu\":").count - 1,
+                        AppLanguage.allCases.count,
+                        "the localized View label exists in every language dictionary")
+        for language in AppLanguage.allCases {
+            guard let expected = expectedMenuLabels[language.rawValue] else {
+                throw CaseFailure(message: "missing expected View label for \(language.rawValue)",
+                                  location: "MinimalModeCases")
             }
+            try expectEqual(L10n.t("minimalMode.menu", language: language), expected,
+                            "the View menu label is exact in \(language.rawValue)")
         }
+        try expect(!settings.contains("minimalMode")
+                   && !appModel.contains("minimalMode")
+                   && !persistence.contains("minimalMode")
+                   && !export.contains("minimalMode")
+                   && persistence.contains("public static let currentVersion = 2"),
+                   "mode routing adds no AppModel/StorePayload/export schema state")
+    },
+
+    EngineCase("minimal-mode-focused-command-is-gated-by-current-owned-main-window") {
+        let view = try minimalModeReadSource("Sources/NumlexApp/Views/ContentView.swift")
+        let commands = try minimalModeReadSource("Sources/NumlexApp/MinimalModeCommands.swift")
+        let app = try minimalModeReadSource("Sources/NumlexApp/NumlexApp.swift")
+        try expect(app.contains("private var sidebarToggleHiddenForWelcome: Bool")
+                   && app.contains("revealStage != .app")
+                   && view.contains("forceHideSidebarButton: sidebarToggleHiddenForWelcome"),
+                   "welcome and reveal stages feed the coordinator's command-disable gate")
+        try expect(view.contains("@State private var owningWindowReady = false")
+                   && view.contains("@State private var minimalModeCommandAvailable = false"),
+                   "missing/unready contexts begin unavailable")
+        guard let contextStart = view.range(of: "private var minimalModeCommandContext: MinimalModeCommandContext?"),
+              let contextEnd = view.range(of: "/// The native sidebar command talks",
+                                          range: contextStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "focused command context is missing", location: "MinimalModeCases")
+        }
+        let context = String(view[contextStart.lowerBound..<contextEnd.lowerBound])
+        try expect(context.contains("guard enabled else { return nil }")
+                   && context.contains("let enabled = owningWindowReady && minimalModeCommandAvailable"),
+                   "unready/fullscreen/welcome owners publish no active binding")
+        try expect(context.contains("isOn: Binding(")
+                   && context.contains("get: { isMinimalMode }")
+                   && context.contains("set: { requested in")
+                   && context.contains("requested != isMinimalMode"),
+                   "the checked View Toggle stays live against this window's session state")
+        guard let eligibilityStart = view.range(of: "private func modeCommandIsEligible(for window: NSWindow)"),
+              let eligibilityEnd = view.range(of: "private func publishMinimalModeCommandAvailability()",
+                                              range: eligibilityStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "owned key-window eligibility helper is missing", location: "MinimalModeCases")
+        }
+        let eligibility = String(view[eligibilityStart.lowerBound..<eligibilityEnd.lowerBound])
+        for condition in ["owns(window)", "isWindowReady", "window.isKeyWindow", "!forcedHide",
+                          "!nativeFullScreen", "!nativeFullScreenTransition", "!modeTransitionInFlight"] {
+            try expect(eligibility.contains(condition), "command eligibility requires \(condition)")
+        }
+        guard let updateStart = view.range(of: "func updateInputs(view: WindowAttachmentView,"),
+              let updateEnd = view.range(of: "/// Own only the NSWindow reached",
+                                         range: updateStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "coordinator input refresh is missing", location: "MinimalModeCases")
+        }
+        let update = String(view[updateStart.lowerBound..<updateEnd.lowerBound])
+        try expect(update.contains("let welcomeAvailabilityChanged = self.forcedHide != forcedHide")
+                   && update.contains("self.forcedHide = forcedHide")
+                   && update.contains("if welcomeAvailabilityChanged { publishMinimalModeCommandAvailability() }"),
+                   "welcome/reveal input changes publish fresh disabled/enabled state")
+        guard let observerStart = view.range(of: "private func installOwnedWindowObservers("),
+              let observerEnd = view.range(of: "private func scheduleToolbarReassertions(",
+                                           range: observerStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "owned key observers are missing", location: "MinimalModeCases")
+        }
+        let observers = String(view[observerStart.lowerBound..<observerEnd.lowerBound])
+        try expect(observers.contains("forName: NSWindow.didBecomeKeyNotification, object: window")
+                   && observers.contains("forName: NSWindow.didResignKeyNotification, object: window")
+                   && observers.contains("self.owns(window)"),
+                   "both owned key-window observers reject foreign owners")
+        guard let becomeStart = observers.range(of: "forName: NSWindow.didBecomeKeyNotification"),
+              let resignStart = observers.range(of: "keyResignObserver ="),
+              let itemStart = observers.range(of: "itemObserver =") else {
+            throw CaseFailure(message: "key and resign observer boundaries are missing", location: "MinimalModeCases")
+        }
+        let becomeObserver = String(observers[becomeStart.lowerBound..<resignStart.lowerBound])
+        let resignObserver = String(observers[resignStart.lowerBound..<itemStart.lowerBound])
+        try expect(becomeObserver.contains("object: window") && becomeObserver.contains("self.owns(window)")
+                   && becomeObserver.contains("publishMinimalModeCommandAvailability()")
+                   && resignObserver.contains("forName: NSWindow.didResignKeyNotification, object: window")
+                   && resignObserver.contains("self.owns(window)")
+                   && resignObserver.contains("publishMinimalModeCommandAvailability()"),
+                   "owned become-key and resign-key events publish eligibility independently")
+        guard let fullscreenStart = view.range(of: "private func handleFullScreenEvent("),
+              let fullscreenEnd = view.range(of: "private func cancelModeTransitionForFullScreen(",
+                                             range: fullscreenStart.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "full-screen command eligibility path is missing", location: "MinimalModeCases")
+        }
+        let fullscreen = String(view[fullscreenStart.lowerBound..<fullscreenEnd.lowerBound])
+        try expect(fullscreen.contains("invalidatePendingGeometryRequests()")
+                   && fullscreen.contains("publishMinimalModeCommandAvailability()"),
+                   "full-screen transitions cancel measurement and refresh disabled command state")
+        try expect(!commands.contains("NotificationCenter.default.post")
+                   && context.contains("isMinimalMode = requested"),
+                   "mode changes use the live focused binding, not a global broadcast")
     },
 
     EngineCase("minimal-mode-source-owned-snapshot-latest-request-and-termination-guards") {
@@ -446,10 +651,30 @@ public let minimalModeCases: [EngineCase] = [
         let beginBlock = String(view[begin.lowerBound..<apply.lowerBound])
         try expect(beginBlock.contains("if normalFrameSnapshot == nil"),
                    "entry captures the real pre-entry frame once")
-        try expectEqual(beginBlock.components(separatedBy: "normalFrameSnapshot = window.frame").count - 1,
+        try expect(beginBlock.contains("let normalFrame = window.frame")
+                   && beginBlock.contains("normalFrameSnapshot = normalFrame"),
+                   "entry captures the real original normal frame once")
+        try expectEqual(beginBlock.components(separatedBy: "normalFrameSnapshot = normalFrame").count - 1,
                         1, "there is no compact-frame snapshot overwrite")
-        try expect(beginBlock.contains("onCaptureNormalFrame?(window.frame)"),
+        try expect(beginBlock.contains("onCaptureNormalFrame?(normalFrame)"),
                    "the one normal snapshot uses the existing rounded writer")
+        try expect(beginBlock.contains("from: normalAnchor")
+                   && beginBlock.contains("currentFrameSize: frameSize")
+                   && beginBlock.contains("currentContentLayoutSize: contentLayoutSize"),
+                   "entry is anchored to the cached normal frame and live layout measurement")
+        try expect(beginBlock.contains("MinimalModeGeometry.compactFrameSize(")
+                   && beginBlock.contains("window.contentLayoutRect.size")
+                   && beginBlock.contains("contentView.layoutSubtreeIfNeeded()")
+                   && beginBlock.contains("await Task.yield()"),
+                   "one next-turn layout task derives the frame from actual contentLayoutRect chrome")
+        guard let measuredMinimum = beginBlock.range(of: "if window.minSize != measuredMinimum"),
+              let taskClear = beginBlock.range(of: "self.minimalModeMeasurementTask = nil",
+                                               range: measuredMinimum.upperBound..<beginBlock.endIndex) else {
+            throw CaseFailure(message: "measured minimum completion is missing", location: "MinimalModeCases")
+        }
+        try expect(beginBlock[measuredMinimum.lowerBound..<taskClear.lowerBound]
+                       .contains("guard self.isCurrentModeMeasurement("),
+                   "a stale measurement cannot clear a newer owned task")
         try expect(beginBlock.contains("invalidatePendingGeometryRequests()"),
                    "a new transition cancels pending normal settle and sidebar tasks")
         try expect(beginBlock.contains("geometryRequestGeneration &+= 1"),
@@ -467,8 +692,9 @@ public let minimalModeCases: [EngineCase] = [
         let finishBlock = String(view[finish.lowerBound..<reject.lowerBound])
         try expect(finishBlock.contains("guard isCurrentGeometryRequest(generation, window: window)"),
                    "a stale completion cannot change the snapshot lifetime")
-        try expect(finishBlock.contains("if !mode {\n                normalFrameSnapshot = nil"),
-                   "only a successful exit consumes the cached normal snapshot")
+        try expect(finishBlock.contains("if !mode {\n                normalFrameSnapshot = nil")
+                   && finishBlock.contains("compactModeMinimumSize = nil"),
+                   "only a successful exit consumes the cached normal frame and compact floor")
 
         guard let settle = view.range(of: "func scheduleFrameSettle(window: NSWindow, immediate: Bool)"),
               let reapply = view.range(of: "func reapply(to window: NSWindow?)",
@@ -486,10 +712,12 @@ public let minimalModeCases: [EngineCase] = [
                    "termination cannot bypass compact/intermediate/full-screen persistence guards")
         try expect(view.contains("toolbarReassertionTask?.cancel()")
                    && view.contains("frameSettleTask?.cancel()")
-                   && view.contains("sidebarResizeTask?.cancel()"),
-                   "all owned asynchronous work is canceled on replacement/teardown")
-        try expect(view.contains("for observer in frameObservers + fullScreenObservers"),
-                   "owned window, termination, and fullscreen observers are removed")
+                   && view.contains("sidebarResizeTask?.cancel()")
+                   && view.contains("minimalModeMeasurementTask?.cancel()"),
+                   "all owned asynchronous work, including measurement, is canceled")
+        try expect(view.contains("for observer in frameObservers + fullScreenObservers")
+                   && view.contains("NotificationCenter.default.removeObserver(keyResignObserver)"),
+                   "owned window, termination, fullscreen, and resign-key observers are removed")
         guard let owner = view.range(of: "private struct WindowConfigurator"),
               let ownerEnd = view.range(of: "private func applySidebarButtonVisibility(",
                                         range: owner.upperBound..<view.endIndex) else {
@@ -498,6 +726,14 @@ public let minimalModeCases: [EngineCase] = [
         let ownerBlock = String(view[owner.lowerBound..<ownerEnd.lowerBound])
         try expect(ownerBlock.contains("func makeCoordinator() -> Coordinator { Coordinator() }"),
                    "each configurator instance receives its own coordinator")
+        try expect(ownerBlock.contains("var normalFrameSnapshot: CGRect?")
+                   && ownerBlock.contains("var compactModeMinimumSize: NSSize?")
+                   && ownerBlock.contains("var minimalModeMeasurementTask: Task<Void, Never>?"),
+                   "normal snapshot, compact minimum, and measurement task are per-coordinator")
+        try expect(ownerBlock.contains("compactModeMinimumSize = nil")
+                   && ownerBlock.contains("minimalModeMeasurementTask?.cancel()")
+                   && ownerBlock.contains("NotificationCenter.default.removeObserver(keyResignObserver)"),
+                   "detach clears the per-owner cache, task, and key observer")
         try expect(!ownerBlock.contains("NSApp.keyWindow")
                    && !ownerBlock.contains("NSApp.windows.first"),
                    "no global/foreign window target enters mode geometry")
@@ -507,17 +743,19 @@ public let minimalModeCases: [EngineCase] = [
         let view = try minimalModeReadSource("Sources/NumlexApp/Views/ContentView.swift")
         let settings = try minimalModeReadSource("Sources/NumlexCore/Models/Settings.swift")
         let export = try minimalModeReadSource("Sources/NumlexCore/Export/ExportSnapshotBuilder.swift")
-        guard let toolbar = view.range(of: "ToolbarItem(placement: .primaryAction)"),
-              let frame = view.range(of: "// r59: the compact content minimum",
-                                     range: toolbar.upperBound..<view.endIndex) else {
-            throw CaseFailure(message: "Minimal Mode action scope is missing", location: "MinimalModeCases")
+        guard let context = view.range(of: "private var minimalModeCommandContext: MinimalModeCommandContext?"),
+              let nextProperty = view.range(of: "/// The native sidebar command talks",
+                                            range: context.upperBound..<view.endIndex) else {
+            throw CaseFailure(message: "Minimal Mode command binding scope is missing", location: "MinimalModeCases")
         }
-        let action = String(view[toolbar.lowerBound..<frame.lowerBound])
+        let action = String(view[context.lowerBound..<nextProperty.lowerBound])
+        try expect(action.contains("isMinimalMode = requested"),
+                   "the menu binding mutates only this ContentView's mode state")
         for mutation in ["model.persist()", "model.settings.showTotalBar =",
                          "model.settings.sidebarVisible =", "model.selectedSheet", "editorBridge",
                          "selectionSnapshot", "setSelectedRange", "clear()"] {
             try expect(!action.contains(mutation),
-                       "the mode action does not mutate document/editor state: \(mutation)")
+                       "the command binding does not mutate document/editor state: \(mutation)")
         }
         try expect(view.contains("editorView(sheet: sheet, settings: settings, resolved: resolved)"),
                    "the same editor subtree and resolved input remain mounted")

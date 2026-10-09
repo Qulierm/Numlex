@@ -48,7 +48,22 @@ struct ContentView: View {
     /// Session-only presentation state, owned by this ContentView/window.
     @State private var isMinimalMode = false
     @State private var owningWindowReady = false
-    @State private var minimalModeFullscreenAvailable = false
+    @State private var minimalModeCommandAvailable = false
+    /// Only the ready main-window scene publishes a command target. Its live
+    /// setter rechecks eligibility and changes this ContentView's state only.
+    private var minimalModeCommandContext: MinimalModeCommandContext? {
+        let enabled = owningWindowReady && minimalModeCommandAvailable
+        guard enabled else { return nil }
+        return MinimalModeCommandContext(
+            isEnabled: enabled,
+            isOn: Binding(
+                get: { isMinimalMode },
+                set: { requested in
+                    guard owningWindowReady && minimalModeCommandAvailable,
+                          requested != isMinimalMode else { return }
+                    isMinimalMode = requested
+                }))
+    }
     /// The native sidebar command talks to the effective visibility, while
     /// the persisted normal choice remains in `columnVisibility`.
     private var effectiveColumnVisibility: Binding<NavigationSplitViewVisibility> {
@@ -738,27 +753,6 @@ struct ContentView: View {
                 }
             )
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isMinimalMode.toggle()
-                } label: {
-                    Image(systemName: isMinimalMode
-                          ? "arrow.up.left.and.arrow.down.right"
-                          : "arrow.down.right.and.arrow.up.left")
-                }
-                .help(L10n.t(isMinimalMode ? "minimalMode.exit" : "minimalMode.enter",
-                             language: model.settings.language))
-                .accessibilityLabel(L10n.t(
-                    isMinimalMode ? "minimalMode.exit" : "minimalMode.enter",
-                    language: model.settings.language))
-                .accessibilityValue(L10n.t(
-                    isMinimalMode ? "minimalMode.on" : "minimalMode.off",
-                    language: model.settings.language))
-                .accessibilityAddTraits(isMinimalMode ? .isSelected : [])
-                .disabled(!owningWindowReady || !minimalModeFullscreenAvailable)
-            }
-        }
         // r59: the compact content minimum (MainWindowGeometry — the
         // same source of truth the scene root and the WindowConfigurator
         // consume, so no drifting magic numbers).
@@ -774,7 +768,7 @@ struct ContentView: View {
             hideSidebarButtonWhenCollapsed: model.settings.hideSidebarButtonWhenCollapsed,
             forceHideSidebarButton: sidebarToggleHiddenForWelcome,
             onWindowReady: { owningWindowReady = $0 },
-            onFullscreenAvailability: { minimalModeFullscreenAvailable = $0 },
+            onMinimalModeCommandAvailability: { minimalModeCommandAvailable = $0 },
             onMinimalModeRequestRejected: { isMinimalMode = $0 },
             onCaptureNormalFrame: rememberWindowFrame,
             onWindowFrameSettled: rememberWindowFrame
@@ -891,6 +885,7 @@ struct ContentView: View {
             model.settings.sidebarVisible = visible
             model.persist()
         }
+        .focusedSceneValue(\.minimalModeCommandContext, minimalModeCommandContext)
     }
     /// Remember the frame the user left the window in.
     ///
@@ -955,7 +950,7 @@ private struct WindowConfigurator: NSViewRepresentable {
     /// State callbacks are refreshed from each representable update; geometry
     /// remains scoped to this configurator's attached window.
     var onWindowReady: (Bool) -> Void
-    var onFullscreenAvailability: (Bool) -> Void
+    var onMinimalModeCommandAvailability: (Bool) -> Void
     var onMinimalModeRequestRejected: (Bool) -> Void
 
     /// The pre-entry normal frame is written once through the same rounded,
@@ -978,12 +973,9 @@ private struct WindowConfigurator: NSViewRepresentable {
         minimalMode || forced || (preference && collapsed)
     }
 
-    /// r59: the exact FRAME floor enforcing the 260 pt CONTENT minimum.
-    /// `frameRect(forContentRect:)` is the AppKit style-based
-    /// content→frame conversion, so the titlebar/toolbar contribution
-    /// is measured, never guessed: setting a raw frame height of 260
-    /// would leave LESS than 260 pt of content. Widths stay the
-    /// long-standing frame floors (800 expanded / 600 collapsed).
+    /// Existing NORMAL-mode frame floor. Its historical style-based
+    /// `frameRect(forContentRect:)` conversion and 800/600 frame widths are
+    /// unchanged; Minimal Mode instead uses a live contentLayoutRect delta.
     @MainActor
     static func minFrameSize(for window: NSWindow,
                              sidebarVisible: Bool) -> NSSize {
@@ -1010,9 +1002,12 @@ private struct WindowConfigurator: NSViewRepresentable {
         var requestedMinimalMode = false
         var activeMinimalMode = false
         var modeTransitionInFlight = false
+        var modeBeforeTransition: Bool?
         var nativeFullScreen = false
         var nativeFullScreenTransition = false
         var normalFrameSnapshot: CGRect?
+        /// Measured frame minimum for this coordinator's active compact session.
+        var compactModeMinimumSize: NSSize?
         var savedNormalFrame: SavedWindowFrame?
         var sidebarWidth: CGFloat = 190
         var reduceMotion = false
@@ -1023,11 +1018,12 @@ private struct WindowConfigurator: NSViewRepresentable {
         var collapsed = false
         var forcedHide = false
         var chromeObserver: NSObjectProtocol?
+        var keyResignObserver: NSObjectProtocol?
         var itemObserver: NSObjectProtocol?
         var frameObservers: [NSObjectProtocol] = []
         var fullScreenObservers: [NSObjectProtocol] = []
         var onWindowReady: ((Bool) -> Void)?
-        var onFullscreenAvailability: ((Bool) -> Void)?
+        var onMinimalModeCommandAvailability: ((Bool) -> Void)?
         var onMinimalModeRequestRejected: ((Bool) -> Void)?
         var onCaptureNormalFrame: ((CGRect) -> Void)?
         var onFrameSettled: ((CGRect) -> Void)?
@@ -1035,6 +1031,7 @@ private struct WindowConfigurator: NSViewRepresentable {
         var frameSettleTask: Task<Void, Never>?
         var sidebarResizeTask: Task<Void, Never>?
         var toolbarReassertionTask: Task<Void, Never>?
+        var minimalModeMeasurementTask: Task<Void, Never>?
         var geometryRequestGeneration: UInt64 = 0
 
         static let frameSettleDelay: Duration = .milliseconds(400)
@@ -1050,10 +1047,11 @@ private struct WindowConfigurator: NSViewRepresentable {
                           hidePreference: Bool,
                           forcedHide: Bool,
                           onWindowReady: @escaping (Bool) -> Void,
-                          onFullscreenAvailability: @escaping (Bool) -> Void,
+                          onMinimalModeCommandAvailability: @escaping (Bool) -> Void,
                           onMinimalModeRequestRejected: @escaping (Bool) -> Void,
                           onCaptureNormalFrame: @escaping (CGRect) -> Void,
                           onFrameSettled: @escaping (CGRect) -> Void) {
+            let welcomeAvailabilityChanged = self.forcedHide != forcedHide
             attachedView = view
             requestedMinimalMode = minimalMode
             self.normalVisibility = normalVisibility
@@ -1065,7 +1063,7 @@ private struct WindowConfigurator: NSViewRepresentable {
             self.collapsed = effectiveVisibility != .all
             self.forcedHide = forcedHide
             self.onWindowReady = onWindowReady
-            self.onFullscreenAvailability = onFullscreenAvailability
+            self.onMinimalModeCommandAvailability = onMinimalModeCommandAvailability
             self.onMinimalModeRequestRejected = onMinimalModeRequestRejected
             self.onCaptureNormalFrame = onCaptureNormalFrame
             self.onFrameSettled = onFrameSettled
@@ -1074,7 +1072,10 @@ private struct WindowConfigurator: NSViewRepresentable {
                 hasVisibilityBaseline = true
             }
             windowAttachmentChanged(view.window, from: view)
-            if isWindowReady { applyLatestInputs() }
+            if isWindowReady {
+                if welcomeAvailabilityChanged { publishMinimalModeCommandAvailability() }
+                applyLatestInputs()
+            }
         }
 
         /// Own only the NSWindow reached through this representable's view.
@@ -1145,7 +1146,7 @@ private struct WindowConfigurator: NSViewRepresentable {
             hasVisibilityBaseline = true
             isWindowReady = true
             onWindowReady?(true)
-            publishFullscreenAvailability()
+            publishMinimalModeCommandAvailability()
             reapply(to: window)
             scheduleToolbarReassertions(on: window)
             applyLatestInputs()
@@ -1160,6 +1161,15 @@ private struct WindowConfigurator: NSViewRepresentable {
                     guard let self, let window, self.owns(window) else { return }
                     applyNoSeparatorChrome(to: window)
                     self.reapply(to: window)
+                    self.publishMinimalModeCommandAvailability()
+                }
+            }
+            keyResignObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+            ) { [weak self, weak window] _ in
+                Task { @MainActor [weak self, weak window] in
+                    guard let self, let window, self.owns(window) else { return }
+                    self.publishMinimalModeCommandAvailability()
                 }
             }
             itemObserver = NotificationCenter.default.addObserver(
@@ -1221,10 +1231,16 @@ private struct WindowConfigurator: NSViewRepresentable {
 
         private func applyLatestInputs() {
             guard isWindowReady, let window = attachedWindow, owns(window) else { return }
-            let shouldShowSidebar = !requestedMinimalMode && normalVisibility == .all
-            let minSize = WindowConfigurator.minFrameSize(for: window,
-                                                          sidebarVisible: shouldShowSidebar)
-            if window.minSize != minSize { window.minSize = minSize }
+            let minSize: NSSize?
+            if requestedMinimalMode {
+                // Pending entry keeps the current normal floor until live chrome
+                // has been measured. Active mode reapplies only its own cache.
+                minSize = compactModeMinimumSize
+            } else {
+                minSize = WindowConfigurator.minFrameSize(
+                    for: window, sidebarVisible: normalVisibility == .all)
+            }
+            if let minSize, window.minSize != minSize { window.minSize = minSize }
             reapply(to: window)
 
             let modeChanged = requestedMinimalMode != activeMinimalMode
@@ -1244,63 +1260,139 @@ private struct WindowConfigurator: NSViewRepresentable {
         }
 
         private func beginMinimalModeTransition(to minimal: Bool, window: NSWindow) {
-            guard owns(window), isWindowReady else { return }
-            guard !nativeFullScreen, !nativeFullScreenTransition else {
+            guard owns(window) else { return }
+            traceMinimalModeGeometry(event: "command", window: window, mode: minimal)
+            guard isWindowReady, window.isKeyWindow,
+                  !nativeFullScreen, !nativeFullScreenTransition else {
                 rejectMinimalModeRequest()
+                publishMinimalModeCommandAvailability()
                 return
             }
             invalidatePendingGeometryRequests()
             geometryRequestGeneration &+= 1
             let generation = geometryRequestGeneration
             let previousMode = activeMinimalMode
+            modeBeforeTransition = previousMode
             activeMinimalMode = minimal
             modeTransitionInFlight = true
             // The requested state was reasserted before this transition; apply
             // again after the active projection changes so exit restores the
             // normal collapsed-preference visibility immediately.
             reapply(to: window)
-            publishFullscreenAvailability()
+            publishMinimalModeCommandAvailability()
 
-            let target: CGRect?
             if minimal {
                 if normalFrameSnapshot == nil {
-                    normalFrameSnapshot = window.frame
-                    onCaptureNormalFrame?(window.frame)
+                    let normalFrame = window.frame
+                    normalFrameSnapshot = normalFrame
+                    onCaptureNormalFrame?(normalFrame)
                 }
-                // Lower the hidden-sidebar floor before asking AppKit for the
-                // measured compact frameRect; the frame itself is never raw 600x260.
-                let compactFloor = WindowConfigurator.minFrameSize(for: window,
-                                                                    sidebarVisible: false)
-                if window.minSize != compactFloor { window.minSize = compactFloor }
-                let contentRect = NSRect(origin: .zero,
-                                         size: MinimalModeGeometry.compactContentSize)
-                let nativeFrameSize = window.frameRect(forContentRect: contentRect).size
-                target = MinimalModeGeometry.enteringFrame(
-                    from: window.frame,
-                    compactFrameSize: nativeFrameSize,
-                    visibleFrames: NSScreen.screens.map(\.visibleFrame),
-                    primaryVisibleFrame: NSScreen.screens.first?.visibleFrame)
-            } else {
-                let normalFloor = WindowConfigurator.minFrameSize(
-                    for: window, sidebarVisible: normalVisibility == .all)
-                if window.minSize != normalFloor { window.minSize = normalFloor }
-                target = MinimalModeGeometry.restoringFrame(
-                    cachedNormalFrame: normalFrameSnapshot,
-                    savedNormalFrame: savedNormalFrame,
-                    visibleFrames: NSScreen.screens.map(\.visibleFrame),
-                    primaryVisibleFrame: NSScreen.screens.first?.visibleFrame,
-                    minimumSize: normalFloor)
+                scheduleMinimalModeMeasurement(window: window,
+                                               generation: generation,
+                                               previousMode: previousMode)
+                return
             }
 
-            guard let target else {
-                activeMinimalMode = previousMode
-                modeTransitionInFlight = false
-                if minimal { normalFrameSnapshot = nil }
-                rejectMinimalModeRequest()
-                publishFullscreenAvailability()
+            let normalFloor = WindowConfigurator.minFrameSize(
+                for: window, sidebarVisible: normalVisibility == .all)
+            if window.minSize != normalFloor { window.minSize = normalFloor }
+            guard let target = MinimalModeGeometry.restoringFrame(
+                cachedNormalFrame: normalFrameSnapshot,
+                savedNormalFrame: savedNormalFrame,
+                visibleFrames: NSScreen.screens.map(\.visibleFrame),
+                primaryVisibleFrame: NSScreen.screens.first?.visibleFrame,
+                minimumSize: normalFloor) else {
+                rejectModeTransition(generation: generation, window: window,
+                                     mode: minimal, previousMode: previousMode)
                 return
             }
             applyModeFrame(target, to: window, generation: generation, mode: minimal)
+        }
+
+        private func scheduleMinimalModeMeasurement(window: NSWindow,
+                                                    generation: UInt64,
+                                                    previousMode: Bool) {
+            guard let view = attachedView else {
+                rejectModeTransition(generation: generation, window: window,
+                                     mode: true, previousMode: previousMode)
+                return
+            }
+            minimalModeMeasurementTask = Task { @MainActor [weak self, weak window, weak view] in
+                await Task.yield()
+                guard let self, let window, let view, !Task.isCancelled,
+                      self.isCurrentModeMeasurement(generation, window: window, view: view) else {
+                    return
+                }
+                guard let contentView = window.contentView else {
+                    self.rejectModeTransition(generation: generation, window: window,
+                                              mode: true, previousMode: previousMode)
+                    return
+                }
+                contentView.layoutSubtreeIfNeeded()
+                guard !Task.isCancelled,
+                      self.isCurrentModeMeasurement(generation, window: window, view: view) else {
+                    return
+                }
+                let frameSize = window.frame.size
+                let contentLayoutSize = window.contentLayoutRect.size
+                guard let compactSize = MinimalModeGeometry.compactFrameSize(
+                    currentFrameSize: frameSize,
+                    currentContentLayoutSize: contentLayoutSize),
+                      let normalAnchor = self.normalFrameSnapshot,
+                      let target = MinimalModeGeometry.enteringFrame(
+                        from: normalAnchor,
+                        compactFrameSize: compactSize,
+                        visibleFrames: NSScreen.screens.map(\.visibleFrame),
+                        primaryVisibleFrame: NSScreen.screens.first?.visibleFrame) else {
+                    self.rejectModeTransition(generation: generation, window: window,
+                                              mode: true, previousMode: previousMode)
+                    return
+                }
+                guard self.isCurrentModeMeasurement(generation, window: window, view: view) else {
+                    return
+                }
+                let measuredMinimum = NSSize(width: compactSize.width,
+                                             height: compactSize.height)
+                self.compactModeMinimumSize = measuredMinimum
+                if window.minSize != measuredMinimum { window.minSize = measuredMinimum }
+                guard self.isCurrentModeMeasurement(generation, window: window, view: view) else {
+                    return
+                }
+                self.minimalModeMeasurementTask = nil
+                self.applyModeFrame(target, to: window,
+                                    generation: generation, mode: true)
+            }
+        }
+
+        private func isCurrentModeMeasurement(_ generation: UInt64,
+                                              window: NSWindow,
+                                              view: WindowAttachmentView) -> Bool {
+            isCurrentGeometryRequest(generation, window: window)
+                && attachedView === view && view.window === window
+                && requestedMinimalMode && activeMinimalMode && modeTransitionInFlight
+        }
+
+        private func rejectModeTransition(generation: UInt64,
+                                          window: NSWindow,
+                                          mode: Bool,
+                                          previousMode: Bool) {
+            guard isCurrentGeometryRequest(generation, window: window) else { return }
+            activeMinimalMode = previousMode
+            modeTransitionInFlight = false
+            modeBeforeTransition = nil
+            minimalModeMeasurementTask = nil
+            if mode && !previousMode {
+                normalFrameSnapshot = nil
+                compactModeMinimumSize = nil
+                let normalFloor = WindowConfigurator.minFrameSize(
+                    for: window, sidebarVisible: normalVisibility == .all)
+                if window.minSize != normalFloor { window.minSize = normalFloor }
+            } else if previousMode, let compactModeMinimumSize,
+                      window.minSize != compactModeMinimumSize {
+                window.minSize = compactModeMinimumSize
+            }
+            rejectMinimalModeRequest()
+            publishMinimalModeCommandAvailability()
         }
 
         private func applyModeFrame(_ frame: CGRect,
@@ -1332,13 +1424,16 @@ private struct WindowConfigurator: NSViewRepresentable {
             guard isCurrentGeometryRequest(generation, window: window),
                   activeMinimalMode == mode else { return }
             modeTransitionInFlight = false
+            modeBeforeTransition = nil
             if !mode {
                 normalFrameSnapshot = nil
+                compactModeMinimumSize = nil
                 // The completed rectangle is normal geometry; the existing
                 // rounded 400 ms settle writer will persist only a real change.
                 scheduleFrameSettle(window: window, immediate: false)
             }
-            publishFullscreenAvailability()
+            traceMinimalModeGeometry(event: "finished", window: window, mode: mode)
+            publishMinimalModeCommandAvailability()
         }
 
         private func rejectMinimalModeRequest() {
@@ -1387,21 +1482,44 @@ private struct WindowConfigurator: NSViewRepresentable {
             case NSWindow.willEnterFullScreenNotification:
                 nativeFullScreenTransition = true
                 invalidatePendingGeometryRequests()
-                modeTransitionInFlight = false
+                cancelModeTransitionForFullScreen(window: window)
             case NSWindow.didEnterFullScreenNotification:
                 nativeFullScreen = true
                 nativeFullScreenTransition = false
             case NSWindow.willExitFullScreenNotification:
                 nativeFullScreenTransition = true
                 invalidatePendingGeometryRequests()
+                cancelModeTransitionForFullScreen(window: window)
             case NSWindow.didExitFullScreenNotification:
                 nativeFullScreen = false
                 nativeFullScreenTransition = false
             default:
                 return
             }
-            publishFullscreenAvailability()
+            publishMinimalModeCommandAvailability()
             if !nativeFullScreen, !nativeFullScreenTransition { applyLatestInputs() }
+        }
+
+        private func cancelModeTransitionForFullScreen(window: NSWindow) {
+            guard modeTransitionInFlight else { return }
+            let previousMode = modeBeforeTransition ?? activeMinimalMode
+            modeTransitionInFlight = false
+            modeBeforeTransition = nil
+            if previousMode {
+                // An interrupted exit is retried after native full-screen ends.
+                activeMinimalMode = false
+                requestedMinimalMode = true
+                onMinimalModeRequestRejected?(true)
+            } else {
+                activeMinimalMode = false
+                requestedMinimalMode = false
+                normalFrameSnapshot = nil
+                compactModeMinimumSize = nil
+                onMinimalModeRequestRejected?(false)
+                let normalFloor = WindowConfigurator.minFrameSize(
+                    for: window, sidebarVisible: normalVisibility == .all)
+                if window.minSize != normalFloor { window.minSize = normalFloor }
+            }
         }
 
         private func invalidatePendingGeometryRequests() {
@@ -1410,6 +1528,8 @@ private struct WindowConfigurator: NSViewRepresentable {
             frameSettleTask = nil
             sidebarResizeTask?.cancel()
             sidebarResizeTask = nil
+            minimalModeMeasurementTask?.cancel()
+            minimalModeMeasurementTask = nil
         }
 
         private func isCurrentGeometryRequest(_ generation: UInt64,
@@ -1461,9 +1581,30 @@ private struct WindowConfigurator: NSViewRepresentable {
             applySidebarButtonVisibility(to: window, hide: hide)
         }
 
-        private func publishFullscreenAvailability() {
-            onFullscreenAvailability?(isWindowReady && !nativeFullScreen
-                                     && !nativeFullScreenTransition)
+        private func modeCommandIsEligible(for window: NSWindow) -> Bool {
+            owns(window) && isWindowReady && window.isKeyWindow && !forcedHide
+                && !nativeFullScreen && !nativeFullScreenTransition
+                && !modeTransitionInFlight
+        }
+
+        private func publishMinimalModeCommandAvailability() {
+            let available = attachedWindow.map { modeCommandIsEligible(for: $0) } ?? false
+            onMinimalModeCommandAvailability?(available)
+        }
+
+        private func traceMinimalModeGeometry(event: String,
+                                              window: NSWindow,
+                                              mode: Bool) {
+            guard owns(window) else { return }
+            let layoutRect = window.contentLayoutRect
+            let contentBounds = window.contentView?.bounds ?? .zero
+            let modeName = mode ? "on" : "off"
+            Diagnostics.shared?.log(
+                "minimalMode.\(event) window=\(window.windowNumber) "
+                    + "mode=\(modeName) "
+                    + "eligible=\(modeCommandIsEligible(for: window)) "
+                    + "frame=\(window.frame) contentLayoutRect=\(layoutRect) "
+                    + "contentViewBounds=\(contentBounds)")
         }
 
         private func detachOwnedWindow() {
@@ -1473,6 +1614,8 @@ private struct WindowConfigurator: NSViewRepresentable {
             toolbarReassertionTask = nil
             if let chromeObserver { NotificationCenter.default.removeObserver(chromeObserver) }
             chromeObserver = nil
+            if let keyResignObserver { NotificationCenter.default.removeObserver(keyResignObserver) }
+            keyResignObserver = nil
             if let itemObserver { NotificationCenter.default.removeObserver(itemObserver) }
             itemObserver = nil
             for observer in frameObservers + fullScreenObservers {
@@ -1486,11 +1629,13 @@ private struct WindowConfigurator: NSViewRepresentable {
             didInitializeAttachedWindow = false
             activeMinimalMode = false
             modeTransitionInFlight = false
+            modeBeforeTransition = nil
             nativeFullScreen = false
             nativeFullScreenTransition = false
             normalFrameSnapshot = nil
+            compactModeMinimumSize = nil
             if wasReady { onWindowReady?(false) }
-            publishFullscreenAvailability()
+            publishMinimalModeCommandAvailability()
         }
 
         func dismantle(view: WindowAttachmentView) {
@@ -1498,7 +1643,7 @@ private struct WindowConfigurator: NSViewRepresentable {
             attachedView = nil
             detachOwnedWindow()
             onWindowReady = nil
-            onFullscreenAvailability = nil
+            onMinimalModeCommandAvailability = nil
             onMinimalModeRequestRejected = nil
             onCaptureNormalFrame = nil
             onFrameSettled = nil
@@ -1525,7 +1670,7 @@ private struct WindowConfigurator: NSViewRepresentable {
             hidePreference: hideSidebarButtonWhenCollapsed,
             forcedHide: forceHideSidebarButton,
             onWindowReady: onWindowReady,
-            onFullscreenAvailability: onFullscreenAvailability,
+            onMinimalModeCommandAvailability: onMinimalModeCommandAvailability,
             onMinimalModeRequestRejected: onMinimalModeRequestRejected,
             onCaptureNormalFrame: onCaptureNormalFrame,
             onFrameSettled: onWindowFrameSettled)
@@ -1545,7 +1690,7 @@ private struct WindowConfigurator: NSViewRepresentable {
             hidePreference: hideSidebarButtonWhenCollapsed,
             forcedHide: forceHideSidebarButton,
             onWindowReady: onWindowReady,
-            onFullscreenAvailability: onFullscreenAvailability,
+            onMinimalModeCommandAvailability: onMinimalModeCommandAvailability,
             onMinimalModeRequestRejected: onMinimalModeRequestRejected,
             onCaptureNormalFrame: onCaptureNormalFrame,
             onFrameSettled: onWindowFrameSettled)

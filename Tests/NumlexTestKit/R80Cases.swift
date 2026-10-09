@@ -129,21 +129,16 @@ public let r80Cases: [EngineCase] = [
 
     EngineCase("r80-totalbar-localized-six-languages") {
         for lang in AppLanguage.allCases {
-            for key in ["showTotalBar", "minimalMode.enter", "minimalMode.exit",
-                        "minimalMode.on", "minimalMode.off"] {
+            for key in ["showTotalBar", "minimalMode.menu"] {
                 let t = L10n.t(key, language: lang)
                 try expect(!t.isEmpty && t != key,
                            "\(lang.rawValue): \"\(key)\" is translated")
             }
         }
-        try expectEqual(L10n.t("minimalMode.enter", language: .en), "Enter Minimal Mode",
-                        "English enter label")
-        try expectEqual(L10n.t("minimalMode.exit", language: .en), "Exit Minimal Mode",
-                        "English exit label")
-        try expectEqual(L10n.t("minimalMode.enter", language: .ru),
-                        "Включить минималистичный режим", "Russian enter label")
-        try expectEqual(L10n.t("minimalMode.exit", language: .ru),
-                        "Выключить минималистичный режим", "Russian exit label")
+        try expectEqual(L10n.t("minimalMode.menu", language: .en), "Minimal Mode",
+                        "English View-menu label")
+        try expectEqual(L10n.t("minimalMode.menu", language: .ru), "Минималистичный режим",
+                        "Russian View-menu label")
         // r96: the explanatory caption is gone from every language (the
         // toggle's own label is enough), so the key must not survive.
         for lang in AppLanguage.allCases {
