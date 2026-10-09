@@ -19,14 +19,14 @@ truth that the website is verified against.
 | Document | Language | Scope |
 | --- | --- | --- |
 | [SYNTAX_REFERENCE.md](SYNTAX_REFERENCE.md) | Russian | Every construct the engine accepts: line forms, numbers and bases, operators, all 27 built-in functions, percentages, money, `total`, dates and times (calendar arithmetic, durations, clocks and laptime, offline timezones, timestamps/ISO, `Timespan`, video timecode, work calendars and special dates), units and the full non-currency unit catalog, currencies, network queries, regional number formats, result display, answer tokens, constants, the financial phrases (compound interest, loans, configured sales tax, estimated income tax and CPI inflation), the Package 7 tag/divider/subtotal/tag-aggregate grammar, the statistics functions (`count`, `median`, `stdev`, `rand`) and the footer statistics, and the keyword index. |
-| [SETTINGS_AND_APPEARANCE.md](SETTINGS_AND_APPEARANCE.md) | English | The seven Settings categories (icon-over-label tiles across the top) and every appearance/formatting contract: General (language, appearance, icon, tax configuration, notebook), Editing, Numbers, Constants & Units, Styling, About (app identity + updates) — including per-answer formatting, line highlights, the answer column, syntax colors and the line-number gutter. |
+| [SETTINGS_AND_APPEARANCE.md](SETTINGS_AND_APPEARANCE.md) | English | The eight Settings categories (icon-over-label tiles across the top): General (app-wide interface and tax configuration), Notebook (sheet behavior, Floating Total and notebook preferences), Editing, Numbers, Dates & Times, Constants & Units, Styling and About (app identity and updates) — including per-answer formatting, line highlights, the answer column, syntax colors and the line-number gutter. |
 | [EXPORT_AND_PRINT.md](EXPORT_AND_PRINT.md) | English | Sheet PDF export and printing: the File-menu contract, the one frozen snapshot and deterministic paginated renderer, every session-only option and filter, footer-Total semantics, page layout, atomic writes and the offline/privacy guarantees. |
 | [UPDATES.md](UPDATES.md) | English | Secure in-app updates: manual and automatic checks, the HTTPS feed and EdDSA archive signatures, privacy, the first-release bootstrap, signing requirements, key backup and the release-feed workflow. |
 
 ## `main` versus releases
 
 All four canonical documents track the current `main` branch. Released builds
-may lag behind it: 4.9.5 is the current release; 4.8.0 was the first one with
+may lag behind it: 4.9.6 is the current release; 4.8.0 was the first one with
 secure in-app updates, so 4.8.0 and later update in-app while 4.7.0 and earlier
 must install the current release manually once. When a guide mentions a
 behaviour newer than the released build, it says so explicitly.

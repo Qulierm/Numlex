@@ -172,12 +172,15 @@ Write `10 km to meter` — `in` works just as well (`10 km in meter`).
 - Rates are cached locally for an hour; if the network is unavailable, Numlex keeps
   serving the last good table.
 
-Type `weather in London` for the current 2 m temperature in Celsius degrees
-(shown `C°`). The lookup goes to Open-Meteo with no key and no location
-permission — only the city you typed is ever sent. Readings are cached for ten
-minutes, and the last good value keeps showing if the next refresh fails, so a
-flaky connection never blanks your sheet. The city name is tinted exactly like
-any other unit, in Light, Dark and custom styling alike.
+Weather accepts five place-only forms: `weather in <place>` and
+`<place> temperature` for the current 2 m air temperature; `high in <place>`
+and `low in <place>` for today's maximum and minimum; and
+`feels like in <place>` for the current apparent temperature. Every result is
+in Celsius degrees (`C°`). Lookups use Open-Meteo without a key or location
+permission — only the place you typed is sent. All metrics for one place share
+a cache entry; readings are cached for ten minutes, and the last good values
+remain available if a refresh fails. The place name is tinted exactly like any
+other unit, in Light, Dark and custom styling alike.
 
 ## Dates and times
 
@@ -333,10 +336,10 @@ switch it between Sum, Average, Count and Median.
 ## Files and storage
 
 Sheets persist locally in Application Support. The only network traffic is the
-background rates refresh plus Open-Meteo lookups for `weather in …` lines you
-type yourself — never GPS or location data. From the File menu, import or export
-any sheet as a `.nlx` file, export it as a PDF, or print it (⌘P). Drag a sheet
-onto a folder tab to re-file it.
+background rates refresh plus Open-Meteo lookups for explicit weather queries
+using places you type yourself — never GPS or location data. From the File
+menu, import or export any sheet as a `.nlx` file, export it as a PDF, or print
+it (⌘P). Drag a sheet onto a folder tab to re-file it.
 
 ## PDF export and printing
 
@@ -355,7 +358,7 @@ rows only, writes are atomic, and the whole path is fully offline. See
 ## Download
 
 - macOS 26 or later, Apple Silicon (arm64).
-- 4.9.5 is the current release. 4.8.0 was the first release with secure in-app
+- 4.9.6 is the current release. 4.8.0 was the first release with secure in-app
   updates, so anyone on 4.8.0 or later (including 4.8.0 itself) can check,
   verify and install later versions in the app; users still on 4.7.0 or earlier
   have no updater and install the current release manually once, then update
