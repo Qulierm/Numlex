@@ -151,9 +151,97 @@ private let plainDMGArtifactCases: [EngineCase] = [
         for path in removed {
             try expect(!plainRepoExists(path), "styled-DMG artifact must be removed: \(path)")
         }
-        // The tagline PNG is a NON-style consumer (WEBSITE_BRIEF typography
-        // reference) and must survive the cleanup.
+        // The tagline PNG is a separate typography reference and must survive.
         try expect(plainRepoExists("Assets/DMG/numlex-tagline.png"), "tagline asset must remain")
+    },
+    EngineCase("obsolete-repository-manuals-are-removed-and-website-owned") {
+        let removed = [
+            "WEBSITE_BRIEF.md",
+            "BUG_INVESTIGATION.md",
+            "SYNTAX_REFERENCE.md",
+            "docs/README.md",
+            "docs/SYNTAX_REFERENCE.md",
+            "docs/SETTINGS_AND_APPEARANCE.md",
+            "docs/EXPORT_AND_PRINT.md",
+            "docs/UPDATES.md",
+        ]
+        for path in removed {
+            try expect(!plainRepoExists(path), "obsolete repository manual/report must be absent: \(path)")
+        }
+        try expect(!plainRepoExists("docs"), "the duplicate root manual directory must be absent")
+        guard let readme = plainRepoText("README.md"),
+              let contributor = plainRepoText("CONTRIBUTING.md") else {
+            throw CaseFailure(message: "README.md or CONTRIBUTING.md missing", location: "plain-dmg")
+        }
+        try expect(readme.contains("https://www.numlex.tech/docs/")
+                   && readme.contains("https://www.numlex.tech/docs/linked-answers/")
+                   && readme.contains("https://www.numlex.tech/docs/sheets-files/")
+                   && readme.contains("https://www.numlex.tech/docs/styling-constants/"),
+                   "README directs users to the website manuals and the three relevant guides")
+        try expect(readme.contains("Published manuals describe released behavior and may lag `main`")
+                   && readme.contains("source code")
+                   && readme.contains("tests define the behavior of the current branch."),
+                   "README distinguishes published manuals from current-main source and tests")
+        try expect(contributor.contains("manuals are maintained on the [Numlex documentation site]")
+                   && contributor.contains("may lag `main`")
+                   && contributor.contains("current source and tests are authoritative."),
+                   "contributor guidance assigns user manuals to the website and current source")
+    },
+    EngineCase("unused-iconset-slots-are-removed-active-assets-and-generators-retained") {
+        for path in ["Assets/AppIcon.iconset", "Assets/AppIcon.exported.iconset"] {
+            try expect(!plainRepoExists(path), "obsolete PNG-slot iconset must be absent: \(path)")
+        }
+        let retained = [
+            "Assets/AppIcon.icon/",
+            "Assets/AppIconLight.icon/",
+            "Assets/AppIcon.icns",
+            "Assets/AppIconPreview.png",
+            "Assets/AppIcon.compiled/Assets.car",
+            "Assets/AppIcon.compiled/icon-build-metadata.json",
+            "Assets/AppIcon.compiled/Assets.car.assetutil-info.txt",
+            "Assets/AppIcon.compiled/Assets.car-partial.plist",
+            "Assets/AppIcon.compiled/xcode-version.txt",
+            "Sources/NumlexApp/Resources/AppIconLight.icns",
+            "Sources/NumlexApp/Resources/AppIconLightPreview.png",
+            "Scripts/compile-modern-app-icon.sh",
+            "Scripts/validate-icon-sources.sh",
+            "Scripts/generate-app-icon.sh",
+            ".github/workflows/build-modern-app-icon.yml",
+            "Assets/NumlexScreenshot.png",
+            "Assets/Demos/base.gif",
+            "Assets/Demos/household.gif",
+            "Assets/Demos/kilometres.gif",
+            "Assets/Demos/linked.gif",
+            "Assets/DMG/numlex-tagline.png",
+            "Scripts/generate-timezone-data.py",
+            "Scripts/generate-holiday-data.py",
+            "Scripts/generate-cpi-data.py",
+            "Scripts/generate-income-tax-data.py",
+            "Scripts/generate-tax-presets.py",
+        ]
+        for path in retained {
+            try expect(plainRepoExists(path), "active icon, media, or dataset generator must remain: \(path)")
+        }
+        guard let guide = plainRepoText("Assets/README.md") else {
+            throw CaseFailure(message: "Assets/README.md missing", location: "plain-dmg")
+        }
+        for claim in [
+            "both named iconstacks",
+            "Assets/AppIconLight.icon/",
+            "347f6a378e7267d944cffd66b93c768f410431cb6f228f6bd9fc2e240b7ff726",
+            "b293279246cb9e37396b89878c5d631e6ff8c35a6e7fd95a2622b483d5c0080d",
+            "ICNS resources as",
+            "fallbacks",
+            "b2bc96a9a52544611e997ec6176dd7a7ac981bc259f1b53104e4767e59a6a4b4",
+            "be00c077a667c61da549c125efdde6e3d8448bb6bcf7b0f593777d6c6737ed1d",
+            "Scripts/compile-modern-app-icon.sh",
+            "Scripts/validate-icon-sources.sh",
+            "Assets/AppIconPreview.png",
+            "AppIconLightPreview.png",
+            "Assets/DMG/numlex-tagline.png",
+        ] {
+            try expect(guide.contains(claim), "asset guide must describe retained icon/media contract: \(claim)")
+        }
     },
 ]
 
@@ -168,7 +256,7 @@ private let plainDMGDocsCases: [EngineCase] = [
                    "README must not advertise a styled DMG")
     },
     EngineCase("app-docs-never-mention-styled-dmg-scripts") {
-        for path in ["README.md", "WEBSITE_BRIEF.md"] {
+        for path in ["README.md", "CONTRIBUTING.md"] {
             guard let text = plainRepoText(path) else {
                 throw CaseFailure(message: "\(path) missing", location: "plain-dmg")
             }

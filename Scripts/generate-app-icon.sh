@@ -18,17 +18,14 @@
 #   3. atomically copies the file BYTE-FOR-BYTE to
 #      Sources/NumlexApp/Resources/AppIcon.icns.
 #
-# The script NEVER constructs from Assets/AppIcon.iconset, resizes,
-# recolors, strips rims, injects profiles, repacks, or synthesizes
-# missing representations. Byte preservation IS the invariant
-# (source SHA-256 must equal installed SHA-256).
+# The script NEVER constructs from PNG slots, resizes, recolors, strips rims,
+# injects profiles, repacks, or synthesizes missing representations.
+# Byte preservation IS the invariant (source SHA-256 must equal installed SHA-256).
 #
 # Provenance (see Assets/README.md):
 #   * Assets/AppIcon.icns: canonical user-supplied file, tracked
 #     byte-exact (SHA-256 b2bc96a9a52544611e997ec6176dd7a7ac981bc259f1b53104e4767e59a6a4b4),
 #     native reps 32/256/512 px.
-#   * Assets/AppIcon.iconset + AppIcon.exported.iconset: LEGACY reference
-#     only (previous PNG-slot pipeline); not read by this script.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

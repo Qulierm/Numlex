@@ -127,7 +127,7 @@ private let updateLocalizationCases: [EngineCase] = [
     EngineCase("updates.l10n-secure-wording") {
         // r96: the generic security paragraph is no longer UI prose — the
         // HTTPS/signature guarantee lives in the implementation, the
-        // packaging policy scripts and docs/UPDATES.md. The retired key
+        // packaging policy scripts and CONTRIBUTING.md's Update security section. The retired key
         // must be gone in every language, and the remaining updater keys
         // must still be translated.
         for lang in AppLanguage.allCases {

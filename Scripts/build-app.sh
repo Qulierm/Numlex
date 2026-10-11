@@ -262,8 +262,8 @@ fi
 # validates, the pre-validated path in Sparkle 2.9.6 requires only that the
 # new bundle has a valid signature and that signing was not removed; ad-hoc
 # signatures are explicitly supported (the identity-matching route simply
-# cannot match cdhash-based ad-hoc requirements). See docs/UPDATES.md and
-# Scripts/verify-sparkle-policy.sh. This is NOT Developer ID and NOT
+# cannot match cdhash-based ad-hoc requirements). See CONTRIBUTING.md
+# (Update security) and Scripts/verify-sparkle-policy.sh. This is NOT Developer ID and NOT
 # notarized. Signing failure is fatal (no silent ignore).
 SIGN_ID="${NUMLEX_SIGN_IDENTITY:--}"
 sign_nested() {

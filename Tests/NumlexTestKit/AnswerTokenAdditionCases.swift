@@ -469,47 +469,23 @@ public let answerTokenAdditionCases: [EngineCase] = [
                    "existing AppModel deletion source-contract coverage remains registered")
     },
 
-    EngineCase("linked-addition-canonical-docs-cover-default-and-settings") {
-        guard let syntax = additionSource("docs/SYNTAX_REFERENCE.md"),
-              let settingsDoc = additionSource("docs/SETTINGS_AND_APPEARANCE.md") else {
-            throw CaseFailure(message: "linked-addition canonical documents missing",
+    EngineCase("linked-addition-documentation-links-to-published-guides") {
+        guard let readme = additionSource("README.md"),
+              let contributor = additionSource("CONTRIBUTING.md") else {
+            throw CaseFailure(message: "README or CONTRIBUTING.md missing",
                               location: "AnswerTokenAdditionCases")
         }
-        try expect(syntax.contains("Документ описывает текущую ветку `main`")
-                   && syntax.contains("Опубликованные релизы могут")
-                   && syntax.contains("1200 + <живой токен>")
-                   && syntax.contains("1540"),
-                   "Russian syntax reference states current-main status and live 1200 + 340 result")
-        try expect(syntax.contains("«Пробелы вокруг операторов» управляет только"),
-                   "Russian reference documents spacing independently of adding `+`")
-        try expect(syntax.contains("курсоре в середине строки"),
-                   "Russian reference documents the mid-line boundary")
-        try expect(syntax.contains("конечном операторе"),
-                   "Russian reference avoids duplicating an explicit operator")
-        try expect(syntax.contains("непустом выделении")
-                   && syntax.contains("следующую логическую строку")
-                   && syntax.contains("встроенные итоги")
-                   && syntax.contains("ссылок на один ответ остаются независимыми живыми")
-                   && syntax.contains("stable line ID + 1-based label")
-                   && syntax.contains("Живая связь"),
-                   "Russian reference preserves insertion boundaries and live source identity")
-        try expect(settingsDoc.contains("current `main` branch")
-                   && settingsDoc.contains("Released builds may lag behind `main`.")
-                   && settingsDoc.contains("1200 + [live 340]")
-                   && settingsDoc.contains("1540"),
-                   "English settings guide explains the current-main live-addition example")
-        try expect(settingsDoc.contains("No `+` is added on a blank row"),
-                   "English guide excludes blank rows")
-        try expect(settingsDoc.contains("after an explicit trailing operator")
-                   && settingsDoc.contains("mid-line caret")
-                   && settingsDoc.contains("nonempty selection"),
-                   "English guide excludes pending operators, mid-line carets and replacements")
-        try expect(settingsDoc.contains("inline totals")
-                   && settingsDoc.contains("Repeated")
-                   && settingsDoc.contains("references to one answer remain separate live operands"),
-                   "English guide excludes totals and preserves repeated live operands")
-        try expect(settingsDoc.contains("Pad operators with spaces** controls spacing around the inserted `+`, not")
-                   && settingsDoc.contains("whether `+` is added. Existing whitespace is preserved."),
-                   "existing spacing setting does not become an add-plus toggle")
+        try expect(readme.contains("https://www.numlex.tech/docs/linked-answers/")
+                   && readme.contains("https://www.numlex.tech/docs/sheets-files/")
+                   && readme.contains("https://www.numlex.tech/docs/styling-constants/"),
+                   "README links directly to the published linked-answer, sheets and styling guides")
+        try expect(readme.contains("Published manuals describe released behavior and may lag `main`")
+                   && readme.contains("source code")
+                   && readme.contains("tests define the behavior of the current branch."),
+                   "README distinguishes current-main behavior from published manuals")
+        try expect(contributor.contains("manuals are maintained on the [Numlex documentation site]")
+                   && contributor.contains("may lag `main`")
+                   && contributor.contains("current source and tests are authoritative."),
+                   "contributor guidance keeps user manuals website-owned and source-backed")
     }
 ]

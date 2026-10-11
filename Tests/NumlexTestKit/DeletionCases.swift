@@ -420,28 +420,21 @@ public let deletionCases: [EngineCase] = [
                    "the delete command notification routes through deleteSelected")
     },
 
-    EngineCase("deletion-documentation-contract-covers-current-selection-policy") {
-        guard let docs = deletionSource("docs/SETTINGS_AND_APPEARANCE.md") else {
-            throw CaseFailure(message: "Settings and Appearance documentation missing",
+    EngineCase("deletion-documentation-ownership-points-to-published-guides") {
+        guard let readme = deletionSource("README.md"),
+              let contributor = deletionSource("CONTRIBUTING.md") else {
+            throw CaseFailure(message: "README or CONTRIBUTING.md missing",
                               location: "DeletionCases")
         }
-        try expect(docs.contains("current `main` branch")
-                   && docs.contains("Released builds may lag behind `main`."),
-                   "the document retains its current-main and release-lag disclaimer")
-        try expect(docs.contains("Sorting never reorders the persisted sheet array or mutates sheet/document content."),
-                   "sorting remains presentation-only and document-safe")
-        try expect(docs.contains("On current `main`, deleting the active sheet selects the first remaining sheet in that sheet's folder")
-                   && docs.contains("with the default Date Edited order, this is the most recently edited eligible sheet"),
-                   "active deletion is documented in the configured order, including the default")
-        try expect(docs.contains("first remaining sheet in the same configured order across all folders")
-                   && docs.contains("shows that sheet's folder tab"),
-                   "an empty group falls back globally and follows the survivor's tab")
-        try expect(docs.contains("Deleting an inactive sheet keeps the active sheet by identity and leaves the current sidebar tab/filter unchanged."),
-                   "inactive deletion preserves the active identity and filter")
-        try expect(docs.contains("only one sheet, deletion replaces it with a fresh sheet in the same folder")
-                   && docs.contains("configured **Start sheets with** template"),
-                   "sole-sheet replacement retains its folder and configured template")
-        try expect(!docs.contains("selection, deletion, folder movement, tokens, exports and saved indices are unchanged"),
-                   "the obsolete claim that sorting cannot affect deletion selection is absent")
+        try expect(readme.contains("https://www.numlex.tech/docs/sheets-files/"),
+                   "README links directly to the published sheets-and-files guide")
+        try expect(readme.contains("Published manuals describe released behavior and may lag `main`")
+                   && readme.contains("source code")
+                   && readme.contains("tests define the behavior of the current branch."),
+                   "README makes source/tests authoritative while published manuals may lag main")
+        try expect(contributor.contains("manuals are maintained on the [Numlex documentation site]")
+                   && contributor.contains("may lag `main`")
+                   && contributor.contains("current source and tests are authoritative."),
+                   "contributor guidance assigns manuals to the website and identifies current-main authority")
     },
 ]
