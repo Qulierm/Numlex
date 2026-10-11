@@ -82,7 +82,9 @@ public enum AnswerTokenInsertion {
         references: [AnswerReference],
         sourceLineIndex: Int,
         selection: NSRange,
-        sourceIsDynamic: Bool = false
+        sourceIsDynamic: Bool = false,
+        destinationResult: LineResult? = nil,
+        padOperators: Bool = true
     ) -> Plan? {
         // Package 7: a dynamic (rand-dependent) source row is never
         // tokenizable — the plan refuses outright so a direct caller
@@ -163,13 +165,26 @@ public enum AnswerTokenInsertion {
 
         // --- apply exactly like typing: replace, never append ---
         let marker = String(answerTokenMarker)
-        let newContent = ns.replacingCharacters(in: selection, with: marker)
+        // Only the actual app supplies this optional, already-resolved
+        // destination context. Legacy/context-free callers retain their
+        // marker-only edit; same-line requests have already returned above.
+        let additionPrefix = automaticAdditionPrefix(
+            ns: ns,
+            lineStarts: lineStarts,
+            lineIDs: lineIDs,
+            sourceLineIndex: sourceLineIndex,
+            selection: selection,
+            destinationResult: destinationResult,
+            padOperators: padOperators
+        )
+        let insertion = additionPrefix + marker
+        let newContent = ns.replacingCharacters(in: selection, with: insertion)
 
         // --- one NotebookEdit through the shared reconciliation so
         //     existing marker locations and line IDs behave EXACTLY as
         //     normal editing (before: stable, inside: dropped, after:
-        //     shifted by the replacement's length). ---
-        let edit = NotebookEdit(range: selection, replacement: marker)
+        //     shifted by the replacement's actual length). ---
+        let edit = NotebookEdit(range: selection, replacement: insertion)
         let (newLineIDs, keptReferences) = LineIdentity.reconcile(
             oldContent: content,
             oldLineIDs: lineIDs,
@@ -182,7 +197,7 @@ public enum AnswerTokenInsertion {
         let newReference = AnswerReference(
             sourceLineID: sourceLineID,
             labelLine: labelLine,
-            location: selection.location
+            location: selection.location + (additionPrefix as NSString).length
         )
         // A PRE-EXISTING token fully covered by the replaced selection
         // survives reconciliation at the same spot (the replacement
@@ -206,9 +221,76 @@ public enum AnswerTokenInsertion {
             content: newContent,
             lineIDs: newLineIDs,
             references: finalReferences,
-            caret: selection.location + 1, // the marker is exactly one UTF-16 unit
+            caret: newReference.location + 1, // the marker is exactly one UTF-16 unit
             newReference: newReference
         )
+    }
+
+    /// A context-aware app append may need an addition operator before
+    /// the marker. The optional context is intentionally conservative:
+    /// callers that do not already hold the destination's resolved typed
+    /// result keep the legacy marker-only behavior.
+    private static func automaticAdditionPrefix(
+        ns: NSString,
+        lineStarts: [Int],
+        lineIDs: [UUID],
+        sourceLineIndex: Int,
+        selection: NSRange,
+        destinationResult: LineResult?,
+        padOperators: Bool
+    ) -> String {
+        guard selection.length == 0,
+              let destinationResult,
+              PreviousAnswerPlan.isAnswerable(destinationResult) else { return "" }
+        if case .variable(_, let value, _, _) = destinationResult, !value.isFinite {
+            return ""
+        }
+
+        guard let destinationLineIndex = lineStarts.enumerated()
+            .last(where: { $0.element <= selection.location })?.offset,
+              lineIDs.indices.contains(destinationLineIndex),
+              destinationLineIndex != sourceLineIndex else { return "" }
+
+        let lineStart = lineStarts[destinationLineIndex]
+        let searchStart = lineStart
+        let searchLength = ns.length - searchStart
+        guard searchLength >= 0 else { return "" }
+        let newline = ns.range(of: "\n", options: [],
+                               range: NSRange(location: searchStart, length: searchLength))
+        let rawLineEnd = newline.location == NSNotFound ? ns.length : newline.location
+        // CR is part of the CRLF line ending, not the line's expression.
+        // The earlier Character-boundary guard rejects a caret between CR
+        // and LF; insertion immediately before CR preserves the pair.
+        let lineEnd = rawLineEnd > lineStart && ns.character(at: rawLineEnd - 1) == 0x000D
+            ? rawLineEnd - 1
+            : rawLineEnd
+        guard selection.location >= lineStart, selection.location <= lineEnd else { return "" }
+
+        let line = ns.substring(with: NSRange(location: lineStart,
+                                              length: lineEnd - lineStart))
+        // Do not rewrite lexical comment/tag/heading contexts even if an
+        // external caller supplied a numeric-looking result.
+        guard !line.contains("#"), !line.contains("//") else { return "" }
+
+        let beforeCaret = ns.substring(with: NSRange(location: lineStart,
+                                                     length: selection.location - lineStart))
+        let afterCaret = ns.substring(with: NSRange(location: selection.location,
+                                                    length: lineEnd - selection.location))
+        let horizontalWhitespace: Set<Character> = [" ", "\t", "\u{00A0}", "\u{202F}"]
+        guard afterCaret.allSatisfy(horizontalWhitespace.contains) else { return "" }
+
+        var completedPrefix = Array(beforeCaret)
+        while let last = completedPrefix.last, horizontalWhitespace.contains(last) {
+            completedPrefix.removeLast()
+        }
+        guard let lastMeaningful = completedPrefix.last,
+              !PreviousAnswerPlan.operators.contains(lastMeaningful),
+              !["^", "=", "<", ">", "!", "&", "|", ",", ";", "(", "`"]
+                .contains(lastMeaningful) else { return "" }
+
+        let immediateBeforeCaretIsWhitespace = beforeCaret.last.map(horizontalWhitespace.contains) ?? false
+        guard padOperators else { return "+" }
+        return immediateBeforeCaretIsWhitespace ? "+ " : " + "
     }
 
     /// r80: the SAME-LINE branch. The caret (or a contained non-empty

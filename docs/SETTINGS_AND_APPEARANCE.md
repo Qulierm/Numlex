@@ -308,6 +308,23 @@ QuickOperators act only between two digits and never inside identifiers
 | Format numbers with thousand separators | Groups numbers as you type (`10000` becomes `10,000`). How *answers* are grouped is a separate setting on the Numbers tab. |
 | Insert previous answer after typing operator on new line | After pressing return, typing any operator (`+ − × ÷`) starts a line that reuses the previous answer as a live token. |
 
+Manually appending a linked answer also inserts `+` when the caret is collapsed
+at the end of a different, completed numeric row. If the clicked source currently
+resolves to 340, appending its live token to `1200` gives `1200 + [live 340]`
+and `1540`. This uses the destination row's current typed result, not a number
+guessed from its text.
+
+No `+` is added on a blank row, after an explicit trailing operator, at a
+mid-line caret, or for a nonempty selection (the selection is still replaced by
+the marker alone). Inserting on the source row still moves the token to the next
+logical line to prevent a circular reference. Comments, headings, tagged rows,
+inline totals and non-numeric answers do not get an automatic `+`. Repeated
+references to one answer remain separate live operands on the same line; no
+extra line is created.
+
+**Pad operators with spaces** controls spacing around the inserted `+`, not
+whether `+` is added. Existing whitespace is preserved.
+
 ## Numbers
 
 ### Number format (region)

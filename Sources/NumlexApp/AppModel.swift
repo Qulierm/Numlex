@@ -782,13 +782,23 @@ final class AppModel {
             dlog("insertToken REFUSE dynamic source sheet=\(sheetID ?? "nil") line=\(sourceLineIndex)")
             return
         }
+        let destinationLineIndex = lineIndex(forCaret: selection.location, in: sheet.content)
+        let destinationResult: LineResult?
+        if resolved.lines.indices.contains(destinationLineIndex),
+           !resolved.lines[destinationLineIndex].isTotal {
+            destinationResult = resolved.lines[destinationLineIndex].result
+        } else {
+            destinationResult = nil
+        }
         guard let plan = AnswerTokenInsertion.plan(
             content: sheet.content,
             lineIDs: sheet.lineIDs,
             references: sheet.references,
             sourceLineIndex: sourceLineIndex,
             selection: selection,
-            sourceIsDynamic: sourceIsDynamic
+            sourceIsDynamic: sourceIsDynamic,
+            destinationResult: destinationResult,
+            padOperators: settings.input.padOperators
         ) else {
             dlog("insertToken ABORT plan-nil sheet=\(sheetID ?? "nil") line=\(sourceLineIndex) sel=\(selection) nlines=\(sheet.lineIDs.count)")
             return
