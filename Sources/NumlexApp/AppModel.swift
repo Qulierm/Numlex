@@ -1046,14 +1046,18 @@ final class AppModel {
         persist()
     }
 
-    /// Pure selection math lives in `sheetDeletionPlan` (NumlexCore, unit
-    /// tested): before-selection keeps the same sheet selected,
-    /// selected-deletion picks the next (previous at the end), and the
-    /// sole sheet is replaced in place with a fresh empty one.
+    /// Pure selection math lives in `sheetDeletionPlan` (NumlexCore):
+    /// inactive deletion follows the selected sheet by identity, while an
+    /// active deletion chooses the first remaining sheet in the deleted
+    /// sheet's folder and configured sidebar order. An empty folder falls
+    /// back to the first globally sorted survivor; the sole sheet is still
+    /// replaced in place with a fresh empty one.
     func deleteSheet(at index: Int) {
-        guard let plan = sheetDeletionPlan(count: sheets.count,
+        let deletesSelectedSheet = index == selectedIndex
+        guard let plan = sheetDeletionPlan(sheets: sheets,
                                            deleteIndex: index,
-                                           selectedIndex: selectedIndex) else { return }
+                                           selectedIndex: selectedIndex,
+                                           sortOrder: settings.sidebarSort) else { return }
         if plan.replacesSoleSheet {
             // r39: the replacement keeps the deleted sheet's group,
             // so deleting the sole sheet of a folder leaves a fresh
@@ -1075,6 +1079,13 @@ final class AppModel {
             // store so deleted sheets never leak sample state.
             randomStores[removedID] = nil
             selectedIndex = plan.selectedIndexAfter
+        }
+        // Only an active deletion changes the editor's selected sheet.
+        // Keep the sidebar on that survivor's valid group (including the
+        // planner's global fallback); inactive deletion preserves the
+        // user's currently browsed tab.
+        if deletesSelectedSheet {
+            activeGroup = activeGroup(for: selectedSheet?.folderID)
         }
         persist()
     }
